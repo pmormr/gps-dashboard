@@ -19,6 +19,7 @@ import sqlite3
 import threading
 import time
 import json
+import socket
 from datetime import datetime
 from flask import Flask, jsonify, render_template_string
 
@@ -26,13 +27,6 @@ from flask import Flask, jsonify, render_template_string
 DB_FILE = 'gps_history.db'
 WEB_PORT = 5000
 LOG_INTERVAL_SECONDS = 5  # Minimum time between logging points to DB
-
-try:
-    import gps
-except ImportError:
-    print("Error: The 'gps' module is not installed.")
-    print("Please install it using: sudo apt-get install python3-gps")
-    exit(1)
 
 app = Flask(__name__)
 
@@ -68,41 +62,53 @@ def log_to_db(lat, lon, speed, alt, track):
 
 # --- BACKGROUND GPS LOGGER THREAD ---
 def gps_logger_thread():
-    """Runs continuously in the background, listening to gpsd and logging data."""
+    """Runs continuously in the background, listening to gpsd via socket and logging data."""
     print("Starting GPS logging thread...")
     
     while True:
         try:
-            # Connect to the local gpsd
-            session = gps.gps(mode=gps.WATCH_ENABLE | gps.WATCH_NEWSTYLE)
+            # Connect directly to the local gpsd socket (bypassing buggy gps library)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect(('127.0.0.1', 2947))
+            
+            # Command gpsd to start sending JSON location data
+            sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
+            
+            # Create a file-like object to read stream lines easily
+            f = sock.makefile('r', encoding='utf-8')
             last_log_time = 0
             
-            while True:
-                report = session.next()
-                
-                # TPV (Time-Position-Velocity) contains the location data
-                if report['class'] == 'TPV':
-                    lat = getattr(report, 'lat', None)
-                    lon = getattr(report, 'lon', None)
+            for line in f:
+                try:
+                    report = json.loads(line)
                     
-                    if lat is not None and lon is not None:
-                        current_time = time.time()
+                    # TPV (Time-Position-Velocity) contains the location data
+                    if report.get('class') == 'TPV':
+                        lat = report.get('lat')
+                        lon = report.get('lon')
                         
-                        # Only log every LOG_INTERVAL_SECONDS to prevent database bloat
-                        if current_time - last_log_time >= LOG_INTERVAL_SECONDS:
-                            speed = getattr(report, 'speed', 0.0) # m/s
-                            alt = getattr(report, 'alt', 0.0)
-                            track = getattr(report, 'track', 0.0)
+                        if lat is not None and lon is not None:
+                            current_time = time.time()
                             
-                            log_to_db(lat, lon, speed, alt, track)
-                            last_log_time = current_time
-                            
-        except StopIteration:
-            print("GPSD connection lost. Retrying in 5 seconds...")
-            time.sleep(5)
+                            # Only log every LOG_INTERVAL_SECONDS to prevent database bloat
+                            if current_time - last_log_time >= LOG_INTERVAL_SECONDS:
+                                speed = report.get('speed', 0.0) # m/s
+                                alt = report.get('alt', 0.0)
+                                track = report.get('track', 0.0)
+                                
+                                log_to_db(lat, lon, speed, alt, track)
+                                last_log_time = current_time
+                except json.JSONDecodeError:
+                    continue # Skip incomplete/malformed chunks
+                    
         except Exception as e:
-            print(f"GPS Error: {e}. Retrying in 5 seconds...")
+            print(f"GPS Connection Error: {e}. Retrying in 5 seconds...")
             time.sleep(5)
+        finally:
+            try:
+                sock.close()
+            except:
+                pass
 
 # --- WEB SERVER ROUTES ---
 @app.route('/')
