@@ -1,8 +1,11 @@
 """Interactive gpsd setup — detects devices, writes /etc/default/gpsd, restarts gpsd."""
 
+import json
 import os
+import socket
 import subprocess
 import sys
+import time
 
 import click
 
@@ -104,6 +107,54 @@ def restart_gpsd():
         return False
 
 
+def wait_for_gpsd(timeout=90):
+    """Wait for gpsd to be active and streaming a fix. Returns True on success."""
+    deadline = time.monotonic() + timeout
+
+    # 1. Wait for service to report active
+    click.echo('  Waiting for gpsd service…', nl=False)
+    while time.monotonic() < deadline:
+        r = subprocess.run(['systemctl', 'is-active', 'gpsd'],
+                           capture_output=True, text=True)
+        if r.stdout.strip() == 'active':
+            click.echo(' active.')
+            break
+        click.echo('.', nl=False)
+        time.sleep(1)
+    else:
+        click.echo('\n  gpsd service did not become active.', err=True)
+        return False
+
+    # 2. Wait for a TPV record with a fix (mode 2 or 3)
+    click.echo('  Waiting for GPS fix', nl=False)
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(('127.0.0.1', 2947), timeout=5) as sock:
+                sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
+                f = sock.makefile('r', encoding='utf-8', errors='replace')
+                sock_deadline = min(time.monotonic() + 10, deadline)
+                while time.monotonic() < sock_deadline:
+                    line = f.readline()
+                    if not line:
+                        break
+                    try:
+                        msg = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if msg.get('class') == 'TPV' and msg.get('mode', 0) >= 2:
+                        lat = msg.get('lat', '?')
+                        lon = msg.get('lon', '?')
+                        click.echo(f' fixed ({lat}, {lon}).')
+                        return True
+        except Exception:
+            pass
+        click.echo('.', nl=False)
+        time.sleep(2)
+
+    click.echo('\n  Timed out waiting for GPS fix — validation will still run.')
+    return False
+
+
 @click.command()
 @click.option('--device', default=None, help='GPS device path (skip auto-detect)')
 @click.option('--baud', default=None, type=click.Choice(BAUD_RATES), help='Baud rate')
@@ -158,7 +209,7 @@ def main(device, baud, validate):
             if click.confirm(f'Install udev rule and use {UDEV_SYMLINK}?', default=True):
                 click.echo(f'  Writing {UDEV_RULE_PATH}…')
                 if install_udev_rule(vid, pid):
-                    import time; time.sleep(1)
+                    time.sleep(1)
                     if os.path.exists(UDEV_SYMLINK):
                         click.echo(f'  {UDEV_SYMLINK} → {os.readlink(UDEV_SYMLINK)}')
                         device = UDEV_SYMLINK
@@ -182,10 +233,11 @@ def main(device, baud, validate):
     click.echo('Restarting gpsd…')
     if not restart_gpsd():
         sys.exit(1)
-    click.echo('  Done.\n')
+
+    wait_for_gpsd(timeout=90)
 
     if validate:
-        click.echo('Running validation (may take up to 15s for GPS fix)…\n')
+        click.echo('\nRunning validation…\n')
         # Import here so the script can run without the full project installed
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from tools.gpsd_validate import run_all
