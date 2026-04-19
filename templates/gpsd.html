@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gpsd Status — GPS Dashboard</title>
+  <meta http-equiv="refresh" content="30">
+  <style>
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --surface2: #263348;
+      --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
+      --primary: #3b82f6; --success: #22c55e; --danger: #ef4444;
+      --radius: 8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; padding: 16px; max-width: 560px; margin: 0 auto; }
+    a { color: var(--primary); text-decoration: none; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .nav { display: flex; gap: 16px; margin-bottom: 20px; font-size: 13px; color: var(--muted); }
+    .banner { border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-weight: 600; font-size: 15px; }
+    .banner.ok  { background: #14532d; color: var(--success); border: 1px solid #166534; }
+    .banner.err { background: #450a0a; color: var(--danger);  border: 1px solid #7f1d1d; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+    .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 10px 14px 0; }
+    .check-list { padding: 8px 0; }
+    .check-row { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--border); }
+    .check-row:last-child { border-bottom: none; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.ok  { background: var(--success); }
+    .dot.err { background: var(--danger);  }
+    .check-name { flex: 1; }
+    .kv-list { padding: 8px 0; }
+    .kv-row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 14px; border-bottom: 1px solid var(--border); gap: 12px; }
+    .kv-row:last-child { border-bottom: none; }
+    .kv-key { color: var(--muted); flex-shrink: 0; }
+    .kv-val { font-weight: 500; text-align: right; word-break: break-all; }
+    .kv-val.ok  { color: var(--success); }
+    .kv-val.err { color: var(--danger);  }
+    .kv-val.warn { color: #f59e0b; }
+    .hint { font-size: 12px; color: var(--muted); padding: 12px 14px; border-top: 1px solid var(--border); font-style: italic; }
+    .refresh-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/">← Dashboard</a>
+  <a href="/ntp">NTP Status</a>
+</div>
+
+<h1>gpsd Status</h1>
+<p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Auto-refreshes every 30 seconds</p>
+
+<div class="banner {{ 'ok' if overall_ok else 'err' }}">
+  {{ '✓ All checks passing' if overall_ok else '✗ One or more checks failing' }}
+</div>
+
+<!-- Checks -->
+<div class="card">
+  <div class="card-title">Checks</div>
+  <div class="check-list">
+    {% for name, ok in checks %}
+    <div class="check-row">
+      <div class="dot {{ 'ok' if ok else 'err' }}"></div>
+      <span class="check-name">{{ name }}</span>
+      <span style="font-size:12px;color:{{ 'var(--success)' if ok else 'var(--danger)' }}">{{ 'PASS' if ok else 'FAIL' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% if not overall_ok %}
+  <div class="hint">Run <code>uv run tools/gpsd_validate.py</code> on the Pi for detailed diagnostics, or <code>uv run tools/gpsd_setup.py</code> to reconfigure.</div>
+  {% endif %}
+</div>
+
+<!-- GPS details -->
+<div class="card">
+  <div class="card-title">GPS Details</div>
+  <div class="kv-list">
+    <div class="kv-row">
+      <span class="kv-key">Service</span>
+      <span class="kv-val {{ 'ok' if service_state == 'active' else 'err' }}">{{ service_state }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Device</span>
+      <span class="kv-val {{ 'ok' if device_present else 'err' }}">{{ device }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Fix mode</span>
+      <span class="kv-val {{ 'ok' if fix_mode >= 2 else 'err' }}">{{ fix_label }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Satellites</span>
+      <span class="kv-val {{ 'ok' if sats_used >= 4 else ('warn' if sats_used > 0 else 'err') }}">
+        {{ sats_used }} used / {{ sats_visible }} visible
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Latest logged point -->
+<div class="card">
+  <div class="card-title">Latest Logged Point</div>
+  {% if latest %}
+  <div class="kv-list">
+    <div class="kv-row">
+      <span class="kv-key">Timestamp</span>
+      <span class="kv-val">{{ latest.timestamp }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Coordinates</span>
+      <span class="kv-val">{{ "%.5f"|format(latest.lat) }}, {{ "%.5f"|format(latest.lon) }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Speed</span>
+      <span class="kv-val">{{ "%.1f mph"|format(latest.speed * 2.23694) if latest.speed is not none else '—' }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Altitude</span>
+      <span class="kv-val">{{ "%d ft"|format((latest.altitude * 3.28084)|int) if latest.altitude is not none else '—' }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Data age</span>
+      <span class="kv-val {{ 'ok' if data_age is not none and data_age < 30 else 'err' }}">
+        {{ "%ds"|format(data_age) if data_age is not none else '—' }}
+      </span>
+    </div>
+  </div>
+  {% else %}
+  <div style="padding:14px;color:var(--muted)">No GPS points logged yet.</div>
+  {% endif %}
+</div>
+
+<p class="refresh-note">Page refreshes automatically · <a href="/gpsd">Refresh now</a></p>
+
+</body>
+</html>
