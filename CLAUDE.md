@@ -90,6 +90,7 @@ Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `lo
 Setup and validation are handled by CLI scripts in `tools/`, not through the web UI. Service config templates live in `deploy/`.
 
 - `tools/gpsd_setup.py` — interactive: detects devices, writes `/etc/default/gpsd`, restarts gpsd
+- `deploy/99-gps-dongle.rules` — udev rule pinning the u-blox GPS dongle (VID 1546, PID 01a7) to `/dev/gps0` regardless of enumeration order. Install with `sudo cp deploy/99-gps-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`. gpsd is configured to use `/dev/gps0`.
 - `tools/gpsd_validate.py` — checks service, device, fix, data flow; prints PASS/FAIL per check
 - `tools/ntp_setup.py` — interactive: configures chrony with GPS SHM source, optional PPS; enables Pi as LAN NTP server
 - `tools/ntp_validate.py` — checks chrony sync, GPS/PPS source, stratum, LAN serving
