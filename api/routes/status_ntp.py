@@ -19,10 +19,16 @@ def _service_state():
     return out.strip() or 'unknown'
 
 
+_TRACKING_DEFAULTS = {
+    'reference': None, 'synced': False, 'stratum': None,
+    'offset_ms': None, 'offset_dir': None, 'rms_ms': None, 'leap_status': None,
+}
+
+
 def _parse_tracking():
     _, out = _run(['chronyc', 'tracking'])
     if not out:
-        return {}
+        return dict(_TRACKING_DEFAULTS)
 
     def _field(pattern):
         m = re.search(pattern, out, re.IGNORECASE)
@@ -49,7 +55,6 @@ def _parse_tracking():
         'leap_status': _field(r'Leap status\s*:\s*(.+)'),
     }
 
-
 def _parse_sources():
     _, out = _run(['chronyc', 'sources'])
     sources = []
@@ -67,9 +72,21 @@ def _parse_sources():
     return sources
 
 
+_CONFLICTING = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
+
+
+def _conflicting_services():
+    active = []
+    for svc in _CONFLICTING:
+        _, out = _run(['systemctl', 'is-active', svc])
+        if out.strip() == 'active':
+            active.append(svc)
+    return active
+
+
 def _ntp_serving():
     _, out = _run(['ss', '-lnup'])
-    return ':123' in out
+    return bool(re.search(r'[*\d]:123\s', out))
 
 
 @status_ntp_bp.get('/ntp')
@@ -78,24 +95,27 @@ def ntp_status():
     tracking = _parse_tracking()
     sources = _parse_sources()
     serving = _ntp_serving()
+    conflicts = _conflicting_services()
 
     gps_source  = next((s for s in sources if 'GPS' in s['name']), None)
     pps_source  = next((s for s in sources if 'PPS' in s['name']), None)
     pps_mode    = pps_source is not None
 
     checks = [
-        ('chrony service',       service_state == 'active'),
-        ('GPS SHM source',       gps_source is not None),
-        ('synchronised',         tracking.get('synced', False)),
-        ('stratum ≤ 10',         (tracking.get('stratum') or 99) <= 10),
-        ('NTP serving (LAN)',    serving),
+        ('no conflicting services', not conflicts),
+        ('chrony service',          service_state == 'active'),
+        ('GPS SHM source',          gps_source is not None),
+        ('synchronised',            tracking.get('synced', False)),
+        ('stratum ≤ 10',            (tracking.get('stratum') or 99) <= 10),
+        ('NTP serving (LAN)',       serving),
     ]
     if pps_mode:
-        checks.insert(2, ('PPS source selected', bool(pps_source and pps_source['selected'])))
+        checks.insert(3, ('PPS source selected', bool(pps_source and pps_source['selected'])))
 
     overall_ok = all(ok for _, ok in checks)
 
     return render_template('ntp.html',
+        conflicts=conflicts,
         overall_ok=overall_ok,
         checks=checks,
         service_state=service_state,

@@ -16,6 +16,21 @@ def _run(cmd, timeout=10):
         return -1, '', str(e)
 
 
+CONFLICTING_SERVICES = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
+
+
+def check_no_conflicts():
+    """Ensure no other NTP daemons are running alongside chrony."""
+    active = []
+    for svc in CONFLICTING_SERVICES:
+        code, out, _ = _run(['systemctl', 'is-active', svc])
+        if out.strip() == 'active':
+            active.append(svc)
+    if active:
+        return False, f"Conflicting NTP service(s) running: {', '.join(active)} — disable before using chrony"
+    return True, f"No conflicting NTP services active"
+
+
 def check_service():
     code, out, _ = _run(['systemctl', 'is-active', 'chrony'])
     state = out.strip()
@@ -93,12 +108,13 @@ def check_ntp_serving():
 
 def run_all(verbose=True, check_pps=False):
     checks = [
-        ('chrony service active', check_service),
-        ('GPS SHM source',        check_gps_source),
-        ('chrony synced',         check_synced),
-        ('stratum',               check_stratum),
-        ('time offset',           check_offset),
-        ('NTP serving (port 123)', check_ntp_serving),
+        ('no conflicting NTP services', check_no_conflicts),
+        ('chrony service active',       check_service),
+        ('GPS SHM source',              check_gps_source),
+        ('chrony synced',               check_synced),
+        ('stratum',                     check_stratum),
+        ('time offset',                 check_offset),
+        ('NTP serving (port 123)',      check_ntp_serving),
     ]
     if check_pps:
         checks.insert(2, ('PPS source selected', check_pps_source))

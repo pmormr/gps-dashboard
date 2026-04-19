@@ -9,6 +9,7 @@ import click
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHRONY_CONF = '/etc/chrony/chrony.conf'
+CONFLICTING_SERVICES = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
 MODULES_FILE = '/etc/modules'
 BOOT_CONFIG = '/boot/firmware/config.txt'  # Pi 4/5; older Pi uses /boot/config.txt
 
@@ -39,6 +40,35 @@ def _service(action, name):
     r = _run(['sudo', 'systemctl', action, name],
              capture_output=True, timeout=15)
     return r.returncode == 0
+
+
+def disable_conflicts():
+    """Stop and disable any NTP services that would conflict with chrony."""
+    found = []
+    for svc in CONFLICTING_SERVICES:
+        r = _run(['systemctl', 'is-active', svc], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip() == 'active':
+            found.append(svc)
+
+    if not found:
+        return True
+
+    click.echo(f"Found conflicting NTP service(s): {', '.join(found)}")
+    click.echo("These must be stopped before chrony can take over.")
+    if not click.confirm('Stop and disable them now?', default=True):
+        click.echo('Cannot continue with conflicting services running.', err=True)
+        return False
+
+    for svc in found:
+        click.echo(f"  Stopping {svc}…")
+        _run(['sudo', 'systemctl', 'stop', svc], capture_output=True)
+        _run(['sudo', 'systemctl', 'disable', svc], capture_output=True)
+        # Special case: mask systemd-timesyncd so it doesn't restart automatically
+        if svc == 'systemd-timesyncd':
+            _run(['sudo', 'systemctl', 'mask', svc], capture_output=True)
+            click.echo(f"  Masked {svc} (prevents auto-restart)")
+
+    return True
 
 
 def ensure_chrony():
@@ -134,6 +164,9 @@ def main(mode, gpio_pin, validate):
 
     if not ensure_chrony():
         click.echo('chrony is required. Aborting.', err=True)
+        sys.exit(1)
+
+    if not disable_conflicts():
         sys.exit(1)
 
     if not mode:

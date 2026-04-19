@@ -73,7 +73,9 @@
     </div>
     {% endfor %}
   </div>
-  {% if not overall_ok %}
+  {% if conflicts %}
+  <div class="hint">⚠ Conflicting NTP service(s) active: <strong>{{ conflicts | join(', ') }}</strong>. Run <code>uv run tools/ntp_setup.py</code> to disable them.</div>
+  {% elif not overall_ok %}
   <div class="hint">Run <code>uv run tools/ntp_validate.py</code> on the Pi for detailed diagnostics, or <code>uv run tools/ntp_setup.py</code> to reconfigure.</div>
   {% endif %}
 </div>
