@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NTP Status — GPS Dashboard</title>
+  <meta http-equiv="refresh" content="30">
+  <style>
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --surface2: #263348;
+      --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
+      --primary: #3b82f6; --success: #22c55e; --danger: #ef4444;
+      --warn: #f59e0b; --radius: 8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; padding: 16px; max-width: 560px; margin: 0 auto; }
+    a { color: var(--primary); text-decoration: none; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .nav { display: flex; gap: 16px; margin-bottom: 20px; font-size: 13px; color: var(--muted); }
+    .banner { border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-weight: 600; font-size: 15px; }
+    .banner.ok  { background: #14532d; color: var(--success); border: 1px solid #166534; }
+    .banner.err { background: #450a0a; color: var(--danger);  border: 1px solid #7f1d1d; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+    .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 10px 14px 0; }
+    .check-list { padding: 8px 0; }
+    .check-row { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--border); }
+    .check-row:last-child { border-bottom: none; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.ok   { background: var(--success); }
+    .dot.err  { background: var(--danger); }
+    .check-name { flex: 1; }
+    .kv-list { padding: 8px 0; }
+    .kv-row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 14px; border-bottom: 1px solid var(--border); gap: 12px; }
+    .kv-row:last-child { border-bottom: none; }
+    .kv-key { color: var(--muted); flex-shrink: 0; }
+    .kv-val { font-weight: 500; text-align: right; word-break: break-all; }
+    .kv-val.ok   { color: var(--success); }
+    .kv-val.err  { color: var(--danger); }
+    .kv-val.warn { color: var(--warn); }
+    .source-row { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 13px; }
+    .source-row:last-child { border-bottom: none; }
+    .source-sel { color: var(--success); font-weight: 700; width: 10px; }
+    .source-name { flex: 1; }
+    .source-detail { color: var(--muted); font-size: 12px; text-align: right; }
+    .hint { font-size: 12px; color: var(--muted); padding: 12px 14px; border-top: 1px solid var(--border); font-style: italic; }
+    .refresh-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+    code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/">← Dashboard</a>
+  <a href="/gpsd">gpsd Status</a>
+</div>
+
+<h1>NTP Status</h1>
+<p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Auto-refreshes every 30 seconds</p>
+
+<div class="banner {{ 'ok' if overall_ok else 'err' }}">
+  {{ '✓ All checks passing' if overall_ok else '✗ One or more checks failing' }}
+</div>
+
+<!-- Checks -->
+<div class="card">
+  <div class="card-title">Checks</div>
+  <div class="check-list">
+    {% for name, ok in checks %}
+    <div class="check-row">
+      <div class="dot {{ 'ok' if ok else 'err' }}"></div>
+      <span class="check-name">{{ name }}</span>
+      <span style="font-size:12px;color:{{ 'var(--success)' if ok else 'var(--danger)' }}">{{ 'PASS' if ok else 'FAIL' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% if not overall_ok %}
+  <div class="hint">Run <code>uv run tools/ntp_validate.py</code> on the Pi for detailed diagnostics, or <code>uv run tools/ntp_setup.py</code> to reconfigure.</div>
+  {% endif %}
+</div>
+
+<!-- Sync status -->
+<div class="card">
+  <div class="card-title">Sync Status</div>
+  <div class="kv-list">
+    <div class="kv-row">
+      <span class="kv-key">Service</span>
+      <span class="kv-val {{ 'ok' if service_state == 'active' else 'err' }}">{{ service_state }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Reference</span>
+      <span class="kv-val {{ 'ok' if tracking.synced else 'err' }}">
+        {{ tracking.reference or ('Not synchronised' if not tracking.synced else '—') }}
+      </span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Stratum</span>
+      {% set s = tracking.stratum %}
+      <span class="kv-val {{ 'ok' if s and s <= 2 else ('warn' if s and s <= 10 else 'err') }}">
+        {{ s if s is not none else '—' }}
+        {% if s == 1 %}<span style="color:var(--muted);font-weight:400"> (primary)</span>{% endif %}
+        {% if s and s >= 10 %}<span style="color:var(--muted);font-weight:400"> (holdover)</span>{% endif %}
+      </span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Offset</span>
+      {% if tracking.offset_ms is not none %}
+        {% set abs_ms = tracking.offset_ms | abs %}
+        <span class="kv-val {{ 'ok' if abs_ms < 50 else ('warn' if abs_ms < 500 else 'err') }}">
+          {{ "%.3f ms %s"|format(tracking.offset_ms, tracking.offset_dir) }}
+        </span>
+      {% else %}
+        <span class="kv-val err">—</span>
+      {% endif %}
+    </div>
+    {% if tracking.rms_ms is not none %}
+    <div class="kv-row">
+      <span class="kv-key">RMS offset</span>
+      <span class="kv-val">{{ "%.3f ms"|format(tracking.rms_ms) }}</span>
+    </div>
+    {% endif %}
+    <div class="kv-row">
+      <span class="kv-key">LAN NTP server</span>
+      <span class="kv-val {{ 'ok' if serving else 'err' }}">{{ 'active (port 123)' if serving else 'not listening' }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Sources -->
+{% if sources %}
+<div class="card">
+  <div class="card-title">Sources</div>
+  {% for src in sources %}
+  <div class="source-row">
+    <span class="source-sel">{{ '*' if src.selected else '' }}</span>
+    <span class="source-name">{{ src.name }}
+      <span style="color:var(--muted);font-size:11px"> stratum {{ src.stratum }}</span>
+    </span>
+    <span class="source-detail">{{ src.sample }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Mode info -->
+<div class="card">
+  <div class="card-title">Mode</div>
+  <div class="kv-list">
+    <div class="kv-row">
+      <span class="kv-key">GPS source</span>
+      <span class="kv-val {{ 'ok' if gps_source else 'err' }}">{{ 'configured' if gps_source else 'not found' }}</span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">PPS source</span>
+      <span class="kv-val {{ 'ok' if pps_source and pps_source.selected else ('warn' if pps_source else 'muted') }}">
+        {% if pps_source and pps_source.selected %}active{% elif pps_source %}present, not selected{% else %}not configured{% endif %}
+      </span>
+    </div>
+    <div class="kv-row">
+      <span class="kv-key">Expected accuracy</span>
+      <span class="kv-val">{{ '~1 µs (PPS)' if pps_source and pps_source.selected else '~100 ms (GPS only)' }}</span>
+    </div>
+  </div>
+  {% if not pps_mode %}
+  <div class="hint">Running in GPS-only mode. Switch to a serial GPS with PPS for microsecond accuracy. Run <code>uv run tools/ntp_setup.py --mode gps-pps</code>.</div>
+  {% endif %}
+</div>
+
+<p class="refresh-note">Page refreshes automatically · <a href="/ntp">Refresh now</a></p>
+
+</body>
+</html>
