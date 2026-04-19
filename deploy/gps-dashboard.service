@@ -1,0 +1,19 @@
+[Unit]
+Description=GPS Dashboard Web App
+After=network.target
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/home/pmorgan/gps-dashboard
+Environment=PYTHONPATH=/home/pmorgan/gps-dashboard
+Environment=GPS_DB_PATH=/home/pmorgan/gps_history.db
+Environment=GPS_TILE_CACHE_DIR=/home/pmorgan/.cache/gps-dashboard/tiles
+ExecStart=/home/pmorgan/gps-dashboard/.venv/bin/python api/app.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
