@@ -89,8 +89,8 @@ Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `lo
 
 Setup and validation are handled by CLI scripts in `tools/`, not through the web UI. Service config templates live in `deploy/`.
 
-- `tools/gpsd_setup.py` — interactive: detects devices, writes `/etc/default/gpsd`, restarts gpsd
-- `deploy/99-gps-dongle.rules` — udev rule pinning the u-blox GPS dongle (VID 1546, PID 01a7) to `/dev/gps0` regardless of enumeration order. Install with `sudo cp deploy/99-gps-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`. gpsd is configured to use `/dev/gps0`.
+- `tools/gpsd_setup.py` — interactive: detects devices, writes `/etc/default/gpsd`, restarts gpsd. For USB serial devices (ttyACM*/ttyUSB*), reads VID/PID via udevadm and offers to install the udev rule and switch to `/dev/gps0`. After restart, polls until gpsd is active and a TPV fix (mode ≥ 2) is received (up to 90s) before running validation.
+- `deploy/99-gps-dongle.rules` — udev rule pinning the u-blox GPS dongle (VID 1546, PID 01a7) to `/dev/gps0` regardless of enumeration order. `gpsd_setup.py` installs this automatically. Manual install: `sudo cp deploy/99-gps-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`.
 - `tools/gpsd_validate.py` — checks service, device, fix, data flow; prints PASS/FAIL per check
 - `tools/ntp_setup.py` — interactive: configures chrony with GPS SHM source, optional PPS; enables Pi as LAN NTP server
 - `tools/ntp_validate.py` — checks chrony sync, GPS/PPS source, stratum, LAN serving
@@ -136,11 +136,18 @@ gps-dashboard/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service
 │   ├── chrony-gps-only.conf
-│   └── chrony-gps-pps.conf
+│   ├── chrony-gps-pps.conf
+│   └── 99-gps-dongle.rules
 ├── docs/
 │   └── plan.md
 └── pyproject.toml
 ```
+
+## Hardware Notes
+
+Current GPS hardware: u-blox 7 USB dongle (VID 1546, PID 01a7), no PPS signal wired. NTP is running in GPS-only mode (chrony stratum 10, ~100ms accuracy). A serial GPS with PPS is planned for the future for microsecond accuracy.
+
+The dongle is pinned to `/dev/gps0` via udev. gpsd and the logger both reference `/dev/gps0`. If the dongle re-enumerates on a different ACM port (e.g. after a USB hub EMI event), the symlink keeps the device path stable — this was a real issue that caused stale Virginia coordinates to be logged for days.
 
 ## Commands
 
