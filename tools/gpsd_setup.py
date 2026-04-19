@@ -25,9 +25,47 @@ USBAUTO="true"
 GPSD_SOCKET="/var/run/gpsd.sock"
 """
 
+UDEV_RULE_PATH = '/etc/udev/rules.d/99-gps-dongle.rules'
+UDEV_SYMLINK = '/dev/gps0'
+
 
 def detect_devices():
     return [d for d in CANDIDATE_DEVICES if os.path.exists(d)]
+
+
+def get_usb_ids(device):
+    """Return (vendor_id, product_id) for a USB serial device, or (None, None)."""
+    try:
+        r = subprocess.run(
+            ['udevadm', 'info', '--query=property', f'--name={device}'],
+            capture_output=True, text=True
+        )
+        vid = pid = None
+        for line in r.stdout.splitlines():
+            if line.startswith('ID_VENDOR_ID='):
+                vid = line.split('=', 1)[1].strip()
+            elif line.startswith('ID_MODEL_ID='):
+                pid = line.split('=', 1)[1].strip()
+        return vid, pid
+    except Exception:
+        return None, None
+
+
+def install_udev_rule(vendor_id, product_id):
+    """Pin device to /dev/gps0 via udev rule, reload rules, and trigger."""
+    rule = (
+        f'SUBSYSTEM=="tty", ATTRS{{idVendor}}=="{vendor_id}", '
+        f'ATTRS{{idProduct}}=="{product_id}", '
+        f'SYMLINK+="gps0", GROUP="dialout", MODE="0664"\n'
+    )
+    r = subprocess.run(['sudo', 'tee', UDEV_RULE_PATH],
+                       input=rule, text=True, capture_output=True)
+    if r.returncode != 0:
+        click.echo(f"Error writing udev rule: {r.stderr}", err=True)
+        return False
+    subprocess.run(['sudo', 'udevadm', 'control', '--reload-rules'], capture_output=True)
+    subprocess.run(['sudo', 'udevadm', 'trigger'], capture_output=True)
+    return True
 
 
 def read_current_config():
@@ -109,6 +147,27 @@ def main(device, baud, validate):
         click.echo('  9600   — common alternative')
         click.echo('  115200 — high-speed / u-blox modules')
         baud = click.prompt('Baud rate', default='9600', type=click.Choice(BAUD_RATES))
+
+    # Offer to install udev rule for USB serial devices
+    if device.startswith(('/dev/ttyACM', '/dev/ttyUSB')):
+        vid, pid = get_usb_ids(device)
+        if vid and pid:
+            click.echo(f'\nUSB device detected (VID {vid}, PID {pid}).')
+            click.echo(f'A udev rule can pin this dongle to {UDEV_SYMLINK} regardless of')
+            click.echo('which ACM/USB port it enumerates on after a replug or reboot.')
+            if click.confirm(f'Install udev rule and use {UDEV_SYMLINK}?', default=True):
+                click.echo(f'  Writing {UDEV_RULE_PATH}…')
+                if install_udev_rule(vid, pid):
+                    import time; time.sleep(1)
+                    if os.path.exists(UDEV_SYMLINK):
+                        click.echo(f'  {UDEV_SYMLINK} → {os.readlink(UDEV_SYMLINK)}')
+                        device = UDEV_SYMLINK
+                    else:
+                        click.echo(f'  Warning: {UDEV_SYMLINK} not yet present — using {device}', err=True)
+                else:
+                    click.echo('  udev rule install failed, continuing with original device.')
+        else:
+            click.echo(f'\nCould not read USB IDs for {device} — skipping udev rule.')
 
     click.echo(f'\nConfiguration:')
     click.echo(f'  Device: {device}')
