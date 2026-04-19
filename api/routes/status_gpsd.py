@@ -91,7 +91,8 @@ def gpsd_status():
     sats_used = sum(1 for s in satellites if s.get('used'))
     sats_visible = len(satellites)
 
-    device_present = bool(device and os.path.exists(device))
+    devices = device.split() if device else []
+    device_present = any(os.path.exists(d) for d in devices)
 
     data_age = data_fresh = None
     if latest:

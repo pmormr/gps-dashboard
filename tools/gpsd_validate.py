@@ -34,8 +34,15 @@ def get_configured_device():
 def check_device(device):
     if not device:
         return False, "No device configured in /etc/default/gpsd"
-    exists = os.path.exists(device)
-    return exists, f"Device {device} {'exists' if exists else 'not found'}"
+    devices = device.split()
+    missing = [d for d in devices if not os.path.exists(d)]
+    present = [d for d in devices if os.path.exists(d)]
+    if not present:
+        return False, f"No configured devices found: {', '.join(missing)}"
+    msg = f"Present: {', '.join(present)}"
+    if missing:
+        msg += f" | Missing: {', '.join(missing)}"
+    return True, msg
 
 
 def check_port():
