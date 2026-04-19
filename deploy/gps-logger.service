@@ -1,0 +1,17 @@
+[Unit]
+Description=GPS Data Logger
+After=network.target gpsd.service
+Wants=gpsd.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/home/pmorgan/gps-dashboard
+ExecStart=/home/pmorgan/gps-dashboard/.venv/bin/python logger/gps_logger.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
