@@ -120,26 +120,31 @@ def setup_gps_pps(gpio_pin):
         if not _sudo_write(MODULES_FILE, modules.rstrip() + '\npps-gpio\n'):
             return False
 
-    # 3. Add pps-gpio overlay to boot config
-    overlay_line = f'dtoverlay=pps-gpio,gpiopin={gpio_pin}'
-    boot_config_path = BOOT_CONFIG if os.path.exists(BOOT_CONFIG) else '/boot/config.txt'
-    click.echo(f'Configuring PPS GPIO overlay in {boot_config_path}…')
-    try:
-        with open(boot_config_path) as f:
-            boot_cfg = f.read()
-    except FileNotFoundError:
-        click.echo(f"Could not read {boot_config_path}. You may need to add '{overlay_line}' manually.", err=True)
-        boot_cfg = None
+    # 3. Add pps-gpio overlay to boot config (skip if pps devices already exist)
+    import glob
+    existing_pps = glob.glob('/dev/pps*')
+    if existing_pps:
+        click.echo(f'PPS devices already present ({", ".join(existing_pps)}) — skipping GPIO overlay.')
+    else:
+        overlay_line = f'dtoverlay=pps-gpio,gpiopin={gpio_pin}'
+        boot_config_path = BOOT_CONFIG if os.path.exists(BOOT_CONFIG) else '/boot/config.txt'
+        click.echo(f'Configuring PPS GPIO overlay in {boot_config_path}…')
+        try:
+            with open(boot_config_path) as f:
+                boot_cfg = f.read()
+        except FileNotFoundError:
+            click.echo(f"Could not read {boot_config_path}. You may need to add '{overlay_line}' manually.", err=True)
+            boot_cfg = None
 
-    if boot_cfg is not None and overlay_line not in boot_cfg:
-        if not _sudo_write(boot_config_path, boot_cfg.rstrip() + f'\n{overlay_line}\n'):
-            return False
-        click.echo(f'  Added: {overlay_line}')
-        click.echo()
-        click.echo('  *** A reboot is required for PPS GPIO to take effect. ***')
-        click.echo('  After rebooting, run this setup script again or restart chrony.')
-    elif boot_cfg is not None:
-        click.echo(f'  Already present: {overlay_line}')
+        if boot_cfg is not None and overlay_line not in boot_cfg:
+            if not _sudo_write(boot_config_path, boot_cfg.rstrip() + f'\n{overlay_line}\n'):
+                return False
+            click.echo(f'  Added: {overlay_line}')
+            click.echo()
+            click.echo('  *** A reboot is required for PPS GPIO to take effect. ***')
+            click.echo('  After rebooting, run this setup script again or restart chrony.')
+        elif boot_cfg is not None:
+            click.echo(f'  Already present: {overlay_line}')
 
     # 4. Restart chrony
     click.echo('Restarting chrony…')
