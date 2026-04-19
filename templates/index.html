@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GPS Dashboard</title>
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/vendor/nouislider/nouislider.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Timeline view ── -->
+  <div id="view-timeline" class="view active">
+    <div class="tl-controls">
+      <div class="tl-top-row">
+        <label for="timeline-date">Date</label>
+        <input type="date" id="timeline-date">
+        <span id="tl-status"></span>
+      </div>
+      <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
+        <div id="tl-slider"></div>
+        <div class="tl-slider-labels">
+          <span id="tl-start-label"></span>
+          <span id="tl-end-label"></span>
+        </div>
+      </div>
+      <p id="tl-empty" class="hidden"></p>
+      <div class="tl-bottom-row">
+        <span id="tl-selection-count" class="muted"></span>
+        <button id="tl-create-btn" class="btn-primary" disabled>Create Trip</button>
+      </div>
+    </div>
+    <div id="map" class="map-container"></div>
+  </div>
+
+  <!-- ── Trips view ── -->
+  <div id="view-trips" class="view">
+
+    <div id="trips-list-pane">
+      <div class="trips-pane-header">
+        <h2>Trips</h2>
+      </div>
+      <div id="trips-list"></div>
+    </div>
+
+    <div id="trips-detail-pane" class="hidden">
+      <div class="detail-header">
+        <button id="trips-back-btn" class="btn-icon" title="Back to list">‹</button>
+        <span id="detail-trip-name"></span>
+      </div>
+      <div id="trip-stats-panel"></div>
+      <div id="trips-map" class="map-container"></div>
+    </div>
+
+  </div>
+
+  <!-- ── Tab bar ── -->
+  <nav id="tab-bar">
+    <button data-view="timeline" class="active">Timeline</button>
+    <button data-view="trips">Trips</button>
+  </nav>
+
+</div>
+
+<!-- Trip creation overlay -->
+<div id="trip-form-overlay" class="overlay hidden">
+  <div class="overlay-card">
+    <h3>New Trip</h3>
+    <label>
+      Name
+      <input type="text" id="trip-name-input" placeholder="e.g. Denver to Moab" autocomplete="off">
+    </label>
+    <label>
+      Notes
+      <textarea id="trip-notes-input" placeholder="Optional notes"></textarea>
+    </label>
+    <div class="overlay-actions">
+      <button id="trip-form-cancel" class="btn-secondary">Cancel</button>
+      <button id="trip-form-save" class="btn-primary">Save Trip</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/vendor/nouislider/nouislider.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/geo.js"></script>
+<script src="/static/js/map.js"></script>
+<script src="/static/js/timeline.js"></script>
+<script src="/static/js/trips.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
