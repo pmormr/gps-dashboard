@@ -18,6 +18,7 @@
         <label for="timeline-date">Date</label>
         <input type="date" id="timeline-date">
         <span id="tl-status"></span>
+        <button id="tl-live-btn" class="btn-secondary" disabled>Live</button>
       </div>
       <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
         <div id="tl-slider"></div>
@@ -38,7 +39,9 @@
         <button id="tl-create-btn" class="btn-primary" disabled>Create Trip</button>
       </div>
     </div>
-    <div id="map" class="map-container"></div>
+    <div id="map" class="map-container">
+      <button id="tl-zoom-here-btn" class="map-fab" title="Zoom to current location">⊕</button>
+    </div>
   </div>
 
   <!-- ── Trips view ── -->
@@ -66,6 +69,10 @@
   <nav id="tab-bar">
     <button data-view="timeline" class="active">Timeline</button>
     <button data-view="trips">Trips</button>
+    <div class="tab-status-links">
+      <a href="/gpsd" target="_blank">GPS</a>
+      <a href="/ntp" target="_blank">NTP</a>
+    </div>
   </nav>
 
 </div>

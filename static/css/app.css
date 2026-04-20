@@ -342,6 +342,54 @@ input[type="date"] {
 .warning { color: #f59e0b; font-size: 12px; margin-bottom: 8px; }
 .empty-state { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 16px; }
 
+/* ── Live mode button active state ── */
+.btn-live-active {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-color: var(--primary) !important;
+}
+
+/* ── Map floating action button ── */
+.map-fab {
+  position: absolute;
+  bottom: 24px;
+  right: 12px;
+  z-index: 1000;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+.map-fab:hover { background: var(--surface2); }
+
+/* ── Status page links in tab bar ── */
+.tab-status-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+}
+
+.tab-status-links a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.tab-status-links a:hover { color: var(--text); background: var(--surface2); }
+
 /* ── noUiSlider overrides ── */
 .noUi-target { background: var(--surface2); border: none; box-shadow: none; height: 4px; }
 .noUi-connects { border-radius: 2px; }

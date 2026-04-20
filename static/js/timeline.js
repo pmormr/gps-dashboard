@@ -3,6 +3,8 @@ const Timeline = (() => {
   let slider = null;
   let pendingTrip = null;
   let currentMarks = {};
+  let liveMode = false;
+  let refreshInterval = null;
 
   function toTs(isoString) { return Math.floor(new Date(isoString).getTime() / 1000); }
   function fromTs(sec) { return new Date(sec * 1000).toISOString(); }
@@ -23,12 +25,16 @@ const Timeline = (() => {
     document.getElementById('tl-end-label').textContent = sliderLabel(hi);
   }
 
-  function renderRange() {
+  function isToday(dateStr) {
+    return dateStr === new Date().toISOString().slice(0, 10);
+  }
+
+  function renderRange(followMap = false) {
     if (!slider) return;
     const [lo, hi] = slider.get().map(Number);
     updateSliderLabels(lo, hi);
     const pts = pointsInRange(lo, hi);
-    MapView.showTrack(pts, { fitBounds: false, showEndpoints: pts.length > 1 });
+    MapView.showTrack(pts, { fitBounds: followMap, showEndpoints: pts.length > 1 });
     document.getElementById('tl-selection-count').textContent = `${pts.length} points selected`;
 
     pendingTrip = pts.length >= 2
@@ -37,7 +43,87 @@ const Timeline = (() => {
     document.getElementById('tl-create-btn').disabled = !pendingTrip;
   }
 
+  function updateLiveBtn() {
+    const btn = document.getElementById('tl-live-btn');
+    if (!btn) return;
+    btn.classList.toggle('btn-live-active', liveMode);
+    btn.textContent = liveMode ? 'Live ●' : 'Live';
+  }
+
+  function stopLive() {
+    liveMode = false;
+    if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+    updateLiveBtn();
+  }
+
+  async function refreshPoints() {
+    const dateInput = document.getElementById('timeline-date');
+    if (!isToday(dateInput.value)) { stopLive(); return; }
+
+    const dateStr = dateInput.value;
+    const start = `${dateStr}T00:00:00Z`;
+    const end   = `${dateStr}T23:59:59Z`;
+
+    let data;
+    try {
+      data = await API.getPoints(start, end, 20000);
+    } catch (_) { return; }
+
+    if (!data.points.length) return;
+
+    const hadPoints = allPoints.length > 0;
+    allPoints = data.points;
+
+    const newMax = toTs(allPoints.at(-1).timestamp);
+    const newMin = toTs(allPoints[0].timestamp);
+
+    if (!slider) return;
+
+    const [currentLo] = slider.get().map(Number);
+    slider.updateOptions({ range: { min: newMin, max: newMax } }, false);
+
+    if (liveMode) {
+      slider.set([currentLo, newMax]);
+      renderRange(true);
+    }
+
+    document.getElementById('tl-status').textContent =
+      data.truncated ? `${allPoints.length} points (truncated)` : `${allPoints.length} points`;
+  }
+
+  function startLive() {
+    const dateInput = document.getElementById('timeline-date');
+    if (!isToday(dateInput.value)) return;
+
+    liveMode = true;
+    updateLiveBtn();
+
+    if (!refreshInterval) {
+      refreshInterval = setInterval(refreshPoints, 30000);
+    }
+    refreshPoints();
+  }
+
+  function toggleLive() {
+    if (liveMode) {
+      stopLive();
+    } else {
+      startLive();
+    }
+  }
+
+  async function zoomToCurrentLocation() {
+    try {
+      const pt = await API.getPointsLatest();
+      if (pt && pt.lat != null && pt.lon != null) {
+        MapView.zoomTo(pt.lat, pt.lon, 17);
+      }
+    } catch (_) {}
+  }
+
   async function loadDate(dateStr) {
+    stopLive();
+
     const start = `${dateStr}T00:00:00Z`;
     const end   = `${dateStr}T23:59:59Z`;
 
@@ -45,6 +131,9 @@ const Timeline = (() => {
     document.getElementById('tl-slider-wrap').classList.add('hidden');
     document.getElementById('tl-empty').classList.add('hidden');
     MapView.clearTrack();
+
+    const liveBtn = document.getElementById('tl-live-btn');
+    if (liveBtn) liveBtn.disabled = !isToday(dateStr);
 
     let truncated = false;
     try {
@@ -81,7 +170,7 @@ const Timeline = (() => {
       step: 30,
     });
 
-    slider.on('update', () => renderRange());
+    slider.on('update', () => renderRange(false));
     document.getElementById('tl-slider-wrap').classList.remove('hidden');
     MapView.showTrack(allPoints, { fitBounds: true, showEndpoints: false });
   }
@@ -190,6 +279,9 @@ const Timeline = (() => {
     document.getElementById('tl-mark-start-btn').addEventListener('click', () => handleMark('start'));
     document.getElementById('tl-mark-end-btn').addEventListener('click', () => handleMark('end'));
     document.getElementById('tl-use-marks-btn').addEventListener('click', useMarks);
+
+    document.getElementById('tl-live-btn').addEventListener('click', toggleLive);
+    document.getElementById('tl-zoom-here-btn').addEventListener('click', zoomToCurrentLocation);
 
     loadMarks();
     loadDate(today);

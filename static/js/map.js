@@ -54,11 +54,15 @@ const MapView = (() => {
     if (layers.length) map.fitBounds(layers[0].getBounds(), { padding: [24, 24] });
   }
 
+  function zoomTo(lat, lon, zoom = 17) {
+    if (map) map.setView([lat, lon], zoom);
+  }
+
   function invalidateSize() {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, fitToTrack, invalidateSize };
+  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize };
 })();
 
 // Second map instance for the Trips detail pane
