@@ -49,6 +49,9 @@ def create_trip():
         if err:
             return err
 
+    if start_time >= end_time:
+        return jsonify({'error': "'start_time' must be before 'end_time'"}), 400
+
     conn = get_connection()
     cursor = conn.execute(
         "INSERT INTO trips (name, start_time, end_time, notes) VALUES (?, ?, ?, ?)",
@@ -77,6 +80,15 @@ def update_trip(trip_id):
             if err:
                 return err
 
+    if 'start_time' in updates or 'end_time' in updates:
+        existing = conn.execute(
+            "SELECT start_time, end_time FROM trips WHERE id = ?", (trip_id,)
+        ).fetchone()
+        effective_start = updates.get('start_time', existing['start_time'])
+        effective_end = updates.get('end_time', existing['end_time'])
+        if effective_start >= effective_end:
+            return jsonify({'error': "'start_time' must be before 'end_time'"}), 400
+
     set_clause = ', '.join(f"{k} = ?" for k in updates)
     conn.execute(
         f"UPDATE trips SET {set_clause} WHERE id = ?",
@@ -96,6 +108,13 @@ def delete_trip(trip_id):
     conn.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
     conn.commit()
     return '', 204
+
+
+@trips_bp.get('/api/trips/mark')
+def get_marks():
+    conn = get_connection()
+    rows = conn.execute("SELECT key, timestamp FROM marks").fetchall()
+    return jsonify({r['key']: r['timestamp'] for r in rows})
 
 
 @trips_bp.post('/api/trips/mark')

@@ -112,6 +112,15 @@ input[type="date"] {
 
 #tl-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 4px 0; }
 
+.tl-mark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#tl-mark-status { color: var(--muted); font-size: 12px; margin-left: auto; }
+
 .tl-bottom-row {
   display: flex;
   align-items: center;
@@ -330,6 +339,7 @@ input[type="date"] {
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 .error { color: var(--danger); font-size: 13px; }
+.warning { color: #f59e0b; font-size: 12px; margin-bottom: 8px; }
 .empty-state { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 16px; }
 
 /* ── noUiSlider overrides ── */

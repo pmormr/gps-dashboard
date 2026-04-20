@@ -7,13 +7,6 @@ from api.db import get_connection
 points_bp = Blueprint('points', __name__)
 
 
-def _parse_timestamp(value: str, param: str):
-    try:
-        datetime.fromisoformat(value.replace('Z', '+00:00'))
-        return value
-    except ValueError:
-        return None, jsonify({'error': f"Invalid timestamp for '{param}': {value}"}), 400
-
 
 @points_bp.get('/api/points/latest')
 def latest_point():
@@ -54,4 +47,5 @@ def get_points():
         (start, end, limit),
     ).fetchall()
 
-    return jsonify({'points': [dict(r) for r in rows], 'count': len(rows)})
+    points = [dict(r) for r in rows]
+    return jsonify({'points': points, 'count': len(points), 'truncated': len(points) == limit})

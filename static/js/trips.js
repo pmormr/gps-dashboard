@@ -42,9 +42,12 @@ const Trips = (() => {
     try {
       const data = await API.getPoints(trip.start_time, trip.end_time, 20000);
       TripsMap.showTrack(data.points, { fitBounds: true, showEndpoints: true });
-      renderStats(trip, data.points);
+      renderStats(trip, data.points, data.truncated);
     } catch (e) {
-      document.getElementById('trip-stats-panel').innerHTML = `<p class="error">Failed to load: ${e.message}</p>`;
+      const errEl = document.createElement('p');
+      errEl.className = 'error';
+      errEl.textContent = `Failed to load: ${e.message}`;
+      document.getElementById('trip-stats-panel').replaceChildren(errEl);
     }
   }
 
@@ -67,12 +70,13 @@ const Trips = (() => {
     renderList();
   }
 
-  function renderStats(trip, points) {
+  function renderStats(trip, points, truncated) {
     const stats = computeStats(points);
     const panel = document.getElementById('trip-stats-panel');
     if (!stats) { panel.innerHTML = '<p class="muted">No data</p>'; return; }
 
     panel.innerHTML = `
+      ${truncated ? '<p class="warning">Data truncated at 20,000 points — stats may be incomplete.</p>' : ''}
       <div class="stats-grid">
         <div class="stat"><span class="stat-val">${fmtDistance(stats.distance)}</span><span class="stat-lbl">Distance</span></div>
         <div class="stat"><span class="stat-val">${fmtDuration(stats.durationMs)}</span><span class="stat-lbl">Duration</span></div>
@@ -105,7 +109,10 @@ const Trips = (() => {
       trips = data.trips;
       renderList();
     } catch (e) {
-      document.getElementById('trips-list').innerHTML = `<p class="error">Failed to load trips: ${e.message}</p>`;
+      const errEl = document.createElement('p');
+      errEl.className = 'error';
+      errEl.textContent = `Failed to load trips: ${e.message}`;
+      document.getElementById('trips-list').replaceChildren(errEl);
     }
   }
 

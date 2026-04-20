@@ -40,6 +40,10 @@ const API = {
     return this._fetch(`/api/trips/${id}`, { method: 'DELETE' });
   },
 
+  getMarks() {
+    return this._fetch('/api/trips/mark');
+  },
+
   markTimestamp(marker) {
     return this._fetch('/api/trips/mark', {
       method: 'POST',

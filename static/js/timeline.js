@@ -2,6 +2,7 @@ const Timeline = (() => {
   let allPoints = [];
   let slider = null;
   let pendingTrip = null;
+  let currentMarks = {};
 
   function toTs(isoString) { return Math.floor(new Date(isoString).getTime() / 1000); }
   function fromTs(sec) { return new Date(sec * 1000).toISOString(); }
@@ -45,9 +46,11 @@ const Timeline = (() => {
     document.getElementById('tl-empty').classList.add('hidden');
     MapView.clearTrack();
 
+    let truncated = false;
     try {
       const data = await API.getPoints(start, end, 20000);
       allPoints = data.points;
+      truncated = !!data.truncated;
     } catch (e) {
       document.getElementById('tl-status').textContent = `Error: ${e.message}`;
       return;
@@ -55,11 +58,15 @@ const Timeline = (() => {
 
     if (!allPoints.length) {
       document.getElementById('tl-status').textContent = '';
-      document.getElementById('tl-empty').classList.remove('hidden');
+      const emptyEl = document.getElementById('tl-empty');
+      emptyEl.textContent = 'No GPS points for this date';
+      emptyEl.classList.remove('hidden');
       return;
     }
 
-    document.getElementById('tl-status').textContent = `${allPoints.length} points`;
+    document.getElementById('tl-status').textContent = truncated
+      ? `${allPoints.length} points (truncated)`
+      : `${allPoints.length} points`;
 
     const lo = toTs(allPoints[0].timestamp);
     const hi = toTs(allPoints.at(-1).timestamp);
@@ -106,6 +113,63 @@ const Timeline = (() => {
     }
   }
 
+  function fmtMarkTime(isoStr) {
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+           d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function updateMarkUI() {
+    const s = currentMarks.start;
+    const e = currentMarks.end;
+    const hasBoth = s && e;
+    const statusEl = document.getElementById('tl-mark-status');
+    if (s || e) {
+      statusEl.textContent = `S: ${fmtMarkTime(s)}  E: ${fmtMarkTime(e)}`;
+    } else {
+      statusEl.textContent = '';
+    }
+    document.getElementById('tl-use-marks-btn').classList.toggle('hidden', !hasBoth);
+  }
+
+  async function loadMarks() {
+    try {
+      currentMarks = await API.getMarks();
+    } catch (_) {
+      currentMarks = {};
+    }
+    updateMarkUI();
+  }
+
+  async function handleMark(marker) {
+    try {
+      currentMarks = await API.markTimestamp(marker);
+      updateMarkUI();
+    } catch (e) {
+      alert(`Mark failed: ${e.message}`);
+    }
+  }
+
+  async function useMarks() {
+    const s = currentMarks.start;
+    const e = currentMarks.end;
+    if (!s || !e) return;
+
+    const markDate = s.slice(0, 10);
+    const dateInput = document.getElementById('timeline-date');
+
+    if (dateInput.value !== markDate) {
+      dateInput.value = markDate;
+      await loadDate(markDate);
+    }
+
+    if (!slider) return;
+    const lo = toTs(s);
+    const hi = toTs(e);
+    slider.set([lo, hi]);
+  }
+
   function init() {
     const dateInput = document.getElementById('timeline-date');
     const today = new Date().toISOString().slice(0, 10);
@@ -123,6 +187,11 @@ const Timeline = (() => {
       if (e.key === 'Escape') closeTripForm();
     });
 
+    document.getElementById('tl-mark-start-btn').addEventListener('click', () => handleMark('start'));
+    document.getElementById('tl-mark-end-btn').addEventListener('click', () => handleMark('end'));
+    document.getElementById('tl-use-marks-btn').addEventListener('click', useMarks);
+
+    loadMarks();
     loadDate(today);
   }
 

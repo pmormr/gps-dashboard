@@ -24,7 +24,11 @@ def run_session(conn, last_log_time: float) -> float:
 
             if report.get('class') != 'TPV':
                 continue
-            if report.get('lat') is None or report.get('lon') is None:
+            lat = report.get('lat')
+            lon = report.get('lon')
+            if lat is None or lon is None:
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
 
             now = time.monotonic()
@@ -37,8 +41,8 @@ def run_session(conn, last_log_time: float) -> float:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     timestamp,
-                    report['lat'],
-                    report['lon'],
+                    lat,
+                    lon,
                     report.get('speed'),
                     report.get('alt'),
                     report.get('track'),
