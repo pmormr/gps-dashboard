@@ -57,9 +57,10 @@ def get_usb_ids(device):
 def install_udev_rule(vendor_id, product_id):
     """Pin device to /dev/gps0 via udev rule, reload rules, and trigger."""
     rule = (
-        f'SUBSYSTEM=="tty", ATTRS{{idVendor}}=="{vendor_id}", '
+        f'SUBSYSTEM=="tty", ACTION=="add", ATTRS{{idVendor}}=="{vendor_id}", '
         f'ATTRS{{idProduct}}=="{product_id}", '
-        f'SYMLINK+="gps0", GROUP="dialout", MODE="0664"\n'
+        f'SYMLINK+="gps0", GROUP="dialout", MODE="0664", '
+        f'RUN+="/usr/sbin/gpsdctl add /dev/%k"\n'
     )
     r = subprocess.run(['sudo', 'tee', UDEV_RULE_PATH],
                        input=rule, text=True, capture_output=True)
