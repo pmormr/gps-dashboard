@@ -24,12 +24,26 @@ def run_session(conn, last_log_time: float) -> float:
 
             if report.get('class') != 'TPV':
                 continue
+            if report.get('mode', 0) < 2:
+                continue
             lat = report.get('lat')
             lon = report.get('lon')
             if lat is None or lon is None:
                 continue
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
+
+            # Reject fixes whose GPS time is more than 10s behind wall clock.
+            # Guards against gpsd replaying stale cached positions after restart.
+            gps_time_str = report.get('time')
+            if gps_time_str:
+                try:
+                    gps_dt = datetime.fromisoformat(gps_time_str.replace('Z', '+00:00'))
+                    age = (datetime.now(timezone.utc) - gps_dt).total_seconds()
+                    if age > 10:
+                        continue
+                except ValueError:
+                    pass
 
             now = time.monotonic()
             if now - last_log_time < LOG_INTERVAL_SECONDS:
