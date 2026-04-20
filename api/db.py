@@ -2,7 +2,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path(__file__).parent.parent / 'gps_history.db'))
+DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
 
 
 def get_connection() -> sqlite3.Connection:
