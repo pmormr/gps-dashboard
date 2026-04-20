@@ -15,15 +15,19 @@ The full implementation plan is at `docs/plan.md`.
 Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dashboard` (serves the web app). Both are managed via a bare git repo with a post-receive hook.
 
 ```bash
-# Deploy to Pi
-git push pi main
+# Commit and push to both GitHub and Pi in one step (preferred)
+git push all main
 ```
 
 The hook runs `uv sync`, always restarts `gps-dashboard`, and restarts `gps-logger` only if `logger/` changed (to avoid GPS data gaps). The `pi` remote points to `pmorgan@192.168.42.178:/home/pmorgan/gps-dashboard.git`.
 
+**Never commit directly on the Pi.** All commits go local → push to both remotes. Direct Pi commits cause history divergence requiring force-pushes to fix.
+
 ```bash
-# Add the remote if it's missing
+# Add remotes if missing
 git remote add pi pmorgan@192.168.42.178:/home/pmorgan/gps-dashboard.git
+git remote add all https://github.com/pmormr/gps-dashboard.git
+git remote set-url --add all pmorgan@192.168.42.178:/home/pmorgan/gps-dashboard.git
 
 # Logs and status
 ssh pmorgan@192.168.42.178 "journalctl -u gps-dashboard -f"
