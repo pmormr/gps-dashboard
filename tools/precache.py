@@ -63,8 +63,26 @@ def count_tiles(bbox, zoom_levels):
 
 def download_tile(z, x, y):
     cache_path = TILE_CACHE_DIR / str(z) / str(x) / f'{y}.png'
+    etag_path = cache_path.with_suffix('.etag')
+
     if cache_path.exists():
-        return 'cached'
+        if etag_path.exists():
+            return 'cached'
+        # Backfill missing ETag via HEAD request
+        try:
+            resp = requests.head(
+                OSM_URL.format(z=z, x=x, y=y),
+                timeout=10,
+                headers={'User-Agent': USER_AGENT},
+            )
+            etag = resp.headers.get('ETag')
+            if etag:
+                etag_path.write_text(etag)
+            time.sleep(0.05)  # respect OSM rate limits
+        except Exception:
+            pass
+        return 'etag-added'
+
     try:
         resp = requests.get(
             OSM_URL.format(z=z, x=x, y=y),
@@ -74,6 +92,9 @@ def download_tile(z, x, y):
         resp.raise_for_status()
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(resp.content)
+        etag = resp.headers.get('ETag')
+        if etag:
+            etag_path.write_text(etag)
         time.sleep(0.05)  # respect OSM rate limits
         return 'downloaded'
     except Exception as e:
@@ -159,7 +180,7 @@ def main(region, bbox, use_local, radius, zoom, list_regions, workers):
         for tile in tiles_for_bbox(*selected_bbox, z)
     ]
 
-    downloaded = cached = errors = 0
+    downloaded = cached = etag_added = errors = 0
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(download_tile, z, x, y): (z, x, y) for z, x, y in all_tiles}
@@ -169,12 +190,14 @@ def main(region, bbox, use_local, radius, zoom, list_regions, workers):
                 downloaded += 1
             elif result == 'cached':
                 cached += 1
+            elif result == 'etag-added':
+                etag_added += 1
             else:
                 errors += 1
             if i % 100 == 0 or i == total:
-                click.echo(f'\r  {i:,}/{total:,} tiles  ({downloaded} downloaded, {cached} cached, {errors} errors)', nl=False)
+                click.echo(f'\r  {i:,}/{total:,} tiles  ({downloaded} downloaded, {cached} cached, {etag_added} etag-added, {errors} errors)', nl=False)
 
-    click.echo(f'\nDone. {downloaded} downloaded, {cached} already cached, {errors} errors.')
+    click.echo(f'\nDone. {downloaded} downloaded, {cached} already cached, {etag_added} etags backfilled, {errors} errors.')
 
 
 if __name__ == '__main__':

@@ -1,5 +1,8 @@
+const TILE_URL = '/tiles/{z}/{x}/{y}.png';
+const TILE_URL_REFRESH = '/tiles/{z}/{x}/{y}.png?refresh=1';
+
 const MapView = (() => {
-  let map, trackLayer, markerLayer;
+  let map, tileLayer, trackLayer, markerLayer;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
 
@@ -12,7 +15,7 @@ const MapView = (() => {
 
   function init(elementId) {
     map = L.map(elementId, { zoomControl: true });
-    L.tileLayer('/tiles/{z}/{x}/{y}.png', {
+    tileLayer = L.tileLayer(TILE_URL, {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
       errorTileUrl: '/static/img/tile-error.png',
@@ -20,6 +23,10 @@ const MapView = (() => {
     trackLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     map.setView([39, -98], 4); // default: center of US
+  }
+
+  function setRefreshMode(enabled) {
+    if (tileLayer) tileLayer.setUrl(enabled ? TILE_URL_REFRESH : TILE_URL);
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -62,12 +69,12 @@ const MapView = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize };
+  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode };
 })();
 
 // Second map instance for the Trips detail pane
 const TripsMap = (() => {
-  let map, trackLayer, markerLayer;
+  let map, tileLayer, trackLayer, markerLayer;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
 
@@ -80,7 +87,7 @@ const TripsMap = (() => {
 
   function init(elementId) {
     map = L.map(elementId, { zoomControl: true });
-    L.tileLayer('/tiles/{z}/{x}/{y}.png', {
+    tileLayer = L.tileLayer(TILE_URL, {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
       errorTileUrl: '/static/img/tile-error.png',
@@ -88,6 +95,10 @@ const TripsMap = (() => {
     trackLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     map.setView([39, -98], 4);
+  }
+
+  function setRefreshMode(enabled) {
+    if (tileLayer) tileLayer.setUrl(enabled ? TILE_URL_REFRESH : TILE_URL);
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -121,5 +132,5 @@ const TripsMap = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, invalidateSize };
+  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode };
 })();

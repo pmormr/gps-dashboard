@@ -65,6 +65,11 @@
 
   </div>
 
+  <!-- ── Tile refresh banner ── -->
+  <div id="tile-refresh-banner" class="tile-refresh-banner hidden">
+    Refreshing tiles in background — reload page to see updates
+  </div>
+
   <!-- ── Tab bar ── -->
   <nav id="tab-bar">
     <button data-view="timeline" class="active">Timeline</button>
@@ -72,6 +77,9 @@
     <div class="tab-status-links">
       <a href="/gpsd" target="_blank">GPS</a>
       <a href="/ntp" target="_blank">NTP</a>
+      <label class="tab-refresh-label" title="Check OpenStreetMap for updated tiles">
+        <input type="checkbox" id="tile-refresh-toggle"> ↻
+      </label>
     </div>
   </nav>
 

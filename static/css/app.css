@@ -390,6 +390,34 @@ input[type="date"] {
 }
 .tab-status-links a:hover { color: var(--text); background: var(--surface2); }
 
+.tab-refresh-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 6px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.tab-refresh-label:hover { color: var(--text); background: var(--surface2); }
+.tab-refresh-label input[type="checkbox"] { accent-color: var(--primary); cursor: pointer; }
+
+.tile-refresh-banner {
+  position: fixed;
+  bottom: var(--tab-h);
+  left: 0;
+  right: 0;
+  background: #92400e;
+  color: #fef3c7;
+  font-size: 12px;
+  text-align: center;
+  padding: 6px 16px;
+  z-index: 2000;
+  border-top: 1px solid #b45309;
+}
+
 /* ── noUiSlider overrides ── */
 .noUi-target { background: var(--surface2); border: none; box-shadow: none; height: 4px; }
 .noUi-connects { border-radius: 2px; }

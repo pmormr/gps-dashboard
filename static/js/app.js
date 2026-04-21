@@ -17,4 +17,14 @@ document.addEventListener('DOMContentLoaded', () => {
       TripsMap.invalidateSize();
     });
   });
+
+  // Tile refresh toggle
+  const refreshToggle = document.getElementById('tile-refresh-toggle');
+  const refreshBanner = document.getElementById('tile-refresh-banner');
+  refreshToggle.addEventListener('change', () => {
+    const enabled = refreshToggle.checked;
+    MapView.setRefreshMode(enabled);
+    TripsMap.setRefreshMode(enabled);
+    refreshBanner.classList.toggle('hidden', !enabled);
+  });
 });

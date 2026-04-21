@@ -61,7 +61,7 @@ SQLite (`gps_history.db`), three tables:
 - `PATCH /api/trips/:id` — edit name, notes, or bounds
 - `DELETE /api/trips/:id`
 - `POST /api/trips/mark` — upsert `start` or `end` mark with current UTC time
-- `GET /tiles/{z}/{x}/{y}.png` — tile proxy
+- `GET /tiles/{z}/{x}/{y}.png` — tile proxy; `?refresh=1` serves from cache and fires a background conditional GET against OSM (ETag-based), updating the cache if the tile changed
 - `GET /gpsd` — read-only gpsd status page
 - `GET /ntp` — read-only NTP/chrony status page
 
@@ -70,7 +70,7 @@ SQLite (`gps_history.db`), three tables:
 Separate files in `static/` and `templates/`. All JS/CSS vendored in `static/vendor/` — no CDN calls at runtime. Mobile-first (primary client is a phone browser).
 
 Two views in the main app (`/`):
-- **Timeline** — date picker + range scrubber (noUiSlider), filters points in memory, create trips from selection
+- **Timeline** — date picker + range scrubber (noUiSlider), filters points in memory, create trips from selection. **Live mode**: when viewing today's date, the Live button polls `/api/points` every 30s and auto-advances the slider end to show new points in real time. The ⊕ FAB button zooms the map to the most recent GPS fix via `/api/points/latest`.
 - **Trips** — browse trips, view track on map, stats (distance, max/avg speed, elevation gain) computed client-side via Haversine
 
 Two standalone status pages:
@@ -83,7 +83,9 @@ Both status pages auto-refresh every 30 seconds.
 
 Flask proxies tile requests to OpenStreetMap when online, caches to disk at `~/.cache/gps-dashboard/tiles/{z}/{x}/{y}.png`. Serves from cache offline. Returns 503 if tile is uncached and internet is unavailable.
 
-`tools/precache.py` pre-downloads tiles for a bounding box + zoom range. Includes a state bounding box lookup table. Practical zoom range: z8–z15; z16+ grows storage quickly.
+ETags are stored in sidecar files (`{z}/{x}/{y}.etag`) alongside each cached tile. The `?refresh=1` query param triggers a background conditional GET (`If-None-Match`) per tile; the cache is updated silently if OSM returns a new version. A "↻" checkbox in the UI tab bar enables refresh mode for all tile layers; a banner prompts the user to reload the page to see updates.
+
+`tools/precache.py` pre-downloads tiles for a bounding box + zoom range. Includes a state bounding box lookup table. Practical zoom range: z8–z15; z16+ grows storage quickly. Supports three source modes: `--region`, `--bbox`, and `--local` (derives bbox from current GPS position in the database with a configurable `--radius` in km, default 50).
 
 ### GPS Logger Detail
 
@@ -165,6 +167,8 @@ uv run api/app.py
 # Pre-cache tiles for a region
 uv run tools/precache.py --region colorado --zoom 8-15
 uv run tools/precache.py --bbox "-109.05,36.99,-102.04,41.00" --zoom 8-15
+uv run tools/precache.py --local --zoom 8-15          # bbox around current GPS position
+uv run tools/precache.py --local --radius 100 --zoom 8-15
 uv run tools/precache.py --list-regions
 
 # gpsd setup and validation (run on Pi)
