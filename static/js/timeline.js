@@ -25,8 +25,12 @@ const Timeline = (() => {
     document.getElementById('tl-end-label').textContent = sliderLabel(hi);
   }
 
+  function localDateStr(d = new Date()) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   function isToday(dateStr) {
-    return dateStr === new Date().toISOString().slice(0, 10);
+    return dateStr === localDateStr();
   }
 
   function renderRange(followMap = false) {
@@ -61,8 +65,8 @@ const Timeline = (() => {
     if (!isToday(dateInput.value)) { stopLive(); return; }
 
     const dateStr = dateInput.value;
-    const start = `${dateStr}T00:00:00Z`;
-    const end   = `${dateStr}T23:59:59Z`;
+    const start = new Date(`${dateStr}T00:00:00`).toISOString();
+    const end   = new Date(`${dateStr}T23:59:59`).toISOString();
 
     let data;
     try {
@@ -124,8 +128,8 @@ const Timeline = (() => {
   async function loadDate(dateStr) {
     stopLive();
 
-    const start = `${dateStr}T00:00:00Z`;
-    const end   = `${dateStr}T23:59:59Z`;
+    const start = new Date(`${dateStr}T00:00:00`).toISOString();
+    const end   = new Date(`${dateStr}T23:59:59`).toISOString();
 
     document.getElementById('tl-status').textContent = 'Loading…';
     document.getElementById('tl-slider-wrap').classList.add('hidden');
@@ -261,7 +265,7 @@ const Timeline = (() => {
 
   function init() {
     const dateInput = document.getElementById('timeline-date');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     dateInput.value = today;
     dateInput.addEventListener('change', e => loadDate(e.target.value));
 
