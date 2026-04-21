@@ -156,5 +156,9 @@ def run_all(verbose=True):
 
 
 if __name__ == '__main__':
-    results = run_all()
-    sys.exit(0 if all(ok for _, ok, _ in results) else 1)
+    try:
+        results = run_all()
+        sys.exit(0 if all(ok for _, ok, _ in results) else 1)
+    except KeyboardInterrupt:
+        print('\nInterrupted.')
+        sys.exit(130)

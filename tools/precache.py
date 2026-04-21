@@ -3,6 +3,7 @@
 import math
 import os
 import sqlite3
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -181,23 +182,33 @@ def main(region, bbox, use_local, radius, zoom, list_regions, workers):
     ]
 
     downloaded = cached = etag_added = errors = 0
+    interrupted = False
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(download_tile, z, x, y): (z, x, y) for z, x, y in all_tiles}
-        for i, future in enumerate(as_completed(futures), 1):
-            result = future.result()
-            if result == 'downloaded':
-                downloaded += 1
-            elif result == 'cached':
-                cached += 1
-            elif result == 'etag-added':
-                etag_added += 1
-            else:
-                errors += 1
-            if i % 100 == 0 or i == total:
-                click.echo(f'\r  {i:,}/{total:,} tiles  ({downloaded} downloaded, {cached} cached, {etag_added} etag-added, {errors} errors)', nl=False)
+        try:
+            for i, future in enumerate(as_completed(futures), 1):
+                result = future.result()
+                if result == 'downloaded':
+                    downloaded += 1
+                elif result == 'cached':
+                    cached += 1
+                elif result == 'etag-added':
+                    etag_added += 1
+                else:
+                    errors += 1
+                if i % 100 == 0 or i == total:
+                    click.echo(f'\r  {i:,}/{total:,} tiles  ({downloaded} downloaded, {cached} cached, {etag_added} etag-added, {errors} errors)', nl=False)
+        except KeyboardInterrupt:
+            interrupted = True
+            for f in futures:
+                f.cancel()
 
-    click.echo(f'\nDone. {downloaded} downloaded, {cached} already cached, {etag_added} etags backfilled, {errors} errors.')
+    if interrupted:
+        click.echo(f'\nInterrupted. {downloaded} downloaded, {cached} already cached, {etag_added} etags backfilled, {errors} errors.')
+        sys.exit(130)
+    else:
+        click.echo(f'\nDone. {downloaded} downloaded, {cached} already cached, {etag_added} etags backfilled, {errors} errors.')
 
 
 if __name__ == '__main__':

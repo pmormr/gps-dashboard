@@ -247,4 +247,8 @@ def main(device, baud, validate):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        click.echo('\nInterrupted.')
+        sys.exit(130)

@@ -146,5 +146,9 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description='Validate chrony NTP configuration')
     p.add_argument('--pps', action='store_true', help='Also check PPS source')
     args = p.parse_args()
-    results = run_all(check_pps=args.pps)
-    sys.exit(0 if all(ok for _, ok, _ in results) else 1)
+    try:
+        results = run_all(check_pps=args.pps)
+        sys.exit(0 if all(ok for _, ok, _ in results) else 1)
+    except KeyboardInterrupt:
+        print('\nInterrupted.')
+        sys.exit(130)

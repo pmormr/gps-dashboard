@@ -206,4 +206,8 @@ def main(mode, gpio_pin, validate):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        click.echo('\nInterrupted.')
+        sys.exit(130)

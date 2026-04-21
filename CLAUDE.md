@@ -155,6 +155,10 @@ Current GPS hardware: u-blox 7 USB dongle (VID 1546, PID 01a7), no PPS signal wi
 
 The dongle is pinned to `/dev/gps0` via udev. gpsd and the logger both reference `/dev/gps0`. If the dongle re-enumerates on a different ACM port (e.g. after a USB hub EMI event), the udev rule both updates the symlink and calls `gpsdctl add` to re-attach gpsd automatically — no manual restart needed. This was hardened after a real incident where a stale ACM port caused gpsd to lose the device silently.
 
+## Tool Scripts
+
+All scripts in `tools/` must handle `KeyboardInterrupt` gracefully — print `"\nInterrupted."` and exit with code 130. Never let Ctrl+C produce a traceback. For scripts using `ThreadPoolExecutor`, catch `KeyboardInterrupt` inside the `as_completed` loop, cancel pending futures, print partial stats, and exit 130.
+
 ## Commands
 
 ```bash
