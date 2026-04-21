@@ -2,6 +2,7 @@
 
 import math
 import os
+import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -79,6 +80,24 @@ def download_tile(z, x, y):
         return f'error: {e}'
 
 
+def get_current_location() -> tuple[float, float]:
+    db_path = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
+    if not db_path.exists():
+        raise click.ClickException(f'Database not found: {db_path}')
+    conn = sqlite3.connect(db_path)
+    row = conn.execute('SELECT lat, lon FROM gps_points ORDER BY timestamp DESC LIMIT 1').fetchone()
+    conn.close()
+    if row is None:
+        raise click.ClickException('No GPS data in database.')
+    return row[0], row[1]
+
+
+def bbox_from_center(lat: float, lon: float, radius_km: float) -> tuple:
+    delta_lat = radius_km / 111.0
+    delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+    return (lon - delta_lon, lat - delta_lat, lon + delta_lon, lat + delta_lat)
+
+
 def parse_zoom(zoom_str: str) -> list[int]:
     if '-' in zoom_str:
         lo, hi = zoom_str.split('-', 1)
@@ -89,10 +108,12 @@ def parse_zoom(zoom_str: str) -> list[int]:
 @click.command()
 @click.option('--region', default=None, help='Named region (see --list-regions)')
 @click.option('--bbox', default=None, help='Bounding box: "min_lon,min_lat,max_lon,max_lat"')
+@click.option('--local', 'use_local', is_flag=True, help='Cache tiles around current GPS position')
+@click.option('--radius', default=50.0, show_default=True, type=float, help='Radius in km (used with --local)')
 @click.option('--zoom', default='8-14', show_default=True, help='Zoom range, e.g. 8-14 or 12')
 @click.option('--list-regions', 'list_regions', is_flag=True, help='List available regions')
 @click.option('--workers', default=4, show_default=True, help='Parallel download workers')
-def main(region, bbox, zoom, list_regions, workers):
+def main(region, bbox, use_local, radius, zoom, list_regions, workers):
     """Pre-download OSM map tiles for offline use."""
     if list_regions:
         click.echo('Available regions:')
@@ -100,17 +121,18 @@ def main(region, bbox, zoom, list_regions, workers):
             click.echo(f'  {name:<15} ({min_lat:.1f}°N–{max_lat:.1f}°N, {min_lon:.1f}°–{max_lon:.1f}°)')
         return
 
-    if region and bbox:
-        raise click.UsageError('Specify --region or --bbox, not both.')
-    if not region and not bbox:
-        raise click.UsageError('Specify --region or --bbox.')
+    sources = sum([bool(region), bool(bbox), use_local])
+    if sources > 1:
+        raise click.UsageError('Specify only one of --region, --bbox, or --local.')
+    if sources == 0:
+        raise click.UsageError('Specify --region, --bbox, or --local.')
 
     if region:
         region = region.lower().replace(' ', '_')
         if region not in REGIONS:
             raise click.BadParameter(f"Unknown region '{region}'. Use --list-regions to see options.")
         selected_bbox = REGIONS[region]
-    else:
+    elif bbox:
         try:
             parts = [float(p) for p in bbox.split(',')]
             if len(parts) != 4:
@@ -118,6 +140,10 @@ def main(region, bbox, zoom, list_regions, workers):
             selected_bbox = tuple(parts)
         except ValueError:
             raise click.BadParameter('--bbox must be "min_lon,min_lat,max_lon,max_lat"')
+    else:
+        lat, lon = get_current_location()
+        selected_bbox = bbox_from_center(lat, lon, radius)
+        click.echo(f'Current location: {lat:.5f}, {lon:.5f}  (radius {radius} km)')
 
     zoom_levels = parse_zoom(zoom)
     total = count_tiles(selected_bbox, zoom_levels)
