@@ -32,6 +32,10 @@ def run_session(conn, last_log_time: float) -> float:
                 continue
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
+            # Null Island: gpsd briefly reports mode>=2 with uninitialized 0,0
+            # coords during driver init or transient fix loss.
+            if lat == 0 and lon == 0:
+                continue
 
             # Reject fixes whose GPS time is more than 10s behind wall clock.
             # Guards against gpsd replaying stale cached positions after restart.

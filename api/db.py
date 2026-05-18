@@ -47,9 +47,15 @@ def migrate(conn: sqlite3.Connection) -> None:
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='location_history'"
     ).fetchone()
-    if row is None:
-        return
-    count = conn.execute("SELECT COUNT(*) FROM location_history").fetchone()[0]
-    conn.execute("DROP TABLE location_history")
-    conn.commit()
-    print(f"Migration: dropped legacy location_history table ({count} rows)")
+    if row is not None:
+        count = conn.execute("SELECT COUNT(*) FROM location_history").fetchone()[0]
+        conn.execute("DROP TABLE location_history")
+        conn.commit()
+        print(f"Migration: dropped legacy location_history table ({count} rows)")
+
+    deleted = conn.execute(
+        "DELETE FROM gps_points WHERE lat = 0 AND lon = 0"
+    ).rowcount
+    if deleted:
+        conn.commit()
+        print(f"Migration: deleted {deleted} null-island gps_points rows")
