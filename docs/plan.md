@@ -73,7 +73,7 @@ gps-dashboard/
 **Files:** `api/db.py`, `api/__init__.py`, `api/routes/__init__.py`, `pyproject.toml`
 
 ### `api/db.py`
-- `DB_PATH` — reads from env var `GPS_DB_PATH`, defaults to `~/gps_history.db`
+- `DB_PATH` — reads from env var `GPS_DB_PATH`, defaults to `~/gps_history.db` (dev). On the Pi, set to `/mnt/nvme/data/gps_history.db` via systemd unit and `~/.bashrc`.
 - `get_connection()` — returns `sqlite3.connect(DB_PATH, check_same_thread=False)` with `row_factory = sqlite3.Row`
 - `init_db(conn)` — creates all tables with `CREATE TABLE IF NOT EXISTS`:
 
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS marks (
 ### Verification
 ```bash
 python -c "from api.db import get_connection, init_db, migrate; conn = get_connection(); init_db(conn); migrate(conn); print('OK')"
-sqlite3 ~/gps_history.db ".tables"
+sqlite3 "$GPS_DB_PATH" ".tables"
 # Expected: gps_points  marks  trips
 ```
 
@@ -160,7 +160,7 @@ while True:
 ### Verification
 ```bash
 uv run logger/gps_logger.py &
-watch -n 5 'sqlite3 ~/gps_history.db "SELECT COUNT(*) FROM gps_points;"'
+watch -n 5 'sqlite3 "$GPS_DB_PATH" "SELECT COUNT(*) FROM gps_points;"'
 ```
 
 ---
@@ -242,7 +242,7 @@ curl -X POST http://localhost:5000/api/trips/mark -H "Content-Type: application/
 
 ### `api/routes/tiles.py`
 
-Cache directory: `TILE_CACHE_DIR` from env var `GPS_TILE_CACHE_DIR`, default `~/.cache/gps-dashboard/tiles`.
+Cache directory: `TILE_CACHE_DIR` from env var `GPS_TILE_CACHE_DIR`, default `~/.cache/gps-dashboard/tiles` (dev). On the Pi, set to `/mnt/nvme/cache/tiles` via systemd unit and `~/.bashrc`.
 
 Structure on disk mirrors URL: `{cache_dir}/{z}/{x}/{y}.png`.
 
@@ -302,7 +302,7 @@ Always print estimated tile count and ask for confirmation before downloading. R
 # Fetch one tile (needs internet):
 curl -o /tmp/t.png http://localhost:5000/tiles/10/164/395.png
 file /tmp/t.png  # PNG image data
-ls ~/.cache/gps-dashboard/tiles/10/164/395.png  # cached
+ls "$GPS_TILE_CACHE_DIR/10/164/395.png"  # cached
 
 # Pre-cache a tiny area:
 uv run tools/precache.py --region colorado --zoom 8-9
@@ -400,8 +400,8 @@ Update post-receive hook on Pi to conditionally restart logger:
 ```bash
 #!/usr/bin/env bash
 set -e
-REPO_DIR=/home/pmorgan/gps-dashboard
-GIT_DIR=/home/pmorgan/gps-dashboard.git
+REPO_DIR=/mnt/nvme/gps-dashboard
+GIT_DIR=/mnt/nvme/gps-dashboard.git
 PREV=$(git --git-dir="$GIT_DIR" rev-parse HEAD 2>/dev/null || echo "")
 NEW=$(git --git-dir="$GIT_DIR" rev-parse FETCH_HEAD 2>/dev/null || echo "")
 

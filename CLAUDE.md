@@ -190,8 +190,8 @@ uv run tools/ntp_setup.py
 uv run tools/ntp_validate.py
 
 # Inspect the database
-sqlite3 gps_history.db "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
-sqlite3 gps_history.db "SELECT * FROM trips;"
+sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
+sqlite3 "$GPS_DB_PATH" "SELECT * FROM trips;"
 ```
 
 No test suite or linter is configured.
