@@ -6,9 +6,10 @@ Wants=gpsd.service
 [Service]
 Type=simple
 User=pmorgan
-WorkingDirectory=/home/pmorgan/gps-dashboard
-Environment=PYTHONPATH=/home/pmorgan/gps-dashboard
-ExecStart=/home/pmorgan/gps-dashboard/.venv/bin/python logger/gps_logger.py
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python logger/gps_logger.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

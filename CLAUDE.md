@@ -19,15 +19,21 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync`, always restarts `gps-dashboard`, and restarts `gps-logger` only if `logger/` changed (to avoid GPS data gaps). The `pi` remote points to `pmorgan@192.168.42.178:/home/pmorgan/gps-dashboard.git`.
+The hook runs `uv sync`, always restarts `gps-dashboard`, and restarts `gps-logger` only if `logger/` changed (to avoid GPS data gaps). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+
+App files live on an NVMe drive mounted at `/mnt/nvme`:
+- `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
+- `/mnt/nvme/gps-dashboard` — working tree (overwritten by deploys)
+- `/mnt/nvme/data/gps_history.db` — database (persists across deploys)
+- `/mnt/nvme/cache/tiles/` — tile cache (persists across deploys)
 
 **Never commit directly on the Pi.** All commits go local → push to both remotes. Direct Pi commits cause history divergence requiring force-pushes to fix.
 
 ```bash
 # Add remotes if missing
-git remote add pi pmorgan@192.168.42.178:/home/pmorgan/gps-dashboard.git
+git remote add pi pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git
 git remote add all https://github.com/pmormr/gps-dashboard.git
-git remote set-url --add all pmorgan@192.168.42.178:/home/pmorgan/gps-dashboard.git
+git remote set-url --add all pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git
 
 # Logs and status
 ssh pmorgan@192.168.42.178 "journalctl -u gps-dashboard -f"
@@ -81,7 +87,7 @@ Both status pages auto-refresh every 30 seconds.
 
 ### Tile Proxy & Cache
 
-Flask proxies tile requests to OpenStreetMap when online, caches to disk at `~/.cache/gps-dashboard/tiles/{z}/{x}/{y}.png`. Serves from cache offline. Returns 503 if tile is uncached and internet is unavailable.
+Flask proxies tile requests to OpenStreetMap when online, caches to disk at `$GPS_TILE_CACHE_DIR/{z}/{x}/{y}.png` (set to `/mnt/nvme/cache/tiles` on the Pi; falls back to `~/.cache/gps-dashboard/tiles/` in dev). Serves from cache offline. Returns 503 if tile is uncached and internet is unavailable.
 
 ETags are stored in sidecar files (`{z}/{x}/{y}.etag`) alongside each cached tile. The `?refresh=1` query param triggers a background conditional GET (`If-None-Match`) per tile; the cache is updated silently if OSM returns a new version. A "↻" checkbox in the UI tab bar enables refresh mode for all tile layers; a banner prompts the user to reload the page to see updates.
 
