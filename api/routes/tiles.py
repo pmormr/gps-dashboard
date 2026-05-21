@@ -26,11 +26,22 @@ def _fetch_osm(z, x, y, etag=None):
     return requests.get(OSM_URL.format(z=z, x=x, y=y), timeout=5, headers=headers)
 
 
+def _atomic_write(path, data):
+    # Write to a thread-unique sibling, then rename. Same-filesystem rename is
+    # atomic, so readers never see a half-written tile or etag.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'{path.name}.{threading.get_ident()}.tmp')
+    if isinstance(data, str):
+        tmp.write_text(data)
+    else:
+        tmp.write_bytes(data)
+    tmp.replace(path)
+
+
 def _save_tile(cache_path, content, etag=None):
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_bytes(content)
+    _atomic_write(cache_path, content)
     if etag:
-        _etag_path(cache_path).write_text(etag)
+        _atomic_write(_etag_path(cache_path), etag)
 
 
 def _background_refresh(z, x, y, cache_path):

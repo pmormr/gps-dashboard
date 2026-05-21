@@ -4,6 +4,7 @@ import math
 import os
 import sqlite3
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -62,6 +63,18 @@ def count_tiles(bbox, zoom_levels):
     )
 
 
+def _atomic_write(path, data):
+    # Write to a thread-unique sibling, then rename. Same-filesystem rename is
+    # atomic, so a Ctrl+C or crash never leaves a half-written tile or etag.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'{path.name}.{threading.get_ident()}.tmp')
+    if isinstance(data, str):
+        tmp.write_text(data)
+    else:
+        tmp.write_bytes(data)
+    tmp.replace(path)
+
+
 def download_tile(z, x, y):
     cache_path = TILE_CACHE_DIR / str(z) / str(x) / f'{y}.png'
     etag_path = cache_path.with_suffix('.etag')
@@ -78,7 +91,7 @@ def download_tile(z, x, y):
             )
             etag = resp.headers.get('ETag')
             if etag:
-                etag_path.write_text(etag)
+                _atomic_write(etag_path, etag)
             time.sleep(0.05)  # respect OSM rate limits
         except Exception:
             pass
@@ -91,11 +104,10 @@ def download_tile(z, x, y):
             headers={'User-Agent': USER_AGENT},
         )
         resp.raise_for_status()
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(resp.content)
+        _atomic_write(cache_path, resp.content)
         etag = resp.headers.get('ETag')
         if etag:
-            etag_path.write_text(etag)
+            _atomic_write(etag_path, etag)
         time.sleep(0.05)  # respect OSM rate limits
         return 'downloaded'
     except Exception as e:
