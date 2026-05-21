@@ -212,4 +212,19 @@ def main(region, bbox, use_local, radius, zoom, list_regions, workers):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main(standalone_mode=False)
+    except click.exceptions.Abort as e:
+        # standalone_mode=False lets us see the underlying cause:
+        # Ctrl+C → Abort chained from KeyboardInterrupt; 'n' at confirm → bare Abort.
+        if isinstance(e.__cause__, KeyboardInterrupt):
+            click.echo('\nInterrupted.', err=True)
+            sys.exit(130)
+        click.echo('Aborted.', err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo('\nInterrupted.', err=True)
+        sys.exit(130)
+    except click.exceptions.ClickException as e:
+        e.show()
+        sys.exit(e.exit_code)
