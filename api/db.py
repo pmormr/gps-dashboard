@@ -59,6 +59,6 @@ def migrate(conn: sqlite3.Connection) -> None:
     deleted = conn.execute(
         "DELETE FROM gps_points WHERE lat = 0 AND lon = 0"
     ).rowcount
+    conn.commit()
     if deleted:
-        conn.commit()
         print(f"Migration: deleted {deleted} null-island gps_points rows")
