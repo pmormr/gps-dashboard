@@ -1,4 +1,4 @@
-"""Pre-download OSM tiles for offline use."""
+"""Pre-download map tiles for offline use."""
 
 import math
 import os
@@ -12,11 +12,14 @@ from pathlib import Path
 import click
 import requests
 
+# Make `api.tile_layers` importable when this script is run directly via uv.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from api.tile_layers import LAYERS  # noqa: E402
+
 TILE_CACHE_DIR = Path(
     os.environ.get('GPS_TILE_CACHE_DIR', Path.home() / '.cache' / 'gps-dashboard' / 'tiles')
 )
 
-OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
 
 # (min_lon, min_lat, max_lon, max_lat)
@@ -75,40 +78,33 @@ def _atomic_write(path, data):
     tmp.replace(path)
 
 
-def download_tile(z, x, y):
-    cache_path = TILE_CACHE_DIR / str(z) / str(x) / f'{y}.png'
+def download_tile(layer, z, x, y):
+    cache_path = TILE_CACHE_DIR / layer / str(z) / str(x) / f'{y}.png'
     etag_path = cache_path.with_suffix('.etag')
+    url = LAYERS[layer]['url'].format(z=z, x=x, y=y)
 
     if cache_path.exists():
         if etag_path.exists():
             return 'cached'
         # Backfill missing ETag via HEAD request
         try:
-            resp = requests.head(
-                OSM_URL.format(z=z, x=x, y=y),
-                timeout=10,
-                headers={'User-Agent': USER_AGENT},
-            )
+            resp = requests.head(url, timeout=10, headers={'User-Agent': USER_AGENT})
             etag = resp.headers.get('ETag')
             if etag:
                 _atomic_write(etag_path, etag)
-            time.sleep(0.05)  # respect OSM rate limits
+            time.sleep(0.05)  # respect upstream rate limits
         except Exception:
             pass
         return 'etag-added'
 
     try:
-        resp = requests.get(
-            OSM_URL.format(z=z, x=x, y=y),
-            timeout=10,
-            headers={'User-Agent': USER_AGENT},
-        )
+        resp = requests.get(url, timeout=10, headers={'User-Agent': USER_AGENT})
         resp.raise_for_status()
         _atomic_write(cache_path, resp.content)
         etag = resp.headers.get('ETag')
         if etag:
             _atomic_write(etag_path, etag)
-        time.sleep(0.05)  # respect OSM rate limits
+        time.sleep(0.05)  # respect upstream rate limits
         return 'downloaded'
     except Exception as e:
         return f'error: {e}'
@@ -140,6 +136,7 @@ def parse_zoom(zoom_str: str) -> list[int]:
 
 
 @click.command()
+@click.option('--layer', default='osm', show_default=True, type=click.Choice(sorted(LAYERS)), help='Tile layer to cache')
 @click.option('--region', default=None, help='Named region (see --list-regions)')
 @click.option('--bbox', default=None, help='Bounding box: "min_lon,min_lat,max_lon,max_lat"')
 @click.option('--local', 'use_local', is_flag=True, help='Cache tiles around current GPS position')
@@ -147,8 +144,8 @@ def parse_zoom(zoom_str: str) -> list[int]:
 @click.option('--zoom', default='8-14', show_default=True, help='Zoom range, e.g. 8-14 or 12')
 @click.option('--list-regions', 'list_regions', is_flag=True, help='List available regions')
 @click.option('--workers', default=4, show_default=True, help='Parallel download workers')
-def main(region, bbox, use_local, radius, zoom, list_regions, workers):
-    """Pre-download OSM map tiles for offline use."""
+def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers):
+    """Pre-download map tiles for offline use."""
     if list_regions:
         click.echo('Available regions:')
         for name, (min_lon, min_lat, max_lon, max_lat) in sorted(REGIONS.items()):
@@ -180,10 +177,14 @@ def main(region, bbox, use_local, radius, zoom, list_regions, workers):
         click.echo(f'Current location: {lat:.5f}, {lon:.5f}  (radius {radius} km)')
 
     zoom_levels = parse_zoom(zoom)
+    max_zoom = LAYERS[layer]['max_zoom']
+    if max(zoom_levels) > max_zoom:
+        raise click.BadParameter(f"--zoom exceeds max zoom for layer '{layer}' ({max_zoom})")
     total = count_tiles(selected_bbox, zoom_levels)
 
+    click.echo(f'Layer:       {layer}')
     click.echo(f'Zoom levels: {zoom_levels[0]}–{zoom_levels[-1]}')
-    click.echo(f'Cache dir:   {TILE_CACHE_DIR}')
+    click.echo(f'Cache dir:   {TILE_CACHE_DIR / layer}')
     click.echo(f'Tiles to download: ~{total:,} (skips already cached)')
     click.confirm('Proceed?', abort=True)
 
@@ -197,7 +198,7 @@ def main(region, bbox, use_local, radius, zoom, list_regions, workers):
     interrupted = False
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(download_tile, z, x, y): (z, x, y) for z, x, y in all_tiles}
+        futures = {pool.submit(download_tile, layer, z, x, y): (z, x, y) for z, x, y in all_tiles}
         try:
             for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()

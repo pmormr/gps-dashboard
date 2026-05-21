@@ -77,7 +77,11 @@
     <div class="tab-status-links">
       <a href="/gpsd" target="_blank">GPS</a>
       <a href="/ntp" target="_blank">NTP</a>
-      <label class="tab-refresh-label" title="Check OpenStreetMap for updated tiles">
+      <select id="layer-select" title="Map layer">
+        <option value="osm">OSM</option>
+        <option value="usgs">USGS Topo</option>
+      </select>
+      <label class="tab-refresh-label" title="Check upstream for updated tiles">
         <input type="checkbox" id="tile-refresh-toggle"> ↻
       </label>
     </div>

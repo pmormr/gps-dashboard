@@ -27,4 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     TripsMap.setRefreshMode(enabled);
     refreshBanner.classList.toggle('hidden', !enabled);
   });
+
+  // Tile layer selector
+  const layerSelect = document.getElementById('layer-select');
+  layerSelect.addEventListener('change', () => {
+    MapView.setLayer(layerSelect.value);
+    TripsMap.setLayer(layerSelect.value);
+  });
 });

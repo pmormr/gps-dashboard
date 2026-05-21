@@ -1,8 +1,37 @@
-const TILE_URL = '/tiles/{z}/{x}/{y}.png';
-const TILE_URL_REFRESH = '/tiles/{z}/{x}/{y}.png?refresh=1';
+// Mirrors api/tile_layers.py — kept in sync by hand. Only two layers so drift
+// risk is low. `maxNativeZoom` lets Leaflet upsample the deepest available
+// tile rather than asking for ones the upstream doesn't serve.
+const TILE_LAYERS = {
+  osm: {
+    label: 'OSM',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxNativeZoom: 19,
+  },
+  usgs: {
+    label: 'USGS Topo',
+    attribution: '<a href="https://www.usgs.gov/">USGS</a> The National Map',
+    maxNativeZoom: 16,
+  },
+};
+
+function tileUrl(layer, refresh) {
+  return `/tiles/${layer}/{z}/{x}/{y}.png` + (refresh ? '?refresh=1' : '');
+}
+
+function makeTileLayer(layer, refresh) {
+  const cfg = TILE_LAYERS[layer];
+  return L.tileLayer(tileUrl(layer, refresh), {
+    attribution: cfg.attribution,
+    maxNativeZoom: cfg.maxNativeZoom,
+    maxZoom: 19,
+    errorTileUrl: '/static/img/tile-error.png',
+  });
+}
 
 const MapView = (() => {
   let map, tileLayer, trackLayer, markerLayer;
+  let currentLayer = 'osm';
+  let currentRefresh = false;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
 
@@ -15,18 +44,23 @@ const MapView = (() => {
 
   function init(elementId) {
     map = L.map(elementId, { zoomControl: true });
-    tileLayer = L.tileLayer(TILE_URL, {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-      errorTileUrl: '/static/img/tile-error.png',
-    }).addTo(map);
+    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
     trackLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     map.setView([39, -98], 4); // default: center of US
   }
 
+  function setLayer(layer) {
+    if (!TILE_LAYERS[layer] || layer === currentLayer) return;
+    currentLayer = layer;
+    if (!map) return;
+    map.removeLayer(tileLayer);
+    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
+  }
+
   function setRefreshMode(enabled) {
-    if (tileLayer) tileLayer.setUrl(enabled ? TILE_URL_REFRESH : TILE_URL);
+    currentRefresh = enabled;
+    if (tileLayer) tileLayer.setUrl(tileUrl(currentLayer, currentRefresh));
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -69,12 +103,14 @@ const MapView = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode };
+  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer };
 })();
 
 // Second map instance for the Trips detail pane
 const TripsMap = (() => {
   let map, tileLayer, trackLayer, markerLayer;
+  let currentLayer = 'osm';
+  let currentRefresh = false;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
 
@@ -87,18 +123,23 @@ const TripsMap = (() => {
 
   function init(elementId) {
     map = L.map(elementId, { zoomControl: true });
-    tileLayer = L.tileLayer(TILE_URL, {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-      errorTileUrl: '/static/img/tile-error.png',
-    }).addTo(map);
+    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
     trackLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     map.setView([39, -98], 4);
   }
 
+  function setLayer(layer) {
+    if (!TILE_LAYERS[layer] || layer === currentLayer) return;
+    currentLayer = layer;
+    if (!map) return;
+    map.removeLayer(tileLayer);
+    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
+  }
+
   function setRefreshMode(enabled) {
-    if (tileLayer) tileLayer.setUrl(enabled ? TILE_URL_REFRESH : TILE_URL);
+    currentRefresh = enabled;
+    if (tileLayer) tileLayer.setUrl(tileUrl(currentLayer, currentRefresh));
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -132,5 +173,5 @@ const TripsMap = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode };
+  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode, setLayer };
 })();

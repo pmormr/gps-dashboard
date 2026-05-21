@@ -87,11 +87,17 @@ Both status pages auto-refresh every 30 seconds.
 
 ### Tile Proxy & Cache
 
-Flask proxies tile requests to OpenStreetMap when online, caches to disk at `$GPS_TILE_CACHE_DIR/{z}/{x}/{y}.png` (set to `/mnt/nvme/cache/tiles` on the Pi; falls back to `~/.cache/gps-dashboard/tiles/` in dev). Serves from cache offline. Returns 503 if tile is uncached and internet is unavailable.
+Flask proxies tile requests to upstream tile servers when online, caches to disk at `$GPS_TILE_CACHE_DIR/<layer>/{z}/{x}/{y}.png` (set to `/mnt/nvme/cache/tiles` on the Pi; falls back to `~/.cache/gps-dashboard/tiles/` in dev). Serves from cache offline. Returns 503 if tile is uncached and internet is unavailable.
 
-ETags are stored in sidecar files (`{z}/{x}/{y}.etag`) alongside each cached tile. The `?refresh=1` query param triggers a background conditional GET (`If-None-Match`) per tile; the cache is updated silently if OSM returns a new version. A "↻" checkbox in the UI tab bar enables refresh mode for all tile layers; a banner prompts the user to reload the page to see updates.
+Supported layers are defined in `api/tile_layers.py` (single source of truth, imported by both the route and the precache tool):
+- `osm` — OpenStreetMap, max zoom 19
+- `usgs` — USGS Topo via the National Map basemap service, max zoom 16. Public domain, no API key, bulk-download permitted.
 
-`tools/precache.py` pre-downloads tiles for a bounding box + zoom range. Includes a state bounding box lookup table. Practical zoom range: z8–z15; z16+ grows storage quickly. Supports three source modes: `--region`, `--bbox`, and `--local` (derives bbox from current GPS position in the database with a configurable `--radius` in km, default 50).
+Route shape: `GET /tiles/<layer>/<z>/<x>/<y>.png`. Unknown layer or z past the layer's max → 400.
+
+ETags are stored in sidecar files (`<layer>/{z}/{x}/{y}.etag`) alongside each cached tile. The `?refresh=1` query param triggers a background conditional GET (`If-None-Match`) per tile; the cache is updated silently if the upstream returns a new version. A "↻" checkbox in the UI tab bar enables refresh mode for both maps; a layer dropdown next to it switches the active layer globally. Tile writes are atomic (write to thread-unique `.tmp`, then `replace`), so a crash mid-write can never leave a torn PNG.
+
+`tools/precache.py` pre-downloads tiles for a bounding box + zoom range, for a single layer at a time (`--layer osm` default, or `--layer usgs`). Includes a state bounding box lookup table. Practical zoom range: z8–z15 for OSM, z8–z14 for USGS. Supports three source modes: `--region`, `--bbox`, and `--local` (derives bbox from current GPS position in the database with a configurable `--radius` in km, default 50).
 
 ### GPS Logger Detail
 
@@ -118,6 +124,7 @@ gps-dashboard/
 ├── api/
 │   ├── app.py
 │   ├── db.py
+│   ├── tile_layers.py
 │   └── routes/
 │       ├── points.py
 │       ├── trips.py
@@ -176,6 +183,7 @@ uv run api/app.py
 
 # Pre-cache tiles for a region
 uv run tools/precache.py --region colorado --zoom 8-15
+uv run tools/precache.py --layer usgs --region colorado --zoom 8-14
 uv run tools/precache.py --bbox "-109.05,36.99,-102.04,41.00" --zoom 8-15
 uv run tools/precache.py --local --zoom 8-15          # bbox around current GPS position
 uv run tools/precache.py --local --radius 100 --zoom 8-15

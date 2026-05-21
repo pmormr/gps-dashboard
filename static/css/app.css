@@ -402,6 +402,19 @@ input[type="date"] {
   user-select: none;
 }
 .tab-refresh-label:hover { color: var(--text); background: var(--surface2); }
+
+#layer-select {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 6px;
+  margin: 0 2px;
+  cursor: pointer;
+}
+#layer-select:hover { color: var(--text); }
 .tab-refresh-label input[type="checkbox"] { accent-color: var(--primary); cursor: pointer; }
 
 .tile-refresh-banner {
