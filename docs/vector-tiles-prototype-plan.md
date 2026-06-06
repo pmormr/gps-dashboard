@@ -187,28 +187,47 @@ Validate the low-risk integration path before committing the real app to it.
 
 ---
 
-## Phase 5 — Integration design output (NOT executed in prototype)
+## Phase 5 — Integration into gps-dashboard (ACTIVE)
 
-Once Phases 1–4 lock the decisions, produce the concrete change list for the real
-`gps-dashboard` integration. This phase yields a written plan, not code.
+Prototype complete, all gates passed — now executing the real integration. This
+is a live checklist; check items off as they land.
 
-- **Serving:** add PMTiles serving to Flask with HTTP range support (or the
-  chosen alternative). The proxy + per-tile PNG cache + `precache.py` machinery
-  is **replaced for OSM** by shipping one `.pmtiles` file; USGS raster keeps the
-  existing proxy/cache. `precache.py` stays relevant only for the USGS layer.
-- **Vendoring:** MapLibre GL JS, `maplibre-gl-leaflet`, style JSON, glyphs,
-  sprite → `static/vendor/`.
-- **Frontend:** `map.js` base-layer changes per Decision #2; keep trip
-  rendering, live mode, FAB, two-map setup. Reconcile the layer dropdown
-  (vector base + raster USGS) and the now-vector-irrelevant "↻ refresh" checkbox.
-- **Archive placement on Pi:** the `.pmtiles` is large and not in git — generate
-  off-Pi, copy to NVMe (e.g. `/mnt/nvme/tiles/us.pmtiles`), and treat it like
-  the DB/cache (persists across deploys, not overwritten by the post-receive
-  hook). Document the copy step (scp/rsync).
-- **Pi validation:** render performance on the real phone over van WiFi; confirm
-  offline.
-- **Docs:** update the Tile Proxy & Cache section of `CLAUDE.md` to describe the
-  vector basemap + raster USGS split.
+### Scope change: North America, not just CONUS
+
+The Pi's storage is ~1 TB, so the extent was widened from CONUS to **all of
+North America** (the 33 GB archive is still trivially small). The size/overzoom
+findings from the prototype carry over unchanged.
+
+- [ ] **Archive retrieval (in progress).** `pmtiles extract` of North America,
+      bbox `-168,7,-52,72` (Alaska east of the dateline, all of Canada, Mexico,
+      Central America to Panama; skips Greenland ice + high arctic), z0–15.
+      Dry-run: **~33 GB**, 42.3M tile entries. Generated off-Pi on the laptop at
+      `~/vector-tiles-lab/out/northamerica.pmtiles` (out of git), then copied to
+      the Pi. Source build `https://build.protomaps.com/20260606.pmtiles`.
+      ```
+      pmtiles extract https://build.protomaps.com/20260606.pmtiles \
+        out/northamerica.pmtiles --bbox="-168,7,-52,72" --minzoom=0 --maxzoom=15
+      ```
+- [ ] **Copy to Pi NVMe.** `scp`/`rsync` to `/mnt/nvme/tiles/northamerica.pmtiles`.
+      Treat like the DB/cache: persists across deploys, not in git, not touched
+      by the post-receive hook.
+- [ ] **Flask serving.** Add a route serving the `.pmtiles` with HTTP range
+      support (`send_file(..., conditional=True)`). This **replaces** the OSM
+      tile proxy + per-tile PNG cache + `precache.py`-for-OSM. USGS raster keeps
+      the existing proxy/cache; `precache.py` stays relevant only for USGS.
+- [ ] **Vendoring** → `static/vendor/`: MapLibre GL JS, `maplibre-gl-leaflet`
+      (`leaflet-maplibre-gl.js`), the style JSON, glyphs, sprite. Leaflet 1.9.4
+      is already vendored.
+- [ ] **Frontend (`map.js`), Decision #2 option A.** Add the vector base via
+      `L.maplibreGL`; carry over the absolute-sprite-URL fix (fetch style as an
+      object, rewrite `sprite`/`glyphs` against `location.origin`). Keep trip
+      rendering, live mode, FAB, two-map setup untouched. Reconcile the layer
+      dropdown (vector OSM base + raster USGS) and retire the now-meaningless
+      "↻ refresh" checkbox for the vector layer.
+- [ ] **Pi validation:** render performance on the real phone over van WiFi;
+      confirm offline.
+- [ ] **Docs:** update the Tile Proxy & Cache section of `CLAUDE.md` to describe
+      the vector basemap + raster USGS split.
 
 ---
 
@@ -337,10 +356,11 @@ Closed the CONUS size gate and Decision #2; one gate (on-phone render) remains.
   entries from 20.6M region tiles, computed in **23s**. RAM negligible (I/O).
 - Well under the < 30 GB target. Against the raster baseline (74 GB for OSM z14
   *alone*; 295 GB z5–15) this is ~16× smaller with free crisp overzoom past z15.
-- **Decision #4 settled: one CONUS `.pmtiles` file.** 18 GB ships fine to NVMe
-  alongside the DB and tile cache; no per-state split needed.
-- The actual 18 GB download is **deferred to integration** — the dry-run answers
-  the size gate and Decision #4, and render perf is provable on the Colorado file.
+- **Decision #4 settled: one single-file `.pmtiles`** (no per-state split).
+- The actual download was **deferred to integration** — the dry-run answers the
+  size gate and Decision #4, and render perf is provable on the Colorado file.
+- **Scope later widened to all of North America (~33 GB)** given the Pi's ~1 TB;
+  this CONUS number stands as the original gate measurement. See Phase 5.
 
 ### Decision #2 (frontend) — settled: option A
 
@@ -387,5 +407,5 @@ max-width and collapsed the layers control to a tap icon.
 
 Size ✅, offline ✅, overzoom ✅, on-phone smoothness ✅, and a Leaflet-preserving
 integration path (Decision #2 option A) ✅. No remaining prototype gates. The
-only deferred *task* is the actual 18 GB CONUS `pmtiles extract` (download),
-which belongs to integration (copy to NVMe), not the prototype.
+only deferred *task* is the actual `pmtiles extract` download — now widened to
+North America (~33 GB) and tracked as the first item of Phase 5.
