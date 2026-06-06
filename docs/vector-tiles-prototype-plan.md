@@ -229,19 +229,95 @@ If any fail, document why and stay on throttled raster precaching.
 
 ## Results
 
-_(Fill in as the prototype runs — measured numbers, decisions settled with
-rationale, and the final go/no-go recommendation. This section is the durable
-output that feeds the integration effort.)_
+_Session 1 (2026-06-06), Colorado end-to-end on the Kubuntu laptop. Scratch:
+`~/vector-tiles-lab/` (out of git)._
 
-- Decision #1 (serving format):
-- Decision #2 (frontend):
-- Decision #3 (style):
-- Decision #4 (extent packaging):
-- Decision #5 (zoom range):
-- Decision #6 (glyphs):
-- Measured: Colorado archive size / gen time / RAM:
-- Measured: CONUS (or NA) archive size / gen time / RAM:
-- Overzoom quality:
-- Phone performance:
-- Offline test:
-- **Recommendation:**
+### Generation path changed: Protomaps extract, not planetiler
+
+The plan assumed planetiler (generate tiles from a Geofabrik `.osm.pbf`, needs
+Java, multi-hour CONUS gen). We instead used **Protomaps' pre-built planet** and
+`pmtiles extract` to pull a regional clip via HTTP range requests. No Java, no
+generation step, minutes instead of hours, and Protomaps ships a matching style
+flavor + offline glyph/sprite assets. Trade-off: locked to the Protomaps tile
+schema/style rather than full schema control (see the labels finding below —
+the schema turned out to be plenty rich). Planetiler stays the fallback only if
+we ever need an OSM tag/POI kind Protomaps' schema omits entirely.
+
+Tooling: `pmtiles` CLI 1.30.3 (go-pmtiles); source build
+`https://build.protomaps.com/20260606.pmtiles` (136 GB planet, schema v4.14.9);
+`maplibre-gl` 5.24, `pmtiles` JS 4.4, `@protomaps/basemaps` 5.7 (style gen).
+
+### Decisions settled
+
+- **Decision #1 (serving format): PMTiles, single file, HTTP range.** Confirmed.
+  Served the one `.pmtiles` over a small range-capable static server
+  (`serve.py`); the browser pulls tiles via the pmtiles JS `addProtocol`. No
+  proxy, no per-tile cache. On the Pi this maps to Flask `send_file(...,
+  conditional=True)`.
+- **Decision #3 (style): Protomaps "light" flavor.** Roads/towns/water/labels
+  legible for van use. Generated via `@protomaps/basemaps` `layers()` +
+  `namedFlavor("light")`; 71 layers, source-layers match the archive 9/9.
+- **Decision #5 (zoom range): z0–15 baked.** The Protomaps planet bakes to z15;
+  overzoom handles deeper. (Plan guessed z0–14; the source gives 15 for free.)
+- **Decision #6 (glyphs): Protomaps `basemaps-assets` fonts, Noto Sans
+  Regular/Medium/Italic only** (~14 MB, the three stacks the light style
+  references) + the `light` sprite. Glyph/sprite URLs rewritten to local paths.
+- **Decision #2 (frontend):** still leaning option A (keep Leaflet, add the
+  vector basemap via `maplibre-gl-leaflet`) — **not yet exercised** (deferred to
+  the integration session). The harness used a bare MapLibre map, not Leaflet.
+- **Decision #4 (extent packaging): deferred** — CONUS not yet extracted (see
+  below). Colorado is one 485 MB file; CONUS-as-one-file is the open question.
+
+### Measured
+
+- **Colorado, all zooms z0–15, one file: 485 MB.** Extract ~4 min via range
+  requests against the 136 GB planet (no full download). 362,695 unique tiles,
+  mvt+gzip, bounds exact. RAM negligible (extract is I/O, not compute — the
+  planetiler RAM concern doesn't apply to the extract path).
+- **CONUS: not measured this session** (gated before scale-up). Same cheap
+  `pmtiles extract` with a lower-48 bbox; this is the headline size number for
+  the go/no-go and Decision #4. Direction is clear — 485 MB for all of Colorado
+  to z15 vs. the raster baseline (CO alone would be many GB past z12).
+- **Overzoom quality:** crisp z15→~z18 (client scales vector geometry). Pass.
+- **Offline test:** harness loads with **zero** external network requests —
+  tiles, style, glyphs, sprite all local; no external URLs remain in style or
+  page. Pass.
+- **Smoothness:** smooth pan/zoom on the laptop. **Phone test deferred** (the
+  real mobile gate — next session, served over the LAN).
+
+### Bonus finding — label density/categories are a frontend-only lever
+
+Inspecting the tiles directly (decoded Denver tiles): the data is far richer
+than the "light" style draws. A z12 Denver tile carries ~196 named roads, ~41
+named POIs (hospitals, hotels, retail, museums…), ~46 named places. The default
+style mutes them — its POI label layer is gated by `zoom >= min_zoom + 0`, and
+van-critical kinds (`fuel`, `hospital`, `parking`, `hotel`) are excluded by the
+filter outright. All recoverable client-side via `setFilter` / zoom-range tweaks
+— **no re-extraction, no external data, no Google** (whose terms forbid offline
+caching anyway; OSM is the ceiling and it's already in the file). Prototyped a
+live control panel (`harness/labels.html`): POI category toggles + a label
+density slider + minor-street-names toggle. This becomes a small `map.js`
+control at integration, not a precache decision.
+
+### Notes for Phase 5 (integration)
+
+- **Attribution:** set the source `attribution` to `© OpenStreetMap, Protomaps`
+  (data is Protomaps-built from OSM; OSM credit is ODbL-required). MapLibre adds
+  its own credit via `AttributionControl` — keep it. No proxy is involved, so no
+  proxy attribution.
+- **Label toggles** as a frontend control (`setFilter` on the `pois` layer +
+  `setLayerZoomRange` on road-label layers).
+- POI icons were tried and rejected: color emoji can't render in MapLibre SDF
+  text, and inline monochrome BMP symbols looked poor. If per-category icons are
+  wanted later, use sprite `icon-image` (the light sprite lacks fuel/hospital/
+  lodging/parking/bank, so those few would need adding).
+
+### Recommendation
+
+**Proceed with the vector migration via the Protomaps-extract path** — pending
+the two deferred gates: **CONUS extract size** and **on-phone render
+performance**. Everything testable on the laptop passed (size direction,
+offline, overzoom, smoothness), and the path is markedly simpler than planetiler
+(no Java, no generation, official offline assets). Next session: extract CONUS
+for the headline number, then exercise Decision #2 option A (maplibre-gl-leaflet)
+and the phone test before committing to integration.
