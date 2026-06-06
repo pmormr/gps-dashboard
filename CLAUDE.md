@@ -108,14 +108,14 @@ Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `lo
 Setup and validation are handled by CLI scripts in `tools/`, not through the web UI. Service config templates live in `deploy/`.
 
 - `tools/gpsd_setup.py` — interactive: detects devices, writes `/etc/default/gpsd`, restarts gpsd. For USB serial devices (ttyACM*/ttyUSB*), reads VID/PID via udevadm and offers to install the udev rule and switch to `/dev/gps0`. After restart, polls until gpsd is active and a TPV fix (mode ≥ 2) is received (up to 90s) before running validation.
-- `deploy/99-gps-dongle.rules` — udev rule that pins the u-blox GPS dongle (VID 1546, PID 01a7) to `/dev/gps0` and explicitly notifies gpsd via `gpsdctl add` on every plug-in. This means gpsd re-attaches automatically whenever the dongle re-enumerates, regardless of which ACM port it lands on. `gpsd_setup.py` installs this automatically. Manual install: `sudo cp deploy/99-gps-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`.
+- `deploy/99-gps-dongle.rules` — **legacy USB dongle only** (not the current serial GPS). udev rule that pins the u-blox dongle (VID 1546, PID 01a7) to `/dev/gps0` and notifies gpsd via `gpsdctl add` on every plug-in, so gpsd re-attaches whenever the dongle re-enumerates. `gpsd_setup.py` installs it for USB devices. Manual install: `sudo cp deploy/99-gps-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`.
 - `tools/gpsd_validate.py` — checks service, device, fix, data flow; prints PASS/FAIL per check
 - `tools/ntp_setup.py` — interactive: configures chrony with GPS SHM source, optional PPS; enables Pi as LAN NTP server
 - `tools/ntp_validate.py` — checks chrony sync, GPS/PPS source, stratum, LAN serving
 
 Two chrony config templates:
-- `deploy/chrony-gps-only.conf` — USB dongle, no PPS (~100ms accuracy), stratum 10
-- `deploy/chrony-gps-pps.conf` — serial dongle with PPS (microsecond accuracy), stratum 1
+- `deploy/chrony-gps-pps.conf` — **current**: serial GPS with PPS (sub-microsecond accuracy), stratum 1
+- `deploy/chrony-gps-only.conf` — legacy USB dongle, no PPS (~100ms accuracy), stratum 10
 
 ### Project Structure
 
@@ -164,9 +164,11 @@ gps-dashboard/
 
 ## Hardware Notes
 
-Current GPS hardware: u-blox 7 USB dongle (VID 1546, PID 01a7), no PPS signal wired. NTP is running in GPS-only mode (chrony stratum 10, ~100ms accuracy). A serial GPS with PPS is planned for the future for microsecond accuracy.
+Current GPS hardware: a serial GPS module with PPS, wired to the Raspberry Pi (CM5) GPIO header. NMEA arrives on the primary header UART `/dev/ttyAMA0` at 9600 baud; PPS is on GPIO 4 (`pps-gpio` overlay → `/dev/pps0`). gpsd and the logger both reference `/dev/ttyAMA0`. NTP runs in GPS+PPS mode (chrony stratum 1, sub-microsecond accuracy via PPS).
 
-The dongle is pinned to `/dev/gps0` via udev. gpsd and the logger both reference `/dev/gps0`. If the dongle re-enumerates on a different ACM port (e.g. after a USB hub EMI event), the udev rule both updates the symlink and calls `gpsdctl add` to re-attach gpsd automatically — no manual restart needed. This was hardened after a real incident where a stale ACM port caused gpsd to lose the device silently.
+The module runs at 9600 — its factory default — set via `GPSD_OPTIONS="-n -s 9600"` in `/etc/default/gpsd`. This is deliberate: an earlier attempt to drive it at 115200 was lost when the module's config-backup power drained (cable borrowed mid-trip), reverting it to 9600 on the next reboot while gpsd kept forcing 115200 — gpsd then silently received nothing and the logger stalled invisibly for days. Keeping both at 9600 means a power loss can't desync the module from gpsd. PPS, not baud, drives timing precision, so 9600 costs nothing.
+
+Legacy: the previous hardware was a u-blox 7 USB dongle (VID 1546, PID 01a7) pinned to `/dev/gps0` via `deploy/99-gps-dongle.rules` and run GPS-only (stratum 10, ~100ms). That udev rule and the `/dev/gps0` path apply only to the USB dongle, not the current serial GPS.
 
 ## Tool Scripts
 
