@@ -81,10 +81,16 @@ def read_current_config():
 
 
 def write_config(device, baud):
-    config = GPSD_CONFIG_TEMPLATE.format(device=device)
-    if baud != '4800':
-        # gpsd can usually auto-detect, but we can hint via -s flag
-        config = config.replace('GPSD_OPTIONS="-n"', f'GPSD_OPTIONS="-n -s {baud}"')
+    """Write /etc/default/gpsd for the given device and baud.
+
+    The baud is always pinned with -s for determinism. Letting gpsd
+    auto-detect is exactly how a silent stall crept in once: the GPS module
+    reverted to its 9600 default while gpsd forced 115200 and received
+    nothing. Writing the configured baud explicitly keeps the two aligned.
+    """
+    config = GPSD_CONFIG_TEMPLATE.format(device=device).replace(
+        'GPSD_OPTIONS="-n"', f'GPSD_OPTIONS="-n -s {baud}"'
+    )
     try:
         result = subprocess.run(
             ['sudo', 'tee', GPSD_CONFIG_PATH],
@@ -195,9 +201,10 @@ def main(device, baud, validate):
     # Baud rate selection
     if not baud:
         click.echo('\nCommon GPS baud rates:')
-        click.echo('  4800   — NMEA default (most USB dongles)')
-        click.echo('  9600   — common alternative')
-        click.echo('  115200 — high-speed / u-blox modules')
+        click.echo('  4800   — legacy NMEA default')
+        click.echo('  9600   — factory default for the current serial GPS module')
+        click.echo('  115200 — high-speed; NOT power-loss safe (module reverts to')
+        click.echo('           9600 if its config-backup power drains)')
         baud = click.prompt('Baud rate', default='9600', type=click.Choice(BAUD_RATES))
 
     # Offer to install udev rule for USB serial devices
