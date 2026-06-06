@@ -198,11 +198,19 @@ The Pi's storage is ~1 TB, so the extent was widened from CONUS to **all of
 North America** (the 33 GB archive is still trivially small). The size/overzoom
 findings from the prototype carry over unchanged.
 
-- [ ] **Archive retrieval (in progress).** North America, full bbox
+- [x] **Archive retrieval — DONE.** North America, full bbox
       `-168,7,-52,72` (Alaska east of the dateline, all of Canada, Mexico,
       Central America to Panama; skips Greenland ice + high arctic), z0–15.
-      Dry-run: **~33 GB**, 42.3M tile entries. Source build
-      `https://build.protomaps.com/20260606.pmtiles`.
+      Built + `verify`-clean on the NAS at
+      `/volume2/scratch/vector-tiles-lab/out/northamerica.pmtiles`: **33 GB**,
+      **42,299,310 tile entries** (37.3M deduped contents), mvt+gzip, bounds
+      exact, z0–15 — matches the dry-run estimate. Single extract, 10m52s at
+      ~60 MB/s. Source build `https://build.protomaps.com/20260606.pmtiles`.
+
+      Test server live on the NAS (`serve.py`, `0.0.0.0:8000`, no firewall block
+      on the LAN): `http://10.1.100.224:8000/harness/seam.html` renders the full
+      NA base + trip overlay clean from a LAN browser (headless-verified, 0
+      errors). Phone render check against the real NA archive can be done here.
 
       **Run on the UGREEN NAS (`rex-nas.rex.pmormr.com`), not the laptop** — it
       has a 1 Gb internet link. Debian 12, x86_64 (same arch as the laptop, so
