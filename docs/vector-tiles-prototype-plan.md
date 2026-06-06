@@ -259,6 +259,19 @@ findings from the prototype carry over unchanged.
       `setLayerZoomRange("roads_labels_minor", on?13:24, 24)`. Re-apply on the GL
       map's `styledata` (survives base-layer swaps). Layer ids `pois` /
       `roads_labels_minor` exist in the shipped Protomaps "light" style.
+
+      **Gotcha — surfaced kinds render invisible without a color fix.** The
+      `pois` layer's *original* filter only allows the kinds the style is built
+      for; van-critical kinds (`college`, `fuel`, `hospital`, `hotel`, `parking`,
+      `bank`, …) are excluded. Overriding the filter to surface them is not
+      enough: the layer's `text-color` is a `case` on `kind` with no branch for
+      those kinds, so they fall to the fallback `#e2dfda` — identical to
+      `text-halo-color` `#e2dfda`, i.e. the label is invisible (halo shows, glyphs
+      don't). Fix in the harness: recolor only the fallback (last element of the
+      `text-color` case) to a readable dark `#3a3a3a` via `setPaintProperty`,
+      preserving the per-category colors. At integration, consider giving the
+      surfaced kinds proper category colors (and icons — the light sprite lacks
+      fuel/hospital/lodging/parking/bank icons, so those render text-only today).
 - [ ] **Pi validation:** render performance on the real phone over van WiFi;
       confirm offline.
 - [ ] **Docs:** update the Tile Proxy & Cache section of `CLAUDE.md` to describe
