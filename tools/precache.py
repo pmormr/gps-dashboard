@@ -22,8 +22,43 @@ TILE_CACHE_DIR = Path(
 
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
 
+
+class RateLimiter:
+    """Global pacer: caps request *starts* to at most `rate` per second.
+
+    Shared across all worker threads, so the effective request rate is
+    independent of `--workers`. A rate of 0 disables limiting.
+    """
+
+    def __init__(self, rate: float) -> None:
+        """Initialize the limiter.
+
+        Args:
+            rate: Maximum request starts per second across all threads. 0 or
+                negative disables throttling.
+        """
+        self._min_interval = 1.0 / rate if rate > 0 else 0.0
+        self._lock = threading.Lock()
+        self._next = 0.0
+
+    def wait(self) -> None:
+        """Block until the caller is allowed to issue its next request."""
+        if self._min_interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            delay = self._next - now
+            if delay > 0:
+                time.sleep(delay)
+                self._next += self._min_interval
+            else:
+                self._next = now + self._min_interval
+
 # (min_lon, min_lat, max_lon, max_lat)
 REGIONS = {
+    # Whole lower-48. Practical only to ~z12 (see CLAUDE.md / docs); deeper
+    # zooms run to hundreds of GB and days of downloading.
+    'conus':        (-125.00, 24.50,  -66.50, 49.50),
     'arizona':      (-114.82, 31.33, -109.04, 37.00),
     'california':   (-124.41, 32.53, -114.13, 42.01),
     'colorado':     (-109.06, 36.99, -102.04, 41.00),
@@ -78,7 +113,7 @@ def _atomic_write(path, data):
     tmp.replace(path)
 
 
-def download_tile(layer, z, x, y):
+def download_tile(layer, z, x, y, limiter):
     cache_path = TILE_CACHE_DIR / layer / str(z) / str(x) / f'{y}.png'
     etag_path = cache_path.with_suffix('.etag')
     url = LAYERS[layer]['url'].format(z=z, x=x, y=y)
@@ -88,23 +123,23 @@ def download_tile(layer, z, x, y):
             return 'cached'
         # Backfill missing ETag via HEAD request
         try:
+            limiter.wait()
             resp = requests.head(url, timeout=10, headers={'User-Agent': USER_AGENT})
             etag = resp.headers.get('ETag')
             if etag:
                 _atomic_write(etag_path, etag)
-            time.sleep(0.05)  # respect upstream rate limits
         except Exception:
             pass
         return 'etag-added'
 
     try:
+        limiter.wait()
         resp = requests.get(url, timeout=10, headers={'User-Agent': USER_AGENT})
         resp.raise_for_status()
         _atomic_write(cache_path, resp.content)
         etag = resp.headers.get('ETag')
         if etag:
             _atomic_write(etag_path, etag)
-        time.sleep(0.05)  # respect upstream rate limits
         return 'downloaded'
     except Exception as e:
         return f'error: {e}'
@@ -144,7 +179,8 @@ def parse_zoom(zoom_str: str) -> list[int]:
 @click.option('--zoom', default='8-14', show_default=True, help='Zoom range, e.g. 8-14 or 12')
 @click.option('--list-regions', 'list_regions', is_flag=True, help='List available regions')
 @click.option('--workers', default=4, show_default=True, help='Parallel download workers')
-def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers):
+@click.option('--rate', default=20.0, show_default=True, type=float, help='Max requests/sec across all workers (0 = unlimited)')
+def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, rate):
     """Pre-download map tiles for offline use."""
     if list_regions:
         click.echo('Available regions:')
@@ -186,7 +222,14 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers):
     click.echo(f'Zoom levels: {zoom_levels[0]}–{zoom_levels[-1]}')
     click.echo(f'Cache dir:   {TILE_CACHE_DIR / layer}')
     click.echo(f'Tiles to download: ~{total:,} (skips already cached)')
+    if rate > 0:
+        eta_s = total / rate
+        click.echo(f'Rate limit:  {rate:g} req/s  (worst-case ETA ~{eta_s / 3600:.1f}h for a full run)')
+    else:
+        click.echo('Rate limit:  unlimited')
     click.confirm('Proceed?', abort=True)
+
+    limiter = RateLimiter(rate)
 
     all_tiles = [
         tile
@@ -198,7 +241,7 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers):
     interrupted = False
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(download_tile, layer, z, x, y): (z, x, y) for z, x, y in all_tiles}
+        futures = {pool.submit(download_tile, layer, z, x, y, limiter): (z, x, y) for z, x, y in all_tiles}
         try:
             for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
