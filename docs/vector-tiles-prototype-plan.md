@@ -321,3 +321,57 @@ offline, overzoom, smoothness), and the path is markedly simpler than planetiler
 (no Java, no generation, official offline assets). Next session: extract CONUS
 for the headline number, then exercise Decision #2 option A (maplibre-gl-leaflet)
 and the phone test before committing to integration.
+
+---
+
+## Results — Session 2 (2026-06-06)
+
+Closed the CONUS size gate and Decision #2; one gate (on-phone render) remains.
+
+### CONUS size gate — PASS
+
+`pmtiles extract` with `--dry-run` (no download) against the planet, bbox
+`-125.00,24.50,-66.50,49.50` (matches `precache.py`'s `conus`), z0–15:
+
+- **~18 GB archive** (19 GB transferred at 5% overfetch), **13.8M** result tile
+  entries from 20.6M region tiles, computed in **23s**. RAM negligible (I/O).
+- Well under the < 30 GB target. Against the raster baseline (74 GB for OSM z14
+  *alone*; 295 GB z5–15) this is ~16× smaller with free crisp overzoom past z15.
+- **Decision #4 settled: one CONUS `.pmtiles` file.** 18 GB ships fine to NVMe
+  alongside the DB and tile cache; no per-state split needed.
+- The actual 18 GB download is **deferred to integration** — the dry-run answers
+  the size gate and Decision #4, and render perf is provable on the Colorado file.
+
+### Decision #2 (frontend) — settled: option A
+
+Built `harness/seam.html`: the Protomaps vector base loaded **inside a Leaflet
+1.9.4 map** via `@maplibre/maplibre-gl-leaflet` (`L.maplibreGL`), with a fake
+trip polyline + start/end `circleMarker`s as ordinary Leaflet overlays, and an
+`L.control.layers` base switch between the vector GL base and a raster layer
+(online OSM raster standing in for USGS). Headless-rendered clean (0 console
+errors); overlays coexist and pan/zoom in sync with the GL base. **Option A
+confirmed** — the existing Leaflet overlay/trip/marker/FAB code can stay; only
+the base layer changes.
+
+### Gotcha for Phase 5 — absolute sprite URL required
+
+MapLibre GL **rejects a relative or root-relative `sprite` URL** ("must be
+absolute"); glyphs are more lenient but were normalized too. Fix used in both
+harness pages: fetch the style JSON as an object and rewrite `sprite`/`glyphs`
+against `location.origin` at runtime, then pass the object to MapLibre. This is
+portable across localhost and the LAN IP and should carry into the real app's
+`map.js` (or be baked absolute when Flask serves the style). The pmtiles
+*source* URL tolerates root-relative (`pmtiles:///out/...`).
+
+### Vendored for integration
+
+`@maplibre/maplibre-gl-leaflet` → `leaflet-maplibre-gl.js` (13 KB). Leaflet 1.9.4
+is already vendored in the project. MapLibre GL JS + pmtiles JS + style/glyphs/
+sprite still to be vendored at integration.
+
+### Remaining gate — on-phone render performance
+
+Not yet run (needs the phone on the van/LAN WiFi). Harness is portable and the
+server binds `0.0.0.0:8000`; phone URL `http://<laptop-LAN-IP>:8000/harness/seam.html`
+(this session: `http://10.1.100.218:8000/`). This is the last go/no-go before
+integration.
