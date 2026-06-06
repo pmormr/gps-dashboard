@@ -192,6 +192,47 @@ Validate the low-risk integration path before committing the real app to it.
 Prototype complete, all gates passed — now executing the real integration. This
 is a live checklist; check items off as they land.
 
+### ▶ RESUME HERE (clean-context start)
+
+**State:** the NA archive is built + verified. The **NAS→Pi copy is in progress**
+over a slow ~10 Mbps link (~6–7 h, resumable). All app-code work below is not yet
+started. The dev harness (proven approach) lives on the NAS — mine it for the
+exact JS when writing `map.js`.
+
+**Hosts / paths:**
+- NAS `rex-nas.rex.pmormr.com` (10.1.100.224, Debian x86_64): scratch
+  `/volume2/scratch/vector-tiles-lab/` — archive `out/northamerica.pmtiles`
+  (33 GB, 42.3M tiles, z0–15), local `pmtiles` binary, `style/` (style.json +
+  glyphs + sprite), `serve.py`, `harness/{index,seam}.html`, `copy-to-pi.sh`.
+- Pi `pmorgan@192.168.42.178` (hostname `pmpi1`, ARM64): archive destination
+  `/mnt/nvme/tiles/northamerica.pmtiles` (870 GB free). NAS→Pi SSH trust is set
+  up. Note: the x86_64 `pmtiles` binary won't run on the Pi (ARM64) — fetch the
+  arm64 go-pmtiles release if a CLI is wanted there; not required for serving.
+- Source build pinned: `https://build.protomaps.com/20260606.pmtiles`.
+
+**First actions on resume:**
+1. **Confirm the copy finished:** `ssh pmorgan@192.168.42.178 "ls -lh
+   /mnt/nvme/tiles/northamerica.pmtiles"` should be ~33 GB and have **no `.tmp`**
+   sibling (the script `mv`s on success). If a `.tmp` remains / size is short,
+   the copy is incomplete — resume by re-running `./copy-to-pi.sh` on the NAS
+   (idempotent, `--partial` resumes). Optional integrity check: byte-size match
+   vs NAS (`ssh rex-nas 'stat -c %s …/out/northamerica.pmtiles'`).
+2. Then work the checklist below (Flask serving → vendoring → `map.js` →
+   validation → docs).
+
+**Carry these proven harness details into the app (don't rediscover):**
+- Style is loaded as an **object** with `sprite`/`glyphs` rewritten to absolute
+  URLs against `location.origin` (MapLibre rejects relative sprite). pmtiles
+  source URL may stay root-relative (`pmtiles:///…`).
+- Vector base inside Leaflet via `L.maplibreGL({ style })`; overlays/trip/markers
+  stay plain Leaflet. Inner MapLibre map reached via `vectorBase.getMaplibreMap()`.
+- Label/POI control: `setFilter("pois", …)` by `kind` + `setLayerZoomRange(
+  "roads_labels_minor", …)`; **and** recolor the `pois` `text-color` fallback to
+  `#3a3a3a` (else surfaced kinds are invisible — see the gotcha below). Re-apply
+  on the inner map's `styledata`.
+- Glyphs vendored are the full Noto Sans Regular/Medium/Italic BMP (the only
+  three stacks the style references).
+
 ### Scope change: North America, not just CONUS
 
 The Pi's storage is ~1 TB, so the extent was widened from CONUS to **all of
@@ -233,10 +274,13 @@ findings from the prototype carry over unchanged.
 
       Testing (harness render, phone check) also moves to the NAS: it serves the
       archive + harness on the LAN; laptop/phone browsers point at the NAS IP.
-- [ ] **Copy to Pi NVMe.** `rsync` from the NAS scratch to
-      `/mnt/nvme/tiles/northamerica.pmtiles` on the Pi (atomic: `.tmp` then `mv`).
-      Treat like the DB/cache: persists across deploys, not in git, not touched
-      by the post-receive hook.
+- [~] **Copy to Pi NVMe — IN PROGRESS.** `rsync` NAS→Pi to
+      `/mnt/nvme/tiles/northamerica.pmtiles` (atomic: `--inplace --partial` into
+      `.tmp`, then `mv`), scripted in `copy-to-pi.sh` on the NAS, run detached
+      (`nohup`, logs to `copy.log`). The Pi link is ~10 Mbps so the 33 GB takes
+      **~6–7 h**; resumable. Treat the file like the DB/cache: persists across
+      deploys, not in git, not touched by the post-receive hook. Verify on resume
+      (see "RESUME HERE").
 - [ ] **Flask serving.** Add a route serving the `.pmtiles` with HTTP range
       support (`send_file(..., conditional=True)`). This **replaces** the OSM
       tile proxy + per-tile PNG cache + `precache.py`-for-OSM. USGS raster keeps
