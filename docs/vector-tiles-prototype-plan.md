@@ -201,20 +201,32 @@ findings from the prototype carry over unchanged.
 - [ ] **Archive retrieval (in progress).** North America, full bbox
       `-168,7,-52,72` (Alaska east of the dateline, all of Canada, Mexico,
       Central America to Panama; skips Greenland ice + high arctic), z0–15.
-      Dry-run: **~33 GB**, 42.3M tile entries. Generated off-Pi on the laptop at
-      `~/vector-tiles-lab/out/northamerica.pmtiles` (out of git), then copied to
-      the Pi. Source build `https://build.protomaps.com/20260606.pmtiles`.
+      Dry-run: **~33 GB**, 42.3M tile entries. Source build
+      `https://build.protomaps.com/20260606.pmtiles`.
 
-      **Done in resilient longitude bands, not one transfer** — a single 33 GB
-      extract failed at 99% on a transient HTTP/2 stream error (no resume, so the
-      whole transfer is lost). Instead extract four bands (A −168/−118 5.3 GB,
-      B −118/−100 7 GB, C −100/−82 11 GB, D −82/−52 10 GB), `verify` each, then
-      `pmtiles merge` into one archive. Each band downloads independently, so a
-      tail-end failure costs only that band. The extract forces HTTP/1.1
-      (`GODEBUG=http2client=0`) to avoid the HTTP/2 errors. Scripted in
-      `~/vector-tiles-lab/extract-na.sh` (idempotent: re-running skips bands
-      already present + verified).
-- [ ] **Copy to Pi NVMe.** `scp`/`rsync` to `/mnt/nvme/tiles/northamerica.pmtiles`.
+      **Run on the UGREEN NAS (`rex-nas.rex.pmormr.com`), not the laptop** — it
+      has a 1 Gb internet link. Debian 12, x86_64 (same arch as the laptop, so
+      the `pmtiles` binary is portable; here it was re-downloaded from the
+      go-pmtiles v1.30.3 release). Scratch at
+      `/volume2/scratch/vector-tiles-lab/` (6.4 TB free). A **single** extract
+      with HTTP/1.1 forced (`GODEBUG=http2client=0`) and `--download-threads=8`
+      runs at **~60 MB/s** (~9 min for the whole 33 GB), so banding is
+      unnecessary on this link:
+      ```
+      GODEBUG=http2client=0 ./pmtiles extract \
+        https://build.protomaps.com/20260606.pmtiles out/northamerica.pmtiles \
+        --bbox="-168,7,-52,72" --minzoom=0 --maxzoom=15 --download-threads=8
+      ```
+      Background-detach it (`nohup … &`, log to a file) so an SSH drop can't kill
+      it. **Fallback for slow/fragile links:** the banded extract + `pmtiles
+      merge` (`extract-na.sh`) — the laptop's single 33 GB attempt died at 99% on
+      a transient HTTP/2 stream error (no resume), which is what forcing HTTP/1.1
+      and/or banding avoids.
+
+      Testing (harness render, phone check) also moves to the NAS: it serves the
+      archive + harness on the LAN; laptop/phone browsers point at the NAS IP.
+- [ ] **Copy to Pi NVMe.** `rsync` from the NAS scratch to
+      `/mnt/nvme/tiles/northamerica.pmtiles` on the Pi (atomic: `.tmp` then `mv`).
       Treat like the DB/cache: persists across deploys, not in git, not touched
       by the post-receive hook.
 - [ ] **Flask serving.** Add a route serving the `.pmtiles` with HTTP range
