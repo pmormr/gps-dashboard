@@ -101,7 +101,9 @@ ETags are stored in sidecar files (`<layer>/{z}/{x}/{y}.etag`) alongside each ca
 
 ### GPS Logger Detail
 
-Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `localhost:2947`. Sends `?WATCH={"enable":true,"json":true}\n`, parses TPV JSON records. Uses a 30s socket timeout so it detects a frozen gpsd. Throttles DB writes to one point per 5s. Reconnects automatically on failure with 5s backoff.
+Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `localhost:2947`. Sends `?WATCH={"enable":true,"json":true}\n`, parses TPV JSON records. Throttles DB writes to one point per 5s. Reconnects automatically on failure with 5s backoff.
+
+Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd (no bytes at all), and a staleness watchdog forces a reconnect if no valid fix is seen for 120s *while data is still flowing* — the case the socket timeout misses, since gpsd keeps emitting SKY/no-fix TPV. Every 60s it logs a heartbeat with points written, current fix mode, age of the last write, and a breakdown of dropped records by reason (no_fix, no_latlon, bad_range, null_island, stale_time, throttled, json_err), so a silent stall names its own cause in the journal.
 
 ### gpsd & NTP Setup
 
