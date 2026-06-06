@@ -198,16 +198,22 @@ The Pi's storage is ~1 TB, so the extent was widened from CONUS to **all of
 North America** (the 33 GB archive is still trivially small). The size/overzoom
 findings from the prototype carry over unchanged.
 
-- [ ] **Archive retrieval (in progress).** `pmtiles extract` of North America,
-      bbox `-168,7,-52,72` (Alaska east of the dateline, all of Canada, Mexico,
+- [ ] **Archive retrieval (in progress).** North America, full bbox
+      `-168,7,-52,72` (Alaska east of the dateline, all of Canada, Mexico,
       Central America to Panama; skips Greenland ice + high arctic), z0–15.
       Dry-run: **~33 GB**, 42.3M tile entries. Generated off-Pi on the laptop at
       `~/vector-tiles-lab/out/northamerica.pmtiles` (out of git), then copied to
       the Pi. Source build `https://build.protomaps.com/20260606.pmtiles`.
-      ```
-      pmtiles extract https://build.protomaps.com/20260606.pmtiles \
-        out/northamerica.pmtiles --bbox="-168,7,-52,72" --minzoom=0 --maxzoom=15
-      ```
+
+      **Done in resilient longitude bands, not one transfer** — a single 33 GB
+      extract failed at 99% on a transient HTTP/2 stream error (no resume, so the
+      whole transfer is lost). Instead extract four bands (A −168/−118 5.3 GB,
+      B −118/−100 7 GB, C −100/−82 11 GB, D −82/−52 10 GB), `verify` each, then
+      `pmtiles merge` into one archive. Each band downloads independently, so a
+      tail-end failure costs only that band. The extract forces HTTP/1.1
+      (`GODEBUG=http2client=0`) to avoid the HTTP/2 errors. Scripted in
+      `~/vector-tiles-lab/extract-na.sh` (idempotent: re-running skips bands
+      already present + verified).
 - [ ] **Copy to Pi NVMe.** `scp`/`rsync` to `/mnt/nvme/tiles/northamerica.pmtiles`.
       Treat like the DB/cache: persists across deploys, not in git, not touched
       by the post-receive hook.
@@ -228,6 +234,44 @@ findings from the prototype carry over unchanged.
       confirm offline.
 - [ ] **Docs:** update the Tile Proxy & Cache section of `CLAUDE.md` to describe
       the vector basemap + raster USGS split.
+
+### Updating the archive
+
+A `.pmtiles` archive is a single immutable, clustered, compressed file — the
+format has **no in-place patch/merge/delta** mechanism. There is therefore no
+per-tile conditional refresh; the raster layer's `?refresh=1` ETag-per-tile
+trick has no vector equivalent (this is why the "↻ refresh" checkbox is retired
+for the vector layer). Updating OSM data means a **full re-extract + full file
+replacement**:
+
+```
+# 1. On the laptop, re-extract against a newer dated planet build:
+pmtiles extract https://build.protomaps.com/<NEWER-DATE>.pmtiles \
+  out/northamerica.pmtiles --bbox="-168,7,-52,72" --minzoom=0 --maxzoom=15
+
+# 2. Replace on the Pi atomically (dashboard serves this file live):
+rsync -P out/northamerica.pmtiles \
+  pmorgan@192.168.42.178:/mnt/nvme/tiles/northamerica.pmtiles.tmp
+ssh pmorgan@192.168.42.178 \
+  "mv /mnt/nvme/tiles/northamerica.pmtiles.tmp /mnt/nvme/tiles/northamerica.pmtiles"
+```
+
+- `build.protomaps.com/<date>.pmtiles` is a dated daily planet build (pinned to
+  `20260606` here); point at a newer date to pull fresher OSM data. The extract
+  still only fetches the bbox via range requests (not the 136 GB planet), but the
+  **copy to the Pi is a full ~33 GB transfer** — rsync's delta saves little since
+  re-extraction recompresses/reorders tiles throughout.
+- Regenerate with the **banded `extract-na.sh`** (HTTP/1.1 + per-band extract +
+  `merge`), not a single 33 GB extract — the one-shot transfer is fragile at this
+  size (a 99% HTTP/2 failure loses everything; there is no resume).
+- **Replace atomically** (write `.tmp`, then `mv`/rename) so an in-flight range
+  request can't read a torn file — same ethos as the existing atomic raster tile
+  writes.
+- **Cadence: rare and deliberate, not routine.** Basemap geometry changes slowly
+  and the van is off-grid most of the time; treat this as occasional manual
+  maintenance (≈yearly, when the laptop has internet), not a background refresh.
+  The trade vs. raster: a stable, offline, one-file basemap instead of live
+  freshness.
 
 ---
 
