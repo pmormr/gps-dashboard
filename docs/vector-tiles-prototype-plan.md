@@ -250,6 +250,15 @@ findings from the prototype carry over unchanged.
       rendering, live mode, FAB, two-map setup untouched. Reconcile the layer
       dropdown (vector OSM base + raster USGS) and retire the now-meaningless
       "↻ refresh" checkbox for the vector layer.
+- [ ] **Label/POI density control.** Port the `labels.html` panel (POI category
+      toggles, density min-zoom-offset slider, minor-street-names toggle) — now
+      validated **inside the Leaflet seam** (`harness/seam.html`) driving the
+      inner MapLibre map via the plugin's `getMaplibreMap()`. Mechanics confirmed
+      against the NA archive: `setFilter("pois", ["all", ["in",["get","kind"],…],
+      [">=",["zoom"],["+",["get","min_zoom"], offset]]])` and
+      `setLayerZoomRange("roads_labels_minor", on?13:24, 24)`. Re-apply on the GL
+      map's `styledata` (survives base-layer swaps). Layer ids `pois` /
+      `roads_labels_minor` exist in the shipped Protomaps "light" style.
 - [ ] **Pi validation:** render performance on the real phone over van WiFi;
       confirm offline.
 - [ ] **Docs:** update the Tile Proxy & Cache section of `CLAUDE.md` to describe
