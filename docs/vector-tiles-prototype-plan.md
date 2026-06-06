@@ -369,9 +369,23 @@ portable across localhost and the LAN IP and should carry into the real app's
 is already vendored in the project. MapLibre GL JS + pmtiles JS + style/glyphs/
 sprite still to be vendored at integration.
 
-### Remaining gate — on-phone render performance
+### On-phone render performance — PASS
 
-Not yet run (needs the phone on the van/LAN WiFi). Harness is portable and the
-server binds `0.0.0.0:8000`; phone URL `http://<laptop-LAN-IP>:8000/harness/seam.html`
-(this session: `http://10.1.100.218:8000/`). This is the last go/no-go before
-integration.
+Served the harness over the LAN (`0.0.0.0:8000`) and opened `seam.html` on the
+actual phone client. Pan/zoom smooth after load; the initial load was mildly
+flaky over WiFi but fine on refresh (cold range-request burst, not a render
+issue). Required opening the laptop firewall: ufw was active with default-deny
+incoming, so a scoped rule was needed —
+`sudo ufw allow from <lan>/24 to any port 8000 proto tcp` (dev-laptop only; not
+relevant to the Pi, which serves on its own LAN).
+
+Harness fix for the phone: in portrait the HUD overlapped Leaflet's zoom control
+and the layers control overran the width — moved the HUD to bottom-left with a
+max-width and collapsed the layers control to a tap icon.
+
+### All gates passed — proceed to integration (Phase 5)
+
+Size ✅, offline ✅, overzoom ✅, on-phone smoothness ✅, and a Leaflet-preserving
+integration path (Decision #2 option A) ✅. No remaining prototype gates. The
+only deferred *task* is the actual 18 GB CONUS `pmtiles extract` (download),
+which belongs to integration (copy to NVMe), not the prototype.
