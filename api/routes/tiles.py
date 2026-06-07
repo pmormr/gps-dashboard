@@ -13,6 +13,15 @@ TILE_CACHE_DIR = Path(
     os.environ.get('GPS_TILE_CACHE_DIR', Path.home() / '.cache' / 'gps-dashboard' / 'tiles')
 )
 
+# Vector OSM basemap: a single immutable PMTiles archive served with byte-range
+# support, read client-side by pmtiles.js. Persistent asset (not a cache), so it
+# has its own env var rather than deriving from GPS_TILE_CACHE_DIR.
+PMTILES_PATH = Path(
+    os.environ.get(
+        'GPS_PMTILES_PATH', Path.home() / '.cache' / 'gps-dashboard' / 'northamerica.pmtiles'
+    )
+)
+
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
 
 
@@ -55,6 +64,17 @@ def _background_refresh(layer, z, x, y, cache_path):
             _save_tile(cache_path, resp.content, resp.headers.get('ETag'))
     except Exception:
         pass
+
+
+@tiles_bp.get('/tiles/osm.pmtiles')
+def osm_pmtiles():
+    # Serve the OSM vector basemap archive. pmtiles.js issues byte-range GETs for
+    # the header, leaf directories, and individual tiles; conditional=True makes
+    # Werkzeug honor Range (206 Partial Content) and set Accept-Ranges. The ETag
+    # is derived from mtime/size/inode, so the 33 GB file is never hashed.
+    if not PMTILES_PATH.exists():
+        abort(404)
+    return send_file(PMTILES_PATH, mimetype='application/octet-stream', conditional=True)
 
 
 @tiles_bp.get('/tiles/<layer>/<int:z>/<int:x>/<int:y>.png')
