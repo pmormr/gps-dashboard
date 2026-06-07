@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   MapView.init('map');
   TripsMap.init('trips-map');
+  LabelControls.init([MapView, TripsMap]);
 
   Timeline.init();
   Trips.init();
@@ -31,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Tile layer selector. Refresh is meaningless for the vector OSM basemap (a
   // single immutable file), so disable the ↻ toggle while it's selected.
   const layerSelect = document.getElementById('layer-select');
-  const syncRefreshAvailability = (layer) => {
+  const syncLayerUi = (layer) => {
     const isVector = layer === 'osm';
     refreshToggle.disabled = isVector;
     if (isVector && refreshToggle.checked) {
@@ -40,11 +41,12 @@ document.addEventListener('DOMContentLoaded', () => {
       TripsMap.setRefreshMode(false);
       refreshBanner.classList.add('hidden');
     }
+    LabelControls.setEnabled(isVector);
   };
   layerSelect.addEventListener('change', () => {
     MapView.setLayer(layerSelect.value);
     TripsMap.setLayer(layerSelect.value);
-    syncRefreshAvailability(layerSelect.value);
+    syncLayerUi(layerSelect.value);
   });
-  syncRefreshAvailability(layerSelect.value); // default layer is vector OSM
+  syncLayerUi(layerSelect.value); // default layer is vector OSM
 });

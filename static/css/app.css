@@ -371,6 +371,50 @@ input[type="date"] {
 }
 .map-fab:hover { background: var(--surface2); }
 
+/* ── Label / POI controls (vector basemap) ── */
+.label-panel {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1000;
+  width: 190px;
+  max-width: calc(100% - 16px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+}
+.label-panel.hidden { display: none; }
+.label-panel-hdr {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.label-panel-body { padding: 8px 10px; }
+.label-panel.collapsed .label-panel-body { display: none; }
+.label-panel h4 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.label-panel-body h4:first-child { margin-top: 0; }
+.label-check { display: block; margin: 3px 0; cursor: pointer; }
+.label-row { margin-top: 8px; }
+.label-hint { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.label-panel input[type="range"] { width: 100%; }
+
 /* ── Status page links in tab bar ── */
 .tab-status-links {
   display: flex;

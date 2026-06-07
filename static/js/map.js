@@ -58,6 +58,7 @@ const MapView = (() => {
   let map, baseLayer, trackLayer, markerLayer;
   let currentLayer = 'osm';
   let currentRefresh = false;
+  let onVectorBaseCb = null;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
 
@@ -77,6 +78,7 @@ const MapView = (() => {
       vectorStyleReady.then(() => {
         if (currentLayer !== 'osm' || baseLayer) return;
         baseLayer = makeVectorBase().addTo(map);
+        if (onVectorBaseCb) onVectorBaseCb(baseLayer);
       });
     } else {
       baseLayer = makeTileLayer(layer, currentRefresh).addTo(map);
@@ -110,6 +112,13 @@ const MapView = (() => {
   // Used by the label/POI controls.
   function getVectorBase() {
     return currentLayer === 'osm' ? baseLayer : null;
+  }
+
+  // Register a callback invoked with each vector base as it is (re)created,
+  // so the label/POI controls can (re)attach to the inner MapLibre map.
+  function onVectorBase(cb) {
+    onVectorBaseCb = cb;
+    if (currentLayer === 'osm' && baseLayer) cb(baseLayer);
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -152,7 +161,7 @@ const MapView = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer, getVectorBase };
+  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer, getVectorBase, onVectorBase };
 })();
 
 // Second map instance for the Trips detail pane
@@ -160,6 +169,7 @@ const TripsMap = (() => {
   let map, baseLayer, trackLayer, markerLayer;
   let currentLayer = 'osm';
   let currentRefresh = false;
+  let onVectorBaseCb = null;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
 
@@ -176,6 +186,7 @@ const TripsMap = (() => {
       vectorStyleReady.then(() => {
         if (currentLayer !== 'osm' || baseLayer) return;
         baseLayer = makeVectorBase().addTo(map);
+        if (onVectorBaseCb) onVectorBaseCb(baseLayer);
       });
     } else {
       baseLayer = makeTileLayer(layer, currentRefresh).addTo(map);
@@ -205,6 +216,13 @@ const TripsMap = (() => {
 
   function getVectorBase() {
     return currentLayer === 'osm' ? baseLayer : null;
+  }
+
+  // Register a callback invoked with each vector base as it is (re)created,
+  // so the label/POI controls can (re)attach to the inner MapLibre map.
+  function onVectorBase(cb) {
+    onVectorBaseCb = cb;
+    if (currentLayer === 'osm' && baseLayer) cb(baseLayer);
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -238,5 +256,5 @@ const TripsMap = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode, setLayer, getVectorBase };
+  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode, setLayer, getVectorBase, onVectorBase };
 })();
