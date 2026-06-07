@@ -1,18 +1,19 @@
-// Mirrors api/tile_layers.py — kept in sync by hand. Only two layers so drift
-// risk is low. `maxNativeZoom` lets Leaflet upsample the deepest available
-// tile rather than asking for ones the upstream doesn't serve.
+// Raster tile layers proxied/cached by Flask (mirrors the raster entries in
+// api/tile_layers.py). The OSM basemap is now vector (MapLibre GL + PMTiles,
+// served at /tiles/osm.pmtiles), so USGS is the only raster layer left here.
+// `maxNativeZoom` lets Leaflet upsample the deepest available tile rather than
+// asking for ones the upstream doesn't serve.
 const TILE_LAYERS = {
-  osm: {
-    label: 'OSM',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxNativeZoom: 19,
-  },
   usgs: {
     label: 'USGS Topo',
     attribution: '<a href="https://www.usgs.gov/">USGS</a> The National Map',
     maxNativeZoom: 16,
   },
 };
+
+const VECTOR_ATTRIBUTION =
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+  '<a href="https://protomaps.com">Protomaps</a>';
 
 function tileUrl(layer, refresh) {
   return `/tiles/${layer}/{z}/{x}/{y}.png` + (refresh ? '?refresh=1' : '');
@@ -23,13 +24,38 @@ function makeTileLayer(layer, refresh) {
   return L.tileLayer(tileUrl(layer, refresh), {
     attribution: cfg.attribution,
     maxNativeZoom: cfg.maxNativeZoom,
-    maxZoom: 19,
+    maxZoom: 20,
     errorTileUrl: '/static/img/tile-error.png',
   });
 }
 
+// Register the pmtiles:// protocol once for every MapLibre GL instance.
+const pmtilesProtocol = new pmtiles.Protocol();
+maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
+
+// Fetch + patch the vector style once, then clone it per map. MapLibre rejects
+// a root-relative sprite URL, so sprite/glyphs are absolutized against
+// location.origin (portable across localhost and the LAN IP); the pmtiles
+// source URL stays root-relative.
+let vectorStyle = null;
+const vectorStyleReady = fetch('/static/vendor/basemap/style.json')
+  .then(r => r.json())
+  .then(s => {
+    s.sprite = location.origin + s.sprite;
+    s.glyphs = location.origin + s.glyphs;
+    vectorStyle = s;
+    return s;
+  });
+
+// A fresh GL base per call — each Leaflet map needs its own, and cloning keeps
+// per-map style edits (label/POI controls) from bleeding across maps.
+function makeVectorBase() {
+  const style = JSON.parse(JSON.stringify(vectorStyle));
+  return L.maplibreGL({ style, attribution: VECTOR_ATTRIBUTION });
+}
+
 const MapView = (() => {
-  let map, tileLayer, trackLayer, markerLayer;
+  let map, baseLayer, trackLayer, markerLayer;
   let currentLayer = 'osm';
   let currentRefresh = false;
 
@@ -42,25 +68,48 @@ const MapView = (() => {
     iconAnchor: [5, 5],
   });
 
+  // Swap the base layer. 'osm' is the vector GL base (added once its style
+  // resolves); everything else is a raster proxy layer. Overlays live in their
+  // own (higher) Leaflet panes, so base add/remove never disturbs the track.
+  function setBase(layer) {
+    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
+    if (layer === 'osm') {
+      vectorStyleReady.then(() => {
+        if (currentLayer !== 'osm' || baseLayer) return;
+        baseLayer = makeVectorBase().addTo(map);
+      });
+    } else {
+      baseLayer = makeTileLayer(layer, currentRefresh).addTo(map);
+    }
+  }
+
   function init(elementId) {
-    map = L.map(elementId, { zoomControl: true });
-    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
+    map = L.map(elementId, { zoomControl: true, maxZoom: 20 });
     trackLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
+    setBase(currentLayer);
     map.setView([39, -98], 4); // default: center of US
   }
 
   function setLayer(layer) {
-    if (!TILE_LAYERS[layer] || layer === currentLayer) return;
+    if (layer === currentLayer || (layer !== 'osm' && !TILE_LAYERS[layer])) return;
     currentLayer = layer;
-    if (!map) return;
-    map.removeLayer(tileLayer);
-    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
+    if (map) setBase(layer);
   }
 
   function setRefreshMode(enabled) {
     currentRefresh = enabled;
-    if (tileLayer) tileLayer.setUrl(tileUrl(currentLayer, currentRefresh));
+    // Refresh only applies to raster layers; the vector base is a single
+    // immutable file with no per-tile upstream to re-check.
+    if (currentLayer !== 'osm' && baseLayer && baseLayer.setUrl) {
+      baseLayer.setUrl(tileUrl(currentLayer, currentRefresh));
+    }
+  }
+
+  // The inner MapLibre map of the vector base, or null when raster is active.
+  // Used by the label/POI controls.
+  function getVectorBase() {
+    return currentLayer === 'osm' ? baseLayer : null;
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -103,12 +152,12 @@ const MapView = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer };
+  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer, getVectorBase };
 })();
 
 // Second map instance for the Trips detail pane
 const TripsMap = (() => {
-  let map, tileLayer, trackLayer, markerLayer;
+  let map, baseLayer, trackLayer, markerLayer;
   let currentLayer = 'osm';
   let currentRefresh = false;
 
@@ -121,25 +170,41 @@ const TripsMap = (() => {
     iconAnchor: [5, 5],
   });
 
+  function setBase(layer) {
+    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
+    if (layer === 'osm') {
+      vectorStyleReady.then(() => {
+        if (currentLayer !== 'osm' || baseLayer) return;
+        baseLayer = makeVectorBase().addTo(map);
+      });
+    } else {
+      baseLayer = makeTileLayer(layer, currentRefresh).addTo(map);
+    }
+  }
+
   function init(elementId) {
-    map = L.map(elementId, { zoomControl: true });
-    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
+    map = L.map(elementId, { zoomControl: true, maxZoom: 20 });
     trackLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
+    setBase(currentLayer);
     map.setView([39, -98], 4);
   }
 
   function setLayer(layer) {
-    if (!TILE_LAYERS[layer] || layer === currentLayer) return;
+    if (layer === currentLayer || (layer !== 'osm' && !TILE_LAYERS[layer])) return;
     currentLayer = layer;
-    if (!map) return;
-    map.removeLayer(tileLayer);
-    tileLayer = makeTileLayer(currentLayer, currentRefresh).addTo(map);
+    if (map) setBase(layer);
   }
 
   function setRefreshMode(enabled) {
     currentRefresh = enabled;
-    if (tileLayer) tileLayer.setUrl(tileUrl(currentLayer, currentRefresh));
+    if (currentLayer !== 'osm' && baseLayer && baseLayer.setUrl) {
+      baseLayer.setUrl(tileUrl(currentLayer, currentRefresh));
+    }
+  }
+
+  function getVectorBase() {
+    return currentLayer === 'osm' ? baseLayer : null;
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
@@ -173,5 +238,5 @@ const TripsMap = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode, setLayer };
+  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode, setLayer, getVectorBase };
 })();

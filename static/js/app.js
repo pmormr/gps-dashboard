@@ -28,10 +28,23 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshBanner.classList.toggle('hidden', !enabled);
   });
 
-  // Tile layer selector
+  // Tile layer selector. Refresh is meaningless for the vector OSM basemap (a
+  // single immutable file), so disable the ↻ toggle while it's selected.
   const layerSelect = document.getElementById('layer-select');
+  const syncRefreshAvailability = (layer) => {
+    const isVector = layer === 'osm';
+    refreshToggle.disabled = isVector;
+    if (isVector && refreshToggle.checked) {
+      refreshToggle.checked = false;
+      MapView.setRefreshMode(false);
+      TripsMap.setRefreshMode(false);
+      refreshBanner.classList.add('hidden');
+    }
+  };
   layerSelect.addEventListener('change', () => {
     MapView.setLayer(layerSelect.value);
     TripsMap.setLayer(layerSelect.value);
+    syncRefreshAvailability(layerSelect.value);
   });
+  syncRefreshAvailability(layerSelect.value); // default layer is vector OSM
 });
