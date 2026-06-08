@@ -25,7 +25,8 @@ App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
 - `/mnt/nvme/gps-dashboard` — working tree (overwritten by deploys)
 - `/mnt/nvme/data/gps_history.db` — database (persists across deploys)
-- `/mnt/nvme/cache/tiles/` — tile cache (persists across deploys)
+- `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
+- `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
 
 **Never commit directly on the Pi.** All commits go local → push to both remotes. Direct Pi commits cause history divergence requiring force-pushes to fix.
 
@@ -67,7 +68,8 @@ SQLite (`gps_history.db`), three tables:
 - `PATCH /api/trips/:id` — edit name, notes, or bounds
 - `DELETE /api/trips/:id`
 - `POST /api/trips/mark` — upsert `start` or `end` mark with current UTC time
-- `GET /tiles/{z}/{x}/{y}.png` — tile proxy; `?refresh=1` serves from cache and fires a background conditional GET against OSM (ETag-based), updating the cache if the tile changed
+- `GET /tiles/osm.pmtiles` — vector OSM basemap (single PMTiles archive) served with HTTP range support
+- `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /gpsd` — read-only gpsd status page
 - `GET /ntp` — read-only NTP/chrony status page
 
@@ -85,19 +87,17 @@ Two standalone status pages:
 
 Both status pages auto-refresh every 30 seconds.
 
-### Tile Proxy & Cache
+### Basemaps: Vector OSM + Raster USGS
 
-Flask proxies tile requests to upstream tile servers when online, caches to disk at `$GPS_TILE_CACHE_DIR/<layer>/{z}/{x}/{y}.png` (set to `/mnt/nvme/cache/tiles` on the Pi; falls back to `~/.cache/gps-dashboard/tiles/` in dev). Serves from cache offline. Returns 503 if tile is uncached and internet is unavailable.
+Two basemaps, served two different ways. A layer dropdown in the tab bar switches the active basemap globally (both maps).
 
-Supported layers are defined in `api/tile_layers.py` (single source of truth, imported by both the route and the precache tool):
-- `osm` — OpenStreetMap, max zoom 19
-- `usgs` — USGS Topo via the National Map basemap service, max zoom 16. Public domain, no API key, bulk-download permitted.
+**OSM — vector (default).** A single immutable PMTiles archive (`northamerica.pmtiles`, z0–15, ~33 GB) rendered client-side by MapLibre GL inside Leaflet via the `maplibre-gl-leaflet` plugin. Flask serves the archive at `GET /tiles/osm.pmtiles` with HTTP range support (`send_file(conditional=True)`); `pmtiles.js` issues range requests for the header, directories, and tiles. Path from `$GPS_PMTILES_PATH` (`/mnt/nvme/tiles/northamerica.pmtiles` on the Pi; dev fallback `~/.cache/gps-dashboard/northamerica.pmtiles`). The MapLibre lib, plugin, pmtiles.js, and the Protomaps "light" style + full Noto Sans BMP glyphs + sprite are vendored under `static/vendor/{maplibre,pmtiles,basemap}` — no CDN at runtime. Crisp overzoom past z15 is free. The archive is a persistent asset (like the DB), updated only by a full re-extract + atomic file replace (see `docs/vector-tiles-prototype-plan.md`), never per-tile — there is no `?refresh` for vector. `map.js` loads the style as an object and absolutizes `sprite`/`glyphs` against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL stays root-relative.
 
-Route shape: `GET /tiles/<layer>/<z>/<x>/<y>.png`. Unknown layer or z past the layer's max → 400.
+**USGS — raster.** Flask proxies USGS Topo tiles when online and caches to `$GPS_TILE_CACHE_DIR/usgs/{z}/{x}/{y}.png` (`/mnt/nvme/cache/tiles` on the Pi; dev fallback `~/.cache/gps-dashboard/tiles/`). Serves from cache offline; 503 if uncached and offline. Route shape `GET /tiles/<layer>/<z>/<x>/<y>.png`; unknown layer or z past the layer's max → 400. `api/tile_layers.py` is the raster layer registry (USGS only now), imported by both the route and `precache.py`. ETags live in sidecar files (`<layer>/{z}/{x}/{y}.etag`); `?refresh=1` fires a background `If-None-Match` GET per tile and silently updates the cache. The "↻" checkbox in the tab bar enables refresh mode — raster only, disabled while the vector base is selected. Tile writes are atomic (thread-unique `.tmp` then `replace`), so a crash mid-write can never leave a torn PNG.
 
-ETags are stored in sidecar files (`<layer>/{z}/{x}/{y}.etag`) alongside each cached tile. The `?refresh=1` query param triggers a background conditional GET (`If-None-Match`) per tile; the cache is updated silently if the upstream returns a new version. A "↻" checkbox in the UI tab bar enables refresh mode for both maps; a layer dropdown next to it switches the active layer globally. Tile writes are atomic (write to thread-unique `.tmp`, then `replace`), so a crash mid-write can never leave a torn PNG.
+A collapsible "⚙ Labels" panel (vector only) tunes POI categories, label density, and minor-street-name visibility by driving the inner MapLibre map (`static/js/labels.js`).
 
-`tools/precache.py` pre-downloads tiles for a bounding box + zoom range, for a single layer at a time (`--layer osm` default, or `--layer usgs`). Includes a state bounding box lookup table. Practical zoom range: z8–z15 for OSM, z8–z14 for USGS. Supports three source modes: `--region`, `--bbox`, and `--local` (derives bbox from current GPS position in the database with a configurable `--radius` in km, default 50).
+`tools/precache.py` pre-downloads raster tiles (USGS only) for a bbox + zoom range. Includes a state bounding box lookup table. Practical zoom z8–z14 for USGS. Source modes: `--region`, `--bbox`, and `--local` (bbox around the current GPS fix, configurable `--radius` km, default 50).
 
 ### GPS Logger Detail
 
@@ -139,10 +139,13 @@ gps-dashboard/
 │   ├── css/app.css
 │   ├── img/tile-error.png
 │   ├── js/
-│   │   ├── api.js, app.js, geo.js, map.js, timeline.js, trips.js
+│   │   ├── api.js, app.js, geo.js, map.js, labels.js, timeline.js, trips.js
 │   └── vendor/
 │       ├── leaflet/
-│       └── nouislider/
+│       ├── nouislider/
+│       ├── maplibre/       # maplibre-gl + maplibre-gl-leaflet plugin
+│       ├── pmtiles/        # pmtiles.js range reader
+│       └── basemap/        # Protomaps style.json + glyphs + sprite
 ├── templates/
 │   ├── index.html
 │   ├── gpsd.html
@@ -160,7 +163,8 @@ gps-dashboard/
 │   ├── chrony-gps-pps.conf
 │   └── 99-gps-dongle.rules
 ├── docs/
-│   └── plan.md
+│   ├── plan.md
+│   └── vector-tiles-prototype-plan.md
 └── pyproject.toml
 ```
 
@@ -210,6 +214,6 @@ No test suite or linter is configured.
 
 ## Offline Constraint
 
-All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The tile proxy handles map assets at runtime.
+All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The vector OSM basemap renders fully offline (vendored MapLibre/pmtiles libs + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
 
-Development happens with internet available. Pre-caching tiles and vendoring assets are intentional prep steps before going off-grid.
+Development happens with internet available. Building the vector PMTiles archive, pre-caching USGS tiles, and vendoring assets are intentional prep steps before going off-grid.
