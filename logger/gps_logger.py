@@ -14,6 +14,18 @@ HEARTBEAT_SECONDS = 60
 STALE_RECONNECT_SECONDS = 120
 GPS_TIME_MAX_AGE_SECONDS = 10
 
+# Frozen-fix detection: a receiver can keep emitting valid fixes (mode>=2, sane
+# lat/lon, fresh time) while its position never moves — a stuck nav solution that
+# every other check reads as healthy. A live fix always jitters in the low digits
+# even when parked, so a byte-identical position held this long means a freeze.
+FROZEN_POSITION_SECONDS = 120
+# Treat the fix stream as live only if a usable fix arrived this recently;
+# otherwise "frozen" is unknowable (it's a no-fix gap, not a freeze).
+FIX_FRESH_SECONDS = 15
+# A fix-stream gap longer than this resets the freeze baseline, so reacquiring
+# the same parked spot after losing sky view does not read as a freeze.
+FIX_GAP_RESET_SECONDS = 30
+
 
 @dataclass
 class LoggerStats:
@@ -35,6 +47,9 @@ class LoggerStats:
     json_err: int = 0
     last_fix_mode: int = 0
     last_heartbeat: float = field(default_factory=time.monotonic)
+    last_position: tuple[float, float] | None = None
+    position_since: float = 0.0
+    last_usable_fix: float = 0.0
 
     def reset_window(self) -> None:
         """Zero the per-window counters, preserving last-seen state."""
@@ -42,10 +57,61 @@ class LoggerStats:
         self.bad_range = self.null_island = self.stale_time = 0
         self.throttled = self.json_err = 0
 
-    def heartbeat_line(self, write_age: float | None) -> str:
+    def note_fix(self, lat: float, lon: float, now: float) -> None:
+        """Record a usable fix for freeze tracking.
+
+        Resets the freeze baseline when the position changes or when the fix
+        stream had a gap (so reacquiring a parked spot is not mistaken for a
+        freeze); otherwise the baseline persists so a held position ages.
+
+        Args:
+            lat: Fix latitude.
+            lon: Fix longitude.
+            now: Monotonic time of this fix.
+        """
+        pos = (lat, lon)
+        gap = now - self.last_usable_fix if self.last_usable_fix else 0.0
+        if (self.last_position is None or pos != self.last_position
+                or gap > FIX_GAP_RESET_SECONDS):
+            self.last_position = pos
+            self.position_since = now
+        self.last_usable_fix = now
+
+    def position_age(self, now: float) -> float | None:
+        """Seconds the current position has been held, or None if unknowable.
+
+        Returns None when no fix has been seen or the stream is not currently
+        live (the no-fix case, which is not a freeze).
+
+        Args:
+            now: Current monotonic time.
+
+        Returns:
+            Age in seconds of the held position, or None.
+        """
+        if self.last_position is None or self.last_usable_fix == 0.0:
+            return None
+        if now - self.last_usable_fix >= FIX_FRESH_SECONDS:
+            return None
+        return now - self.position_since
+
+    def is_frozen(self, now: float) -> bool:
+        """Whether a live fix stream has held one position past the threshold.
+
+        Args:
+            now: Current monotonic time.
+
+        Returns:
+            True if the position is frozen, False otherwise.
+        """
+        age = self.position_age(now)
+        return age is not None and age >= FROZEN_POSITION_SECONDS
+
+    def heartbeat_line(self, now: float, write_age: float | None) -> str:
         """Build a one-line summary of the current window.
 
         Args:
+            now: Current monotonic time, used to age the held position.
             write_age: Seconds since the last point was written, or None if
                 nothing has been written yet this run.
 
@@ -53,12 +119,16 @@ class LoggerStats:
             A human-readable heartbeat string for the journal.
         """
         age = f"{write_age:.0f}s" if write_age is not None else "never"
+        pos_age = self.position_age(now)
+        pos = f"{pos_age:.0f}s" if pos_age is not None else "n/a"
+        frozen = "yes" if self.is_frozen(now) else "no"
         return (
             f"heartbeat: wrote={self.written} mode={self.last_fix_mode} "
-            f"last_write={age} | dropped no_fix={self.no_fix} "
-            f"no_latlon={self.no_latlon} bad_range={self.bad_range} "
-            f"null_island={self.null_island} stale_time={self.stale_time} "
-            f"throttled={self.throttled} json_err={self.json_err}"
+            f"last_write={age} pos_age={pos} frozen={frozen} | dropped "
+            f"no_fix={self.no_fix} no_latlon={self.no_latlon} "
+            f"bad_range={self.bad_range} null_island={self.null_island} "
+            f"stale_time={self.stale_time} throttled={self.throttled} "
+            f"json_err={self.json_err}"
         )
 
 
@@ -93,7 +163,14 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
 
             if now - stats.last_heartbeat >= HEARTBEAT_SECONDS:
                 write_age = now - last_log_time if last_log_time > 0 else None
-                print(stats.heartbeat_line(write_age), flush=True)
+                print(stats.heartbeat_line(now, write_age), flush=True)
+                if stats.is_frozen(now):
+                    print(
+                        f"WARNING: position frozen at {stats.last_position} for "
+                        f"{now - stats.position_since:.0f}s while fixes keep "
+                        "arriving; receiver may need a cold start",
+                        file=sys.stderr, flush=True,
+                    )
                 stats.reset_window()
                 stats.last_heartbeat = now
 
@@ -149,6 +226,7 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
 
             # A usable fix arrived; the stream is alive even if we throttle it.
             last_fix_time = now
+            stats.note_fix(lat, lon, now)
             if now - last_log_time < LOG_INTERVAL_SECONDS:
                 stats.throttled += 1
                 continue

@@ -4,7 +4,7 @@ import re
 import socket
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, render_template
 
@@ -13,6 +13,14 @@ from api.db import get_connection
 status_gpsd_bp = Blueprint('status_gpsd', __name__)
 
 FIX_LABELS = {0: 'Unknown', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix'}
+
+# Mirror of the logger's frozen-fix detection, derived from the DB instead of the
+# live gpsd stream so the status page (a separate process) needs no IPC. A stuck
+# receiver keeps writing valid points, so a window of recent points that are all
+# byte-identical means the position is frozen even though every other check is
+# green. See FROZEN_POSITION_SECONDS in logger/gps_logger.py.
+FROZEN_WINDOW_SECONDS = 120
+FROZEN_MIN_POINTS = 10
 
 
 def _service_state():
@@ -76,6 +84,40 @@ def _latest_point():
         return None
 
 
+def _position_frozen():
+    """Whether recent logged points are all the same coordinate (a stuck fix).
+
+    Reads the trailing FROZEN_WINDOW_SECONDS of points and reports frozen only
+    when there are enough of them spanning most of the window and every one
+    shares the same lat/lon. A live fix jitters in the low digits even parked,
+    so byte-identical coordinates across the window are the freeze signature.
+    Returns False on too little data — a no-data/stale case the freshness check
+    already covers, so this never double-fails for an outage.
+
+    Returns:
+        True if the position appears frozen, False otherwise.
+    """
+    try:
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(seconds=FROZEN_WINDOW_SECONDS)
+                  ).strftime('%Y-%m-%dT%H:%M:%SZ')
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT lat, lon, timestamp FROM gps_points "
+            "WHERE timestamp >= ? ORDER BY id", (cutoff,)
+        ).fetchall()
+        if len(rows) < FROZEN_MIN_POINTS:
+            return False
+        span = (datetime.fromisoformat(rows[-1]['timestamp'].replace('Z', '+00:00'))
+                - datetime.fromisoformat(rows[0]['timestamp'].replace('Z', '+00:00'))
+                ).total_seconds()
+        if span < FROZEN_WINDOW_SECONDS * 0.8:
+            return False
+        return len({(r['lat'], r['lon']) for r in rows}) == 1
+    except Exception:
+        return False
+
+
 @status_gpsd_bp.get('/gpsd')
 def gpsd_status():
     service_state = _service_state()
@@ -103,12 +145,17 @@ def gpsd_status():
         except Exception:
             data_fresh = False
 
+    # Only assert a freeze when data is fresh; otherwise a stale stream would
+    # both fail "data fresh" and read as frozen for the same outage.
+    frozen = bool(data_fresh) and _position_frozen()
+
     checks = [
         ('gpsd service',       service_state == 'active'),
         ('device present',     device_present),
         ('port 2947 open',     gpsd['connected']),
         ('GPS fix',            fix_mode >= 2),
         ('data fresh (< 30s)', bool(data_fresh)),
+        ('position moving',    not frozen),
     ]
 
     overall_ok = all(ok for _, ok in checks)
@@ -125,4 +172,5 @@ def gpsd_status():
         sats_visible=sats_visible,
         latest=latest,
         data_age=data_age,
+        frozen=frozen,
     )

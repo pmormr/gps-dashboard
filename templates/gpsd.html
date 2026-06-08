@@ -94,6 +94,10 @@
         {{ sats_used }} used / {{ sats_visible }} visible
       </span>
     </div>
+    <div class="kv-row">
+      <span class="kv-key">Position</span>
+      <span class="kv-val {{ 'err' if frozen else 'ok' }}">{{ 'FROZEN' if frozen else 'moving' }}</span>
+    </div>
   </div>
 </div>
 
