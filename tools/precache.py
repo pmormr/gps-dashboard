@@ -171,7 +171,7 @@ def parse_zoom(zoom_str: str) -> list[int]:
 
 
 @click.command()
-@click.option('--layer', default='osm', show_default=True, type=click.Choice(sorted(LAYERS)), help='Tile layer to cache')
+@click.option('--layer', default='usgs', show_default=True, type=click.Choice(sorted(LAYERS)), help='Tile layer to cache')
 @click.option('--region', default=None, help='Named region (see --list-regions)')
 @click.option('--bbox', default=None, help='Bounding box: "min_lon,min_lat,max_lon,max_lat"')
 @click.option('--local', 'use_local', is_flag=True, help='Cache tiles around current GPS position')

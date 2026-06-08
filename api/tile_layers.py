@@ -11,19 +11,16 @@
 # so it upsamples the deepest tile rather than asking for ones that don't
 # exist.
 
+# Raster layers only. OSM is now a vector PMTiles basemap served separately
+# (see api/routes/tiles.py:osm_pmtiles and static/vendor/basemap), so USGS is
+# the lone raster layer left.
 LAYERS = {
-    'osm': {
-        'url': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'attribution': '© OpenStreetMap contributors',
-        'max_zoom': 19,
-        # Cache files keep the .png extension regardless of upstream format; the
-        # HTTP response's Content-Type is what browsers actually use.
-        'media_type': 'image/png',
-    },
     'usgs': {
         'url': 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
         'attribution': 'USGS The National Map',
         'max_zoom': 16,
+        # Cache files keep the .png extension regardless of upstream format (USGS
+        # serves JPEG); the HTTP response's Content-Type is what browsers use.
         'media_type': 'image/jpeg',
     },
 }
