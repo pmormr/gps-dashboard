@@ -221,6 +221,11 @@ def on_message(client, userdata, msg) -> None:
 
     if topic.kind == 'status':
         value = msg.payload.decode('utf-8', 'replace').strip()
+        # An empty status payload is a retained-message clear, not a liveness
+        # signal (online/offline are always non-empty); ignore it so clearing a
+        # retained status doesn't resurrect the sensor row.
+        if not value:
+            return
         apply_status(conn, topic, value, receipt_dt, stats)
         return
 
