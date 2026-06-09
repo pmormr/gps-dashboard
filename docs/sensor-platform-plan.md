@@ -324,14 +324,33 @@ ESPHome's `bme68x_bsec2`. So the Pi-attached `sensors/bme680.py` reader (Phase 1
 > MQTT→browser through the Flask app (SSE or a server-side WS), which keeps the
 > broker tcp-only at the cost of more Pi-side code than Decision #3 assumed.
 
+**3a — DB-backed viewer — DONE.** The viewer was built against the DB instead of
+the broker, so the websockets blocker doesn't gate it. The ingest subscriber is
+already the system of record; the page just reads it. This covers the bulk of the
+Phase 3 success criterion (current values + a trend chart on a phone, fully offline)
+— what's deferred is *real-time push* (sub-30s, event-driven), not the data.
+
+- [x] `GET /api/sensors` (registry, each row with its latest reading embedded) +
+      `GET /api/sensors/<id>/readings?start=&end=&limit=` (history, default trailing
+      24h) — `api/routes/sensors.py`.
+- [x] `/sensors` page + `static/js/sensors.js`: per-sensor current-values grid +
+      per-metric **uPlot** trend charts, polling both endpoints every 30s. Range
+      buttons (1h/6h/24h/7d); a liveness dot per sensor (online/stale/offline from
+      the registry status + `last_seen` age). Charts built once and updated in place
+      so range state survives a refresh. Mobile-first layout, dark theme matching the
+      `/gpsd`/`/ntp` pages; nav cross-links added.
+- [x] Vendored **uPlot** into `static/vendor/uplot/` (offline, no CDN).
+- [x] Type-dispatched via a `READING_TABLES` map (table + ordered metric columns),
+      so a second sensor type slots in by adding a table and an entry.
+
+**3b — Live push (MQTT-over-WS) — still blocked, deferred.** Real-time event-driven
+updates remain a future upgrade once the broker blocker is resolved.
+
 - [ ] Resolve the websockets blocker above, then add the `:9001` WS listener.
 - [ ] Vendor **MQTT.js** into `static/vendor/mqtt/`.
-- [ ] `static/js/sensors.js`: connect to mosquitto WS (`:9001`), subscribe
-      `sensors/#`, render a **current-values panel** (seeded instantly by retained
-      messages) + a **live chart** updating in real time.
-- [ ] Mobile layout pass (phone is the primary client).
-- [ ] `GET /api/sensors` (registry) + `GET /api/sensors/<id>/readings?start=&end=`
-      (history) for non-live views.
+- [ ] Swap the poll in `static/js/sensors.js` for a mosquitto WS (`:9001`)
+      subscription to `sensors/#` — current-values panel seeded instantly by retained
+      messages, charts updating in real time.
 
 ### Phase 4 — Alarms
 - [ ] **Alarm subscriber** (`mqtt/alarms.py`): subscribe `sensors/#`, evaluate

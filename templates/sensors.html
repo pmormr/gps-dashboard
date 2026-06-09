@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sensors — GPS Dashboard</title>
+  <link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
+  <style>
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --surface2: #263348;
+      --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
+      --primary: #3b82f6; --success: #22c55e; --danger: #ef4444;
+      --warn: #f59e0b; --radius: 8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; padding: 16px; max-width: 640px; margin: 0 auto; }
+    a { color: var(--primary); text-decoration: none; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .nav { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; color: var(--muted); }
+    .controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .range-bar { display: flex; gap: 6px; }
+    .range-btn { background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+    .range-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .status-note { font-size: 12px; color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+    .sensor-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .dot.ok { background: var(--success); } .dot.err { background: var(--danger); } .dot.warn { background: var(--warn); } .dot.unknown { background: var(--muted); }
+    .sensor-name { font-weight: 600; flex: 1; }
+    .sensor-name .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+    .sensor-age { font-size: 12px; color: var(--muted); text-align: right; }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 1px; background: var(--border); }
+    .metric-cell { background: var(--surface); padding: 8px 12px; }
+    .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+    .metric-val { font-size: 18px; font-weight: 600; }
+    .metric-val .unit { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 2px; }
+    .charts { padding: 8px 6px 12px; }
+    .chart-block { margin-top: 8px; }
+    .chart-block .chart-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; padding: 0 8px 2px; }
+    .empty { padding: 24px 14px; color: var(--muted); text-align: center; }
+    .refresh-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+    .uplot { font-family: inherit; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/">← Dashboard</a>
+  <a href="/gpsd">GPS</a>
+  <a href="/ntp">NTP</a>
+</div>
+
+<h1>Sensors</h1>
+
+<div class="controls">
+  <div class="range-bar" id="range-bar">
+    <button class="range-btn" data-hours="1">1h</button>
+    <button class="range-btn" data-hours="6">6h</button>
+    <button class="range-btn active" data-hours="24">24h</button>
+    <button class="range-btn" data-hours="168">7d</button>
+  </div>
+  <span class="status-note" id="status-note">Loading…</span>
+</div>
+
+<div id="sensors"></div>
+
+<p class="refresh-note">Updates every 30 seconds · reads from the logged DB (no live broker needed)</p>
+
+<script src="/static/vendor/uplot/uPlot.iife.min.js"></script>
+<script src="/static/js/sensors.js"></script>
+</body>
+</html>

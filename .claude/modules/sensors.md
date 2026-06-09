@@ -7,8 +7,10 @@ SQLite DB so GPS↔sensor correlation is a local join.
 
 Roadmap, locked decisions, and per-phase success criteria live in
 `docs/sensor-platform-plan.md` — this file documents what has **landed**. Phases 0–2
-(schema + broker + ingest + the first remote ESP32 node) are in; Phases 3–5 (browser
-live readouts, alarms, correlation UX) are not yet.
+(schema + broker + ingest + the first remote ESP32 node) are in, plus a DB-backed
+**`/sensors` viewer** (current values + trend charts) that delivers the Phase 3 value
+without the blocked WS transport. Still open: *live* (push) readouts over MQTT-over-WS,
+alarms, and correlation UX.
 
 The first sensor is a **BME680 on a dedicated ESPHome ESP32-C6 node**
 (`firmware/cabin-bme680.yaml`), not Pi-attached: it runs Bosch **BSEC2** on-device for
@@ -37,7 +39,13 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   per-type rows, applies LWT status. Persistent session + QoS-1 so a restart loses
   nothing. Heartbeat with a dropped-reading reason breakdown, logger-style.
 - **Alarm subscriber** — Phase 4, not built yet (`mqttbus/alarms.py`).
-- **Browser** — Phase 3, not built yet (MQTT-over-WS via vendored MQTT.js).
+- **Web app** (`api/routes/sensors.py`) — the `/sensors` page + `/api/sensors` and
+  `/api/sensors/<id>/readings` JSON. Read-only, DB-backed (no MQTT): the page
+  (`static/js/sensors.js`, vendored uPlot) polls every 30s for current values and
+  per-metric trend charts. This is the non-live half of Phase 3; it sidesteps the
+  broker websockets blocker entirely.
+- **Browser (live)** — Phase 3 push path via MQTT-over-WS, not built (blocked on the
+  broker; see plan blocker F). The DB-backed viewer above covers most of the need.
 
 `mqttbus/client.py` is the shared paho v2 client factory (env broker host/port,
 bounded reconnect backoff, optional retained LWT). `mqttbus/topics.py` is the single

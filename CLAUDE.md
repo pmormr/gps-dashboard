@@ -72,8 +72,11 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `POST /api/trips/mark` — upsert `start` or `end` mark with current UTC time
 - `GET /tiles/osm.pmtiles` — vector OSM basemap (single PMTiles archive) served with HTTP range support
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
+- `GET /api/sensors` — sensor registry, each row with its latest reading embedded
+- `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
 - `GET /gpsd` — read-only gpsd status page
 - `GET /ntp` — read-only NTP/chrony status page
+- `GET /sensors` — sensor viewer (current values + trend charts)
 
 ### Frontend
 
@@ -83,11 +86,12 @@ Two views in the main app (`/`):
 - **Timeline** — date picker + range scrubber (noUiSlider), filters points in memory, create trips from selection. **Live mode**: when viewing today's date, the Live button polls `/api/points` every 30s and auto-advances the slider end to show new points in real time. The ⊕ FAB button zooms the map to the most recent GPS fix via `/api/points/latest`.
 - **Trips** — browse trips, view track on map, stats (distance, max/avg speed, elevation gain) computed client-side via Haversine
 
-Two standalone status pages:
+Three standalone pages:
 - `/gpsd` — gpsd service state, fix mode, satellite count, latest coordinates, pass/fail indicators
 - `/ntp` — chrony sync status, stratum, offset, GPS/PPS source state, LAN server status
+- `/sensors` — per-sensor current values + trend charts. JS-driven (`static/js/sensors.js`), polling `/api/sensors` and `/api/sensors/:id/readings` every 30s, charting with vendored uPlot. Reads from the logged DB — no live broker needed — so it works regardless of the broker's websockets support. Range buttons (1h/6h/24h/7d) and a liveness dot per sensor (online/stale/offline from the registry).
 
-Both status pages auto-refresh every 30 seconds.
+`/gpsd` and `/ntp` auto-refresh every 30 seconds via `<meta refresh>`; `/sensors` polls in place (a full reload would drop chart state).
 
 ### Basemaps: Vector OSM + Raster USGS
 
@@ -123,7 +127,7 @@ Two chrony config templates:
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. Live browser readouts and alarms are planned. GPS logging is untouched and stays off the bus. See **`.claude/modules/sensors.md`** for the architecture and **`docs/sensor-platform-plan.md`** for the roadmap.
+A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. See **`.claude/modules/sensors.md`** for the architecture and **`docs/sensor-platform-plan.md`** for the roadmap.
 
 ### Project Structure
 
@@ -137,6 +141,7 @@ gps-dashboard/
 │       ├── points.py
 │       ├── trips.py
 │       ├── tiles.py
+│       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
 │       ├── status_gpsd.py
 │       └── status_ntp.py
 ├── logger/
@@ -154,16 +159,19 @@ gps-dashboard/
 │   ├── img/tile-error.png
 │   ├── js/
 │   │   ├── api.js, app.js, geo.js, map.js, labels.js, timeline.js, trips.js
+│   │   └── sensors.js      # /sensors viewer (current values + uPlot charts)
 │   └── vendor/
 │       ├── leaflet/
 │       ├── nouislider/
 │       ├── maplibre/       # maplibre-gl + maplibre-gl-leaflet plugin
 │       ├── pmtiles/        # pmtiles.js range reader
+│       ├── uplot/          # uPlot time-series charts (sensor trends)
 │       └── basemap/        # Protomaps style.json + glyphs + sprite
 ├── templates/
 │   ├── index.html
 │   ├── gpsd.html
-│   └── ntp.html
+│   ├── ntp.html
+│   └── sensors.html
 ├── tools/
 │   ├── precache.py
 │   ├── gpsd_setup.py
