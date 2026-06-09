@@ -76,7 +76,13 @@ function formatValue(key, value) {
   const meta = metricMeta(key);
   const num = Number(value).toFixed(meta.dec);
   const unit = meta.unit ? `<span class="unit">${meta.unit}</span>` : '';
-  return `<span class="metric-val">${num}${unit}</span>`;
+  const main = `<span class="metric-val">${num}${unit}</span>`;
+  // Temperature is logged in °C; surface °F alongside for the US van.
+  if (key === 'temp_c') {
+    const f = (Number(value) * 9 / 5 + 32).toFixed(1);
+    return `${main}<span class="metric-sub">${f} °F</span>`;
+  }
+  return main;
 }
 
 /** Ordered metric keys to display for a sensor, from the server's type map. */
