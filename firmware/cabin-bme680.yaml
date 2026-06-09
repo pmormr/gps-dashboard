@@ -1,0 +1,152 @@
+# Cabin BME680 air-quality node (Seeed XIAO ESP32-C6 + Adafruit BME680).
+#
+# Runs Bosch BSEC2 on-device for a calibrated IAQ index, then publishes one
+# combined JSON reading to the gps-dashboard sensor taxonomy so the Pi's
+# mqttbus/ingest.py writes it straight into bme680_readings, unchanged.
+#
+#   reading topic : sensors/cabin/bme680            (retained JSON, every 30s)
+#   status topic  : sensors/cabin/bme680/status     (retained online/offline = LWT)
+#
+# Payload keys are the bme680_readings column names (the ingest contract):
+#   ts, temp_c, humidity_pct, pressure_hpa, gas_ohms,
+#   iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent
+#
+# Flashing (online prep step; runtime is fully offline on the van LAN):
+#   uv tool run esphome run firmware/cabin-bme680.yaml   # first flash over USB, then OTA
+# Copy firmware/secrets.yaml.example -> firmware/secrets.yaml first (gitignored).
+
+substitutions:
+  node: cabin                       # topic <node> segment + registry key
+  pi_host: 192.168.42.178           # Pi: MQTT broker AND stratum-1 NTP server
+
+esphome:
+  name: ${node}-bme680
+  friendly_name: Cabin BME680
+
+esp32:
+  # The XIAO ESP32-C6 is RISC-V and Arduino-incompatible: esp-idf is required.
+  # BSEC2 runs here only because Bosch dropped its Arduino dependency (ESPHome
+  # 2025.6.0+). If this board key isn't recognized at compile time, try
+  # `esp32-c6-devkitc-1` (pins are by GPIO number, so they don't change).
+  board: seeed_xiao_esp32c6
+  framework:
+    type: esp-idf
+
+logger:
+
+# Wi-Fi onto the van LAN. Creds in secrets.yaml (gitignored).
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# OTA after the first USB flash.
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Time off the Pi (stratum-1 GPS+PPS) so each reading is NTP-stamped locally.
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - ${pi_host}
+
+i2c:
+  sda: GPIO22                       # XIAO C6 silkscreen D4
+  scl: GPIO23                       # XIAO C6 silkscreen D5
+  frequency: 400kHz
+
+# Bosch BSEC2 driver. The Adafruit BME680 answers at 0x76 (confirmed on the
+# breadboard). LP = 3s sample rate, which the IAQ algorithm needs to run
+# continuously; the baseline calibration state is persisted to flash so
+# iaq_accuracy survives reboots instead of restarting cold each boot.
+bme68x_bsec2_i2c:
+  address: 0x76
+  model: bme680
+  operating_age: 28d
+  sample_rate: LP
+  state_save_interval: 6h
+  # The BME680 self-heats; sitting near the driver's head it will read a touch
+  # high. Calibrate against a reference thermometer once it's mounted and set
+  # this (degrees C subtracted from the raw reading).
+  temperature_offset: 0
+
+# All sensors are `internal` so ESPHome does NOT auto-publish per-sensor MQTT
+# topics — the only thing on the bus is our combined JSON below, matching the
+# project taxonomy. They still update and are readable by id() in the lambda.
+sensor:
+  - platform: bme68x_bsec2
+    temperature:
+      id: bme_temp
+      internal: true
+    pressure:
+      id: bme_pressure
+      internal: true
+    humidity:
+      id: bme_humidity
+      internal: true
+    gas_resistance:
+      id: bme_gas
+      internal: true
+    iaq:
+      id: bme_iaq
+      internal: true
+    co2_equivalent:
+      id: bme_co2
+      internal: true
+    breath_voc_equivalent:
+      id: bme_voc
+      internal: true
+  - platform: bme68x_bsec2
+    iaq_accuracy:
+      id: bme_iaq_accuracy
+      internal: true
+
+mqtt:
+  broker: ${pi_host}
+  port: 1883
+  # Anonymous: the broker matches the app's trusted-LAN, no-auth stance.
+  discovery: false                  # no Home Assistant; we drive our own dashboard
+  topic_prefix: ${node}-bme680      # keeps any stray ESPHome topics out of sensors/#
+  # Birth/will ARE the LWT: broker flips the stream offline if the node drops.
+  birth_message:
+    topic: sensors/${node}/bme680/status
+    payload: online
+    retain: true
+  will_message:
+    topic: sensors/${node}/bme680/status
+    payload: offline
+    retain: true
+
+# Publish one combined reading every 30s (BSEC samples internally at 3s; 30s is
+# plenty for GPS correlation and keeps bme680_readings growth in check).
+interval:
+  - interval: 30s
+    then:
+      - if:
+          # Don't emit a row of nulls before the first BSEC reading lands.
+          condition:
+            lambda: 'return id(bme_temp).has_state();'
+          then:
+            - mqtt.publish_json:
+                topic: sensors/${node}/bme680
+                retain: true
+                payload: |-
+                  auto t = id(sntp_time).now();
+                  if (t.is_valid()) {
+                    // Whole-second UTC; ingest keeps this node-stamped ts.
+                    char buf[21];
+                    t.strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ");
+                    root["ts"] = buf;
+                  }
+                  // Omitting ts when the clock isn't synced lets ingest fall
+                  // back to receipt time (counted as ts_missing) rather than
+                  // stamping a 1970 epoch.
+                  root["temp_c"] = id(bme_temp).state;
+                  root["humidity_pct"] = id(bme_humidity).state;
+                  root["pressure_hpa"] = id(bme_pressure).state;
+                  root["gas_ohms"] = id(bme_gas).state;
+                  root["iaq"] = id(bme_iaq).state;
+                  root["iaq_accuracy"] = (int) id(bme_iaq_accuracy).state;
+                  root["co2_equivalent"] = id(bme_co2).state;
+                  root["breath_voc_equivalent"] = id(bme_voc).state;
