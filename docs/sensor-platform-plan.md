@@ -107,9 +107,15 @@ alarms/<rule_id>                # alarm state, retained: "active" / "cleared" (p
 }
 ```
 
-- `ts` is canonicalized through `canonical_timestamp` on ingest. "Implausible" =
-  not parseable or more than a small window (e.g. ±N s) from receipt time → use
-  receipt time and count it (heartbeat reason counter, logger-style).
+- `ts` is canonicalized through `canonical_timestamp` on ingest. The fallback to
+  receipt time fires when `ts` is **missing**, **unparseable**, or more than
+  `FUTURE_SKEW_SECONDS` (60s) **in the future** — each counted separately in the
+  ingest heartbeat (`ts_missing` / `ts_bad` / `ts_future`). Timestamps *older* than
+  receipt are **kept as-is**, not rejected: that is the whole point of Decision #5
+  (a node buffering across a Pi reboot must replay with its own per-reading times,
+  not collapse onto receipt time). So "implausible" means future/garbage clocks,
+  not staleness. (This refines the earlier "±N s window" sketch, which would have
+  wrongly discarded legitimately buffered readings.)
 - Keys are the per-type table's columns. Unknown keys are ignored (forward-compat).
 
 ---
@@ -234,21 +240,46 @@ Each phase ships something real and de-risks the next.
 > unambiguous. The proposed `client.py`/`ingest.py`/`alarms.py` modules land under
 > `mqttbus/` too. Layout block below updated to match.
 
-### Phase 1 — Broker + ingest, one local sensor end-to-end
-- [ ] Install/configure **mosquitto**: `deploy/mosquitto.conf` with a tcp listener
+### Phase 1 — Broker + ingest, one local sensor end-to-end — **code DONE, Pi deploy pending**
+- [x] Install/configure **mosquitto**: `deploy/mosquitto.conf` with a tcp listener
       (`:1883`) and a **websockets listener** (`:9001`), `allow_anonymous true`
-      (trusted LAN), persistence on. Enable the service.
-- [ ] **Pi BME680 reader** (`sensors/bme680.py`): read I2C on an interval, publish
-      to `sensors/<node>/bme680`, register an LWT on `.../status`. Logger ethos:
-      auto-reconnect, heartbeat, graceful shutdown. Start with a **fake publisher**
-      if hardware isn't wired yet, to decouple pipeline from soldering.
-- [ ] **Ingest subscriber** (`mqtt/ingest.py`): subscribe `sensors/#`, auto-upsert
-      the `sensors` row (first_seen/last_seen/status), validate+canonicalize `ts`,
-      insert into `bme680_readings`. Apply `.../status` (LWT) to `sensors.status`.
-- [ ] `deploy/sensor-bme680.service` + `deploy/mqtt-ingest.service`; wire into the
-      post-receive hook (see "Deploy & ops impact").
-- [ ] **Verify end-to-end:** reading flows BME680 → MQTT → SQLite; a row lands in
-      `bme680_readings` with a sane timestamp and the sensor auto-registers.
+      (trusted LAN), persistence on. *(Config written; one-time install on the Pi
+      via `conf.d/` + `systemctl enable mosquitto` still pending — see below.)*
+- [x] **Pi BME680 reader** (`sensors/bme680.py`): reads I2C on an interval, publishes
+      to `sensors/<node>/bme680`, registers a retained LWT on `.../status`. Logger
+      ethos: paho auto-reconnect, heartbeat, graceful shutdown. **`--fake` mode**
+      synthesizes readings so the pipeline is decoupled from soldering. Driver
+      (Decision A) = Pimoroni `bme680`, lazy-imported so `--fake` needs no I2C lib.
+- [x] **Ingest subscriber** (`mqttbus/ingest.py`): subscribes `sensors/#`,
+      auto-upserts the `sensors` row (first_seen/last_seen/status), canonicalizes
+      `ts` with receipt fallback, inserts into `bme680_readings`, applies `.../status`
+      (LWT) to `sensors.status`. Persistent session (clean_session=False) + QoS-1 so
+      messages queue across an ingest restart with no loss. Retained reading copies
+      are skipped on resubscribe to avoid double-insert.
+- [x] `deploy/sensor-bme680.service` + `deploy/mqtt-ingest.service` written.
+- [ ] Wire into the **post-receive hook** on the Pi (see "Deploy & ops impact") —
+      not tracked in this repo; applied directly on the Pi.
+- [x] **Verified end-to-end in dev** (sandboxed mosquitto on high ports): fake
+      reading → MQTT → SQLite; row lands with a sane timestamp; sensor auto-registers;
+      `online`→`offline` via LWT on ungraceful kill; **no loss across an ingest
+      restart** (queued QoS-1 message redelivered). Success criteria 1 (+ part of 2)
+      met before hardware.
+
+> **Decisions settled at Phase 1:** A — driver = Pimoroni `bme680`. D — broker auth
+> = **anonymous** (trusted LAN, matches the app's no-auth stance). Deps added:
+> `paho-mqtt` 2.x (`CallbackAPIVersion.VERSION2`) and `bme680`.
+>
+> **Pi one-time setup (still to do):**
+> ```bash
+> sudo apt-get install -y mosquitto
+> sudo cp deploy/mosquitto.conf /etc/mosquitto/conf.d/gps-sensors.conf
+> sudo mkdir -p /mnt/nvme/data/mosquitto
+> sudo systemctl enable --now mosquitto
+> sudo cp deploy/mqtt-ingest.service deploy/sensor-bme680.service /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mqtt-ingest sensor-bme680
+> ```
+> Plus the post-receive hook edit below.
 
 ### Phase 2 — First remote node (ESP32)
 - [ ] Decide firmware home (`firmware/` vs. separate repo) and stack

@@ -1,0 +1,19 @@
+[Unit]
+Description=MQTT sensor ingest (system of record)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python mqttbus/ingest.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

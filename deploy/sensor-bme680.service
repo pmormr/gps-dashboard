@@ -1,0 +1,19 @@
+[Unit]
+Description=BME680 sensor reader (Pi-attached I2C, MQTT publisher)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_SENSOR_NODE=cabin
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/bme680.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

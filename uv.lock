@@ -12,6 +12,18 @@ wheels = [
 ]
 
 [[package]]
+name = "bme680"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "smbus2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4b/92/8ac453cac43f019387259a01e0f4e13c5917cc0925f077a32e308522a9ca/bme680-2.0.0.tar.gz", hash = "sha256:7395afd9bc95fc3d643cc873ad2f5c27d3c2d18ccf4771505124e0e2042c0d74", size = 80399, upload-time = "2024-05-10T10:51:39.584Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3a/19/8c926497c8be9fc65bbd09d3ab44cb5f78219defc5dbb57d606dd5e39444/bme680-2.0.0-py3-none-any.whl", hash = "sha256:1802bd5ba98354ebb9318185051c913e1a3c2f06771e8f91eb40e5838795e66e", size = 14360, upload-time = "2024-05-10T10:51:37.678Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.5.20"
 source = { registry = "https://pypi.org/simple" }
@@ -152,15 +164,19 @@ name = "gps-dashboard"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "bme680" },
     { name = "click" },
     { name = "flask" },
+    { name = "paho-mqtt" },
     { name = "requests" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "bme680", specifier = ">=2.0.0" },
     { name = "click", specifier = ">=8.0" },
     { name = "flask", specifier = ">=3.1.3" },
+    { name = "paho-mqtt", specifier = ">=2.1.0" },
     { name = "requests", specifier = ">=2.32" },
 ]
 
@@ -269,6 +285,15 @@ wheels = [
 ]
 
 [[package]]
+name = "paho-mqtt"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/15/0a6214e76d4d32e7f663b109cf71fb22561c2be0f701d67f93950cd40542/paho_mqtt-2.1.0.tar.gz", hash = "sha256:12d6e7511d4137555a3f6ea167ae846af2c7357b10bc6fa4f7c3968fc1723834", size = 148848, upload-time = "2024-04-29T19:52:55.591Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/cb/00451c3cf31790287768bb12c6bec834f5d292eaf3022afc88e14b8afc94/paho_mqtt-2.1.0-py3-none-any.whl", hash = "sha256:6db9ba9b34ed5bc6b6e3812718c7e06e2fd7444540df2455d2c51bd58808feee", size = 67219, upload-time = "2024-04-29T19:52:48.345Z" },
+]
+
+[[package]]
 name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
@@ -281,6 +306,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856, upload-time = "2026-05-14T19:25:27.735Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z" },
+]
+
+[[package]]
+name = "smbus2"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/87/37/b3f7b501502c4915ba3819d1dc277bf3f5fae4a9d067caa4f502aaddd889/smbus2-0.6.1.tar.gz", hash = "sha256:2b043372abf8f6029a632c3aab36b641c5d5872b1cbad599fc68e17ac4fd90a5", size = 17274, upload-time = "2026-04-09T20:37:54.821Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/f2/c78a68bd739ac8fc608747cff73a4db3b19f3135658ed4e64374f6425cbf/smbus2-0.6.1-py2.py3-none-any.whl", hash = "sha256:650feeb27ca0ed58b07db4c10201c2a662c41305b7bf6e5fab9d888056f48180", size = 11767, upload-time = "2026-04-09T20:37:53.728Z" },
 ]
 
 [[package]]
