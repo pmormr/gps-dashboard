@@ -123,7 +123,7 @@ Two chrony config templates:
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: environmental sensors (BME680 first) ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + a local reader (Phases 0–1) have landed; live readouts, alarms, and ESP32 nodes are planned. GPS logging is untouched and stays off the bus. See **`.claude/modules/sensors.md`** for the architecture and **`docs/sensor-platform-plan.md`** for the roadmap.
+A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. Live browser readouts and alarms are planned. GPS logging is untouched and stays off the bus. See **`.claude/modules/sensors.md`** for the architecture and **`docs/sensor-platform-plan.md`** for the roadmap.
 
 ### Project Structure
 
@@ -141,12 +141,14 @@ gps-dashboard/
 │       └── status_ntp.py
 ├── logger/
 │   └── gps_logger.py
-├── sensors/                    # Pi-side sensor readers (MQTT publishers)
+├── sensors/                    # Pi-side reader / --fake harness (BME680 now lives on an ESP32 node)
 │   └── bme680.py
 ├── mqttbus/                    # broker-side consumers + shared MQTT helpers
 │   ├── topics.py
 │   ├── client.py
 │   └── ingest.py
+├── firmware/                   # ESPHome configs for remote ESP32 sensor nodes
+│   └── cabin-bme680.yaml       # XIAO ESP32-C6 + BME680 (BSEC2 IAQ)
 ├── static/
 │   ├── css/app.css
 │   ├── img/tile-error.png
@@ -223,8 +225,8 @@ uv run tools/ntp_validate.py
 
 # Sensor pipeline (MQTT — needs a broker; PYTHONPATH set so scripts find the packages)
 PYTHONPATH=. uv run mqttbus/ingest.py                       # ingest subscriber
-PYTHONPATH=. uv run sensors/bme680.py --fake --node cabin   # fake publisher (no hardware)
-PYTHONPATH=. uv run sensors/bme680.py --node cabin          # real I2C BME680
+PYTHONPATH=. uv run sensors/bme680.py --fake --node cabin   # fake publisher — pipeline test harness
+PYTHONPATH=. uv run sensors/bme680.py --node cabin          # (legacy) Pi-attached I2C BME680; the live BME680 is the ESPHome node
 
 # Inspect the database
 sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"

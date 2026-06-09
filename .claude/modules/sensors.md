@@ -6,9 +6,16 @@ BME680: temperature, humidity, pressure, gas/VOC) over an MQTT bus, into the **s
 SQLite DB so GPS↔sensor correlation is a local join.
 
 Roadmap, locked decisions, and per-phase success criteria live in
-`docs/sensor-platform-plan.md` — this file documents what has **landed**. Phases 0–1
-(schema + broker + ingest + a local reader) are in; Phases 2–5 (ESP32 nodes, browser
+`docs/sensor-platform-plan.md` — this file documents what has **landed**. Phases 0–2
+(schema + broker + ingest + the first remote ESP32 node) are in; Phases 3–5 (browser
 live readouts, alarms, correlation UX) are not yet.
+
+The first sensor is a **BME680 on a dedicated ESPHome ESP32-C6 node**
+(`firmware/cabin-bme680.yaml`), not Pi-attached: it runs Bosch **BSEC2** on-device for
+a calibrated IAQ index — closed-source C, so it can't run under MicroPython and is
+fiddly on the Pi, but ESPHome's `bme68x_bsec2` component runs it cleanly and also
+gives Wi-Fi/MQTT/NTP/OTA for free. The Pi-side `sensors/bme680.py` reader survives only
+as a `--fake` pipeline test harness.
 
 ## Processes
 
@@ -17,10 +24,14 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
 - **mosquitto** — local MQTT broker. tcp `:1883` (Pi-side clients) + websockets
   `:9001` (browser, MQTT-over-WS). `allow_anonymous` (trusted LAN, like the app's
   no-auth stance). Config `deploy/mosquitto.conf` → `/etc/mosquitto/conf.d/`.
-- **BME680 reader** (`sensors/bme680.py`) — Pi-attached I2C sensor → MQTT publisher.
-  Logger ethos: paho auto-reconnect, heartbeat, graceful shutdown. `--fake` mode
-  synthesizes readings so the pipeline runs with no hardware; the real Pimoroni
-  `bme680` driver is lazy-imported. Registers a retained LWT on `.../status`.
+- **BME680 node** (`firmware/cabin-bme680.yaml`) — the live publisher: a Seeed XIAO
+  ESP32-C6 + Adafruit BME680 (I2C `0x77`), ESPHome on the esp-idf framework (required
+  for the RISC-V C6). `bme68x_bsec2` runs BSEC2 (LP rate, baseline persisted to flash);
+  a 30s interval lambda publishes one combined JSON reading to `sensors/cabin/bme680`,
+  `utcnow()`-stamped. MQTT birth/will = the `.../status` LWT. See `firmware/README.md`.
+- **BME680 reader** (`sensors/bme680.py`) — the original Pi-attached I2C publisher,
+  now kept only as a `--fake` pipeline test harness (the real BME680 moved to the node
+  above). Logger ethos: paho auto-reconnect, heartbeat, graceful shutdown.
 - **Ingest subscriber** (`mqttbus/ingest.py`) — the **only** writer of sensor data.
   Subscribes `sensors/#`, auto-registers sensors, canonicalizes timestamps, inserts
   per-type rows, applies LWT status. Persistent session + QoS-1 so a restart loses
@@ -39,6 +50,12 @@ Sensor tables live in `gps_history.db` alongside GPS — see `api/db.py` `init_d
 `alarm_rules` / `alarm_events` tables (created now, exercised in Phase 4). All
 timestamps go through `api.db.canonical_timestamp` so they join cleanly against
 `gps_points`. FKs are logical/unenforced, matching the trips↔points style.
+
+`bme680_readings` carries the BSEC2 outputs alongside the raw channels: `temp_c`,
+`humidity_pct`, `pressure_hpa`, `gas_ohms` (raw resistance) plus `iaq`, `iaq_accuracy`
+(0–3; IAQ is meaningless until ≥1), `co2_equivalent`, `breath_voc_equivalent`. The IAQ
+columns were added by an idempotent `ALTER TABLE` in `db.py` `migrate()` (the Pi's
+table predates them); absent payload keys store NULL.
 
 ## Conventions
 
@@ -71,11 +88,15 @@ when `deploy/` changes, restarts `mqtt-ingest` when enabled, and restarts
 without the BME680 wired never starts a crash-looping reader.
 
 One-time Pi setup (broker install, enabling units) is in the plan's Phase 1 section.
-`sensor-bme680` stays **disabled until the BME680 is physically wired** (the CM5 GPIO
-I2C bus must be enabled first; currently absent). `mosquitto` + `mqtt-ingest` run now
-and simply wait for messages.
+`mosquitto` + `mqtt-ingest` run on the Pi and ingest whatever publishes. The
+`sensor-bme680` service stays **disabled** — the BME680 moved to the ESPHome node, so
+the Pi-attached reader has no hardware (and the CM5 GPIO I2C bus is still off).
 
-**Offline:** mosquitto is a local broker; MQTT.js will be vendored (Phase 3); ESP32s
-NTP-sync off the Pi. Nothing here reaches the internet at runtime. Installing
-mosquitto and the `paho-mqtt`/`bme680` wheels are online prep steps (done before going
-off-grid), same as tile pre-caching.
+The ESP32 node is flashed from a dev host, not the Pi:
+`uv tool run esphome run firmware/cabin-bme680.yaml` (first flash over USB, OTA after;
+copy `firmware/secrets.yaml.example` → `secrets.yaml` first). See `firmware/README.md`.
+
+**Offline:** mosquitto is a local broker; MQTT.js will be vendored (Phase 3); the ESP32
+NTP-syncs off the Pi and talks only to the local broker. Nothing here reaches the
+internet at runtime. Installing mosquitto/`paho-mqtt` and **building the ESPHome
+firmware** (ESP-IDF toolchain + BSEC2) are online prep steps, same as tile pre-caching.

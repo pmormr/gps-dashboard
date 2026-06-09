@@ -285,15 +285,32 @@ Each phase ships something real and de-risks the next.
 > sudo systemctl enable --now sensor-bme680
 > ```
 
-### Phase 2 — First remote node (ESP32)
-- [ ] Decide firmware home (`firmware/` vs. separate repo) and stack
-      (Arduino/ESP-IDF/MicroPython).
-- [ ] Lightweight node program: read BME680, **NTP-sync off the Pi**
-      (`192.168.42.178`), publish to `sensors/<node>/bme680` with `ts`, register
-      LWT.
-- [ ] **Verify zero-config discovery:** plug the node in; it appears in the
-      `sensors` registry and starts logging with **no Pi-side change**. Kill its
-      power; confirm `status` flips to `offline` via LWT.
+### Phase 2 — First remote node (ESP32) — **DONE**
+
+The BME680 moved off the Pi entirely onto a dedicated remote node — driven by
+Decision B (IAQ): a real air-quality number needs Bosch **BSEC2**, which is a closed
+C blob (no MicroPython binding, fiddly on the Pi) but runs cleanly at the sensor via
+ESPHome's `bme68x_bsec2`. So the Pi-attached `sensors/bme680.py` reader (Phase 1) is
+**superseded** as the live source and survives only as a `--fake` test harness.
+
+- [x] Firmware stack + home (Decision C): **ESPHome YAML in `firmware/`** (not
+      Arduino/MicroPython, not a separate repo). YAML only — no C++ toolchain in-repo.
+- [x] `firmware/cabin-bme680.yaml`: Seeed XIAO ESP32-C6 (esp-idf framework, required
+      for the RISC-V C6) + Adafruit BME680 (I2C `0x77`). `bme68x_bsec2` runs BSEC2
+      (LP rate, baseline persisted to flash); a 30s interval lambda publishes one
+      combined JSON reading to `sensors/cabin/bme680`, `utcnow()`-stamped. SNTP off
+      the Pi (`192.168.42.178`); MQTT birth/will = the `.../status` LWT.
+- [x] **Verified zero-config discovery end-to-end:** flashed node → auto-registers in
+      the `sensors` registry (`cabin/bme680`, `online` via birth) with **no Pi-side
+      config**, and readings land in `bme680_readings` with correct UTC timestamps.
+- [x] `bme680_readings` extended with BSEC IAQ columns (`iaq`, `iaq_accuracy`,
+      `co2_equivalent`, `breath_voc_equivalent`); ingest writes them; the payload
+      contract is the column names.
+
+> **Bring-up notes.** I2C address is `0x77` (Adafruit SDO pull-up with SDO floating;
+> ground SDO for `0x76`) — `0x76` gave `bme68x_init status -2`. Timestamp must use
+> `utcnow()`, not `now()` (which is host-local and was mislabeled `Z`, landing 4h off).
+> `iaq_accuracy` starts at 0 (BSEC burn-in); IAQ is only meaningful once it reaches ≥1.
 
 ### Phase 3 — Live readouts (browser-direct MQTT-over-WS)
 
@@ -367,9 +384,9 @@ retroactively.
 
 | # | Decision | When | Notes |
 |---|----------|------|-------|
-| A | BME680 Python driver choice | Phase 1 | Pimoroni `bme680` vs Adafruit CircuitPython vs raw `smbus2`. |
-| B | IAQ index source | later | Raw `gas_ohms` now; BSEC blob vs. heuristic vs. leave raw. |
-| C | ESP32 firmware home + stack | Phase 2 | `firmware/` subdir vs. separate repo; Arduino/ESP-IDF/MicroPython. |
+| A | BME680 Python driver choice | Phase 1 | **Moot** — BME680 moved to the ESP32 node; the Pi reader (Pimoroni `bme680`) is now only a `--fake` harness. |
+| B | IAQ index source | Phase 2 | **Settled: BSEC2 on the node** via ESPHome `bme68x_bsec2` (calibrated IAQ at the sensor). Raw `gas_ohms` still stored alongside. |
+| C | ESP32 firmware home + stack | Phase 2 | **Settled: ESPHome YAML in `firmware/`** (esp-idf for the RISC-V C6). Not Arduino/MicroPython; no separate repo. |
 | D | Broker auth | Phase 1 | **Settled: anonymous** (trusted LAN, matches the app's no-auth stance). |
 | E | Retention / downsampling | post-Phase 5 | Only if DB growth warrants it. |
 | F | Websockets transport for the browser | Phase 3 | Debian's mosquitto lacks libwebsockets (found at Phase 1 deploy). Rebuild with WS, find a backport, or bridge MQTT→browser via Flask. See Phase 3 blocker note. |
