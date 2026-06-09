@@ -53,11 +53,13 @@ App runs at `http://192.168.42.178:5000`.
 
 ### Data Model
 
-SQLite (`gps_history.db`), three tables:
+SQLite (`gps_history.db`). Core GPS tables:
 
 - `gps_points(id, timestamp, lat, lon, speed, altitude, track)` — continuous append-only stream
 - `trips(id, name, start_time, end_time, notes)` — pure metadata; no foreign keys. Points for a trip queried via `WHERE timestamp BETWEEN start_time AND end_time`.
 - `marks(key, timestamp)` — two rows max (`start`, `end`); persists live trip-marking timestamps across restarts.
+
+The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
 
@@ -119,6 +121,10 @@ Two chrony config templates:
 - `deploy/chrony-gps-pps.conf` — **current**: serial GPS with PPS (sub-microsecond accuracy), stratum 1
 - `deploy/chrony-gps-only.conf` — legacy USB dongle, no PPS (~100ms accuracy), stratum 10
 
+### Sensor Platform (MQTT)
+
+A second data stream beyond GPS: environmental sensors (BME680 first) ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + a local reader (Phases 0–1) have landed; live readouts, alarms, and ESP32 nodes are planned. GPS logging is untouched and stays off the bus. See **`.claude/modules/sensors.md`** for the architecture and **`docs/sensor-platform-plan.md`** for the roadmap.
+
 ### Project Structure
 
 ```
@@ -135,6 +141,12 @@ gps-dashboard/
 │       └── status_ntp.py
 ├── logger/
 │   └── gps_logger.py
+├── sensors/                    # Pi-side sensor readers (MQTT publishers)
+│   └── bme680.py
+├── mqttbus/                    # broker-side consumers + shared MQTT helpers
+│   ├── topics.py
+│   ├── client.py
+│   └── ingest.py
 ├── static/
 │   ├── css/app.css
 │   ├── img/tile-error.png
@@ -159,11 +171,15 @@ gps-dashboard/
 ├── deploy/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service
+│   ├── mosquitto.conf
+│   ├── mqtt-ingest.service
+│   ├── sensor-bme680.service
 │   ├── chrony-gps-only.conf
 │   ├── chrony-gps-pps.conf
 │   └── 99-gps-dongle.rules
 ├── docs/
 │   ├── plan.md
+│   ├── sensor-platform-plan.md
 │   └── vector-tiles-prototype-plan.md
 └── pyproject.toml
 ```
@@ -204,6 +220,11 @@ uv run tools/gpsd_validate.py
 # NTP setup and validation (run on Pi)
 uv run tools/ntp_setup.py
 uv run tools/ntp_validate.py
+
+# Sensor pipeline (MQTT — needs a broker; PYTHONPATH set so scripts find the packages)
+PYTHONPATH=. uv run mqttbus/ingest.py                       # ingest subscriber
+PYTHONPATH=. uv run sensors/bme680.py --fake --node cabin   # fake publisher (no hardware)
+PYTHONPATH=. uv run sensors/bme680.py --node cabin          # real I2C BME680
 
 # Inspect the database
 sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
