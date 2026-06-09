@@ -242,9 +242,9 @@ Each phase ships something real and de-risks the next.
 
 ### Phase 1 — Broker + ingest, one local sensor end-to-end — **code DONE, Pi deploy pending**
 - [x] Install/configure **mosquitto**: `deploy/mosquitto.conf` with a tcp listener
-      (`:1883`) and a **websockets listener** (`:9001`), `allow_anonymous true`
-      (trusted LAN), persistence on. *(Config written; one-time install on the Pi
-      via `conf.d/` + `systemctl enable mosquitto` still pending — see below.)*
+      (`:1883`), `allow_anonymous true` (trusted LAN); persistence inherited from the
+      package default. **WS `:9001` deferred** — the Pi's build lacks libwebsockets
+      (Phase 3 blocker F). Installed + enabled on the Pi via `conf.d/`.
 - [x] **Pi BME680 reader** (`sensors/bme680.py`): reads I2C on an interval, publishes
       to `sensors/<node>/bme680`, registers a retained LWT on `.../status`. Logger
       ethos: paho auto-reconnect, heartbeat, graceful shutdown. **`--fake` mode**
@@ -292,6 +292,18 @@ Each phase ships something real and de-risks the next.
       power; confirm `status` flips to `offline` via LWT.
 
 ### Phase 3 — Live readouts (browser-direct MQTT-over-WS)
+
+> ⚠️ **Blocker found at Phase 1 deploy:** the Pi's mosquitto (Debian bookworm,
+> 2.0.11 arm64) is built **without libwebsockets** — a `protocol websockets`
+> listener makes the broker refuse to start, so the `:9001` WS listener is **not**
+> in `deploy/mosquitto.conf` yet (tcp `:1883` only). Browser-direct MQTT-over-WS
+> (Decision #3) can't work until this is resolved. Options to settle before Phase 3
+> (Open decision F): (a) rebuild mosquitto with libwebsockets, (b) find a Debian
+> backport / alternative package with WS, or (c) drop browser-direct WS and bridge
+> MQTT→browser through the Flask app (SSE or a server-side WS), which keeps the
+> broker tcp-only at the cost of more Pi-side code than Decision #3 assumed.
+
+- [ ] Resolve the websockets blocker above, then add the `:9001` WS listener.
 - [ ] Vendor **MQTT.js** into `static/vendor/mqtt/`.
 - [ ] `static/js/sensors.js`: connect to mosquitto WS (`:9001`), subscribe
       `sensors/#`, render a **current-values panel** (seeded instantly by retained
@@ -354,8 +366,9 @@ retroactively.
 | A | BME680 Python driver choice | Phase 1 | Pimoroni `bme680` vs Adafruit CircuitPython vs raw `smbus2`. |
 | B | IAQ index source | later | Raw `gas_ohms` now; BSEC blob vs. heuristic vs. leave raw. |
 | C | ESP32 firmware home + stack | Phase 2 | `firmware/` subdir vs. separate repo; Arduino/ESP-IDF/MicroPython. |
-| D | Broker auth | Phase 1 | `allow_anonymous` on trusted LAN vs. username/password. Lean anonymous (matches "no auth, trusted LAN" app stance). |
+| D | Broker auth | Phase 1 | **Settled: anonymous** (trusted LAN, matches the app's no-auth stance). |
 | E | Retention / downsampling | post-Phase 5 | Only if DB growth warrants it. |
+| F | Websockets transport for the browser | Phase 3 | Debian's mosquitto lacks libwebsockets (found at Phase 1 deploy). Rebuild with WS, find a backport, or bridge MQTT→browser via Flask. See Phase 3 blocker note. |
 
 ---
 
