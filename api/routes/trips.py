@@ -2,19 +2,28 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 
-from api.db import get_connection
+from api.db import canonical_timestamp, get_connection
 
 trips_bp = Blueprint('trips', __name__)
 
 ALLOWED_TRIP_FIELDS = {'name', 'start_time', 'end_time', 'notes'}
 
 
-def _validate_timestamp(value: str, name: str):
+def _canonicalize(value: str, name: str):
+    """Validate a timestamp and return it in the canonical storage format.
+
+    Args:
+        value: The incoming timestamp string.
+        name: Field name, used in the error message.
+
+    Returns:
+        A ``(canonical, None)`` pair on success, or ``(None, error_response)``
+        where ``error_response`` is a Flask ``(json, status)`` tuple.
+    """
     try:
-        datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return canonical_timestamp(value), None
     except ValueError:
-        return jsonify({'error': f"Invalid timestamp for '{name}': {value}"}), 400
-    return None
+        return None, (jsonify({'error': f"Invalid timestamp for '{name}': {value}"}), 400)
 
 
 @trips_bp.get('/api/trips')
@@ -42,12 +51,14 @@ def create_trip():
     if not name:
         return jsonify({'error': "'name' is required"}), 400
 
+    canon = {}
     for value, field in ((start_time, 'start_time'), (end_time, 'end_time')):
         if not value:
             return jsonify({'error': f"'{field}' is required"}), 400
-        err = _validate_timestamp(value, field)
+        canon[field], err = _canonicalize(value, field)
         if err:
             return err
+    start_time, end_time = canon['start_time'], canon['end_time']
 
     if start_time >= end_time:
         return jsonify({'error': "'start_time' must be before 'end_time'"}), 400
@@ -76,7 +87,7 @@ def update_trip(trip_id):
 
     for field in ('start_time', 'end_time'):
         if field in updates:
-            err = _validate_timestamp(updates[field], field)
+            updates[field], err = _canonicalize(updates[field], field)
             if err:
                 return err
 

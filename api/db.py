@@ -1,8 +1,36 @@
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
+
+TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
+
+
+def canonical_timestamp(value: str) -> str:
+    """Normalize an ISO-8601 timestamp to the canonical storage format.
+
+    Every timestamp column stores whole-second UTC strings
+    (``2026-06-09T14:55:55Z``). The logger and marks already write this form;
+    trip bounds arrive from the browser as ``...000Z``. Collapsing both to one
+    width-aligned UTC format keeps the lexical range comparisons in the points
+    and trips queries correct.
+
+    Args:
+        value: An ISO-8601 timestamp, with or without a ``Z`` suffix, an explicit
+            offset, or fractional seconds.
+
+    Returns:
+        The timestamp as a whole-second UTC string.
+
+    Raises:
+        ValueError: If ``value`` is not a parseable ISO-8601 timestamp.
+    """
+    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime(TIMESTAMP_FORMAT)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -62,3 +90,17 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
     if deleted:
         print(f"Migration: deleted {deleted} null-island gps_points rows")
+
+    normalized = 0
+    for row in conn.execute("SELECT id, start_time, end_time FROM trips").fetchall():
+        new_start = canonical_timestamp(row['start_time'])
+        new_end = canonical_timestamp(row['end_time'])
+        if new_start != row['start_time'] or new_end != row['end_time']:
+            conn.execute(
+                "UPDATE trips SET start_time = ?, end_time = ? WHERE id = ?",
+                (new_start, new_end, row['id']),
+            )
+            normalized += 1
+    if normalized:
+        conn.commit()
+        print(f"Migration: normalized timestamps on {normalized} trip(s)")
