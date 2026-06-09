@@ -70,6 +70,51 @@ def init_db(conn: sqlite3.Connection) -> None:
             key       TEXT PRIMARY KEY,
             timestamp TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS sensors (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            node        TEXT NOT NULL,
+            type        TEXT NOT NULL,
+            location    TEXT,
+            description TEXT DEFAULT '',
+            first_seen  TEXT NOT NULL,
+            last_seen   TEXT,
+            status      TEXT DEFAULT 'unknown',
+            UNIQUE(node, type)
+        );
+
+        CREATE TABLE IF NOT EXISTS bme680_readings (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id     INTEGER NOT NULL,
+            timestamp     TEXT NOT NULL,
+            temp_c        REAL,
+            humidity_pct  REAL,
+            pressure_hpa  REAL,
+            gas_ohms      REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_bme680_sensor_time
+            ON bme680_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_bme680_time
+            ON bme680_readings(timestamp);
+
+        CREATE TABLE IF NOT EXISTS alarm_rules (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id   INTEGER,
+            metric      TEXT NOT NULL,
+            min_value   REAL,
+            max_value   REAL,
+            hysteresis  REAL DEFAULT 0,
+            enabled     INTEGER DEFAULT 1,
+            name        TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS alarm_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id     INTEGER NOT NULL,
+            state       TEXT NOT NULL,
+            value       REAL,
+            timestamp   TEXT NOT NULL
+        );
     """)
     conn.commit()
 

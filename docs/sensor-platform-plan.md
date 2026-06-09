@@ -196,8 +196,9 @@ Adjustable, but a concrete starting point:
 ```
 sensors/                      # Pi-side sensor readers (publishers)
   bme680.py                   # I2C BME680 → MQTT publish (logger-style daemon)
-mqtt/                         # broker-side consumers + shared MQTT helpers
-  client.py                   # connect/reconnect/LWT boilerplate, topic helpers
+mqttbus/                      # broker-side consumers + shared MQTT helpers
+  topics.py                   # topic taxonomy build/parse helpers (no broker dep)
+  client.py                   # connect/reconnect/LWT boilerplate
   ingest.py                   # subscribe sensors/# → SQLite (system of record)
   alarms.py                   # subscribe sensors/# → evaluate rules → alarm_events + alarms/*
 api/routes/sensors.py         # REST: registry, history, current values, alarm CRUD
@@ -217,13 +218,21 @@ firmware/                     # (Phase 2; or separate repo) ESP32 node program
 
 Each phase ships something real and de-risks the next.
 
-### Phase 0 — Schema + conventions (no hardware)
-- [ ] Add `sensors`, `bme680_readings`, `alarm_rules`, `alarm_events` to
-      `init_db`; idempotent `migrate` so a deploy creates them.
-- [ ] Lock the topic taxonomy + payload schema + timestamp policy in this doc
-      (above) and add `mqtt/topics.py` helpers (build/parse topic strings).
-- [ ] Reuse `canonical_timestamp` for all sensor timestamps.
-- [ ] No broker, no hardware yet — this is the data-model foundation.
+### Phase 0 — Schema + conventions (no hardware) — **DONE**
+- [x] Add `sensors`, `bme680_readings`, `alarm_rules`, `alarm_events` to
+      `init_db`. All four created now (alarm tables sit empty until Phase 4).
+      Creation is idempotent via `init_db`'s existing `CREATE TABLE IF NOT EXISTS`,
+      which runs on every app/logger startup — no separate `migrate` block needed.
+- [x] Lock the topic taxonomy + payload schema + timestamp policy in this doc
+      (above) and add `mqttbus/topics.py` helpers (build/parse topic strings).
+- [x] Reuse `canonical_timestamp` for all sensor timestamps (deferred to ingest in
+      Phase 1; Phase 0 adds no new timestamp code).
+- [x] No broker, no hardware yet — this is the data-model foundation.
+
+> **Decision (Phase 0): package renamed `mqtt/` → `mqttbus/`.** A top-level
+> `mqtt/` package risks shadowing the `paho-mqtt` import; `mqttbus/` is
+> unambiguous. The proposed `client.py`/`ingest.py`/`alarms.py` modules land under
+> `mqttbus/` too. Layout block below updated to match.
 
 ### Phase 1 — Broker + ingest, one local sensor end-to-end
 - [ ] Install/configure **mosquitto**: `deploy/mosquitto.conf` with a tcp listener
