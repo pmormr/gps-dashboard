@@ -257,8 +257,11 @@ Each phase ships something real and de-risks the next.
       messages queue across an ingest restart with no loss. Retained reading copies
       are skipped on resubscribe to avoid double-insert.
 - [x] `deploy/sensor-bme680.service` + `deploy/mqtt-ingest.service` written.
-- [ ] Wire into the **post-receive hook** on the Pi (see "Deploy & ops impact") —
-      not tracked in this repo; applied directly on the Pi.
+- [x] Wired into the **post-receive hook** on the Pi (not tracked in this repo):
+      sensor restarts run after the core gps-dashboard/gps-logger restarts and are
+      non-fatal, so a broker/config problem can never block a core GPS deploy.
+      `mosquitto` restarts on `mosquitto.conf` change; `mqtt-ingest` when enabled;
+      `sensor-bme680` only if `sensors/` changed **and** enabled.
 - [x] **Verified end-to-end in dev** (sandboxed mosquitto on high ports): fake
       reading → MQTT → SQLite; row lands with a sane timestamp; sensor auto-registers;
       `online`→`offline` via LWT on ungraceful kill; **no loss across an ingest
@@ -269,17 +272,18 @@ Each phase ships something real and de-risks the next.
 > = **anonymous** (trusted LAN, matches the app's no-auth stance). Deps added:
 > `paho-mqtt` 2.x (`CallbackAPIVersion.VERSION2`) and `bme680`.
 >
-> **Pi one-time setup (still to do):**
+> **Pi deploy — DONE (2026-06-09).** mosquitto 2.0.11 installed + enabled (tcp
+> `:1883`, persistence inherited from the package default at `/var/lib/mosquitto`);
+> `mqtt-ingest` enabled + running (connected, subscribed `sensors/#`); the unit files
+> and hardened post-receive hook are in place; a production round-trip
+> (publish → ingest → DB row, then cleaned up) verified the live pipeline.
+> `sensor-bme680` is **installed but disabled** — the BME680 isn't wired and the CM5
+> GPIO I2C bus isn't enabled yet (only `/dev/i2c-13/14` exist). Enable it once the
+> sensor is physically connected:
 > ```bash
-> sudo apt-get install -y mosquitto
-> sudo cp deploy/mosquitto.conf /etc/mosquitto/conf.d/gps-sensors.conf
-> sudo mkdir -p /mnt/nvme/data/mosquitto
-> sudo systemctl enable --now mosquitto
-> sudo cp deploy/mqtt-ingest.service deploy/sensor-bme680.service /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mqtt-ingest sensor-bme680
+> # after wiring the BME680 and enabling the GPIO I2C bus (dtparam=i2c_arm=on)
+> sudo systemctl enable --now sensor-bme680
 > ```
-> Plus the post-receive hook edit below.
 
 ### Phase 2 — First remote node (ESP32)
 - [ ] Decide firmware home (`firmware/` vs. separate repo) and stack
