@@ -249,7 +249,7 @@ const Timeline = (() => {
     const e = currentMarks.end;
     if (!s || !e) return;
 
-    const markDate = s.slice(0, 10);
+    const markDate = localDateStr(new Date(s));
     const dateInput = document.getElementById('timeline-date');
 
     if (dateInput.value !== markDate) {
