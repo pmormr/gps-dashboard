@@ -82,7 +82,7 @@ const Trips = (() => {
         <div class="stat"><span class="stat-val">${fmtDuration(stats.durationMs)}</span><span class="stat-lbl">Duration</span></div>
         <div class="stat"><span class="stat-val">${fmtSpeed(stats.maxSpeed)}</span><span class="stat-lbl">Max Speed</span></div>
         <div class="stat"><span class="stat-val">${fmtSpeed(stats.avgSpeed)}</span><span class="stat-lbl">Avg Speed</span></div>
-        <div class="stat"><span class="stat-val">${fmtAltitude(stats.elevGain)}</span><span class="stat-lbl">Elev Gain</span></div>
+        <div class="stat"><span class="stat-val">${fmtAltitude(stats.elevRange)}</span><span class="stat-lbl">Elev Range</span></div>
         <div class="stat"><span class="stat-val">${stats.pointCount.toLocaleString()}</span><span class="stat-lbl">Points</span></div>
       </div>
       <div class="trip-dates">${fmtDate(trip.start_time)} ${fmtTime(trip.start_time)} → ${fmtTime(trip.end_time)}</div>
