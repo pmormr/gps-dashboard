@@ -56,12 +56,13 @@ i2c:
   scl: GPIO23                       # XIAO C6 silkscreen D5
   frequency: 400kHz
 
-# Bosch BSEC2 driver. The Adafruit BME680 answers at 0x76 (confirmed on the
-# breadboard). LP = 3s sample rate, which the IAQ algorithm needs to run
-# continuously; the baseline calibration state is persisted to flash so
-# iaq_accuracy survives reboots instead of restarting cold each boot.
+# Bosch BSEC2 driver. The Adafruit BME680 answers at 0x77 with SDO floating
+# (its onboard pull-up); ground SDO for 0x76. Confirmed 0x77 via boot bus scan.
+# LP = 3s sample rate, which the IAQ algorithm needs to run continuously; the
+# baseline calibration state is persisted to flash so iaq_accuracy survives
+# reboots instead of restarting cold each boot.
 bme68x_bsec2_i2c:
-  address: 0x76
+  address: 0x77
   model: bme680
   operating_age: 28d
   sample_rate: LP
@@ -132,9 +133,10 @@ interval:
                 topic: sensors/${node}/bme680
                 retain: true
                 payload: |-
-                  auto t = id(sntp_time).now();
+                  auto t = id(sntp_time).utcnow();
                   if (t.is_valid()) {
-                    // Whole-second UTC; ingest keeps this node-stamped ts.
+                    // Whole-second UTC (utcnow, not now(): now() is local and
+                    // would mislabel local time as Z). ingest keeps this ts.
                     char buf[21];
                     t.strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ");
                     root["ts"] = buf;
