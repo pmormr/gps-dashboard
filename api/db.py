@@ -84,13 +84,17 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS bme680_readings (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            sensor_id     INTEGER NOT NULL,
-            timestamp     TEXT NOT NULL,
-            temp_c        REAL,
-            humidity_pct  REAL,
-            pressure_hpa  REAL,
-            gas_ohms      REAL
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id             INTEGER NOT NULL,
+            timestamp             TEXT NOT NULL,
+            temp_c                REAL,
+            humidity_pct          REAL,
+            pressure_hpa          REAL,
+            gas_ohms              REAL,
+            iaq                   REAL,
+            iaq_accuracy          INTEGER,
+            co2_equivalent        REAL,
+            breath_voc_equivalent REAL
         );
         CREATE INDEX IF NOT EXISTS idx_bme680_sensor_time
             ON bme680_readings(sensor_id, timestamp);
@@ -119,7 +123,42 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _add_missing_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    """Add any columns absent from ``table`` (idempotent schema migration).
+
+    ``init_db`` uses ``CREATE TABLE IF NOT EXISTS``, which leaves an already-created
+    table untouched, so new columns on an existing DB (e.g. the Pi's) need an
+    explicit ``ALTER TABLE``. Existing columns are skipped, so this is safe to run
+    on every startup.
+
+    Args:
+        conn: Open SQLite connection.
+        table: Table name (a trusted literal, not user input).
+        columns: Mapping of column name to its SQL type/declaration.
+    """
+    existing = {row['name'] for row in conn.execute(f"PRAGMA table_info({table})")}
+    added = [name for name in columns if name not in existing]
+    for name in added:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {columns[name]}")
+    if added:
+        conn.commit()
+        print(f"Migration: added {table} column(s): {', '.join(added)}")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
+    _add_missing_columns(
+        conn,
+        'bme680_readings',
+        {
+            'iaq': 'REAL',
+            'iaq_accuracy': 'INTEGER',
+            'co2_equivalent': 'REAL',
+            'breath_voc_equivalent': 'REAL',
+        },
+    )
+
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='location_history'"
     ).fetchone()

@@ -159,8 +159,9 @@ def record_reading(conn: sqlite3.Connection, topic: topics.SensorTopic,
     ts = resolve_timestamp(payload, receipt_dt, stats)
     conn.execute(
         "INSERT INTO bme680_readings "
-        "(sensor_id, timestamp, temp_c, humidity_pct, pressure_hpa, gas_ohms) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "(sensor_id, timestamp, temp_c, humidity_pct, pressure_hpa, gas_ohms, "
+        "iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             sensor_id,
             ts,
@@ -168,6 +169,10 @@ def record_reading(conn: sqlite3.Connection, topic: topics.SensorTopic,
             payload.get('humidity_pct'),
             payload.get('pressure_hpa'),
             payload.get('gas_ohms'),
+            payload.get('iaq'),
+            payload.get('iaq_accuracy'),
+            payload.get('co2_equivalent'),
+            payload.get('breath_voc_equivalent'),
         ),
     )
     conn.execute(
