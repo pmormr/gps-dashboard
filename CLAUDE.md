@@ -196,11 +196,15 @@ gps-dashboard/
 
 ## Hardware Notes
 
-Current GPS hardware: a serial GPS module with PPS, wired to the Raspberry Pi (CM5) GPIO header. NMEA arrives on the primary header UART `/dev/ttyAMA0` at 9600 baud; PPS is on GPIO 4 (`pps-gpio` overlay → `/dev/pps0`). gpsd and the logger both reference `/dev/ttyAMA0`. NTP runs in GPS+PPS mode (chrony stratum 1, sub-microsecond accuracy via PPS).
+Current GPS hardware: a u-blox **NEO-M9N** module (4-constellation: GPS + GLONASS + Galileo + BeiDou, plus SBAS/QZSS; firmware SPG 4.04, PROTVER 32.01) wired to the Raspberry Pi (CM5) GPIO header. NMEA arrives on the primary header UART `/dev/ttyAMA0` at 38400 baud; the module's TIMEPULSE is wired to GPIO 4 and read via the `pps-gpio` overlay → `/dev/pps0`. gpsd and the logger both reference `/dev/ttyAMA0`. NTP runs in GPS+PPS mode (chrony stratum 1, sub-microsecond accuracy via PPS).
 
-The module runs at 9600 — its factory default — set via `GPSD_OPTIONS="-n -s 9600"` in `/etc/default/gpsd`. This is deliberate: an earlier attempt to drive it at 115200 was lost when the module's config-backup power drained (cable borrowed mid-trip), reverting it to 9600 on the next reboot while gpsd kept forcing 115200 — gpsd then silently received nothing and the logger stalled invisibly for days. Keeping both at 9600 means a power loss can't desync the module from gpsd. PPS, not baud, drives timing precision, so 9600 costs nothing.
+(gpsd also exposes a phantom `/dev/pps1` from attaching the PPS line discipline to the UART; nothing is wired to it. Chrony only uses `/dev/pps0`.)
 
-Legacy: the previous hardware was a u-blox 7 USB dongle (VID 1546, PID 01a7) pinned to `/dev/gps0` via `deploy/99-gps-dongle.rules` and run GPS-only (stratum 10, ~100ms). That udev rule and the `/dev/gps0` path apply only to the USB dongle, not the current serial GPS.
+The module runs at 38400 — its factory default — set via `GPSD_OPTIONS="-n -s 38400"` in `/etc/default/gpsd`. The rule is "match the module's reset-default baud rate," not the literal number: an earlier attempt to drive the previous module at 115200 was lost when its config-backup power drained (cable borrowed mid-trip), reverting it to its factory default on the next reboot while gpsd kept forcing 115200 — gpsd then silently received nothing and the logger stalled invisibly for days. Keeping gpsd pointed at the module's reset default means a power loss can't desync them. PPS, not baud, drives timing precision, so the headline number is irrelevant — 38400 is plenty for 1 Hz NMEA from all four constellations.
+
+Legacy hardware:
+- The immediately previous module was a serial GPS at 9600 baud (its factory default); the M9N replaces it on the same UART and same GPIO 4 PPS pin, just at a higher baud rate.
+- Before that, a u-blox 7 USB dongle (VID 1546, PID 01a7) pinned to `/dev/gps0` via `deploy/99-gps-dongle.rules` and run GPS-only (stratum 10, ~100ms). That udev rule and the `/dev/gps0` path apply only to the USB dongle, not the current serial GPS.
 
 ## Tool Scripts
 
