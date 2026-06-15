@@ -243,6 +243,12 @@ const Timeline = (() => {
     document.getElementById('tl-mark-start-btn').addEventListener('click', () => handleMark('start'));
     document.getElementById('tl-mark-end-btn').addEventListener('click', () => handleMark('end'));
     document.getElementById('tl-use-marks-btn').addEventListener('click', useMarks);
+
+    // Marks panel toggle (mirrors the Labels panel pattern).
+    const marksPanel = document.getElementById('marks-panel');
+    document.getElementById('marks-panel-toggle').addEventListener('click', () => {
+      marksPanel.classList.toggle('collapsed');
+    });
     document.getElementById('tl-zoom-here-btn').addEventListener('click', zoomToCurrentLocation);
 
     loadMarks();

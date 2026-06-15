@@ -1,6 +1,5 @@
 :root {
   --tab-h: 48px;
-  --ctrl-h: 110px;
   --bg: #0f172a;
   --surface: #1e293b;
   --surface2: #263348;
@@ -72,26 +71,35 @@ html, body {
 .leaflet-container { height: 100% !important; background: var(--surface) !important; }
 .leaflet-control-attribution { font-size: 10px !important; }
 
-/* ── Timeline view ── */
-#view-timeline { position: relative; }
+/* ── Main view & floating map overlays ── */
+#view-main { position: relative; }
 
-.tl-controls {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 10px 16px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.tl-top-row {
+.map-overlay {
+  position: absolute;
+  z-index: 600;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
   display: flex;
   align-items: center;
   gap: 10px;
 }
-
-.tl-top-row label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.map-overlay-top {
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+}
+.map-overlay-bottom {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  padding: 8px 12px 10px;
+}
 
 input[type="date"], input[type="datetime-local"], input[type="number"], select {
   background: var(--surface2);
@@ -237,33 +245,33 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   }
 }
 
-#tl-status { color: var(--muted); font-size: 12px; margin-left: auto; }
+#tl-status { color: var(--muted); font-size: 12px; }
 
-.tl-slider-wrap { display: flex; flex-direction: column; gap: 6px; }
-.tl-slider-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.tl-slider-wrap { display: flex; flex-direction: column; gap: 4px; }
+.tl-slider-labels {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tl-slider-labels > :first-child { text-align: left; }
+.tl-slider-labels > :last-child { text-align: right; }
 
-#tl-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 4px 0; }
+#tl-empty { font-size: 13px; text-align: center; padding: 4px 0; }
 
 .tl-mark-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 
-#tl-mark-status { color: var(--muted); font-size: 12px; margin-left: auto; }
+#tl-mark-status { color: var(--muted); font-size: 12px; }
 
-.tl-bottom-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-#tl-selection-count { color: var(--muted); font-size: 12px; }
-
-/* ── Bottom-actions row inside the controls panel ── */
-.tl-bottom-actions { display: flex; gap: 8px; }
+#tl-selection-count { color: var(--muted); font-size: 11px; }
+.tl-bottom-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ── Annotations drawer ── */
 .ann-drawer {
@@ -504,12 +512,8 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   border-color: var(--primary) !important;
 }
 
-/* ── Map floating action button ── */
+/* ── Floating action button (lives in .right-panel-stack now) ── */
 .map-fab {
-  position: absolute;
-  bottom: 24px;
-  right: 12px;
-  z-index: 1000;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -526,14 +530,22 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
 }
 .map-fab:hover { background: var(--surface2); }
 
-/* ── Label / POI controls (vector basemap) ── */
-.label-panel {
+/* ── Right-side floating panel stack (Labels, Marks) ── */
+.right-panel-stack {
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 1000;
-  width: 190px;
+  z-index: 700;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
   max-width: calc(100% - 16px);
+}
+
+.floating-panel {
+  width: 200px;
+  max-width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -542,8 +554,8 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   font-size: 13px;
   overflow: hidden;
 }
-.label-panel.hidden { display: none; }
-.label-panel-hdr {
+.floating-panel.hidden { display: none; }
+.floating-panel-hdr {
   display: block;
   width: 100%;
   text-align: left;
@@ -555,20 +567,21 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   font-weight: 600;
   cursor: pointer;
 }
-.label-panel-body { padding: 8px 10px; }
-.label-panel.collapsed .label-panel-body { display: none; }
-.label-panel h4 {
+.floating-panel-body { padding: 8px 10px; }
+.floating-panel.collapsed .floating-panel-body { display: none; }
+.floating-panel h4 {
   margin: 8px 0 4px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .04em;
   color: var(--muted);
 }
-.label-panel-body h4:first-child { margin-top: 0; }
+.floating-panel-body h4:first-child { margin-top: 0; }
+.floating-panel input[type="range"] { width: 100%; }
+
 .label-check { display: block; margin: 3px 0; cursor: pointer; }
 .label-row { margin-top: 8px; }
 .label-hint { color: var(--muted); font-size: 11px; margin-top: 2px; }
-.label-panel input[type="range"] { width: 100%; }
 
 /* ── Status page links in tab bar ── */
 .tab-status-links {

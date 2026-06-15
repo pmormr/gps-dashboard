@@ -120,11 +120,18 @@ Collapse the two tabs into one map-centric view.
 Originally the highest-impact quick win; sequencing it last so the controls
 above are settled before deciding what collapses where.
 
-- [ ] **4.1** Picker trigger + Add-Annotation + Live status collapse into a
-  floating overlay over the map (similar to the existing `⚙ Labels` panel).
-  Auto-hide on idle, tap/click to expand.
-- [ ] **4.2** Slider becomes an overlay strip along the bottom of the map.
-  Always visible when there's loaded data; thin and unobtrusive.
+- [x] **4.1** `.tl-controls` strip removed. Picker trigger + status, slider
+  + actions, and the ⊕ FAB all become floating overlays absolutely
+  positioned inside `#map`. Top overlay (picker + status), bottom overlay
+  (slider + actions), and a right-side panel stack hosting the FAB + Labels
+  + Marks. The map gets the full viewport between the tab bar and the
+  bottom overlay. Auto-hide-on-idle skipped — bumped to "if it bothers us
+  in practice" follow-up.
+- [x] **4.2** Marks workflow (Mark Start / Mark End / Use Marks / status)
+  moved into a collapsible floating panel mirroring the Labels pattern.
+  Keeps the bottom overlay strip uncluttered while marks stay one tap
+  away. Slider lives in the bottom overlay; bands + ticks render in the
+  same `#tl-slider-overlay` div as before.
 
 ---
 

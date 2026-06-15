@@ -13,8 +13,10 @@
 <div class="app">
 
   <div id="view-main" class="view active">
-    <div class="tl-controls">
-      <div class="tl-top-row">
+    <div id="map" class="map-container">
+
+      <!-- Top-left: picker trigger + status text -->
+      <div class="map-overlay map-overlay-top">
         <button id="timepicker-trigger" class="timepicker-trigger" type="button">
           <span class="timepicker-trigger-icon">⏱</span>
           <span id="timepicker-trigger-label">Live · Last 24h</span>
@@ -22,46 +24,56 @@
         </button>
         <span id="tl-status"></span>
       </div>
-      <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
-        <div id="tl-slider"></div>
-        <div id="tl-slider-overlay" class="tl-slider-overlay"></div>
-        <div class="tl-slider-labels">
-          <span id="tl-start-label"></span>
-          <span id="tl-end-label"></span>
+
+      <!-- Right-side stack: FAB + collapsible panels -->
+      <div class="right-panel-stack">
+        <button id="tl-zoom-here-btn" class="map-fab" title="Zoom to current location">⊕</button>
+        <div id="label-panel" class="floating-panel collapsed">
+          <button id="label-panel-toggle" class="floating-panel-hdr" type="button">⚙ Labels</button>
+          <div class="floating-panel-body">
+            <h4>POI categories</h4>
+            <div id="label-cats"></div>
+            <div class="label-row">
+              <h4>Density <span id="label-offv">-1</span></h4>
+              <input type="range" id="label-off" min="-4" max="0" step="1" value="-1">
+              <div class="label-hint">left = labels appear earlier / denser</div>
+            </div>
+            <label class="label-check">
+              <input type="checkbox" id="label-minor" checked> Minor street names (z13+)
+            </label>
+          </div>
+        </div>
+        <div id="marks-panel" class="floating-panel collapsed">
+          <button id="marks-panel-toggle" class="floating-panel-hdr" type="button">🚩 Marks</button>
+          <div class="floating-panel-body">
+            <div class="tl-mark-row">
+              <button id="tl-mark-start-btn" class="btn-secondary">Mark Start</button>
+              <button id="tl-mark-end-btn" class="btn-secondary">Mark End</button>
+              <button id="tl-use-marks-btn" class="btn-secondary hidden">Use Marks</button>
+            </div>
+            <p id="tl-mark-status" class="muted"></p>
+          </div>
         </div>
       </div>
-      <p id="tl-empty" class="hidden"></p>
-      <div class="tl-mark-row">
-        <button id="tl-mark-start-btn" class="btn-secondary">Mark Start</button>
-        <button id="tl-mark-end-btn" class="btn-secondary">Mark End</button>
-        <button id="tl-use-marks-btn" class="btn-secondary hidden">Use Marks</button>
-        <span id="tl-mark-status" class="muted"></span>
-      </div>
-      <div class="tl-bottom-row">
-        <span id="tl-selection-count" class="muted"></span>
+
+      <!-- Bottom: slider strip + actions -->
+      <div class="map-overlay map-overlay-bottom">
+        <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
+          <div id="tl-slider"></div>
+          <div id="tl-slider-overlay" class="tl-slider-overlay"></div>
+          <div class="tl-slider-labels">
+            <span id="tl-start-label"></span>
+            <span id="tl-selection-count" class="muted"></span>
+            <span id="tl-end-label"></span>
+          </div>
+        </div>
+        <p id="tl-empty" class="hidden muted"></p>
         <div class="tl-bottom-actions">
           <button id="tl-drop-pin-btn" class="btn-secondary">Drop Pin</button>
           <button id="tl-create-btn" class="btn-primary" disabled>Create Range</button>
         </div>
       </div>
-    </div>
-    <div id="map" class="map-container">
-      <button id="tl-zoom-here-btn" class="map-fab" title="Zoom to current location">⊕</button>
-      <div id="label-panel" class="label-panel collapsed">
-        <button id="label-panel-toggle" class="label-panel-hdr" type="button">⚙ Labels</button>
-        <div class="label-panel-body">
-          <h4>POI categories</h4>
-          <div id="label-cats"></div>
-          <div class="label-row">
-            <h4>Density <span id="label-offv">-1</span></h4>
-            <input type="range" id="label-off" min="-4" max="0" step="1" value="-1">
-            <div class="label-hint">left = labels appear earlier / denser</div>
-          </div>
-          <label class="label-check">
-            <input type="checkbox" id="label-minor" checked> Minor street names (z13+)
-          </label>
-        </div>
-      </div>
+
     </div>
   </div>
 
