@@ -1,5 +1,5 @@
 // Label / POI density controls for the vector basemap. Drives the inner
-// MapLibre GL map of each registered map controller (timeline + trips) via the
+// MapLibre GL map of each registered map controller (timeline + annotations) via the
 // maplibre-gl-leaflet plugin's getMaplibreMap(). Settings are global: one panel
 // applies to every vector base, re-applied whenever a GL style (re)loads.
 const LabelControls = (() => {

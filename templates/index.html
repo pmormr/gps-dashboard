@@ -37,7 +37,7 @@
       </div>
       <div class="tl-bottom-row">
         <span id="tl-selection-count" class="muted"></span>
-        <button id="tl-create-btn" class="btn-primary" disabled>Create Trip</button>
+        <button id="tl-create-btn" class="btn-primary" disabled>Create Annotation</button>
       </div>
     </div>
     <div id="map" class="map-container">
@@ -60,23 +60,23 @@
     </div>
   </div>
 
-  <!-- ── Trips view ── -->
-  <div id="view-trips" class="view">
+  <!-- ── Annotations view ── -->
+  <div id="view-annotations" class="view">
 
-    <div id="trips-list-pane">
-      <div class="trips-pane-header">
-        <h2>Trips</h2>
+    <div id="annotations-list-pane">
+      <div class="annotations-pane-header">
+        <h2>Annotations</h2>
       </div>
-      <div id="trips-list"></div>
+      <div id="annotations-list"></div>
     </div>
 
-    <div id="trips-detail-pane" class="hidden">
+    <div id="annotations-detail-pane" class="hidden">
       <div class="detail-header">
-        <button id="trips-back-btn" class="btn-icon" title="Back to list">‹</button>
-        <span id="detail-trip-name"></span>
+        <button id="annotations-back-btn" class="btn-icon" title="Back to list">‹</button>
+        <span id="detail-annotation-name"></span>
       </div>
-      <div id="trip-stats-panel"></div>
-      <div id="trips-map" class="map-container"></div>
+      <div id="annotation-stats-panel"></div>
+      <div id="annotations-map" class="map-container"></div>
     </div>
 
   </div>
@@ -89,7 +89,7 @@
   <!-- ── Tab bar ── -->
   <nav id="tab-bar">
     <button data-view="timeline" class="active">Timeline</button>
-    <button data-view="trips">Trips</button>
+    <button data-view="annotations">Annotations</button>
     <div class="tab-status-links">
       <a href="/gpsd" target="_blank">GPS</a>
       <a href="/ntp" target="_blank">NTP</a>
@@ -106,21 +106,21 @@
 
 </div>
 
-<!-- Trip creation overlay -->
-<div id="trip-form-overlay" class="overlay hidden">
+<!-- Annotation creation overlay -->
+<div id="annotation-form-overlay" class="overlay hidden">
   <div class="overlay-card">
-    <h3>New Trip</h3>
+    <h3>New Annotation</h3>
     <label>
       Name
-      <input type="text" id="trip-name-input" placeholder="e.g. Denver to Moab" autocomplete="off">
+      <input type="text" id="annotation-name-input" placeholder="e.g. Denver to Moab" autocomplete="off">
     </label>
     <label>
       Notes
-      <textarea id="trip-notes-input" placeholder="Optional notes"></textarea>
+      <textarea id="annotation-notes-input" placeholder="Optional notes"></textarea>
     </label>
     <div class="overlay-actions">
-      <button id="trip-form-cancel" class="btn-secondary">Cancel</button>
-      <button id="trip-form-save" class="btn-primary">Save Trip</button>
+      <button id="annotation-form-cancel" class="btn-secondary">Cancel</button>
+      <button id="annotation-form-save" class="btn-primary">Save Annotation</button>
     </div>
   </div>
 </div>
@@ -135,7 +135,7 @@
 <script src="/static/js/map.js"></script>
 <script src="/static/js/labels.js"></script>
 <script src="/static/js/timeline.js"></script>
-<script src="/static/js/trips.js"></script>
+<script src="/static/js/annotations.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

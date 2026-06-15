@@ -13,9 +13,9 @@ def canonical_timestamp(value: str) -> str:
 
     Every timestamp column stores whole-second UTC strings
     (``2026-06-09T14:55:55Z``). The logger and marks already write this form;
-    trip bounds arrive from the browser as ``...000Z``. Collapsing both to one
-    width-aligned UTC format keeps the lexical range comparisons in the points
-    and trips queries correct.
+    annotation bounds arrive from the browser as ``...000Z``. Collapsing both
+    to one width-aligned UTC format keeps the lexical range comparisons in the
+    points and annotations queries correct.
 
     Args:
         value: An ISO-8601 timestamp, with or without a ``Z`` suffix, an explicit
@@ -43,6 +43,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
+    _maybe_rename_trips_to_annotations(conn)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS gps_points (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,15 +57,15 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_gps_points_timestamp
             ON gps_points(timestamp);
 
-        CREATE TABLE IF NOT EXISTS trips (
+        CREATE TABLE IF NOT EXISTS annotations (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             name       TEXT NOT NULL,
             start_time TEXT NOT NULL,
-            end_time   TEXT NOT NULL,
+            end_time   TEXT,
             notes      TEXT DEFAULT ''
         );
-        CREATE INDEX IF NOT EXISTS idx_trips_start_time
-            ON trips(start_time);
+        CREATE INDEX IF NOT EXISTS idx_annotations_start_time
+            ON annotations(start_time);
 
         CREATE TABLE IF NOT EXISTS marks (
             key       TEXT PRIMARY KEY,
@@ -123,6 +124,41 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _maybe_rename_trips_to_annotations(conn: sqlite3.Connection) -> None:
+    """Rename the legacy ``trips`` table to ``annotations`` and drop NOT NULL on
+    ``end_time`` so a NULL value marks a point-in-time annotation.
+
+    SQLite has no ALTER COLUMN, so the swap is a CREATE-INSERT-DROP-rename
+    dance. Idempotent: only fires when ``trips`` still exists. Runs at the top
+    of ``init_db`` so the subsequent ``CREATE TABLE IF NOT EXISTS annotations``
+    becomes a no-op.
+
+    Args:
+        conn: Open SQLite connection.
+    """
+    has_trips = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='trips'"
+    ).fetchone()
+    if not has_trips:
+        return
+    conn.executescript("""
+        CREATE TABLE annotations (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time   TEXT,
+            notes      TEXT DEFAULT ''
+        );
+        INSERT INTO annotations (id, name, start_time, end_time, notes)
+            SELECT id, name, start_time, end_time, notes FROM trips;
+        DROP TABLE trips;
+        CREATE INDEX IF NOT EXISTS idx_annotations_start_time
+            ON annotations(start_time);
+    """)
+    conn.commit()
+    print("Migration: renamed trips → annotations (end_time now nullable)")
+
+
 def _add_missing_columns(
     conn: sqlite3.Connection, table: str, columns: dict[str, str]
 ) -> None:
@@ -176,15 +212,20 @@ def migrate(conn: sqlite3.Connection) -> None:
         print(f"Migration: deleted {deleted} null-island gps_points rows")
 
     normalized = 0
-    for row in conn.execute("SELECT id, start_time, end_time FROM trips").fetchall():
+    rows = conn.execute(
+        "SELECT id, start_time, end_time FROM annotations"
+    ).fetchall()
+    for row in rows:
         new_start = canonical_timestamp(row['start_time'])
-        new_end = canonical_timestamp(row['end_time'])
+        new_end = (
+            canonical_timestamp(row['end_time']) if row['end_time'] else None
+        )
         if new_start != row['start_time'] or new_end != row['end_time']:
             conn.execute(
-                "UPDATE trips SET start_time = ?, end_time = ? WHERE id = ?",
+                "UPDATE annotations SET start_time = ?, end_time = ? WHERE id = ?",
                 (new_start, new_end, row['id']),
             )
             normalized += 1
     if normalized:
         conn.commit()
-        print(f"Migration: normalized timestamps on {normalized} trip(s)")
+        print(f"Migration: normalized timestamps on {normalized} annotation(s)")

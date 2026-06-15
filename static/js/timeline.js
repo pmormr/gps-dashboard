@@ -1,7 +1,7 @@
 const Timeline = (() => {
   let allPoints = [];
   let slider = null;
-  let pendingTrip = null;
+  let pendingAnnotation = null;
   let currentMarks = {};
   let liveMode = false;
   let refreshInterval = null;
@@ -41,10 +41,10 @@ const Timeline = (() => {
     MapView.showTrack(pts, { fitBounds: followMap, showEndpoints: pts.length > 1 });
     document.getElementById('tl-selection-count').textContent = `${pts.length} points selected`;
 
-    pendingTrip = pts.length >= 2
+    pendingAnnotation = pts.length >= 2
       ? { start_time: fromTs(lo), end_time: fromTs(hi) }
       : null;
-    document.getElementById('tl-create-btn').disabled = !pendingTrip;
+    document.getElementById('tl-create-btn').disabled = !pendingAnnotation;
   }
 
   function updateLiveBtn() {
@@ -179,30 +179,30 @@ const Timeline = (() => {
     MapView.showTrack(allPoints, { fitBounds: true, showEndpoints: false });
   }
 
-  function openTripForm() {
-    if (!pendingTrip) return;
-    document.getElementById('trip-name-input').value = '';
-    document.getElementById('trip-notes-input').value = '';
-    document.getElementById('trip-form-overlay').classList.remove('hidden');
-    document.getElementById('trip-name-input').focus();
+  function openAnnotationForm() {
+    if (!pendingAnnotation) return;
+    document.getElementById('annotation-name-input').value = '';
+    document.getElementById('annotation-notes-input').value = '';
+    document.getElementById('annotation-form-overlay').classList.remove('hidden');
+    document.getElementById('annotation-name-input').focus();
   }
 
-  function closeTripForm() {
-    document.getElementById('trip-form-overlay').classList.add('hidden');
+  function closeAnnotationForm() {
+    document.getElementById('annotation-form-overlay').classList.add('hidden');
   }
 
-  async function saveTrip() {
-    const name = document.getElementById('trip-name-input').value.trim();
-    if (!name) { document.getElementById('trip-name-input').focus(); return; }
-    if (!pendingTrip) return;
+  async function saveAnnotation() {
+    const name = document.getElementById('annotation-name-input').value.trim();
+    if (!name) { document.getElementById('annotation-name-input').focus(); return; }
+    if (!pendingAnnotation) return;
 
-    const notes = document.getElementById('trip-notes-input').value.trim();
+    const notes = document.getElementById('annotation-notes-input').value.trim();
     try {
-      await API.createTrip({ ...pendingTrip, name, notes });
-      closeTripForm();
-      Trips.reload();
+      await API.createAnnotation({ ...pendingAnnotation, name, notes });
+      closeAnnotationForm();
+      Annotations.reload();
     } catch (e) {
-      alert(`Failed to save trip: ${e.message}`);
+      alert(`Failed to save annotation: ${e.message}`);
     }
   }
 
@@ -269,15 +269,15 @@ const Timeline = (() => {
     dateInput.value = today;
     dateInput.addEventListener('change', e => loadDate(e.target.value));
 
-    document.getElementById('tl-create-btn').addEventListener('click', openTripForm);
-    document.getElementById('trip-form-cancel').addEventListener('click', closeTripForm);
-    document.getElementById('trip-form-save').addEventListener('click', saveTrip);
-    document.getElementById('trip-form-overlay').addEventListener('click', e => {
-      if (e.target === e.currentTarget) closeTripForm();
+    document.getElementById('tl-create-btn').addEventListener('click', openAnnotationForm);
+    document.getElementById('annotation-form-cancel').addEventListener('click', closeAnnotationForm);
+    document.getElementById('annotation-form-save').addEventListener('click', saveAnnotation);
+    document.getElementById('annotation-form-overlay').addEventListener('click', e => {
+      if (e.target === e.currentTarget) closeAnnotationForm();
     });
-    document.getElementById('trip-name-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter') saveTrip();
-      if (e.key === 'Escape') closeTripForm();
+    document.getElementById('annotation-name-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') saveAnnotation();
+      if (e.key === 'Escape') closeAnnotationForm();
     });
 
     document.getElementById('tl-mark-start-btn').addEventListener('click', () => handleMark('start'));

@@ -16,36 +16,36 @@ const API = {
     return this._fetch('/api/points/latest');
   },
 
-  getTrips() {
-    return this._fetch('/api/trips');
+  getAnnotations() {
+    return this._fetch('/api/annotations');
   },
 
-  createTrip(data) {
-    return this._fetch('/api/trips', {
+  createAnnotation(data) {
+    return this._fetch('/api/annotations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
   },
 
-  updateTrip(id, data) {
-    return this._fetch(`/api/trips/${id}`, {
+  updateAnnotation(id, data) {
+    return this._fetch(`/api/annotations/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
   },
 
-  deleteTrip(id) {
-    return this._fetch(`/api/trips/${id}`, { method: 'DELETE' });
+  deleteAnnotation(id) {
+    return this._fetch(`/api/annotations/${id}`, { method: 'DELETE' });
   },
 
   getMarks() {
-    return this._fetch('/api/trips/mark');
+    return this._fetch('/api/annotations/mark');
   },
 
   markTimestamp(marker) {
-    return this._fetch('/api/trips/mark', {
+    return this._fetch('/api/annotations/mark', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ marker }),

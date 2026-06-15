@@ -164,8 +164,9 @@ const MapView = (() => {
   return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer, getVectorBase, onVectorBase };
 })();
 
-// Second map instance for the Trips detail pane
-const TripsMap = (() => {
+// Second map instance for the Annotations detail pane. This goes away in Phase 3
+// when the views collapse into one map; for now it mirrors MapView.
+const AnnotationsMap = (() => {
   let map, baseLayer, trackLayer, markerLayer;
   let currentLayer = 'osm';
   let currentRefresh = false;

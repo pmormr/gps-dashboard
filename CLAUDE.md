@@ -56,8 +56,8 @@ App runs at `http://192.168.42.178:5000`.
 SQLite (`gps_history.db`). Core GPS tables:
 
 - `gps_points(id, timestamp, lat, lon, speed, altitude, track)` — continuous append-only stream
-- `trips(id, name, start_time, end_time, notes)` — pure metadata; no foreign keys. Points for a trip queried via `WHERE timestamp BETWEEN start_time AND end_time`.
-- `marks(key, timestamp)` — two rows max (`start`, `end`); persists live trip-marking timestamps across restarts.
+- `annotations(id, name, start_time, end_time, notes)` — pure metadata; no foreign keys. `end_time` nullable: NULL = point-in-time bookmark; non-NULL = range, whose points come from `WHERE timestamp BETWEEN start_time AND end_time` against `gps_points`. (Was `trips` pre-2026-06; renamed in `_maybe_rename_trips_to_annotations`.)
+- `marks(key, timestamp)` — two rows max (`start`, `end`); persists live range-construction timestamps across restarts.
 
 The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
@@ -65,11 +65,11 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 - `GET /api/points?start=&end=&limit=` — points for a time range (default limit 5000, max 20000)
 - `GET /api/points/latest` — single most-recent point
-- `GET /api/trips` — list all trips with `point_count`
-- `POST /api/trips` — create trip
-- `PATCH /api/trips/:id` — edit name, notes, or bounds
-- `DELETE /api/trips/:id`
-- `POST /api/trips/mark` — upsert `start` or `end` mark with current UTC time
+- `GET /api/annotations` — list every annotation; `point_count` is NULL for point bookmarks, integer for ranges
+- `POST /api/annotations` — create annotation; omit (or pass null) `end_time` for a point bookmark
+- `PATCH /api/annotations/:id` — edit name, notes, or bounds (including transitioning point↔range)
+- `DELETE /api/annotations/:id`
+- `POST /api/annotations/mark` — upsert `start` or `end` mark with current UTC time
 - `GET /tiles/osm.pmtiles` — vector OSM basemap (single PMTiles archive) served with HTTP range support
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /api/sensors` — sensor registry, each row with its latest reading embedded
@@ -83,8 +83,8 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 Separate files in `static/` and `templates/`. All JS/CSS vendored in `static/vendor/` — no CDN calls at runtime. Mobile-first (primary client is a phone browser).
 
 Two views in the main app (`/`):
-- **Timeline** — date picker + range scrubber (noUiSlider), filters points in memory, create trips from selection. **Live mode**: when viewing today's date, the Live button polls `/api/points` every 30s and auto-advances the slider end to show new points in real time. The ⊕ FAB button zooms the map to the most recent GPS fix via `/api/points/latest`.
-- **Trips** — browse trips, view track on map, stats (distance, max/avg speed, elevation gain) computed client-side via Haversine
+- **Timeline** — date picker + range scrubber (noUiSlider), filters points in memory, create annotation ranges from selection. **Live mode**: when viewing today's date, the Live button polls `/api/points` every 30s and auto-advances the slider end to show new points in real time. The ⊕ FAB button zooms the map to the most recent GPS fix via `/api/points/latest`.
+- **Annotations** — browse annotations (point + range), view a range's track on map, stats (distance, max/avg speed, elevation gain) computed client-side via Haversine. (Both views will be unified per `docs/annotations-ui-plan.md`; for now the Timeline/Annotations split is the transitional shape.)
 
 Three standalone pages:
 - `/gpsd` — gpsd service state, fix mode, satellite count, latest coordinates, pass/fail indicators
@@ -139,7 +139,7 @@ gps-dashboard/
 │   ├── tile_layers.py
 │   └── routes/
 │       ├── points.py
-│       ├── trips.py
+│       ├── annotations.py
 │       ├── tiles.py
 │       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
 │       ├── status_gpsd.py
@@ -158,7 +158,7 @@ gps-dashboard/
 │   ├── css/app.css
 │   ├── img/tile-error.png
 │   ├── js/
-│   │   ├── api.js, app.js, geo.js, map.js, labels.js, timeline.js, trips.js
+│   │   ├── api.js, app.js, geo.js, map.js, labels.js, timeline.js, annotations.js
 │   │   └── sensors.js      # /sensors viewer (current values + uPlot charts)
 │   └── vendor/
 │       ├── leaflet/
@@ -242,7 +242,7 @@ PYTHONPATH=. uv run sensors/bme680.py --node cabin          # (legacy) Pi-attach
 
 # Inspect the database
 sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
-sqlite3 "$GPS_DB_PATH" "SELECT * FROM trips;"
+sqlite3 "$GPS_DB_PATH" "SELECT * FROM annotations;"
 ```
 
 No test suite or linter is configured.

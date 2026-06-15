@@ -1,10 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
   MapView.init('map');
-  TripsMap.init('trips-map');
-  LabelControls.init([MapView, TripsMap]);
+  AnnotationsMap.init('annotations-map');
+  LabelControls.init([MapView, AnnotationsMap]);
 
   Timeline.init();
-  Trips.init();
+  Annotations.init();
 
   // Tab switching
   document.querySelectorAll('#tab-bar button').forEach(btn => {
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.classList.add('active');
       document.getElementById(`view-${view}`).classList.add('active');
       MapView.invalidateSize();
-      TripsMap.invalidateSize();
+      AnnotationsMap.invalidateSize();
     });
   });
 
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshToggle.addEventListener('change', () => {
     const enabled = refreshToggle.checked;
     MapView.setRefreshMode(enabled);
-    TripsMap.setRefreshMode(enabled);
+    AnnotationsMap.setRefreshMode(enabled);
     refreshBanner.classList.toggle('hidden', !enabled);
   });
 
@@ -38,14 +38,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isVector && refreshToggle.checked) {
       refreshToggle.checked = false;
       MapView.setRefreshMode(false);
-      TripsMap.setRefreshMode(false);
+      AnnotationsMap.setRefreshMode(false);
       refreshBanner.classList.add('hidden');
     }
     LabelControls.setEnabled(isVector);
   };
   layerSelect.addEventListener('change', () => {
     MapView.setLayer(layerSelect.value);
-    TripsMap.setLayer(layerSelect.value);
+    AnnotationsMap.setLayer(layerSelect.value);
     syncLayerUi(layerSelect.value);
   });
   syncLayerUi(layerSelect.value); // default layer is vector OSM

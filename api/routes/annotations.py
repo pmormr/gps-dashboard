@@ -1,0 +1,173 @@
+from datetime import datetime, timezone
+
+from flask import Blueprint, jsonify, request
+
+from api.db import canonical_timestamp, get_connection
+
+annotations_bp = Blueprint('annotations', __name__)
+
+ALLOWED_ANNOTATION_FIELDS = {'name', 'start_time', 'end_time', 'notes'}
+
+
+def _canonicalize(value: str, name: str):
+    """Validate a timestamp and return it in the canonical storage format.
+
+    Args:
+        value: The incoming timestamp string.
+        name: Field name, used in the error message.
+
+    Returns:
+        A ``(canonical, None)`` pair on success, or ``(None, error_response)``
+        where ``error_response`` is a Flask ``(json, status)`` tuple.
+    """
+    try:
+        return canonical_timestamp(value), None
+    except ValueError:
+        return None, (jsonify({'error': f"Invalid timestamp for '{name}': {value}"}), 400)
+
+
+@annotations_bp.get('/api/annotations')
+def list_annotations():
+    """Return every annotation.
+
+    Annotations span all history (not the loaded window), so the frontend can
+    show them as pins/bands regardless of the current time picker selection.
+    ``point_count`` is NULL for point annotations (NULL ``end_time``); for
+    ranges it is the number of ``gps_points`` falling inside.
+    """
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT a.id, a.name, a.start_time, a.end_time, a.notes,
+               CASE
+                 WHEN a.end_time IS NULL THEN NULL
+                 ELSE (SELECT COUNT(*) FROM gps_points p
+                       WHERE p.timestamp >= a.start_time AND p.timestamp <= a.end_time)
+               END AS point_count
+        FROM annotations a
+        ORDER BY a.start_time DESC
+    """).fetchall()
+    return jsonify({'annotations': [dict(r) for r in rows]})
+
+
+@annotations_bp.post('/api/annotations')
+def create_annotation():
+    """Create an annotation. Omit ``end_time`` (or send null) for a point bookmark."""
+    body = request.get_json(silent=True) or {}
+    name = body.get('name', '').strip()
+    start_time = body.get('start_time', '')
+    end_time = body.get('end_time')
+    notes = body.get('notes', '')
+
+    if not name:
+        return jsonify({'error': "'name' is required"}), 400
+    if not start_time:
+        return jsonify({'error': "'start_time' is required"}), 400
+
+    start_time, err = _canonicalize(start_time, 'start_time')
+    if err:
+        return err
+
+    if end_time:
+        end_time, err = _canonicalize(end_time, 'end_time')
+        if err:
+            return err
+        if start_time >= end_time:
+            return jsonify({'error': "'start_time' must be before 'end_time'"}), 400
+    else:
+        end_time = None
+
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO annotations (name, start_time, end_time, notes) VALUES (?, ?, ?, ?)",
+        (name, start_time, end_time, notes),
+    )
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT * FROM annotations WHERE id = ?", (cursor.lastrowid,)
+    ).fetchone()
+    return jsonify(dict(row)), 201
+
+
+@annotations_bp.patch('/api/annotations/<int:annotation_id>')
+def update_annotation(annotation_id):
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM annotations WHERE id = ?", (annotation_id,)
+    ).fetchone():
+        return jsonify({'error': 'Annotation not found'}), 404
+
+    body = request.get_json(silent=True) or {}
+    updates = {k: v for k, v in body.items() if k in ALLOWED_ANNOTATION_FIELDS}
+    if not updates:
+        return jsonify({'error': 'No valid fields to update'}), 400
+
+    for field in ('start_time', 'end_time'):
+        if field in updates and updates[field]:
+            updates[field], err = _canonicalize(updates[field], field)
+            if err:
+                return err
+        elif field == 'end_time' and field in updates and not updates[field]:
+            updates[field] = None
+
+    if 'start_time' in updates or 'end_time' in updates:
+        existing = conn.execute(
+            "SELECT start_time, end_time FROM annotations WHERE id = ?",
+            (annotation_id,),
+        ).fetchone()
+        effective_start = updates.get('start_time', existing['start_time'])
+        effective_end = updates.get('end_time', existing['end_time'])
+        if effective_end is not None and effective_start >= effective_end:
+            return jsonify({'error': "'start_time' must be before 'end_time'"}), 400
+
+    set_clause = ', '.join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE annotations SET {set_clause} WHERE id = ?",
+        (*updates.values(), annotation_id),
+    )
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT * FROM annotations WHERE id = ?", (annotation_id,)
+    ).fetchone()
+    return jsonify(dict(row))
+
+
+@annotations_bp.delete('/api/annotations/<int:annotation_id>')
+def delete_annotation(annotation_id):
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM annotations WHERE id = ?", (annotation_id,)
+    ).fetchone():
+        return jsonify({'error': 'Annotation not found'}), 404
+    conn.execute("DELETE FROM annotations WHERE id = ?", (annotation_id,))
+    conn.commit()
+    return '', 204
+
+
+@annotations_bp.get('/api/annotations/mark')
+def get_marks():
+    conn = get_connection()
+    rows = conn.execute("SELECT key, timestamp FROM marks").fetchall()
+    return jsonify({r['key']: r['timestamp'] for r in rows})
+
+
+@annotations_bp.post('/api/annotations/mark')
+def mark_timestamp():
+    body = request.get_json(silent=True) or {}
+    marker = body.get('marker', '')
+    if marker not in ('start', 'end'):
+        return jsonify({'error': "'marker' must be 'start' or 'end'"}), 400
+
+    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO marks (key, timestamp) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET timestamp = excluded.timestamp",
+        (marker, timestamp),
+    )
+    conn.commit()
+
+    rows = conn.execute("SELECT key, timestamp FROM marks").fetchall()
+    result = {r['key']: r['timestamp'] for r in rows}
+    return jsonify(result)
