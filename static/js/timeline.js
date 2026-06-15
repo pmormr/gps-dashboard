@@ -108,6 +108,11 @@ const Timeline = (() => {
     document.getElementById('tl-slider-wrap').classList.remove('hidden');
 
     MapView.showTrack(allPoints, { fitBounds: !isLiveTick, showEndpoints: false });
+    Annotations.renderOverlays(allPoints);
+  }
+
+  function getPoints() {
+    return allPoints;
   }
 
   async function zoomToCurrentLocation() {
@@ -121,8 +126,18 @@ const Timeline = (() => {
 
   function openAnnotationForm() {
     if (!pendingAnnotation) return;
+    const isPoint = !pendingAnnotation.end_time;
+    document.getElementById('annotation-form-title').textContent =
+      isPoint ? 'Drop Pin' : 'Create Range';
     document.getElementById('annotation-name-input').value = '';
     document.getElementById('annotation-notes-input').value = '';
+    const whenEl = document.getElementById('annotation-form-when');
+    if (whenEl) {
+      const start = new Date(pendingAnnotation.start_time);
+      whenEl.textContent = isPoint
+        ? `At ${start.toLocaleString()}`
+        : `${start.toLocaleString()} → ${new Date(pendingAnnotation.end_time).toLocaleString()}`;
+    }
     document.getElementById('annotation-form-overlay').classList.remove('hidden');
     document.getElementById('annotation-name-input').focus();
   }
@@ -137,13 +152,31 @@ const Timeline = (() => {
     if (!pendingAnnotation) return;
 
     const notes = document.getElementById('annotation-notes-input').value.trim();
+    const body = { ...pendingAnnotation, name, notes };
+    // Range form passes end_time; point form does not. Backend treats a
+    // missing or null end_time as a point bookmark.
+    if (!body.end_time) delete body.end_time;
     try {
-      await API.createAnnotation({ ...pendingAnnotation, name, notes });
+      await API.createAnnotation(body);
       closeAnnotationForm();
       Annotations.reload();
     } catch (e) {
       alert(`Failed to save annotation: ${e.message}`);
     }
+  }
+
+  // Drop Pin: captures the slider's hi handle (or "now" if live + no slider).
+  // The form opens with end_time omitted so saveAnnotation creates a point.
+  function dropPin() {
+    let ts;
+    if (slider) {
+      const hi = slider.get().map(Number)[1];
+      ts = fromTs(hi);
+    } else {
+      ts = new Date().toISOString();
+    }
+    pendingAnnotation = { start_time: ts };
+    openAnnotationForm();
   }
 
   function fmtMarkTime(isoStr) {
@@ -196,6 +229,7 @@ const Timeline = (() => {
 
   function init() {
     document.getElementById('tl-create-btn').addEventListener('click', openAnnotationForm);
+    document.getElementById('tl-drop-pin-btn').addEventListener('click', dropPin);
     document.getElementById('annotation-form-cancel').addEventListener('click', closeAnnotationForm);
     document.getElementById('annotation-form-save').addEventListener('click', saveAnnotation);
     document.getElementById('annotation-form-overlay').addEventListener('click', e => {
@@ -215,5 +249,5 @@ const Timeline = (() => {
     TimePicker.onChange(loadRange);
   }
 
-  return { init };
+  return { init, getPoints };
 })();

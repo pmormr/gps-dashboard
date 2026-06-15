@@ -82,9 +82,13 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 Separate files in `static/` and `templates/`. All JS/CSS vendored in `static/vendor/` — no CDN calls at runtime. Mobile-first (primary client is a phone browser).
 
-Two views in the main app (`/`):
-- **Timeline** — date picker + range scrubber (noUiSlider), filters points in memory, create annotation ranges from selection. **Live mode**: when viewing today's date, the Live button polls `/api/points` every 30s and auto-advances the slider end to show new points in real time. The ⊕ FAB button zooms the map to the most recent GPS fix via `/api/points/latest`.
-- **Annotations** — browse annotations (point + range), view a range's track on map, stats (distance, max/avg speed, elevation gain) computed client-side via Haversine. (Both views will be unified per `docs/annotations-ui-plan.md`; for now the Timeline/Annotations split is the transitional shape.)
+One map-centric view at `/`:
+- **Time picker** (`TimePicker`, `static/js/timepicker.js`) — Graylog-style. Modes Last / Around / From→To with anchor + window state; preset chips (15m/1h/6h/24h/7d/30d) collapse to Live + Last. A Live flag pins the anchor to `now()` and re-fetches every 30s.
+- **Sub-range slider** (`noUiSlider`) — zooms inside the loaded window. The trail polyline + map-fit follow the slider's selection; in live re-fetches `fitBounds` is skipped so the view doesn't jerk.
+- **Annotations drawer** — right-edge drawer on desktop, bottom sheet on mobile, toggled from the tab bar. Lists points + ranges; click jumps the picker (range → `range` mode, point → `around` mode keeping current window) and pans to the nearest fix. Map overlays: cyan polylines for in-window ranges, amber pins for in-window points; matching bands + ticks on the slider.
+- **Creation** — "Create Range" uses the slider's `[lo, hi]` (≥2 points); "Drop Pin" captures the slider's `hi` handle (or `now` in live).
+- **Bucketing** — `Timeline.bucketFor(spanMs)` tiers the `?bucket=` param: ≤24h full detail, ≤7d 30s, ≤30d 5min, longer 30min.
+- **Other map controls** — ⊕ FAB zooms to the most recent GPS fix; the ⚙ Labels panel (vector basemap) tunes POI categories, label density, and minor-street-name visibility.
 
 Three standalone pages:
 - `/gpsd` — gpsd service state, fix mode, satellite count, latest coordinates, pass/fail indicators

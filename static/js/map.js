@@ -55,18 +55,28 @@ function makeVectorBase() {
 }
 
 const MapView = (() => {
-  let map, baseLayer, trackLayer, markerLayer;
+  let map, baseLayer, trackLayer, markerLayer, annotationLayer;
   let currentLayer = 'osm';
   let currentRefresh = false;
   let onVectorBaseCb = null;
 
   const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
+  // Annotation range overlay sits above the trail (its own pane gets a higher
+  // z-index), so the highlighted segment reads clearly on top of the red trail.
+  const rangeStyle = { color: '#22d3ee', weight: 6, opacity: 0.7 };
 
   const dotIcon = L.divIcon({
     className: '',
     html: '<div style="width:10px;height:10px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5)"></div>',
     iconSize: [10, 10],
     iconAnchor: [5, 5],
+  });
+
+  const pinIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:14px;height:14px;border-radius:50% 50% 50% 0;background:#f59e0b;border:2px solid #fff;transform:rotate(-45deg);box-shadow:0 0 4px rgba(0,0,0,.5)"></div>',
+    iconSize: [14, 14],
+    iconAnchor: [7, 14],
   });
 
   // Swap the base layer. 'osm' is the vector GL base (added once its style
@@ -88,6 +98,7 @@ const MapView = (() => {
   function init(elementId) {
     map = L.map(elementId, { zoomControl: true, maxZoom: 20 });
     trackLayer = L.layerGroup().addTo(map);
+    annotationLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     setBase(currentLayer);
     map.setView([39, -98], 4); // default: center of US
@@ -148,6 +159,23 @@ const MapView = (() => {
     markerLayer.clearLayers();
   }
 
+  function clearAnnotations() {
+    if (annotationLayer) annotationLayer.clearLayers();
+  }
+
+  function addRangeOverlay(points, name) {
+    if (!annotationLayer || !points.length) return;
+    const latlngs = points.map(p => [p.lat, p.lon]);
+    const poly = L.polyline(latlngs, rangeStyle).addTo(annotationLayer);
+    if (name) poly.bindTooltip(name);
+  }
+
+  function addPinOverlay(lat, lon, name) {
+    if (annotationLayer == null) return;
+    const m = L.marker([lat, lon], { icon: pinIcon }).addTo(annotationLayer);
+    if (name) m.bindTooltip(name);
+  }
+
   function fitToTrack() {
     const layers = trackLayer.getLayers();
     if (layers.length) map.fitBounds(layers[0].getBounds(), { padding: [24, 24] });
@@ -161,101 +189,9 @@ const MapView = (() => {
     if (map) map.invalidateSize();
   }
 
-  return { init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize, setRefreshMode, setLayer, getVectorBase, onVectorBase };
-})();
-
-// Second map instance for the Annotations detail pane. This goes away in Phase 3
-// when the views collapse into one map; for now it mirrors MapView.
-const AnnotationsMap = (() => {
-  let map, baseLayer, trackLayer, markerLayer;
-  let currentLayer = 'osm';
-  let currentRefresh = false;
-  let onVectorBaseCb = null;
-
-  const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
-
-  const dotIcon = L.divIcon({
-    className: '',
-    html: '<div style="width:10px;height:10px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5)"></div>',
-    iconSize: [10, 10],
-    iconAnchor: [5, 5],
-  });
-
-  function setBase(layer) {
-    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
-    if (layer === 'osm') {
-      vectorStyleReady.then(() => {
-        if (currentLayer !== 'osm' || baseLayer) return;
-        baseLayer = makeVectorBase().addTo(map);
-        if (onVectorBaseCb) onVectorBaseCb(baseLayer);
-      });
-    } else {
-      baseLayer = makeTileLayer(layer, currentRefresh).addTo(map);
-    }
-  }
-
-  function init(elementId) {
-    map = L.map(elementId, { zoomControl: true, maxZoom: 20 });
-    trackLayer = L.layerGroup().addTo(map);
-    markerLayer = L.layerGroup().addTo(map);
-    setBase(currentLayer);
-    map.setView([39, -98], 4);
-  }
-
-  function setLayer(layer) {
-    if (layer === currentLayer || (layer !== 'osm' && !TILE_LAYERS[layer])) return;
-    currentLayer = layer;
-    if (map) setBase(layer);
-  }
-
-  function setRefreshMode(enabled) {
-    currentRefresh = enabled;
-    if (currentLayer !== 'osm' && baseLayer && baseLayer.setUrl) {
-      baseLayer.setUrl(tileUrl(currentLayer, currentRefresh));
-    }
-  }
-
-  function getVectorBase() {
-    return currentLayer === 'osm' ? baseLayer : null;
-  }
-
-  // Register a callback invoked with each vector base as it is (re)created,
-  // so the label/POI controls can (re)attach to the inner MapLibre map.
-  function onVectorBase(cb) {
-    onVectorBaseCb = cb;
-    if (currentLayer === 'osm' && baseLayer) cb(baseLayer);
-  }
-
-  function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
-    trackLayer.clearLayers();
-    markerLayer.clearLayers();
-    if (!points.length) return;
-
-    const latlngs = points.map(p => [p.lat, p.lon]);
-    const poly = L.polyline(latlngs, trackStyle).addTo(trackLayer);
-
-    if (showEndpoints) {
-      L.marker([points[0].lat, points[0].lon], { icon: dotIcon })
-        .bindTooltip('Start: ' + fmtTime(points[0].timestamp))
-        .addTo(markerLayer);
-      if (points.length > 1) {
-        L.marker([points.at(-1).lat, points.at(-1).lon], { icon: dotIcon })
-          .bindTooltip('End: ' + fmtTime(points.at(-1).timestamp))
-          .addTo(markerLayer);
-      }
-    }
-
-    if (fitBounds) map.fitBounds(poly.getBounds(), { padding: [24, 24] });
-  }
-
-  function clearTrack() {
-    if (trackLayer) trackLayer.clearLayers();
-    if (markerLayer) markerLayer.clearLayers();
-  }
-
-  function invalidateSize() {
-    if (map) map.invalidateSize();
-  }
-
-  return { init, showTrack, clearTrack, invalidateSize, setRefreshMode, setLayer, getVectorBase, onVectorBase };
+  return {
+    init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize,
+    setRefreshMode, setLayer, getVectorBase, onVectorBase,
+    clearAnnotations, addRangeOverlay, addPinOverlay,
+  };
 })();

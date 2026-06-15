@@ -12,8 +12,7 @@
 <body>
 <div class="app">
 
-  <!-- ── Timeline view ── -->
-  <div id="view-timeline" class="view active">
+  <div id="view-main" class="view active">
     <div class="tl-controls">
       <div class="tl-top-row">
         <button id="timepicker-trigger" class="timepicker-trigger" type="button">
@@ -25,6 +24,7 @@
       </div>
       <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
         <div id="tl-slider"></div>
+        <div id="tl-slider-overlay" class="tl-slider-overlay"></div>
         <div class="tl-slider-labels">
           <span id="tl-start-label"></span>
           <span id="tl-end-label"></span>
@@ -39,7 +39,10 @@
       </div>
       <div class="tl-bottom-row">
         <span id="tl-selection-count" class="muted"></span>
-        <button id="tl-create-btn" class="btn-primary" disabled>Create Annotation</button>
+        <div class="tl-bottom-actions">
+          <button id="tl-drop-pin-btn" class="btn-secondary">Drop Pin</button>
+          <button id="tl-create-btn" class="btn-primary" disabled>Create Range</button>
+        </div>
       </div>
     </div>
     <div id="map" class="map-container">
@@ -62,36 +65,17 @@
     </div>
   </div>
 
-  <!-- ── Annotations view ── -->
-  <div id="view-annotations" class="view">
-
-    <div id="annotations-list-pane">
-      <div class="annotations-pane-header">
-        <h2>Annotations</h2>
-      </div>
-      <div id="annotations-list"></div>
-    </div>
-
-    <div id="annotations-detail-pane" class="hidden">
-      <div class="detail-header">
-        <button id="annotations-back-btn" class="btn-icon" title="Back to list">‹</button>
-        <span id="detail-annotation-name"></span>
-      </div>
-      <div id="annotation-stats-panel"></div>
-      <div id="annotations-map" class="map-container"></div>
-    </div>
-
-  </div>
-
   <!-- ── Tile refresh banner ── -->
   <div id="tile-refresh-banner" class="tile-refresh-banner hidden">
     Refreshing tiles in background — reload page to see updates
   </div>
 
-  <!-- ── Tab bar ── -->
+  <!-- ── Tab bar (status links + drawer toggle) ── -->
   <nav id="tab-bar">
-    <button data-view="timeline" class="active">Timeline</button>
-    <button data-view="annotations">Annotations</button>
+    <button id="annotations-drawer-toggle" class="tab-drawer-toggle" type="button">
+      <span>📍 Annotations</span>
+      <span id="annotations-drawer-count" class="annotations-drawer-count hidden">0</span>
+    </button>
     <div class="tab-status-links">
       <a href="/gpsd" target="_blank">GPS</a>
       <a href="/ntp" target="_blank">NTP</a>
@@ -107,6 +91,15 @@
   </nav>
 
 </div>
+
+<!-- Annotations side drawer (desktop) / bottom sheet (mobile) -->
+<aside id="annotations-drawer" class="ann-drawer hidden">
+  <div class="ann-drawer-header">
+    <h2>Annotations</h2>
+    <button id="annotations-drawer-close" class="btn-icon" title="Close drawer">×</button>
+  </div>
+  <div id="annotations-list"></div>
+</aside>
 
 <!-- Time picker popover (desktop) / bottom sheet (mobile) -->
 <div id="timepicker-pop" class="timepicker-pop hidden">
@@ -173,7 +166,7 @@
 <!-- Annotation creation overlay -->
 <div id="annotation-form-overlay" class="overlay hidden">
   <div class="overlay-card">
-    <h3>New Annotation</h3>
+    <h3 id="annotation-form-title">New Annotation</h3>
     <label>
       Name
       <input type="text" id="annotation-name-input" placeholder="e.g. Denver to Moab" autocomplete="off">
@@ -182,9 +175,10 @@
       Notes
       <textarea id="annotation-notes-input" placeholder="Optional notes"></textarea>
     </label>
+    <p id="annotation-form-when" class="muted"></p>
     <div class="overlay-actions">
       <button id="annotation-form-cancel" class="btn-secondary">Cancel</button>
-      <button id="annotation-form-save" class="btn-primary">Save Annotation</button>
+      <button id="annotation-form-save" class="btn-primary">Save</button>
     </div>
   </div>
 </div>

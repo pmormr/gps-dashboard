@@ -94,24 +94,26 @@ The new query surface. Replaces the date input and Live button on the Timeline.
 
 Collapse the two tabs into one map-centric view.
 
-- [ ] **3.1** Remove the Trips tab and the second map instance. Keep one
-  Leaflet+MapLibre map. Tab bar shrinks to status links only (or to nothing,
-  TBD when we get there).
-- [ ] **3.2** Annotation list as a collapsible side drawer (right edge on
-  desktop, bottom sheet on mobile). Replaces today's `trips-list-pane`.
-- [ ] **3.3** Render annotations on the map: pins for points, highlighted
-  track segments for ranges (using the points already loaded for the current
-  window when the range overlaps).
-- [ ] **3.4** Render annotations on the slider: shaded bands for ranges,
-  ticks for points. Lets the user see what's tagged inside the loaded window.
-- [ ] **3.5** Click an annotation:
-  - Range → picker switches to `range` mode with its `(start, end)`.
-  - Point → picker switches to `around` with current window, anchor = its
-    timestamp. Live turns off.
-  - Map pans to the nearest logged GPS fix to the annotation's timestamp.
-- [ ] **3.6** "Add Annotation" button captures slider head (or `now` in Live)
-  as the timestamp. Form: name, notes, optional end-time. Empty end =
-  point; populated end = range. Reuses existing overlay.
+- [x] **3.1** Single map view. The dedicated Annotations tab + second
+  `AnnotationsMap` instance are gone. Tab bar swaps the per-view tab buttons
+  for an Annotations drawer toggle with a count badge.
+- [x] **3.2** Side drawer (`.ann-drawer`): right edge on desktop, bottom
+  sheet on mobile. Lists every annotation with name, type icon, meta line
+  (date + range bounds + point count or just timestamp), and a delete button.
+- [x] **3.3** Map overlays in a dedicated `annotationLayer`: cyan polylines
+  for ranges (drawn from the in-window subset of `gps_points`), amber pin
+  markers for points anchored at the nearest loaded fix.
+- [x] **3.4** Slider overlay (`#tl-slider-overlay`): cyan bands for ranges
+  and amber ticks for points, positioned by percentage of the loaded window.
+- [x] **3.5** Click an annotation in the drawer:
+  - Range → `TimePicker.setState({mode:'range', from, to, live:false})`.
+  - Point → `setState({mode:'around', anchor: timestamp, window: current,
+    live:false})` and `pendingPanTimestamp` is set; after the resulting
+    loadRange completes, the map pans to the nearest loaded fix.
+- [x] **3.6** Two creation buttons in `tl-bottom-actions`:
+  - **Create Range** — uses slider `[lo, hi]`, requires ≥2 points selected.
+  - **Drop Pin** — captures slider's `hi` handle (or `now` if no slider)
+    as a point annotation. Shared form, end_time omitted for points.
 
 ## Phase 4 — Reclaim map real estate (#1)
 

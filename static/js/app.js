@@ -1,24 +1,28 @@
 document.addEventListener('DOMContentLoaded', () => {
   MapView.init('map');
-  AnnotationsMap.init('annotations-map');
-  LabelControls.init([MapView, AnnotationsMap]);
+  LabelControls.init([MapView]);
 
   TimePicker.init();
   Timeline.init();
   Annotations.init();
 
-  // Tab switching
-  document.querySelectorAll('#tab-bar button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const view = btn.dataset.view;
-      document.querySelectorAll('#tab-bar button').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`view-${view}`).classList.add('active');
-      MapView.invalidateSize();
-      AnnotationsMap.invalidateSize();
-    });
+  // Annotations drawer toggle (replaces the old Annotations tab)
+  const drawer = document.getElementById('annotations-drawer');
+  const drawerToggle = document.getElementById('annotations-drawer-toggle');
+  const drawerClose = document.getElementById('annotations-drawer-close');
+
+  function setDrawer(open) {
+    drawer.classList.toggle('open', open);
+    drawer.classList.toggle('hidden', !open);
+    drawerToggle.classList.toggle('active', open);
+    // Resize the map after a slide so Leaflet recomputes its container width.
+    setTimeout(() => MapView.invalidateSize(), 250);
+  }
+
+  drawerToggle.addEventListener('click', () => {
+    setDrawer(drawer.classList.contains('hidden'));
   });
+  drawerClose.addEventListener('click', () => setDrawer(false));
 
   // Tile refresh toggle
   const refreshToggle = document.getElementById('tile-refresh-toggle');
@@ -26,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshToggle.addEventListener('change', () => {
     const enabled = refreshToggle.checked;
     MapView.setRefreshMode(enabled);
-    AnnotationsMap.setRefreshMode(enabled);
     refreshBanner.classList.toggle('hidden', !enabled);
   });
 
@@ -39,14 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isVector && refreshToggle.checked) {
       refreshToggle.checked = false;
       MapView.setRefreshMode(false);
-      AnnotationsMap.setRefreshMode(false);
       refreshBanner.classList.add('hidden');
     }
     LabelControls.setEnabled(isVector);
   };
   layerSelect.addEventListener('change', () => {
     MapView.setLayer(layerSelect.value);
-    AnnotationsMap.setLayer(layerSelect.value);
     syncLayerUi(layerSelect.value);
   });
   syncLayerUi(layerSelect.value); // default layer is vector OSM
