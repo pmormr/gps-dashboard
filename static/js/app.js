@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
   AnnotationsMap.init('annotations-map');
   LabelControls.init([MapView, AnnotationsMap]);
 
+  TimePicker.init();
   Timeline.init();
   Annotations.init();
 

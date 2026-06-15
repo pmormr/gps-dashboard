@@ -3,14 +3,15 @@ const Timeline = (() => {
   let slider = null;
   let pendingAnnotation = null;
   let currentMarks = {};
-  let liveMode = false;
-  let refreshInterval = null;
+  let lastRange = null;
 
   function toTs(isoString) { return Math.floor(new Date(isoString).getTime() / 1000); }
   function fromTs(sec) { return new Date(sec * 1000).toISOString(); }
 
   function sliderLabel(sec) {
-    return new Date(sec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(sec * 1000).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
   }
 
   function pointsInRange(lo, hi) {
@@ -23,14 +24,6 @@ const Timeline = (() => {
   function updateSliderLabels(lo, hi) {
     document.getElementById('tl-start-label').textContent = sliderLabel(lo);
     document.getElementById('tl-end-label').textContent = sliderLabel(hi);
-  }
-
-  function localDateStr(d = new Date()) {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
-
-  function isToday(dateStr) {
-    return dateStr === localDateStr();
   }
 
   function renderRange(followMap = false) {
@@ -47,73 +40,74 @@ const Timeline = (() => {
     document.getElementById('tl-create-btn').disabled = !pendingAnnotation;
   }
 
-  function updateLiveBtn() {
-    const btn = document.getElementById('tl-live-btn');
-    if (!btn) return;
-    btn.classList.toggle('btn-live-active', liveMode);
-    btn.textContent = liveMode ? 'Live ●' : 'Live';
+  // Bucket size tier from the requested window. Keeps the returned point
+  // count bounded so the polyline stays usable at week/month ranges; full
+  // detail under a day.
+  function bucketFor(spanMs) {
+    const hour = 3600 * 1000;
+    if (spanMs <= 24 * hour)      return null;
+    if (spanMs <= 7 * 24 * hour)  return 30;
+    if (spanMs <= 30 * 24 * hour) return 300;
+    return 1800;
   }
 
-  function stopLive() {
-    liveMode = false;
-    if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
-    updateLiveBtn();
-  }
+  async function loadRange(range) {
+    const { from, to, live } = range;
+    if (!from || !to) return;
 
-  async function refreshPoints() {
-    const dateInput = document.getElementById('timeline-date');
-    if (!isToday(dateInput.value)) { stopLive(); return; }
+    // Treat live re-emits (anchor sliding forward) as continuations — don't
+    // refit the map on every tick or the view jerks around.
+    const isLiveTick = lastRange && lastRange.live && live &&
+                       lastRange.mode === range.mode &&
+                       lastRange.window === range.window;
+    lastRange = range;
 
-    const dateStr = dateInput.value;
-    const start = new Date(`${dateStr}T00:00:00`).toISOString();
-    const end   = new Date(`${dateStr}T23:59:59`).toISOString();
+    const spanMs = to - from;
+    const bucket = bucketFor(spanMs);
+    const opts = bucket ? { bucket } : {};
+
+    document.getElementById('tl-status').textContent = 'Loading…';
+    document.getElementById('tl-empty').classList.add('hidden');
 
     let data;
     try {
-      data = await API.getPoints(start, end, 20000);
-    } catch (_) { return; }
+      data = await API.getPoints(from.toISOString(), to.toISOString(), 20000, opts);
+    } catch (e) {
+      document.getElementById('tl-status').textContent = `Error: ${e.message}`;
+      return;
+    }
 
-    if (!data.points.length) return;
-
-    const hadPoints = allPoints.length > 0;
     allPoints = data.points;
-
-    const newMax = toTs(allPoints.at(-1).timestamp);
-    const newMin = toTs(allPoints[0].timestamp);
-
-    if (!slider) return;
-
-    const [currentLo] = slider.get().map(Number);
-    slider.updateOptions({ range: { min: newMin, max: newMax } }, false);
-
-    if (liveMode) {
-      slider.set([currentLo, newMax]);
-      renderRange(true);
-    }
-
+    const bucketNote = bucket ? ` · ${bucket}s buckets` : '';
     document.getElementById('tl-status').textContent =
-      data.truncated ? `${allPoints.length} points (truncated)` : `${allPoints.length} points`;
-  }
+      `${allPoints.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}${bucketNote}`;
 
-  function startLive() {
-    const dateInput = document.getElementById('timeline-date');
-    if (!isToday(dateInput.value)) return;
-
-    liveMode = true;
-    updateLiveBtn();
-
-    if (!refreshInterval) {
-      refreshInterval = setInterval(refreshPoints, 30000);
+    if (!allPoints.length) {
+      document.getElementById('tl-slider-wrap').classList.add('hidden');
+      const emptyEl = document.getElementById('tl-empty');
+      emptyEl.textContent = 'No GPS points for this range';
+      emptyEl.classList.remove('hidden');
+      MapView.clearTrack();
+      if (slider) { slider.destroy(); slider = null; }
+      return;
     }
-    refreshPoints();
-  }
 
-  function toggleLive() {
-    if (liveMode) {
-      stopLive();
-    } else {
-      startLive();
-    }
+    const lo = toTs(allPoints[0].timestamp);
+    const hi = toTs(allPoints.at(-1).timestamp);
+    const step = Math.max(1, Math.floor((hi - lo) / 1000));
+
+    if (slider) { slider.destroy(); slider = null; }
+    const el = document.getElementById('tl-slider');
+    slider = noUiSlider.create(el, {
+      start: [lo, hi],
+      connect: true,
+      range: { min: lo, max: hi === lo ? lo + 1 : hi },
+      step,
+    });
+    slider.on('update', () => renderRange(false));
+    document.getElementById('tl-slider-wrap').classList.remove('hidden');
+
+    MapView.showTrack(allPoints, { fitBounds: !isLiveTick, showEndpoints: false });
   }
 
   async function zoomToCurrentLocation() {
@@ -123,60 +117,6 @@ const Timeline = (() => {
         MapView.zoomTo(pt.lat, pt.lon, 17);
       }
     } catch (_) {}
-  }
-
-  async function loadDate(dateStr) {
-    stopLive();
-
-    const start = new Date(`${dateStr}T00:00:00`).toISOString();
-    const end   = new Date(`${dateStr}T23:59:59`).toISOString();
-
-    document.getElementById('tl-status').textContent = 'Loading…';
-    document.getElementById('tl-slider-wrap').classList.add('hidden');
-    document.getElementById('tl-empty').classList.add('hidden');
-    MapView.clearTrack();
-
-    const liveBtn = document.getElementById('tl-live-btn');
-    if (liveBtn) liveBtn.disabled = !isToday(dateStr);
-
-    let truncated = false;
-    try {
-      const data = await API.getPoints(start, end, 20000);
-      allPoints = data.points;
-      truncated = !!data.truncated;
-    } catch (e) {
-      document.getElementById('tl-status').textContent = `Error: ${e.message}`;
-      return;
-    }
-
-    if (!allPoints.length) {
-      document.getElementById('tl-status').textContent = '';
-      const emptyEl = document.getElementById('tl-empty');
-      emptyEl.textContent = 'No GPS points for this date';
-      emptyEl.classList.remove('hidden');
-      return;
-    }
-
-    document.getElementById('tl-status').textContent = truncated
-      ? `${allPoints.length} points (truncated)`
-      : `${allPoints.length} points`;
-
-    const lo = toTs(allPoints[0].timestamp);
-    const hi = toTs(allPoints.at(-1).timestamp);
-
-    if (slider) { slider.destroy(); slider = null; }
-
-    const el = document.getElementById('tl-slider');
-    slider = noUiSlider.create(el, {
-      start: [lo, hi],
-      connect: true,
-      range: { min: lo, max: hi === lo ? lo + 1 : hi },
-      step: 30,
-    });
-
-    slider.on('update', () => renderRange(false));
-    document.getElementById('tl-slider-wrap').classList.remove('hidden');
-    MapView.showTrack(allPoints, { fitBounds: true, showEndpoints: false });
   }
 
   function openAnnotationForm() {
@@ -218,11 +158,7 @@ const Timeline = (() => {
     const e = currentMarks.end;
     const hasBoth = s && e;
     const statusEl = document.getElementById('tl-mark-status');
-    if (s || e) {
-      statusEl.textContent = `S: ${fmtMarkTime(s)}  E: ${fmtMarkTime(e)}`;
-    } else {
-      statusEl.textContent = '';
-    }
+    statusEl.textContent = (s || e) ? `S: ${fmtMarkTime(s)}  E: ${fmtMarkTime(e)}` : '';
     document.getElementById('tl-use-marks-btn').classList.toggle('hidden', !hasBoth);
   }
 
@@ -244,31 +180,21 @@ const Timeline = (() => {
     }
   }
 
-  async function useMarks() {
+  function useMarks() {
     const s = currentMarks.start;
     const e = currentMarks.end;
     if (!s || !e) return;
-
-    const markDate = localDateStr(new Date(s));
-    const dateInput = document.getElementById('timeline-date');
-
-    if (dateInput.value !== markDate) {
-      dateInput.value = markDate;
-      await loadDate(markDate);
-    }
-
-    if (!slider) return;
-    const lo = toTs(s);
-    const hi = toTs(e);
-    slider.set([lo, hi]);
+    // Marks are explicit timestamps the user set — jump the picker straight
+    // to a `range` mode framing them.
+    TimePicker.setState({
+      mode: 'range',
+      from: new Date(s),
+      to: new Date(e),
+      live: false,
+    });
   }
 
   function init() {
-    const dateInput = document.getElementById('timeline-date');
-    const today = localDateStr();
-    dateInput.value = today;
-    dateInput.addEventListener('change', e => loadDate(e.target.value));
-
     document.getElementById('tl-create-btn').addEventListener('click', openAnnotationForm);
     document.getElementById('annotation-form-cancel').addEventListener('click', closeAnnotationForm);
     document.getElementById('annotation-form-save').addEventListener('click', saveAnnotation);
@@ -283,12 +209,10 @@ const Timeline = (() => {
     document.getElementById('tl-mark-start-btn').addEventListener('click', () => handleMark('start'));
     document.getElementById('tl-mark-end-btn').addEventListener('click', () => handleMark('end'));
     document.getElementById('tl-use-marks-btn').addEventListener('click', useMarks);
-
-    document.getElementById('tl-live-btn').addEventListener('click', toggleLive);
     document.getElementById('tl-zoom-here-btn').addEventListener('click', zoomToCurrentLocation);
 
     loadMarks();
-    loadDate(today);
+    TimePicker.onChange(loadRange);
   }
 
   return { init };

@@ -73,26 +73,22 @@ The schema-and-endpoint groundwork. Cheap to do first, unblocks everything else.
 
 The new query surface. Replaces the date input and Live button on the Timeline.
 
-- [ ] **2.1** Picker component. Trigger button shows current range as a label
-  ("Last 24h" / "Around Apr 15 ±3d" / "Mar 1 – Mar 8"); popover holds the
-  controls. Mode tabs: **Last** / **Around** / **From → To**. Anchor field
-  (datetime + "now" button) in `last`/`around`; from/to fields in `range`.
-  Window duration in `last`/`around` (number + unit). Live checkbox in
-  `last` only. Preset chips (15m / 1h / 6h / 24h / 7d / 30d) write directly
-  into `{mode:'last', window:preset, live:true}`.
-- [ ] **2.2** Wire the picker into the data fetch. `from`/`to` derive
-  deterministically from picker state:
-  - `last`: `[anchor - window, anchor]`
-  - `around`: `[anchor - window/2, anchor + window/2]`
-  - `range`: `[from, to]`
-  When `live:true`, anchor is bound to `now()` and a poller re-fetches every
-  30s (re-using the current Live-mode cadence).
-- [ ] **2.3** Frontend picks bucket size from the requested span (none below
-  ~24h; tier upward — `30s`, `5m`, `30m`, etc. — for longer ranges). Includes
-  current map bbox in the request when the user has zoomed in.
-- [ ] **2.4** Remove the old `<input type="date">` and the standalone Live
-  button. The slider stays — it now means "sub-range zoom inside the loaded
-  window," nothing more.
+- [x] **2.1** `TimePicker` in `static/js/timepicker.js`. Trigger button +
+  popover (desktop) / bottom sheet (mobile). Mode tabs Last / Around /
+  From→To; anchor field with [Now] button; window number + unit dropdown;
+  Live checkbox (gated to Last); preset chips short-circuit to
+  `{mode:'last', window:preset, live:true}` and apply immediately.
+- [x] **2.2** Picker drives `Timeline` via `TimePicker.onChange(loadRange)`.
+  Live polling owned by the picker (30s emit). Old `loadDate(dateStr)` + Live
+  button gone. Slider rebuilds with each range and steps at ~1k ticks across
+  the span. Live re-emits skip `fitBounds` so the map doesn't jerk.
+- [x] **2.3** `bucketFor(spanMs)` in `timeline.js`: ≤24h none, ≤7d 30s,
+  ≤30d 300s, longer 1800s. Sent via `API.getPoints(..., {bucket})`. Bbox
+  filter is wired through `api.js` but not yet driven by map state —
+  premature without a pan/zoom re-fetch loop, deferred.
+- [x] **2.4** Removed `<input type="date">` and `#tl-live-btn`. The slider
+  is now strictly a sub-range zoom inside the loaded window. The status
+  text shows `<count> pts (truncated) · <N>s buckets`.
 
 ## Phase 3 — Unify map + annotations
 

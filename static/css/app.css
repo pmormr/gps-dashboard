@@ -93,16 +93,148 @@ html, body {
 
 .tl-top-row label { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
-input[type="date"] {
+input[type="date"], input[type="datetime-local"], input[type="number"], select {
   background: var(--surface2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 6px 10px;
   font-size: 14px;
-  flex: 1;
-  max-width: 180px;
   color-scheme: dark;
+  font-family: inherit;
+}
+
+/* ── Time picker trigger ── */
+.timepicker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+  text-align: left;
+}
+.timepicker-trigger:hover { background: var(--border); }
+.timepicker-trigger-icon { color: var(--muted); flex-shrink: 0; }
+#timepicker-trigger-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timepicker-trigger-caret { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+
+/* ── Time picker popover (desktop) / bottom sheet (mobile) ── */
+.timepicker-pop {
+  position: fixed;
+  z-index: 1100;
+}
+.timepicker-pop.hidden { display: none; }
+
+.timepicker-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  padding: 12px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timepicker-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 3px;
+}
+.timepicker-modes button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.timepicker-modes button.active { background: var(--surface); color: var(--text); }
+
+.timepicker-presets {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.timepicker-presets button {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.timepicker-presets button:hover { background: var(--border); }
+
+.timepicker-fields { display: flex; flex-direction: column; gap: 8px; }
+.timepicker-fields.hidden { display: none; }
+.timepicker-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.timepicker-fields label > span { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.timepicker-anchor-row, .timepicker-window-row { display: flex; gap: 6px; }
+.timepicker-anchor-row input { flex: 1; min-width: 0; }
+.timepicker-window-row input { width: 70px; }
+.timepicker-window-row select { flex: 1; min-width: 0; }
+
+.timepicker-live-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  font-size: 13px !important;
+  color: var(--text) !important;
+  text-transform: none;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.timepicker-live-row.disabled { opacity: 0.4; cursor: default; }
+.timepicker-live-row input[type="checkbox"] { accent-color: var(--primary); }
+
+.timepicker-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+
+/* Mobile: bottom sheet — full-width, slides up from the bottom with a backdrop */
+@media (max-width: 767px) {
+  .timepicker-pop {
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: flex-end;
+  }
+  .timepicker-card {
+    width: 100%;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 16px 16px 24px;
+  }
 }
 
 #tl-status { color: var(--muted); font-size: 12px; margin-left: auto; }

@@ -16,10 +16,12 @@
   <div id="view-timeline" class="view active">
     <div class="tl-controls">
       <div class="tl-top-row">
-        <label for="timeline-date">Date</label>
-        <input type="date" id="timeline-date">
+        <button id="timepicker-trigger" class="timepicker-trigger" type="button">
+          <span class="timepicker-trigger-icon">⏱</span>
+          <span id="timepicker-trigger-label">Live · Last 24h</span>
+          <span class="timepicker-trigger-caret">▾</span>
+        </button>
         <span id="tl-status"></span>
-        <button id="tl-live-btn" class="btn-secondary" disabled>Live</button>
       </div>
       <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
         <div id="tl-slider"></div>
@@ -106,6 +108,68 @@
 
 </div>
 
+<!-- Time picker popover (desktop) / bottom sheet (mobile) -->
+<div id="timepicker-pop" class="timepicker-pop hidden">
+  <div class="timepicker-card">
+    <div class="timepicker-modes">
+      <button type="button" data-mode="last" class="active">Last</button>
+      <button type="button" data-mode="around">Around</button>
+      <button type="button" data-mode="range">From → To</button>
+    </div>
+
+    <div class="timepicker-presets">
+      <button type="button" data-preset="900000">15m</button>
+      <button type="button" data-preset="3600000">1h</button>
+      <button type="button" data-preset="21600000">6h</button>
+      <button type="button" data-preset="86400000">24h</button>
+      <button type="button" data-preset="604800000">7d</button>
+      <button type="button" data-preset="2592000000">30d</button>
+    </div>
+
+    <div id="timepicker-relative" class="timepicker-fields">
+      <label>
+        <span>Anchor</span>
+        <div class="timepicker-anchor-row">
+          <input type="datetime-local" id="timepicker-anchor">
+          <button type="button" id="timepicker-anchor-now" class="btn-secondary">Now</button>
+        </div>
+      </label>
+      <label>
+        <span>Window</span>
+        <div class="timepicker-window-row">
+          <input type="number" id="timepicker-window-num" min="1" step="1">
+          <select id="timepicker-window-unit">
+            <option value="60000">minutes</option>
+            <option value="3600000">hours</option>
+            <option value="86400000">days</option>
+            <option value="604800000">weeks</option>
+          </select>
+        </div>
+      </label>
+      <label class="timepicker-live-row">
+        <input type="checkbox" id="timepicker-live">
+        <span>Live — anchor follows now, auto-refresh</span>
+      </label>
+    </div>
+
+    <div id="timepicker-absolute" class="timepicker-fields hidden">
+      <label>
+        <span>From</span>
+        <input type="datetime-local" id="timepicker-from">
+      </label>
+      <label>
+        <span>To</span>
+        <input type="datetime-local" id="timepicker-to">
+      </label>
+    </div>
+
+    <div class="timepicker-actions">
+      <button type="button" id="timepicker-cancel" class="btn-secondary">Cancel</button>
+      <button type="button" id="timepicker-apply" class="btn-primary">Apply</button>
+    </div>
+  </div>
+</div>
+
 <!-- Annotation creation overlay -->
 <div id="annotation-form-overlay" class="overlay hidden">
   <div class="overlay-card">
@@ -134,6 +198,7 @@
 <script src="/static/js/geo.js"></script>
 <script src="/static/js/map.js"></script>
 <script src="/static/js/labels.js"></script>
+<script src="/static/js/timepicker.js"></script>
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/annotations.js"></script>
 <script src="/static/js/app.js"></script>
