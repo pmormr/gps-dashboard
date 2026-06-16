@@ -22,6 +22,16 @@ PMTILES_PATH = Path(
     )
 )
 
+# Terrarium-encoded elevation tiles, also a single immutable PMTiles archive.
+# Read client-side by MapLibre via the pmtiles protocol + a raster-dem source
+# with `encoding: 'terrarium'`. Same operational model as the OSM archive.
+TERRAIN_PMTILES_PATH = Path(
+    os.environ.get(
+        'GPS_TERRAIN_PMTILES_PATH',
+        Path.home() / '.cache' / 'gps-dashboard' / 'northamerica-terrain.pmtiles',
+    )
+)
+
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
 
 
@@ -75,6 +85,18 @@ def osm_pmtiles():
     if not PMTILES_PATH.exists():
         abort(404)
     return send_file(PMTILES_PATH, mimetype='application/octet-stream', conditional=True)
+
+
+@tiles_bp.get('/tiles/terrain.pmtiles')
+def terrain_pmtiles():
+    # Same serving model as osm_pmtiles — single immutable archive, range-read by
+    # the client. MapLibre's raster-dem source decodes Terrarium PNGs into the
+    # elevation mesh; we just stream bytes.
+    if not TERRAIN_PMTILES_PATH.exists():
+        abort(404)
+    return send_file(
+        TERRAIN_PMTILES_PATH, mimetype='application/octet-stream', conditional=True
+    )
 
 
 @tiles_bp.get('/tiles/<layer>/<int:z>/<int:x>/<int:y>.png')
