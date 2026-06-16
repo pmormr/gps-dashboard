@@ -15,6 +15,7 @@ import requests
 # Make `api.tile_layers` importable when this script is run directly via uv.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from api.tile_layers import LAYERS  # noqa: E402
+from tools.regions import REGIONS  # noqa: E402
 
 TILE_CACHE_DIR = Path(
     os.environ.get('GPS_TILE_CACHE_DIR', Path.home() / '.cache' / 'gps-dashboard' / 'tiles')
@@ -53,29 +54,6 @@ class RateLimiter:
                 self._next += self._min_interval
             else:
                 self._next = now + self._min_interval
-
-# (min_lon, min_lat, max_lon, max_lat)
-REGIONS = {
-    # Whole lower-48. Practical only to ~z12 (see CLAUDE.md / docs); deeper
-    # zooms run to hundreds of GB and days of downloading.
-    'conus':        (-125.00, 24.50,  -66.50, 49.50),
-    'arizona':      (-114.82, 31.33, -109.04, 37.00),
-    'california':   (-124.41, 32.53, -114.13, 42.01),
-    'colorado':     (-109.06, 36.99, -102.04, 41.00),
-    'idaho':        (-117.24, 41.99, -111.04, 49.00),
-    'montana':      (-116.05, 44.36, -104.04, 49.00),
-    'nevada':       (-120.00, 35.00, -114.03, 42.00),
-    'new_mexico':   (-109.05, 31.33, -103.00, 37.00),
-    'oregon':       (-124.57, 41.99, -116.46, 46.26),
-    'utah':         (-114.05, 36.99, -109.04, 42.00),
-    'washington':   (-124.73, 45.54, -116.92, 49.00),
-    'wyoming':      (-111.06, 40.99, -104.05, 45.01),
-    'maryland':     ( -79.49, 37.89,  -74.99, 39.72),
-    'pennsylvania': ( -80.52, 39.72,  -74.69, 42.27),
-    'virginia':     ( -83.68, 36.54,  -75.24, 39.47),
-    'west_virginia':( -82.65, 37.20,  -77.72, 40.64),
-}
-
 
 def lat_lon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int]:
     n = 2 ** z
@@ -184,8 +162,8 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
     """Pre-download map tiles for offline use."""
     if list_regions:
         click.echo('Available regions:')
-        for name, (min_lon, min_lat, max_lon, max_lat) in sorted(REGIONS.items()):
-            click.echo(f'  {name:<15} ({min_lat:.1f}°N–{max_lat:.1f}°N, {min_lon:.1f}°–{max_lon:.1f}°)')
+        for name, r in sorted(REGIONS.items()):
+            click.echo(f'  {name:<15} ({r.min_lat:.1f}°N–{r.max_lat:.1f}°N, {r.min_lon:.1f}°–{r.max_lon:.1f}°)')
         return
 
     sources = sum([bool(region), bool(bbox), use_local])
@@ -198,7 +176,7 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
         region = region.lower().replace(' ', '_')
         if region not in REGIONS:
             raise click.BadParameter(f"Unknown region '{region}'. Use --list-regions to see options.")
-        selected_bbox = REGIONS[region]
+        selected_bbox = REGIONS[region].bbox
     elif bbox:
         try:
             parts = [float(p) for p in bbox.split(',')]
