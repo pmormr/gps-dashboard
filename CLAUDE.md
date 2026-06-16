@@ -27,6 +27,7 @@ App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/data/gps_history.db` — database (persists across deploys)
 - `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
 - `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
+- `/mnt/nvme/tiles/northamerica-terrain.pmtiles` — terrain (Mapzen Terrarium) PMTiles archive, ~116 GB (persists across deploys)
 
 **Never commit directly on the Pi.** All commits go local → push to both remotes. Direct Pi commits cause history divergence requiring force-pushes to fix.
 
@@ -71,6 +72,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `DELETE /api/annotations/:id`
 - `POST /api/annotations/mark` — upsert `start` or `end` mark with current UTC time
 - `GET /tiles/osm.pmtiles` — vector OSM basemap (single PMTiles archive) served with HTTP range support
+- `GET /tiles/terrain.pmtiles` — terrain DEM (Mapzen Terrarium PNGs in a PMTiles archive) served with HTTP range support; read client-side by MapLibre via `raster-dem` + `encoding: 'terrarium'`
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /api/sensors` — sensor registry, each row with its latest reading embedded
 - `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
@@ -97,17 +99,21 @@ Three standalone pages:
 
 `/gpsd` and `/ntp` auto-refresh every 30 seconds via `<meta refresh>`; `/sensors` polls in place (a full reload would drop chart state).
 
-### Basemaps: Vector OSM + Raster USGS
+### Basemaps & Terrain: Vector OSM + Raster USGS + Terrain DEM
 
-Two basemaps, served two different ways. A layer dropdown in the tab bar switches the active basemap globally (both maps).
+Two basemaps, served two different ways, plus an elevation source for 3D rendering. A layer dropdown in the tab bar switches the active basemap globally (both maps).
 
 **OSM — vector (default).** A single immutable PMTiles archive (`northamerica.pmtiles`, z0–15, ~33 GB) rendered client-side by MapLibre GL inside Leaflet via the `maplibre-gl-leaflet` plugin. Flask serves the archive at `GET /tiles/osm.pmtiles` with HTTP range support (`send_file(conditional=True)`); `pmtiles.js` issues range requests for the header, directories, and tiles. Path from `$GPS_PMTILES_PATH` (`/mnt/nvme/tiles/northamerica.pmtiles` on the Pi; dev fallback `~/.cache/gps-dashboard/northamerica.pmtiles`). The MapLibre lib, plugin, pmtiles.js, and the Protomaps "light" style + full Noto Sans BMP glyphs + sprite are vendored under `static/vendor/{maplibre,pmtiles,basemap}` — no CDN at runtime. Crisp overzoom past z15 is free. The archive is a persistent asset (like the DB), updated only by a full re-extract + atomic file replace (see `docs/vector-tiles-prototype-plan.md`), never per-tile — there is no `?refresh` for vector. `map.js` loads the style as an object and absolutizes `sprite`/`glyphs` against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL stays root-relative.
 
 **USGS — raster.** Flask proxies USGS Topo tiles when online and caches to `$GPS_TILE_CACHE_DIR/usgs/{z}/{x}/{y}.png` (`/mnt/nvme/cache/tiles` on the Pi; dev fallback `~/.cache/gps-dashboard/tiles/`). Serves from cache offline; 503 if uncached and offline. Route shape `GET /tiles/<layer>/<z>/<x>/<y>.png`; unknown layer or z past the layer's max → 400. `api/tile_layers.py` is the raster layer registry (USGS only now), imported by both the route and `precache.py`. ETags live in sidecar files (`<layer>/{z}/{x}/{y}.etag`); `?refresh=1` fires a background `If-None-Match` GET per tile and silently updates the cache. The "↻" checkbox in the tab bar enables refresh mode — raster only, disabled while the vector base is selected. Tile writes are atomic (thread-unique `.tmp` then `replace`), so a crash mid-write can never leave a torn PNG.
 
+**Terrain — Mapzen Terrarium PNG, served as PMTiles.** Not a basemap of its own; an elevation source MapLibre reads via a `raster-dem` style source with `encoding: 'terrarium'`. A single immutable PMTiles archive (`northamerica-terrain.pmtiles`, z0–12, ~116 GB) covering the same NA bbox as the OSM archive. Flask serves it at `GET /tiles/terrain.pmtiles` with byte-range support — same `send_file(conditional=True)` shape as `osm.pmtiles`. Path from `$GPS_TERRAIN_PMTILES_PATH` (`/mnt/nvme/tiles/northamerica-terrain.pmtiles` on the Pi; dev fallback `~/.cache/gps-dashboard/northamerica-terrain.pmtiles`). Each PNG tile encodes elevation in meters per pixel as `(R*256 + G + B/256) - 32768`. Source: AWS Open Data `s3://elevation-tiles-prod/terrarium/` (CONUS layer is built from USGS NED 10m, ~z12 native resolution; global coverage outside CONUS). Update model identical to OSM: full re-fetch + atomic replace, no `?refresh`. The archive is *data-only* in this phase — wiring it into the live `/` map (drop Leaflet, switch to pure MapLibre, drape the GPS track on the mesh, add pitch controls) is a follow-on effort tracked separately. See `docs/terrain-tiles-plan.md`.
+
 A collapsible "⚙ Labels" panel (vector only) tunes POI categories, label density, and minor-street-name visibility by driving the inner MapLibre map (`static/js/labels.js`).
 
-`tools/precache.py` pre-downloads raster tiles (USGS only) for a bbox + zoom range. Includes a state bounding box lookup table. Practical zoom z8–z14 for USGS. Source modes: `--region`, `--bbox`, and `--local` (bbox around the current GPS fix, configurable `--radius` km, default 50).
+`tools/precache.py` pre-downloads raster tiles (USGS only) for a bbox + zoom range. Region table is in `tools/regions.py` (frozen `Region` dataclass, shared with `fetch_terrain_tiles.py`). Practical zoom z8–z14 for USGS. Source modes: `--region`, `--bbox`, and `--local` (bbox around the current GPS fix, configurable `--radius` km, default 50).
+
+`tools/fetch_terrain_tiles.py` downloads Mapzen Terrarium PNGs into an MBTiles archive (asyncio + httpx worker pool, per-zoom resume, TMS-Y inversion on write). `pmtiles convert` then packs the MBTiles into the served PMTiles archive. Build off-Pi (dev laptop or NAS) and ship via rsync; never build on the Pi.
 
 ### GPS Logger Detail
 
@@ -178,6 +184,8 @@ gps-dashboard/
 │   └── sensors.html
 ├── tools/
 │   ├── precache.py
+│   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)
+│   ├── regions.py              # shared Region dataclass + REGIONS table
 │   ├── gpsd_setup.py
 │   ├── gpsd_validate.py
 │   ├── ntp_setup.py
@@ -194,6 +202,7 @@ gps-dashboard/
 ├── docs/
 │   ├── plan.md
 │   ├── sensor-platform-plan.md
+│   ├── terrain-tiles-plan.md
 │   └── vector-tiles-prototype-plan.md
 └── pyproject.toml
 ```
@@ -230,6 +239,15 @@ uv run tools/precache.py --bbox "-109.05,36.99,-102.04,41.00" --zoom 8-15
 uv run tools/precache.py --local --zoom 8-15          # bbox around current GPS position
 uv run tools/precache.py --local --radius 100 --zoom 8-15
 uv run tools/precache.py --list-regions
+
+# Build the terrain DEM archive (Mapzen Terrarium PNG → MBTiles → PMTiles).
+# Run on dev laptop or NAS, never on the Pi.
+uv run tools/fetch_terrain_tiles.py --dry-run --region north_america --zoom 0-12
+uv run tools/fetch_terrain_tiles.py --region north_america --zoom 0-12 \
+  --concurrency 64 --yes -o ~/terrain-tiles-lab/northamerica-terrain.mbtiles
+pmtiles convert ~/terrain-tiles-lab/northamerica-terrain.mbtiles \
+                ~/terrain-tiles-lab/northamerica-terrain.pmtiles
+# Then atomic-replace on the Pi: rsync → .tmp, ssh mv .tmp → final.
 
 # gpsd setup and validation (run on Pi)
 uv run tools/gpsd_setup.py
