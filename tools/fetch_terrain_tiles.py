@@ -393,6 +393,13 @@ def _resolve_bbox(
     type=int,
     help='Probe sample size per zoom level (dry-run only)',
 )
+@click.option(
+    '--yes',
+    '-y',
+    'assume_yes',
+    is_flag=True,
+    help='Skip the interactive Proceed? prompt (for nohup / scripted runs).',
+)
 def main(
     bbox: str | None,
     region: str | None,
@@ -401,6 +408,7 @@ def main(
     concurrency: int,
     dry_run_flag: bool,
     samples_per_zoom: int,
+    assume_yes: bool,
 ) -> None:
     """Download Mapzen Terrarium PNG tiles into an MBTiles archive."""
     selected_bbox, region_name = _resolve_bbox(bbox, region)
@@ -428,7 +436,8 @@ def main(
         raise click.UsageError('--output is required for a real fetch (or use --dry-run).')
     output.parent.mkdir(parents=True, exist_ok=True)
     click.echo(f'Output:       {output}')
-    click.confirm('Proceed?', abort=True)
+    if not assume_yes:
+        click.confirm('Proceed?', abort=True)
 
     conn = sqlite3.connect(output, isolation_level=None)
     try:
