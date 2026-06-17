@@ -473,17 +473,79 @@ long-running NAS jobs.
   `tools/tiles.py` would let the two scripts stop importing each other's
   CLI module.
 
+_Session 2 (2026-06-17). NA download finished clean; Phase 3 (convert +
+verify) closed; Phase 6 transfer launched and running. Phase 7 docs done.
+Only the multi-day rsync landing + the on-Pi Phase 5 re-test remain._
+
+### NA download (Phase 2/6) completed clean
+
+`fetch.log` final line: **1,979,972 / 1,979,972 tiles, 404=0, err=0,
+105.03 GB**, ~102 req/s steady on `/volume3`. The fetched count equals the
+Phase 1 NA z0–z12 projection (1,979,972) exactly; per-zoom MBTiles row counts
+sum to the same. MBTiles on disk: 106.4 GB.
+
+### Phase 3 (convert + verify) — done on full NA
+
+- `go-pmtiles` 1.30.3 installed on the NAS (release tarball, Linux x86_64 — not
+  in the default PATH; lives in `~/.local/bin` beside `uv`).
+- `pmtiles convert … --tmpdir <out/>` (tmpdir pinned to the big SSD volume so
+  the ~12 GB working file doesn't land on `/tmp`): **finished in 12m36s**,
+  EXIT=0. The plan's "under a minute" budget was wrong — convert hashes and
+  reclusters every one of 1.98 M tiles; ~12 min on ext4-SSD is the real cost.
+- Output **104.7 GB** (`northamerica-terrain.pmtiles`), vs 106.4 GB MBTiles.
+- `pmtiles show`: spec v3, type png, bounds `-168,7,-52,72`, zoom 0–12,
+  clustered, **addressed tiles 1,979,972 / tile-contents 1,587,476**.
+
+### Dedup correction: NA *does* dedupe (~1.25×), unlike Colorado
+
+Session 1 recorded "dedup ratio 1.0 — every elevation tile is unique" from the
+CO calibration. **That doesn't hold at NA scale.** The NA bbox (`-168,7,-52,72`)
+sweeps huge uniform ocean / arctic expanses where tiles encode a constant
+elevation → byte-identical PNGs → deduplicated. Addressed 1,979,972 collapse to
+1,587,476 stored contents (1.25× by count). Byte savings are small though
+(106.4 → 104.7 GB, ~1.6%): the deduped tiles are the *smallest* (low-entropy
+flat tiles), so removing 392 K of them barely moves the total. CO saw no dedup
+only because it's all varied land.
+
+### Phase 6 transfer — launched, running
+
+NAS→Pi via `copy-to-pi.sh` (clone of the OSM script: retry loop +
+`--partial --inplace --append-verify`, atomic `.tmp` → `mv`, SSH keepalives),
+run detached on the NAS (`setsid nohup … & disown` → `logs/copy.log`). NAS
+reaches the Pi directly. Observed throughput ~1.4 MB/s (~11 Mbps, matches the
+link estimate), **ETA ~20 h** for the 98 GiB — overnight+, self-healing across
+van-link drops (each disconnect resumes the `.tmp`). Pi NVMe has 839 GB free.
+
+### Deployment gap: Phase 4's "no service changes" was wrong
+
+The plan asserted Phase 4 needed no `deploy/` change. It does. The route resolves
+`GPS_TERRAIN_PMTILES_PATH` with a dev fallback to `~/.cache/...`; on the Pi that
+fallback doesn't point at `/mnt/nvme`, so without the env var the route 404s even
+with the archive present. Added `Environment=GPS_TERRAIN_PMTILES_PATH=…` to
+`deploy/gps-dashboard.service` (mirrors `GPS_PMTILES_PATH`). Also confirmed the
+Pi is still running pre-route code (`grep -c terrain.pmtiles` → 0 in the deployed
+`tiles.py`) — the route ships with the next `git push all main`.
+
+**Two manual steps remain to make the Pi serve terrain (do once the file lands):**
+
+1. `git push all main` — deploys the route code; the post-receive hook runs
+   `uv sync` + restarts `gps-dashboard`. (The hook does *not* reinstall the
+   systemd unit.)
+2. Reinstall the unit so the new env var takes effect:
+   `sudo cp deploy/gps-dashboard.service /etc/systemd/system/ &&
+    sudo systemctl daemon-reload && sudo systemctl restart gps-dashboard`.
+   Then `curl -I http://192.168.42.178:5000/tiles/terrain.pmtiles` → 200 +
+   `Accept-Ranges: bytes`.
+
 ### Pending
 
-- Phase 6 NA build still running (last check: ~50 K / 1.98 M tiles, ETA
-  ~5.4 h, ~100 req/s steady on `/volume3`).
-- Phase 3 `pmtiles convert` on the full NA MBTiles is then a single
-  command; budget under a minute based on the CO conversion's
-  ~290 MB/s throughput.
-- Phase 6 rsync NAS→Pi for ~116 GB at Pi's ~10 Mbps link projects to
-  ~26 hours; treat this as multi-day (mirror the OSM archive's
-  `copy-to-pi.sh` pattern with `--inplace --partial` + atomic `.tmp` →
-  `mv`).
-- Phase 5 will be re-run against the full NA archive once it lands on the
-  Pi — same harness, same checks, just over the LAN to confirm phone
-  rendering performance over van WiFi.
+- Phase 6 rsync still landing (~20 h). On success the script auto-`mv`s
+  `.tmp` → `northamerica-terrain.pmtiles`; verify after with
+  `ssh pi "ls -lh /mnt/nvme/tiles/northamerica-terrain.pmtiles"` (size
+  ~98 GiB, **no `.tmp` sibling**). If a `.tmp` lingers / size is short, the
+  transfer is incomplete — re-run `copy-to-pi.sh` (idempotent, resumes).
+- Phase 5 re-run against the full NA archive once it lands — same harness,
+  over the LAN, to confirm phone rendering over van WiFi.
+- NAS scratch (`/volume3/home/pmorgan/terrain-tiles-lab/`: 106 GB MBTiles +
+  104 GB PMTiles) can be cleared once the Pi copy is verified; keep the
+  PMTiles until then as the re-transfer source.
