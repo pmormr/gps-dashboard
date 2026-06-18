@@ -19,7 +19,7 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync`, always restarts `gps-dashboard`, and restarts `gps-logger` only if `logger/` changed (to avoid GPS data gaps). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync`, then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest`. When any `deploy/` file changed it reinstalls all four unit files into `/etc/systemd/system/` and `daemon-reload`s first — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto`/`sensor-bme680` restart only on their own config/source changes. The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)

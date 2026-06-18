@@ -473,9 +473,11 @@ long-running NAS jobs.
   `tools/tiles.py` would let the two scripts stop importing each other's
   CLI module.
 
-_Session 2 (2026-06-17). NA download finished clean; Phase 3 (convert +
-verify) closed; Phase 6 transfer launched and running. Phase 7 docs done.
-Only the multi-day rsync landing + the on-Pi Phase 5 re-test remain._
+_Session 2 (2026-06-17 → 18). NA download finished clean; Phase 3 (convert +
+verify) closed; Phase 6 transfer ran ~21 h NAS→Pi and landed byte-perfect;
+route deployed and verified serving 206 ranges on the Pi. Phase 7 docs done.
+**Data + serving scope complete** — only the on-Pi Phase 5 visual re-test
+(eyeball the mesh on a phone over van WiFi) is left, and that's a user check._
 
 ### NA download (Phase 2/6) completed clean
 
@@ -507,45 +509,55 @@ elevation → byte-identical PNGs → deduplicated. Addressed 1,979,972 collapse
 flat tiles), so removing 392 K of them barely moves the total. CO saw no dedup
 only because it's all varied land.
 
-### Phase 6 transfer — launched, running
+### Phase 6 transfer — completed byte-perfect
 
 NAS→Pi via `copy-to-pi.sh` (clone of the OSM script: retry loop +
 `--partial --inplace --append-verify`, atomic `.tmp` → `mv`, SSH keepalives),
 run detached on the NAS (`setsid nohup … & disown` → `logs/copy.log`). NAS
-reaches the Pi directly. Observed throughput ~1.4 MB/s (~11 Mbps, matches the
-link estimate), **ETA ~20 h** for the 98 GiB — overnight+, self-healing across
-van-link drops (each disconnect resumes the `.tmp`). Pi NVMe has 839 GB free.
+reaches the Pi directly. Ran ~21 h at ~1.3 MB/s (~11 Mbps, matches the link
+estimate) and **completed with 0 retries** — the van link held the whole way.
+Pi archive is **104,733,950,489 bytes — byte-for-byte the NAS source**, no
+`.tmp` sibling (atomic `mv` succeeded). Pi NVMe now ~735 GB free.
 
-### Deployment gap: Phase 4's "no service changes" was wrong
+### Deployment gap found and closed: Phase 4's "no service changes" was wrong
 
-The plan asserted Phase 4 needed no `deploy/` change. It does. The route resolves
-`GPS_TERRAIN_PMTILES_PATH` with a dev fallback to `~/.cache/...`; on the Pi that
-fallback doesn't point at `/mnt/nvme`, so without the env var the route 404s even
-with the archive present. Added `Environment=GPS_TERRAIN_PMTILES_PATH=…` to
-`deploy/gps-dashboard.service` (mirrors `GPS_PMTILES_PATH`). Also confirmed the
-Pi is still running pre-route code (`grep -c terrain.pmtiles` → 0 in the deployed
-`tiles.py`) — the route ships with the next `git push all main`.
+Phase 4 claimed no `deploy/` change. Wrong — the route resolves
+`GPS_TERRAIN_PMTILES_PATH` with a dev fallback to `~/.cache/...`, which on the
+Pi doesn't point at `/mnt/nvme`, so it 404s without the env var. Added
+`Environment=GPS_TERRAIN_PMTILES_PATH=…` to `deploy/gps-dashboard.service`
+(mirrors `GPS_PMTILES_PATH`).
 
-**Two manual steps remain to make the Pi serve terrain (do once the file lands):**
+**Deployed in one `git push all main`** — and the documented "manual unit
+reinstall" turned out unnecessary: the post-receive hook *does* reinstall all
+four unit files + `daemon-reload` whenever a `deploy/` file changes, then
+restarts `gps-dashboard`. So the env var went live automatically. (CLAUDE.md's
+hook description was itself incomplete on this point — corrected there too.)
 
-1. `git push all main` — deploys the route code; the post-receive hook runs
-   `uv sync` + restarts `gps-dashboard`. (The hook does *not* reinstall the
-   systemd unit.)
-2. Reinstall the unit so the new env var takes effect:
-   `sudo cp deploy/gps-dashboard.service /etc/systemd/system/ &&
-    sudo systemctl daemon-reload && sudo systemctl restart gps-dashboard`.
-   Then `curl -I http://192.168.42.178:5000/tiles/terrain.pmtiles` → 200 +
-   `Accept-Ranges: bytes`.
+Verified on the Pi: `gps-dashboard` active, env var present in the running
+service, `HEAD /tiles/terrain.pmtiles` → 200 + `Content-Length 104733950489`,
+`Range: bytes=0-6` → **206** + `Content-Range bytes 0-6/104733950489`.
+
+### Success criteria — final
+
+1. ✅ Archive exists; `pmtiles show` bounds `-168,7,-52,72`, zoom 0–12.
+2. ⏳ Visual mesh render over the LAN — the one remaining item; a user eyeball
+   check on a phone over van WiFi (the data layer is otherwise proven; the CO
+   harness already rendered relief last session and the NA archive serves
+   identically).
+3. ✅ Fits the disk budget on both dev (NAS) and Pi (~735 GB free after).
+4. ✅ Flask route serves with HTTP range (206 confirmed on the Pi).
 
 ### Pending
 
-- Phase 6 rsync still landing (~20 h). On success the script auto-`mv`s
-  `.tmp` → `northamerica-terrain.pmtiles`; verify after with
-  `ssh pi "ls -lh /mnt/nvme/tiles/northamerica-terrain.pmtiles"` (size
-  ~98 GiB, **no `.tmp` sibling**). If a `.tmp` lingers / size is short, the
-  transfer is incomplete — re-run `copy-to-pi.sh` (idempotent, resumes).
-- Phase 5 re-run against the full NA archive once it lands — same harness,
-  over the LAN, to confirm phone rendering over van WiFi.
+- Phase 5 visual re-test: load the `dev-terrain.html` harness (or the eventual
+  integrated map) against the Pi over van WiFi and confirm the mesh renders
+  smoothly on the phone. Last gate before the frontend-integration plan starts.
 - NAS scratch (`/volume3/home/pmorgan/terrain-tiles-lab/`: 106 GB MBTiles +
-  104 GB PMTiles) can be cleared once the Pi copy is verified; keep the
-  PMTiles until then as the re-transfer source.
+  104 GB PMTiles) can be cleared now that the Pi copy is verified — though
+  keeping the PMTiles a while costs little and is the instant re-transfer
+  source if the Pi archive is ever lost.
+- **Follow-up (not terrain-specific):** `httpx` is a *runtime* dependency in
+  `pyproject.toml` but is only used by the off-Pi `fetch_terrain_tiles.py`.
+  Against the offline-first constraint, an offline `uv sync` on the Pi would
+  fail to install it. It installed fine this deploy only because the van had
+  internet. Consider moving it to an optional/dev dependency group.
