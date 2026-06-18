@@ -68,8 +68,8 @@ html, body {
 
 /* ── Map ── */
 .map-container { flex: 1; min-height: 0; position: relative; }
-.leaflet-container { height: 100% !important; background: var(--surface) !important; }
-.leaflet-control-attribution { font-size: 10px !important; }
+.maplibregl-map { background: var(--surface); }
+.maplibregl-ctrl-attrib { font-size: 10px !important; }
 
 /* ── Main view & floating map overlays ── */
 #view-main { position: relative; }

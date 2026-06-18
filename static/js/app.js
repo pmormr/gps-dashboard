@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     drawer.classList.toggle('open', open);
     drawer.classList.toggle('hidden', !open);
     drawerToggle.classList.toggle('active', open);
-    // Resize the map after a slide so Leaflet recomputes its container width.
+    // Resize the map after a slide so it recomputes its container width.
     setTimeout(() => MapView.invalidateSize(), 250);
   }
 
