@@ -247,10 +247,11 @@ is flat), now running on `maplibregl.Map`.
 
 ## Open questions / risks
 
-1. **Marker terrain behavior (Risk #1).** Whether `maplibregl.Marker` HTML
-   markers correctly sit on and occlude behind the mesh in 5.24.0. If not,
-   pins/endpoints become symbol layers (which definitely respect terrain) at
-   the cost of re-implementing the teardrop/dot styling and tooltips.
+1. **Marker terrain behavior (Risk #1).** ~~Whether `maplibregl.Marker` HTML
+   markers correctly sit on and occlude behind the mesh in 5.24.0.~~ Largely
+   resolved during Phase 0: MapLibre v2+ clamps markers to the ground
+   automatically. Still confirm occlusion behind ridges visually in Phase 8;
+   symbol-layer fallback remains the escape hatch if needed.
 2. **Phone GPU performance.** The headline risk. 104 GB of terrain tiles
    byte-ranged over van WiFi, meshed on a phone GPU. Mitigations if it's rough:
    cap pitch, lower default exaggeration, limit terrain `maxzoom`, or
@@ -279,5 +280,68 @@ is flat), now running on `maplibregl.Map`.
 
 ## Results
 
-_Not started. This plan is the handoff artifact for a fresh implementation
-session._
+Implemented in one session (Phases 1–7, 9). Phase 8 (offline + on-device
+validation) is pending — it needs a real WebGL context on the Pi/phone, which
+can't be exercised from the dev box here.
+
+### What landed
+
+- **Phase 1 + 5 — pure MapLibre (`d345692`).** `map.js` rewritten to a single
+  `maplibregl.Map`; `MapView`'s public API is unchanged, so `timeline.js`,
+  `annotations.js`, `app.js` were untouched. Basemaps swap via `setStyle()`;
+  an idempotent, re-entrancy-guarded `styledata` handler (`reinstallOverlays`)
+  re-adds the track, annotation-range, and DEM sources after each swap. Track
+  + ranges are GeoJSON `line` layers; endpoints/pins are `maplibregl.Marker`
+  DOM elements (survive style swaps, clamp to terrain). `[lat,lon]→[lng,lat]`
+  flip contained in the façade. `labels.js` now drives the map returned by
+  `getVectorBase()` directly (no more plugin `getMaplibreMap()`), with a `pois`
+  guard so it no-ops under a raster basemap.
+- **Phase 2 + 3 — terrain.** Two `raster-dem` sources (mesh + hillshade, same
+  archive). `setTerrain` + the vector-only hillshade are gated on the 3D flag.
+  Track draping needs no code (see deviation below).
+- **Phase 4 — markers.** Ported dot/teardrop `divIcon` HTML to `Marker`
+  elements; tooltips are `title` attrs (markers) + a hover `Popup` (ranges).
+- **Phase 6 — 3D UI (`11776d0`).** A 🏔 3D floating panel (Labels/Marks
+  pattern): a 3D toggle + exaggeration slider. 2D stays flat/north-up;
+  rotate + pitch gestures are disabled until 3D is on, and toggling off
+  re-flattens.
+- **Phase 7 — Leaflet off the page (`3a7bb9b`).** Removed the leaflet.js /
+  leaflet.css / leaflet-maplibre-gl.js includes and swapped `.leaflet-*` CSS
+  for `.maplibregl-*`. **Vendor files (`static/vendor/leaflet/` + the plugin)
+  are still on disk** — delete them once Phase 8 passes.
+- **Phase 9 — docs.** CLAUDE.md Frontend/Basemaps/structure updated; this
+  Results section.
+
+### Deviations from the plan
+
+1. **`line-elevation-reference` (decision #5 / Phase 3) does not exist in
+   MapLibre.** It's a Mapbox GL JS v3.8+ property for *elevating* lines above
+   ground (`line-z-offset`), confirmed absent from the vendored 5.24.0 build.
+   It's also unnecessary: MapLibre drapes 2D `line`/`fill` layers onto the mesh
+   automatically (render-to-texture), so the track follows terrain for free.
+   This **resolves Risk #1** too — `Marker`s clamp to ground natively in v2+.
+2. **No standalone `NavigationControl` (Phase 6).** The `.right-panel-stack`
+   sits at `z-index: 700` and would bury a corner control; on a phone, zoom is
+   pinch and pitch is a two-finger gesture. The 3D panel toggle + auto-reflatten
+   covers the intent. Easy to add back if the compass is wanted.
+
+### Server-side validation done here
+
+Against the dev server (USGS online + `colorado.pmtiles` as the dev DEM):
+index + all JS + style.json + maplibre serve 200; `/tiles/terrain.pmtiles`
+honors `Range` (206); the served HTML has zero Leaflet references and includes
+the 3D panel. No local `northamerica.pmtiles`, so the vector basemap and all
+client-side WebGL rendering (draping, mesh, track-on-terrain, marker occlusion,
+phone GPU perf) are unverified — that is exactly Phase 8.
+
+### Phase 8 checklist (on the Pi / phone)
+
+- [ ] Desktop DevTools offline: vector basemap + terrain + track render with no
+      external requests.
+- [ ] Phone over van WiFi vs. the Pi: pan/zoom/pitch a mountain drive; frame
+      rate acceptable, terrain byte-range fetches don't stall the UI. **Go/no-go.**
+- [ ] USGS + vector + flatten regression pass.
+- [ ] If green: delete `static/vendor/leaflet/` + `leaflet-maplibre-gl.js`, drop
+      the "pending deletion" notes in CLAUDE.md, and move attribution into the
+      control (currently `AttributionControl` already carries OSM/Protomaps +
+      Mapzen/USGS-NED).
