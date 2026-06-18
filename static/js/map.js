@@ -203,8 +203,15 @@ const MapView = (() => {
 
   // Re-add every overlay setStyle dropped. Idempotent (add-if-absent) and
   // re-entrancy-guarded, so it can run on every styledata event safely.
+  //
+  // Driven off styledata (not gated on isStyleLoaded): adding sources/layers
+  // only needs the style *document*, which is present once setStyle resolves —
+  // isStyleLoaded() additionally waits for source tile data, which for the
+  // byte-ranged vector pmtiles source can lag well past style.load, and gating
+  // on it dropped the overlays entirely on the vector basemap. The try/catch
+  // tolerates a too-early call; the next styledata retries idempotently.
   function reinstallOverlays() {
-    if (installing || !map.isStyleLoaded()) return;
+    if (installing) return;
     installing = true;
     try {
       if (!map.getSource('terrain-dem')) map.addSource('terrain-dem', demSource());
@@ -232,10 +239,14 @@ const MapView = (() => {
       }
 
       // Sources are fresh after a style swap — push the current data back in.
-      map.getSource('track').setData(trackData);
-      map.getSource('ann-range').setData(rangeFC());
+      const track = map.getSource('track');
+      if (track) track.setData(trackData);
+      const range = map.getSource('ann-range');
+      if (range) range.setData(rangeFC());
 
       applyTerrain();
+    } catch (e) {
+      console.error('reinstallOverlays:', e);
     } finally {
       installing = false;
     }
