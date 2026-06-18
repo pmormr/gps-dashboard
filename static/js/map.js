@@ -1,42 +1,45 @@
+// Map façade. One maplibregl.Map drives the whole view; this module is the only
+// place that touches MapLibre directly. The public API (init, showTrack, …) is
+// the contract timeline.js / annotations.js / app.js depend on — keep it stable.
+//
+// Basemaps swap via map.setStyle(); overlays (track, annotation ranges, terrain
+// DEM sources, setTerrain) are re-installed on every style load by an idempotent
+// handler, since setStyle drops everything not in the new style. Markers are DOM
+// (maplibregl.Marker) and survive style swaps, so they're managed separately.
+
 // Raster tile layers proxied/cached by Flask (mirrors the raster entries in
-// api/tile_layers.py). The OSM basemap is now vector (MapLibre GL + PMTiles,
-// served at /tiles/osm.pmtiles), so USGS is the only raster layer left here.
-// `maxNativeZoom` lets Leaflet upsample the deepest available tile rather than
-// asking for ones the upstream doesn't serve.
+// api/tile_layers.py). The OSM basemap is vector (served at /tiles/osm.pmtiles),
+// so USGS is the only raster layer left here.
 const TILE_LAYERS = {
   usgs: {
     label: 'USGS Topo',
     attribution: '<a href="https://www.usgs.gov/">USGS</a> The National Map',
-    maxNativeZoom: 16,
+    maxzoom: 16,
   },
 };
 
 const VECTOR_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
   '<a href="https://protomaps.com">Protomaps</a>';
+const TERRAIN_ATTRIBUTION =
+  '<a href="https://github.com/tilezen/joerd">Mapzen</a> / USGS NED (terrain)';
 
-function tileUrl(layer, refresh) {
+// Single immutable terrain DEM archive, byte-ranged by pmtiles.js. Same URL
+// feeds two raster-dem sources (mesh + hillshade); sharing one source between
+// setTerrain and a hillshade layer degrades rendering, so they stay separate.
+const TERRAIN_PMTILES_URL = 'pmtiles://' + location.origin + '/tiles/terrain.pmtiles';
+
+function rasterTileUrl(layer, refresh) {
   return `/tiles/${layer}/{z}/{x}/{y}.png` + (refresh ? '?refresh=1' : '');
 }
 
-function makeTileLayer(layer, refresh) {
-  const cfg = TILE_LAYERS[layer];
-  return L.tileLayer(tileUrl(layer, refresh), {
-    attribution: cfg.attribution,
-    maxNativeZoom: cfg.maxNativeZoom,
-    maxZoom: 20,
-    errorTileUrl: '/static/img/tile-error.png',
-  });
-}
-
-// Register the pmtiles:// protocol once for every MapLibre GL instance.
+// Register the pmtiles:// protocol once for the MapLibre instance.
 const pmtilesProtocol = new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
 
-// Fetch + patch the vector style once, then clone it per map. MapLibre rejects
-// a root-relative sprite URL, so sprite/glyphs are absolutized against
-// location.origin (portable across localhost and the LAN IP); the pmtiles
-// source URL stays root-relative.
+// Fetch + patch the vector style once. MapLibre rejects a root-relative sprite
+// URL, so sprite/glyphs are absolutized against location.origin (portable across
+// localhost and the LAN IP); the pmtiles source URL stays root-relative.
 let vectorStyle = null;
 const vectorStyleReady = fetch('/static/vendor/basemap/style.json')
   .then(r => r.json())
@@ -47,151 +50,366 @@ const vectorStyleReady = fetch('/static/vendor/basemap/style.json')
     return s;
   });
 
-// A fresh GL base per call — each Leaflet map needs its own, and cloning keeps
-// per-map style edits (label/POI controls) from bleeding across maps.
-function makeVectorBase() {
-  const style = JSON.parse(JSON.stringify(vectorStyle));
-  return L.maplibreGL({ style, attribution: VECTOR_ATTRIBUTION });
+// Minimal style the map boots with so `map` exists synchronously; replaced by
+// the real basemap as soon as its style is ready.
+const BOOTSTRAP_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0f172a' } }],
+};
+
+function buildVectorStyle() {
+  return JSON.parse(JSON.stringify(vectorStyle));
+}
+
+function buildRasterStyle(layer, refresh) {
+  const cfg = TILE_LAYERS[layer];
+  return {
+    version: 8,
+    sources: {
+      [layer]: {
+        type: 'raster',
+        tiles: [rasterTileUrl(layer, refresh)],
+        tileSize: 256,
+        maxzoom: cfg.maxzoom,
+        attribution: cfg.attribution,
+      },
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#0f172a' } },
+      { id: layer, type: 'raster', source: layer },
+    ],
+  };
 }
 
 const MapView = (() => {
-  let map, baseLayer, trackLayer, markerLayer, annotationLayer;
+  let map;
   let currentLayer = 'osm';
   let currentRefresh = false;
   let onVectorBaseCb = null;
 
-  const trackStyle = { color: '#ef4444', weight: 3, opacity: 0.85 };
-  // Annotation range overlay sits above the trail (its own pane gets a higher
-  // z-index), so the highlighted segment reads clearly on top of the red trail.
-  const rangeStyle = { color: '#22d3ee', weight: 6, opacity: 0.7 };
+  // 3D / terrain state (driven by the 3D toggle UI; default flat 2D).
+  let terrainEnabled = false;
+  let exaggeration = 1.3;
 
-  const dotIcon = L.divIcon({
-    className: '',
-    html: '<div style="width:10px;height:10px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5)"></div>',
-    iconSize: [10, 10],
-    iconAnchor: [5, 5],
-  });
+  // Overlay state, the source of truth re-applied after every style load.
+  let trackData = emptyFC();
+  let rangeFeatures = [];
+  let lastTrackPoints = [];
+  let endpointMarkers = [];
+  let pinMarkers = [];
 
-  const pinIcon = L.divIcon({
-    className: '',
-    html: '<div style="width:14px;height:14px;border-radius:50% 50% 50% 0;background:#f59e0b;border:2px solid #fff;transform:rotate(-45deg);box-shadow:0 0 4px rgba(0,0,0,.5)"></div>',
-    iconSize: [14, 14],
-    iconAnchor: [7, 14],
-  });
+  let installing = false;     // re-entrancy guard for reinstallOverlays
+  let rangePopup = null;
 
-  // Swap the base layer. 'osm' is the vector GL base (added once its style
-  // resolves); everything else is a raster proxy layer. Overlays live in their
-  // own (higher) Leaflet panes, so base add/remove never disturbs the track.
-  function setBase(layer) {
-    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
-    if (layer === 'osm') {
-      vectorStyleReady.then(() => {
-        if (currentLayer !== 'osm' || baseLayer) return;
-        baseLayer = makeVectorBase().addTo(map);
-        if (onVectorBaseCb) onVectorBaseCb(baseLayer);
-      });
-    } else {
-      baseLayer = makeTileLayer(layer, currentRefresh).addTo(map);
+  const TRACK_COLOR = '#ef4444';
+  const RANGE_COLOR = '#22d3ee';
+
+  function emptyFC() {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  function lineFC(points) {
+    if (points.length < 2) return emptyFC();
+    return {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: points.map(p => [p.lon, p.lat]) },
+        properties: {},
+      }],
+    };
+  }
+
+  function rangeFC() {
+    return { type: 'FeatureCollection', features: rangeFeatures };
+  }
+
+  // ── DOM markers (terrain-aware; clamp to ground automatically) ──
+
+  function dotElement() {
+    const el = document.createElement('div');
+    el.style.cssText =
+      'width:10px;height:10px;border-radius:50%;background:#3b82f6;' +
+      'border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5)';
+    return el;
+  }
+
+  function pinElement() {
+    const el = document.createElement('div');
+    el.style.cssText =
+      'width:14px;height:14px;border-radius:50% 50% 50% 0;background:#f59e0b;' +
+      'border:2px solid #fff;transform:rotate(-45deg);box-shadow:0 0 4px rgba(0,0,0,.5)';
+    return el;
+  }
+
+  function addMarker(list, element, lat, lon, anchor, title) {
+    if (title) element.title = title;
+    const m = new maplibregl.Marker({ element, anchor }).setLngLat([lon, lat]).addTo(map);
+    list.push(m);
+    return m;
+  }
+
+  function clearMarkers(list) {
+    for (const m of list) m.remove();
+    list.length = 0;
+  }
+
+  // ── Style / overlay lifecycle ──
+
+  function demSource() {
+    return {
+      type: 'raster-dem',
+      url: TERRAIN_PMTILES_URL,
+      tileSize: 256,
+      encoding: 'terrarium',
+      maxzoom: 12,
+    };
+  }
+
+  function firstSymbolLayerId() {
+    const layers = map.getStyle().layers || [];
+    const sym = layers.find(l => l.type === 'symbol');
+    return sym ? sym.id : undefined;
+  }
+
+  // Add/remove the terrain mesh + (vector-only) hillshade to match the current
+  // 3D state. Idempotent: only mutates when the desired state differs, so the
+  // styledata churn it triggers doesn't loop.
+  function applyTerrain() {
+    const wantHillshade = terrainEnabled && currentLayer === 'osm';
+    const hasHillshade = !!map.getLayer('hillshade');
+    if (wantHillshade && !hasHillshade) {
+      map.addLayer({
+        id: 'hillshade',
+        type: 'hillshade',
+        source: 'hillshade-dem',
+        paint: {
+          'hillshade-exaggeration': 0.5,
+          'hillshade-shadow-color': '#000',
+          'hillshade-highlight-color': '#fff',
+        },
+      }, firstSymbolLayerId());
+    } else if (!wantHillshade && hasHillshade) {
+      map.removeLayer('hillshade');
+    }
+
+    const want = terrainEnabled ? { source: 'terrain-dem', exaggeration } : null;
+    const cur = map.getTerrain();
+    const same = (!want && !cur) ||
+      (want && cur && cur.source === want.source && cur.exaggeration === want.exaggeration);
+    if (!same) map.setTerrain(want);
+  }
+
+  // Re-add every overlay setStyle dropped. Idempotent (add-if-absent) and
+  // re-entrancy-guarded, so it can run on every styledata event safely.
+  function reinstallOverlays() {
+    if (installing || !map.isStyleLoaded()) return;
+    installing = true;
+    try {
+      if (!map.getSource('terrain-dem')) map.addSource('terrain-dem', demSource());
+      if (!map.getSource('hillshade-dem')) map.addSource('hillshade-dem', demSource());
+
+      if (!map.getSource('ann-range')) map.addSource('ann-range', { type: 'geojson', data: rangeFC() });
+      if (!map.getLayer('ann-range-line')) {
+        map.addLayer({
+          id: 'ann-range-line',
+          type: 'line',
+          source: 'ann-range',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': RANGE_COLOR, 'line-width': 6, 'line-opacity': 0.7 },
+        });
+      }
+      if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackData });
+      if (!map.getLayer('track-line')) {
+        map.addLayer({
+          id: 'track-line',
+          type: 'line',
+          source: 'track',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': TRACK_COLOR, 'line-width': 3, 'line-opacity': 0.85 },
+        });
+      }
+
+      // Sources are fresh after a style swap — push the current data back in.
+      map.getSource('track').setData(trackData);
+      map.getSource('ann-range').setData(rangeFC());
+
+      applyTerrain();
+    } finally {
+      installing = false;
     }
   }
 
+  function handleStyleLoad() {
+    reinstallOverlays();
+    if (currentLayer === 'osm' && onVectorBaseCb) onVectorBaseCb(map);
+  }
+
+  function applyBasemap(layer) {
+    if (layer === 'osm') {
+      vectorStyleReady.then(() => {
+        if (currentLayer === 'osm') map.setStyle(buildVectorStyle());
+      });
+    } else {
+      map.setStyle(buildRasterStyle(layer, currentRefresh));
+    }
+  }
+
+  // Range-name tooltip on hover (parity with the old bindTooltip). Registered
+  // once; the layer-scoped handler is a no-op until the layer exists.
+  function wireRangeTooltip() {
+    rangePopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    map.on('mouseenter', 'ann-range-line', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mousemove', 'ann-range-line', (e) => {
+      const name = e.features && e.features[0] && e.features[0].properties.name;
+      if (name) rangePopup.setLngLat(e.lngLat).setText(name).addTo(map);
+    });
+    map.on('mouseleave', 'ann-range-line', () => {
+      map.getCanvas().style.cursor = '';
+      rangePopup.remove();
+    });
+  }
+
+  // ── Public API ──
+
   function init(elementId) {
-    map = L.map(elementId, { zoomControl: true, maxZoom: 20 });
-    trackLayer = L.layerGroup().addTo(map);
-    annotationLayer = L.layerGroup().addTo(map);
-    markerLayer = L.layerGroup().addTo(map);
-    setBase(currentLayer);
-    map.setView([39, -98], 4); // default: center of US
+    map = new maplibregl.Map({
+      container: elementId,
+      style: BOOTSTRAP_STYLE,
+      center: [-98, 39], // center of US
+      zoom: 4,
+      maxZoom: 20,
+      maxPitch: 80,
+      attributionControl: false,
+    });
+    map.addControl(new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: [VECTOR_ATTRIBUTION, TERRAIN_ATTRIBUTION],
+    }));
+    map.on('styledata', reinstallOverlays);
+    map.on('style.load', handleStyleLoad);
+    wireRangeTooltip();
+    applyBasemap(currentLayer);
   }
 
   function setLayer(layer) {
     if (layer === currentLayer || (layer !== 'osm' && !TILE_LAYERS[layer])) return;
     currentLayer = layer;
-    if (map) setBase(layer);
+    if (map) applyBasemap(layer);
   }
 
   function setRefreshMode(enabled) {
     currentRefresh = enabled;
     // Refresh only applies to raster layers; the vector base is a single
     // immutable file with no per-tile upstream to re-check.
-    if (currentLayer !== 'osm' && baseLayer && baseLayer.setUrl) {
-      baseLayer.setUrl(tileUrl(currentLayer, currentRefresh));
+    if (currentLayer !== 'osm' && map) {
+      const src = map.getSource(currentLayer);
+      if (src && src.setTiles) src.setTiles([rasterTileUrl(currentLayer, currentRefresh)]);
+      else applyBasemap(currentLayer);
     }
   }
 
-  // The inner MapLibre map of the vector base, or null when raster is active.
-  // Used by the label/POI controls.
+  // The MapLibre map itself when the vector base is active, else null. Used by
+  // the label/POI controls to drive the Protomaps style layers directly.
   function getVectorBase() {
-    return currentLayer === 'osm' ? baseLayer : null;
+    return currentLayer === 'osm' && map ? map : null;
   }
 
-  // Register a callback invoked with each vector base as it is (re)created,
-  // so the label/POI controls can (re)attach to the inner MapLibre map.
   function onVectorBase(cb) {
     onVectorBaseCb = cb;
-    if (currentLayer === 'osm' && baseLayer) cb(baseLayer);
+    if (currentLayer === 'osm' && map && map.isStyleLoaded()) cb(map);
   }
 
   function showTrack(points, { fitBounds = true, showEndpoints = false } = {}) {
-    trackLayer.clearLayers();
-    markerLayer.clearLayers();
+    clearMarkers(endpointMarkers);
+    lastTrackPoints = points;
+    trackData = lineFC(points);
+    if (map && map.getSource('track')) map.getSource('track').setData(trackData);
     if (!points.length) return;
 
-    const latlngs = points.map(p => [p.lat, p.lon]);
-    const poly = L.polyline(latlngs, trackStyle).addTo(trackLayer);
-
     if (showEndpoints) {
-      L.marker([points[0].lat, points[0].lon], { icon: dotIcon })
-        .bindTooltip('Start: ' + fmtTime(points[0].timestamp))
-        .addTo(markerLayer);
+      addMarker(endpointMarkers, dotElement(), points[0].lat, points[0].lon, 'center',
+        'Start: ' + fmtTime(points[0].timestamp));
       if (points.length > 1) {
-        L.marker([points.at(-1).lat, points.at(-1).lon], { icon: dotIcon })
-          .bindTooltip('End: ' + fmtTime(points.at(-1).timestamp))
-          .addTo(markerLayer);
+        const last = points.at(-1);
+        addMarker(endpointMarkers, dotElement(), last.lat, last.lon, 'center',
+          'End: ' + fmtTime(last.timestamp));
       }
     }
 
-    if (fitBounds) map.fitBounds(poly.getBounds(), { padding: [24, 24] });
+    if (fitBounds) fitTo(points);
   }
 
   function clearTrack() {
-    trackLayer.clearLayers();
-    markerLayer.clearLayers();
+    clearMarkers(endpointMarkers);
+    lastTrackPoints = [];
+    trackData = emptyFC();
+    if (map && map.getSource('track')) map.getSource('track').setData(trackData);
   }
 
   function clearAnnotations() {
-    if (annotationLayer) annotationLayer.clearLayers();
+    clearMarkers(pinMarkers);
+    rangeFeatures = [];
+    if (map && map.getSource('ann-range')) map.getSource('ann-range').setData(rangeFC());
   }
 
   function addRangeOverlay(points, name) {
-    if (!annotationLayer || !points.length) return;
-    const latlngs = points.map(p => [p.lat, p.lon]);
-    const poly = L.polyline(latlngs, rangeStyle).addTo(annotationLayer);
-    if (name) poly.bindTooltip(name);
+    if (points.length < 2) return;
+    rangeFeatures.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: points.map(p => [p.lon, p.lat]) },
+      properties: { name: name || '' },
+    });
+    if (map && map.getSource('ann-range')) map.getSource('ann-range').setData(rangeFC());
   }
 
   function addPinOverlay(lat, lon, name) {
-    if (annotationLayer == null) return;
-    const m = L.marker([lat, lon], { icon: pinIcon }).addTo(annotationLayer);
-    if (name) m.bindTooltip(name);
+    if (!map) return;
+    addMarker(pinMarkers, pinElement(), lat, lon, 'bottom', name || '');
+  }
+
+  function fitTo(points) {
+    if (!map || !points.length) return;
+    const b = new maplibregl.LngLatBounds();
+    for (const p of points) b.extend([p.lon, p.lat]);
+    if (!b.isEmpty()) map.fitBounds(b, { padding: 24 });
   }
 
   function fitToTrack() {
-    const layers = trackLayer.getLayers();
-    if (layers.length) map.fitBounds(layers[0].getBounds(), { padding: [24, 24] });
+    fitTo(lastTrackPoints);
   }
 
   function zoomTo(lat, lon, zoom = 17) {
-    if (map) map.setView([lat, lon], zoom);
+    if (map) map.easeTo({ center: [lon, lat], zoom, duration: 600 });
   }
 
   function invalidateSize() {
-    if (map) map.invalidateSize();
+    if (map) map.resize();
+  }
+
+  // ── 3D / terrain controls (driven by the Phase 6 panel) ──
+
+  function setTerrainEnabled(enabled) {
+    terrainEnabled = enabled;
+    if (!map) return;
+    applyTerrain();
+    map.easeTo({ pitch: enabled ? 60 : 0, bearing: enabled ? map.getBearing() : 0, duration: 600 });
+  }
+
+  function setExaggeration(value) {
+    exaggeration = value;
+    if (map && terrainEnabled) applyTerrain();
+  }
+
+  function getTerrainEnabled() {
+    return terrainEnabled;
   }
 
   return {
     init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize,
     setRefreshMode, setLayer, getVectorBase, onVectorBase,
     clearAnnotations, addRangeOverlay, addPinOverlay,
+    setTerrainEnabled, setExaggeration, getTerrainEnabled,
   };
 })();

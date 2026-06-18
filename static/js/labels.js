@@ -1,7 +1,8 @@
-// Label / POI density controls for the vector basemap. Drives the inner
-// MapLibre GL map of each registered map controller (just MapView now) via the
-// maplibre-gl-leaflet plugin's getMaplibreMap(). Settings are global: one panel
-// applies to every vector base, re-applied whenever a GL style (re)loads.
+// Label / POI density controls for the vector basemap. Drives the MapLibre GL
+// map of each registered map controller (just MapView now) directly — getVectorBase()
+// returns the map itself, or null when a raster basemap is active. Settings are
+// global: one panel applies to every vector base, re-applied whenever a GL style
+// (re)loads.
 const LabelControls = (() => {
   // POI category -> the `kind` values it surfaces in the Protomaps schema.
   const GROUPS = {
@@ -29,7 +30,7 @@ const LabelControls = (() => {
   // invisible. Recolor only that fallback to a readable dark; covered kinds keep
   // their category colors.
   function applyToGl(gl) {
-    if (!gl || !gl.isStyleLoaded()) return;
+    if (!gl || !gl.isStyleLoaded() || !gl.getLayer('pois')) return;
     const kinds = new Set();
     for (const g of enabled) GROUPS[g].forEach(k => kinds.add(k));
     try {
@@ -51,15 +52,15 @@ const LabelControls = (() => {
 
   function applyAll() {
     for (const c of controllers) {
-      const base = c.getVectorBase();
-      if (base) applyToGl(base.getMaplibreMap());
+      const gl = c.getVectorBase();
+      if (gl) applyToGl(gl);
     }
   }
 
-  // (Re)attach to a freshly created vector base. styledata fires on every style
-  // (re)load — including after a base-layer swap — so settings survive swaps.
-  function hookBase(base) {
-    const gl = base.getMaplibreMap();
+  // (Re)attach to the vector base map. styledata fires on every style (re)load —
+  // including after a base-layer swap — so settings survive swaps. The map object
+  // is stable across swaps, so the listener is deduped via off/on.
+  function hookBase(gl) {
     if (!gl) return;
     gl.off('styledata', applyAll);
     gl.on('styledata', applyAll);
