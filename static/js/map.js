@@ -287,6 +287,9 @@ const MapView = (() => {
       compact: true,
       customAttribution: [VECTOR_ATTRIBUTION, TERRAIN_ATTRIBUTION],
     }));
+    // Lock to a flat, north-up view by default — exact parity with the old
+    // Leaflet 2D map. The 3D toggle unlocks rotate + pitch (setTerrainEnabled).
+    setRotationEnabled(false);
     map.on('styledata', reinstallOverlays);
     map.on('style.load', handleStyleLoad);
     wireRangeTooltip();
@@ -390,10 +393,20 @@ const MapView = (() => {
 
   // ── 3D / terrain controls (driven by the Phase 6 panel) ──
 
+  function setRotationEnabled(on) {
+    const fns = on ? 'enable' : 'disable';
+    map.dragRotate[fns]();
+    map.touchPitch[fns]();
+    if (on) map.touchZoomRotate.enableRotation();
+    else map.touchZoomRotate.disableRotation();
+  }
+
   function setTerrainEnabled(enabled) {
     terrainEnabled = enabled;
     if (!map) return;
+    setRotationEnabled(enabled);
     applyTerrain();
+    // Turning 3D off re-flattens to the north-up 2D view.
     map.easeTo({ pitch: enabled ? 60 : 0, bearing: enabled ? map.getBearing() : 0, duration: 600 });
   }
 

@@ -51,4 +51,25 @@ document.addEventListener('DOMContentLoaded', () => {
     syncLayerUi(layerSelect.value);
   });
   syncLayerUi(layerSelect.value); // default layer is vector OSM
+
+  // 3D terrain panel. The toggle drapes the active basemap on the terrain mesh
+  // (works for both vector OSM and USGS); the exaggeration slider appears only
+  // while 3D is on.
+  const terrainPanel = document.getElementById('terrain-panel');
+  document.getElementById('terrain-panel-toggle').addEventListener('click', () => {
+    terrainPanel.classList.toggle('collapsed');
+  });
+  const terrain3dToggle = document.getElementById('terrain-3d-toggle');
+  const terrainExagRow = document.getElementById('terrain-exag-row');
+  const terrainExag = document.getElementById('terrain-exag');
+  const terrainExagVal = document.getElementById('terrain-exagv');
+  terrain3dToggle.addEventListener('change', () => {
+    const on = terrain3dToggle.checked;
+    MapView.setTerrainEnabled(on);
+    terrainExagRow.classList.toggle('hidden', !on);
+  });
+  terrainExag.addEventListener('input', () => {
+    terrainExagVal.textContent = terrainExag.value;
+    MapView.setExaggeration(parseFloat(terrainExag.value));
+  });
 });
