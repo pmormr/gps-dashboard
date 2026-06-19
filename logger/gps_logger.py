@@ -17,6 +17,10 @@ MOVING_WRITE_INTERVAL_SECONDS = 0.2   # 5 Hz
 PARKED_WRITE_INTERVAL_SECONDS = 1.0   # ~1 Hz
 PARKED_SPEED_MPS = 0.5                # below this Doppler speed, treat as parked
 
+# SKY-sourced receiver telemetry throttle (C9/C22): DOP + sat counts to
+# receiver_metadata, off the position hot-path and at its own cadence.
+RECEIVER_METADATA_INTERVAL_SECONDS = 5
+
 SOCKET_TIMEOUT_SECONDS = 30
 HEARTBEAT_SECONDS = 60
 STALE_RECONNECT_SECONDS = 120
@@ -53,17 +57,19 @@ class LoggerStats:
     stale_time: int = 0
     throttled: int = 0
     json_err: int = 0
+    sky_written: int = 0
     last_fix_mode: int = 0
     last_heartbeat: float = field(default_factory=time.monotonic)
     last_position: tuple[float, float] | None = None
     position_since: float = 0.0
     last_usable_fix: float = 0.0
+    last_sky_write: float = 0.0
 
     def reset_window(self) -> None:
         """Zero the per-window counters, preserving last-seen state."""
         self.written = self.no_fix = self.no_latlon = 0
         self.bad_range = self.null_island = self.stale_time = 0
-        self.throttled = self.json_err = 0
+        self.throttled = self.json_err = self.sky_written = 0
 
     def note_fix(self, lat: float, lon: float, now: float) -> None:
         """Record a usable fix for freeze tracking.
@@ -131,7 +137,8 @@ class LoggerStats:
         pos = f"{pos_age:.0f}s" if pos_age is not None else "n/a"
         frozen = "yes" if self.is_frozen(now) else "no"
         return (
-            f"heartbeat: wrote={self.written} mode={self.last_fix_mode} "
+            f"heartbeat: wrote={self.written} sky={self.sky_written} "
+            f"mode={self.last_fix_mode} "
             f"last_write={age} pos_age={pos} frozen={frozen} | dropped "
             f"no_fix={self.no_fix} no_latlon={self.no_latlon} "
             f"bad_range={self.bad_range} null_island={self.null_island} "
@@ -146,8 +153,9 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
 
     Connects to gpsd, watches the JSON feed, and inserts valid fixes at a
     motion-gated cadence (the full nav rate while moving, throttled to ~1 Hz
-    while parked), with per-fix accuracy fields. Emits a heartbeat every
-    HEARTBEAT_SECONDS
+    while parked), with per-fix accuracy fields. SKY-sourced receiver telemetry
+    (DOP + sat counts) is written to receiver_metadata on its own ~5 s throttle.
+    Emits a heartbeat every HEARTBEAT_SECONDS
     and returns early (forcing a reconnect) if no valid fix is seen for
     STALE_RECONNECT_SECONDS while data is still arriving — the case the raw
     socket timeout cannot detect, because gpsd keeps emitting SKY/no-fix TPV.
@@ -197,6 +205,30 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
                 report = json.loads(line)
             except json.JSONDecodeError:
                 stats.json_err += 1
+                continue
+
+            if report.get('class') == 'SKY':
+                # Receiver telemetry on its own throttle (C9/C22), off the
+                # position path. nSat/uSat when gpsd supplies them, else counted
+                # from the satellite array.
+                if now - stats.last_sky_write >= RECEIVER_METADATA_INTERVAL_SECONDS:
+                    sats = report.get('satellites') or []
+                    conn.execute(
+                        "INSERT INTO receiver_metadata "
+                        "(timestamp, hdop, vdop, pdop, nsat_used, nsat_seen) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            now_canonical(),
+                            report.get('hdop'),
+                            report.get('vdop'),
+                            report.get('pdop'),
+                            report.get('uSat', sum(1 for s in sats if s.get('used'))),
+                            report.get('nSat', len(sats)),
+                        ),
+                    )
+                    conn.commit()
+                    stats.last_sky_write = now
+                    stats.sky_written += 1
                 continue
 
             if report.get('class') != 'TPV':
