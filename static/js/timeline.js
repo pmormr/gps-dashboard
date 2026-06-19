@@ -40,17 +40,6 @@ const Timeline = (() => {
     document.getElementById('tl-create-btn').disabled = !pendingAnnotation;
   }
 
-  // Bucket size tier from the requested window. Keeps the returned point
-  // count bounded so the polyline stays usable at week/month ranges; full
-  // detail under a day.
-  function bucketFor(spanMs) {
-    const hour = 3600 * 1000;
-    if (spanMs <= 24 * hour)      return null;
-    if (spanMs <= 7 * 24 * hour)  return 30;
-    if (spanMs <= 30 * 24 * hour) return 300;
-    return 1800;
-  }
-
   async function loadRange(range) {
     const { from, to, live } = range;
     if (!from || !to) return;
@@ -62,25 +51,23 @@ const Timeline = (() => {
                        lastRange.window === range.window;
     lastRange = range;
 
-    const spanMs = to - from;
-    const bucket = bucketFor(spanMs);
-    const opts = bucket ? { bucket } : {};
-
     document.getElementById('tl-status').textContent = 'Loading…';
     document.getElementById('tl-empty').classList.add('hidden');
 
+    // /api/points reads the processed tier (track_points) and size-aware
+    // decimates server-side (stops always kept, moving thinned by importance),
+    // so the client just asks for the cap and renders whatever comes back.
     let data;
     try {
-      data = await API.getPoints(from.toISOString(), to.toISOString(), 20000, opts);
+      data = await API.getPoints(from.toISOString(), to.toISOString(), 20000);
     } catch (e) {
       document.getElementById('tl-status').textContent = `Error: ${e.message}`;
       return;
     }
 
     allPoints = data.points;
-    const bucketNote = bucket ? ` · ${bucket}s buckets` : '';
     document.getElementById('tl-status').textContent =
-      `${allPoints.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}${bucketNote}`;
+      `${allPoints.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}`;
 
     if (!allPoints.length) {
       document.getElementById('tl-slider-wrap').classList.add('hidden');

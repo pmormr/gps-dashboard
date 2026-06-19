@@ -57,6 +57,20 @@
 > mid-stop restart and a double rebuild both reproduce byte-identical
 > `track_points`/`track_events`. **Not yet wired to the frontend (Phase 4), and the
 > knobs are untuned (Phase 5 — calibrate against the Chick-fil-A trip).**
+>
+> **Iteration 9** — landed Phase 4: `/api/points` now reads the processed tier
+> (`track_points`) instead of raw, with server-side **size-aware decimation** (C17)
+> — stops always kept, the `limit` budget filled with the highest-`importance`
+> moving vertices, re-sorted by time — replacing the client's `?bucket=`
+> time-bucketing (`Timeline.bucketFor` deleted). `/api/points/latest` stays on raw
+> (the live dot tracks the true current fix, C13). Verification against a Pi DB
+> snapshot caught one real bug: **stops must match a window by dwell-interval
+> overlap**, not their representative timestamp, or a long open dwell drops out of
+> any recent window while the van is still parked there — fixed. One presentation
+> nuance flagged (not blocking): because an overlapping lead-in dwell carries its
+> `dwell_start` timestamp, the frontend's slider extent can run earlier than the
+> requested window; candidate Phase-5 refinement (clamp the stop's returned
+> timestamp or the slider range). Next is Phase 5 (tune the knobs).
 
 ## Context
 
@@ -413,6 +427,13 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 
 - `/api/points` (trail/history) reads `track_points`, returning `n_raw`/`importance`
   so the renderer can size dots and the client/serverside decimator can rank.
+  > **Resolved (Phase 4): stops match by dwell-interval overlap.** Moving vertices
+  > are matched on `timestamp BETWEEN start AND end`, but a `kind='stop'` row is
+  > matched on `dwell_end >= start AND dwell_start <= end` — its temporal footprint
+  > is the whole dwell, not the single representative `timestamp` (which equals
+  > `dwell_start`). Without this, a long open dwell falls out of any window that
+  > begins after the dwell started, so "last 1h" while parked overnight renders
+  > empty even though the van is parked there *now*.
 - `/api/points/latest` keeps reading raw `gps_points` (live dot = true current fix).
 - `?bucket=` reworked to **size-aware** decimation (C17): for huge spans, keep every
   `kind='stop'` and fill the remaining point budget with the highest-`importance`
@@ -496,9 +517,15 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
       ~269 k copy-through `track_points` and advanced the cursor past them, so a
       plain resume would leave copy-through history below the cursor and denoised
       history above it. One rebuild reprocesses all raw through the filter (C7).
-- [ ] **Phase 4 — Wire the frontend.** Point `/api/points` at `track_points`;
+- [x] **Phase 4 — Wire the frontend.** Point `/api/points` at `track_points`;
       keep `/api/points/latest` on raw; rework `?bucket=` to size-aware; confirm
-      live + history both behave.
+      live + history both behave. **Stops are matched by dwell-interval overlap,
+      not representative timestamp** — surfaced in verification: a long open dwell
+      timestamps its row at `dwell_start`, so a recent window (e.g. "last 1h" while
+      parked overnight) rendered empty until the query switched to
+      `dwell_end >= start AND dwell_start <= end`. Verified end-to-end against a Pi
+      DB snapshot (273 k raw / 1015 track_points) via headless Chrome: history
+      renders the denoised trail, live renders the open dwell, no JS errors.
 - [ ] **Phase 5 — Tune.** Calibrate the knobs against the marked Chick-fil-A trip
       and a parked-overnight window; eyeball before/after.
 - [ ] **Phase 6 (future) — Events in the UI.** Surface `track_events` as suggestions;

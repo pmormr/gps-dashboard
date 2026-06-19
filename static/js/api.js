@@ -9,8 +9,7 @@ const API = {
 
   getPoints(start, end, limit = 5000, opts = {}) {
     const params = new URLSearchParams({ start, end, limit });
-    if (opts.bucket) params.set('bucket', opts.bucket);
-    if (opts.bbox)   params.set('bbox', opts.bbox);
+    if (opts.bbox) params.set('bbox', opts.bbox);
     return this._fetch(`/api/points?${params}`);
   },
 

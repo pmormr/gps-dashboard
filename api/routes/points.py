@@ -8,8 +8,16 @@ points_bp = Blueprint('points', __name__)
 
 
 
+# Processed-tier columns the trail renderer reads. kind/n_raw/importance let the
+# client size dots and reason about how much raw data each point represents.
+_TRACK_COLUMNS = "id, timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, accuracy"
+
+
 @points_bp.get('/api/points/latest')
 def latest_point():
+    # The live "current position" dot reads *raw* gps_points, not the processed
+    # tier — so the marker tracks the true latest fix and never waits on a stop
+    # row converging over its first minute (C13).
     conn = get_connection()
     row = conn.execute(
         "SELECT id, timestamp, lat, lon, speed, altitude, track "
@@ -22,6 +30,17 @@ def latest_point():
 
 @points_bp.get('/api/points')
 def get_points():
+    """Trail/history points from the processed tier, size-aware decimated (C17).
+
+    Reads ``track_points`` (the denoised/simplified tier), not raw ``gps_points``.
+    Every ``kind='stop'`` whose dwell overlaps the window always survives; the
+    remaining ``limit`` budget is filled with the highest-``importance``
+    ``kind='track'`` vertices, then the result is re-sorted by time for rendering.
+    ``importance`` is comparable only
+    *within* the moving kind (perpendicular deviation in metres; a stop's is dwell
+    seconds), so stops are taken unconditionally rather than ranked against them.
+    ``truncated`` therefore means moving vertices were dropped — stops never are.
+    """
     start = request.args.get('start')
     end = request.args.get('end')
 
@@ -38,15 +57,8 @@ def get_points():
         limit = min(int(request.args.get('limit', 5000)), 20000)
     except ValueError:
         return jsonify({'error': "'limit' must be an integer"}), 400
-
-    bucket = request.args.get('bucket')
-    if bucket is not None:
-        try:
-            bucket = int(bucket)
-        except ValueError:
-            return jsonify({'error': "'bucket' must be an integer (seconds)"}), 400
-        if bucket <= 0:
-            return jsonify({'error': "'bucket' must be > 0"}), 400
+    if limit <= 0:
+        return jsonify({'error': "'limit' must be > 0"}), 400
 
     bbox_str = request.args.get('bbox')
     bbox = None
@@ -62,33 +74,45 @@ def get_points():
             return jsonify({'error': "'bbox' must have W<=E and S<=N"}), 400
         bbox = (w, s, e, n)
 
-    where = ["timestamp >= ?", "timestamp <= ?"]
-    params: list = [start, end]
+    bbox_where = []
+    bbox_params: list = []
     if bbox is not None:
-        where += ["lat BETWEEN ? AND ?", "lon BETWEEN ? AND ?"]
-        params += [bbox[1], bbox[3], bbox[0], bbox[2]]
-
-    if bucket is not None:
-        # Pick one row per N-second bucket. SQLite resolves bare columns under
-        # GROUP BY indeterminately, which is exactly the "representative point"
-        # behavior we want — within a small bucket the position barely moves.
-        sql = (
-            "SELECT id, timestamp, lat, lon, speed, altitude, track "
-            "FROM gps_points WHERE " + " AND ".join(where) + " "
-            "GROUP BY CAST(strftime('%s', timestamp) AS INTEGER) / ? "
-            "ORDER BY timestamp ASC LIMIT ?"
-        )
-        params += [bucket, limit]
-    else:
-        sql = (
-            "SELECT id, timestamp, lat, lon, speed, altitude, track "
-            "FROM gps_points WHERE " + " AND ".join(where) + " "
-            "ORDER BY timestamp ASC LIMIT ?"
-        )
-        params.append(limit)
+        bbox_where = ["lat BETWEEN ? AND ?", "lon BETWEEN ? AND ?"]
+        bbox_params = [bbox[1], bbox[3], bbox[0], bbox[2]]
 
     conn = get_connection()
-    rows = conn.execute(sql, params).fetchall()
 
-    points = [dict(r) for r in rows]
-    return jsonify({'points': points, 'count': len(points), 'truncated': len(points) == limit})
+    # Stops first (always kept), then top-importance moving vertices fill what's
+    # left of the budget. Two queries because the ranking is per-kind — and the
+    # time match differs by kind too:
+    #
+    #   * A moving vertex is an instant, matched on its `timestamp`.
+    #   * A stop spans `[dwell_start, dwell_end]`, so it's matched on *interval
+    #     overlap* with the window — otherwise a long open dwell (whose
+    #     representative timestamp sits at its start) drops out of any recent
+    #     window even while the van is still parked there, e.g. "last 1h" while
+    #     parked overnight would render empty.
+    stop_where = ["kind = 'stop'", "dwell_end >= ?", "dwell_start <= ?", *bbox_where]
+    stops = conn.execute(
+        f"SELECT {_TRACK_COLUMNS} FROM track_points "
+        f"WHERE {' AND '.join(stop_where)} ORDER BY dwell_start ASC",
+        [start, end, *bbox_params],
+    ).fetchall()
+
+    move_where = ["kind = 'track'", "timestamp >= ?", "timestamp <= ?", *bbox_where]
+    move_budget = max(0, limit - len(stops))
+    moving = conn.execute(
+        f"SELECT {_TRACK_COLUMNS} FROM track_points "
+        f"WHERE {' AND '.join(move_where)} ORDER BY importance DESC LIMIT ?",
+        [start, end, *bbox_params, move_budget],
+    ).fetchall()
+
+    # A full moving budget is the proxy for "more vertices existed than fit" —
+    # same len==limit heuristic the time-bucketed version used. When stops alone
+    # fill the limit (budget 0) every moving vertex was dropped, which this still
+    # reports as truncated rather than silently hiding the loss.
+    truncated = len(moving) == move_budget
+
+    points = [dict(r) for r in stops] + [dict(r) for r in moving]
+    points.sort(key=lambda p: p['timestamp'])
+    return jsonify({'points': points, 'count': len(points), 'truncated': truncated})
