@@ -22,6 +22,19 @@
 > ms, with a defensive negative-clamp (C23); enabled-gated the processor unit and
 > flagged the manual Pi-side hook edit (C24). The Phase-1 writer-site and
 > ms-migration audits are captured as implementation notes, not open decisions.
+>
+> **Iteration 6** — landed Phase 1 in code (ms timestamps + processed-tier schema
+> + logger accuracy/motion-gating/SKY) and executed Phase 0 on the M9N. Phase 0
+> reality vs C22: gpsd 3.22 already runs the receiver in **UBX binary** mode with
+> NMEA disabled in flash and NAV-PVT/SAT/DOP enabled, and emits a **fully populated
+> SKY** (hdop/vdop/pdop, nSat=40, uSat=23) — so the C22 SKY-fallback and NMEA-off
+> steps were already satisfied. The one durable change made was `CFG-RATE-MEAS=200`
+> (5 Hz), persisted to flash; the factory default stays 1 Hz, so a flash wipe
+> gracefully reverts. NAV-SAT/DOP were **not** throttled to ~5 s: the 38400 link
+> empirically sustains 5 Hz TPV+SKY at 40 sats with zero packet errors, and gpsd
+> re-enables its own message set at rate 1 on every device activation, so a flash
+> throttle wouldn't survive a gpsd restart anyway. SKY is throttled where it
+> matters — in the logger's `receiver_metadata` write (~5 s), not on the wire.
 
 ## Context
 
@@ -428,7 +441,7 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 
 ## Phasing / action items
 
-- [ ] **Phase 0 — Receiver config.** Set 5 Hz + UBX-NAV-PVT on the M9N (ubxtool),
+- [x] **Phase 0 — Receiver config.** Set 5 Hz + UBX-NAV-PVT on the M9N (ubxtool),
       disable NMEA on UART1, enable NAV-DOP + NAV-SAT throttled to ~5 s (C22), persist
       to flash. Confirm gpsd reports 5 Hz TPV with `epx`/`epy` **and a populated `SKY`
       class** (hdop/vdop/nsat) under the UBX-only config; if `SKY` is absent, fall back
