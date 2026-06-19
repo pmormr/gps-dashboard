@@ -145,6 +145,19 @@ rebuild after a retune is trustworthy.
 - **Full rebuild.** Truncate `track_points` + `track_events`, set cursor → 0, run.
 - **Caveat:** idempotency holds *per threshold set*. Changing a threshold is the
   intended trigger to rebuild — a feature, not a violation.
+- **Caveat (vs. code):** Phase 1 sources the raw `timestamp` from the TPV `time`
+  field (GPS time) while `id` is insertion order. These can disagree — GPS time can
+  jitter backwards a little, and the logger's only time guard rejects fixes >10 s
+  *behind* wall clock (`GPS_TIME_MAX_AGE_SECONDS`, `logger/gps_logger.py:15`), not
+  small reorderings. So "`id` == time order" is *almost* true but not guaranteed;
+  the processor's dwell/`dt` math must clamp negative intervals to 0 to stay
+  deterministic. Also specify the fallback when TPV `time` is absent (a fix can
+  arrive without it) — the logger currently always uses wall-clock `now()`
+  (`logger/gps_logger.py:234`); switching the source needs a defined fallback.
+- **Open-stop cost:** while the van is parked for days, no boundary finalizes, so the
+  cursor never advances and a restart reprocesses the whole open dwell. At 1 Hz
+  parked that is ~86 k rows/day — still fast, but the "replaying a multi-hour tail is
+  sub-second" claim should say *bounded by the longest open stop*, not the tail.
 
 ---
 
@@ -224,15 +237,36 @@ Receiver-config sub-task (ubxtool: `CFG-RATE-MEAS`/`CFG-RATE-NAV` +
 `CFG-MSGOUT-UBX_NAV_PVT_UART1`, persist to flash), sequenced alongside Phase 1.
 Target 5 Hz; test 10 Hz empirically.
 
+> **Message selection (open).** The baud budget above assumes UBX-NAV-PVT *only*.
+> The default NMEA sentences must be **disabled on UART1** (`CFG-MSGOUT-NMEA_*_UART1
+> = 0`), or NMEA (esp. GSV across 4 constellations at 5 Hz) competes for the link and
+> blows the budget. But the SKY-sourced `receiver_metadata` (C9) depends on what gpsd
+> can derive: NAV-PVT carries `pDOP` and `numSV` only — so `pdop`/`nsat_used` are
+> fillable, but `hdop`/`vdop`/`nsat_seen` need **NAV-DOP** and **NAV-SAT** enabled
+> too (NAV-SAT is per-satellite and not free at 5 Hz). Decide whether to throttle the
+> DOP/SAT messages (they only need ~5 s cadence, not the nav rate) or accept partial
+> `receiver_metadata`. Also verify gpsd emits a `SKY` class at all under UBX-only —
+> the logger's new SKY branch is a no-op otherwise.
+
 ---
 
 ## Storage footprint (5 Hz)
 
 Raw row ≈ ~135 B in-table (10 REAL accuracy/position fields + int mode + a
-fixed-width ms timestamp string). Raw is read by the processor's rowid cursor and
-`/latest` (rowid) — **no timestamp index needed**, which keeps it lean. (ms-text
-costs ~15 B/row over an integer epoch; with motion-gating that delta is sub-GB/yr —
-consistency wins.)
+fixed-width ms timestamp string). The processor tails raw by its rowid cursor, so
+*it* needs no timestamp index. (ms-text costs ~15 B/row over an integer epoch; with
+motion-gating that delta is sub-GB/yr — consistency wins.)
+
+> **Index caveat (vs. code).** "No timestamp index needed" only holds for the
+> processor. Other readers still range/order raw `gps_points` *by timestamp* and
+> would regress to full scans without `idx_gps_points_timestamp` (`api/db.py:57`):
+> `/api/points/latest` orders by `timestamp DESC` (`api/routes/points.py:16`), the
+> `/gpsd` page reads the latest fix and the frozen-window (`api/routes/status_gpsd.py:79,106`),
+> `precache.py:131` reads the latest fix, and — even after the frontend trail moves
+> to `track_points` — the annotations list still counts raw points inside each range
+> (`api/routes/annotations.py:43`). Keep the index, or migrate these readers to rowid
+> order first. At 38 M+ raw rows/yr this is the difference between a fast page and a
+> table scan.
 
 | Raw write policy | Rows/year | GB/year |
 |---|---|---|
@@ -326,6 +360,22 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 - `/api/points/latest` keeps reading raw `gps_points` (live dot = true current fix).
 - `?bucket=` reworked to **size-aware** decimation (C17): for huge spans, filter
   `kind='stop' OR importance >= floor(span)` rather than grouping blindly by time.
+  > **Scale caveat (open, vs. C14/C19).** `importance` is *not* one comparable scale
+  > today: a stop's importance is a dwell weight (seconds/log-seconds), a moving
+  > vertex's is a perpendicular deviation (metres). A single threshold
+  > `importance >= floor(span)` can't rank across both kinds, and `floor(span)`
+  > mixes a time-span with deviation-metres dimensionally. Normalize importance to a
+  > common 0–1 rank at emit time, or decimate per-kind. Also: the current handler
+  > bounds output with `ORDER BY timestamp ASC LIMIT ?` and reports `truncated` when
+  > `len == limit` (`api/routes/points.py:79,94`); an importance filter alone is
+  > unbounded on dense data, so it still needs `ORDER BY importance DESC LIMIT` then a
+  > re-sort by time for rendering — two-stage, and the `truncated` semantics change.
+- **The annotations list still range-queries raw** (`api/routes/annotations.py:43`):
+  `point_count` is `COUNT(*)` over `gps_points WHERE timestamp BETWEEN start AND end`.
+  Moving the trail to `track_points` does *not* move this. Decide: keep it on raw
+  (needs `idx_gps_points_timestamp`; O(range) per annotation over a 38 M-row table on
+  a page that lists *every* annotation), or re-point it at `track_points`/`n_raw`
+  (cheaper, but the count then means "processed points," a semantic change).
 - A future `/api/events` (or inclusion in the points payload) surfaces `track_events`.
 - Frontend trail rendering still consumes a point list; stop rows / high-`n_raw`
   points can get a distinct marker (dwell pin) sized by `n_raw`.
@@ -334,7 +384,17 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 
 ## Deploy & ops impact
 
-- New `deploy/gps-processor.service` (always-restart in the post-receive hook).
+- New `deploy/gps-processor.service` (enabled-gated restart in the post-receive
+  hook, matching `mqtt-ingest` — CLAUDE.md: the hook always restarts
+  `gps-dashboard` and restarts `mqtt-ingest` *if enabled*; mirror that so a host
+  without the processor enabled never crash-loops).
+  > **Hook edit (vs. docs).** The post-receive hook lives on the **Pi bare repo**
+  > (`/mnt/nvme/gps-dashboard.git`), **not in this repo**, and per CLAUDE.md it
+  > hardcodes reinstalling *"all four unit files"*. Committing
+  > `deploy/gps-processor.service` here does **not** teach the hook about a fifth
+  > unit — adding install + restart for it is a manual Pi-side hook edit. Call this
+  > out as an explicit deploy step; the unit also needs `PYTHONPATH` + `GPS_DB_PATH`
+  > env like the other units (it imports `api.db`).
 - Restart is safe at any time — the processor resumes from `processing_state` and
   recomputes the provisional tail (C7).
 - Heartbeat to the journal: emitted track points, emitted/updated stops, events
@@ -349,10 +409,16 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
       persist to flash, confirm gpsd reports 5 Hz TPV with `epx`/`epy`. Decouple-able
       from the rest (graceful fallback to 1 Hz).
 - [ ] **Phase 1 — Schema + logger.** Add `gps_points` TPV columns, `track_points`,
-      `track_events`, `receiver_metadata`, `processing_state` to `api.db.migrate`.
-      Logger: write raw at 5 Hz (motion-gated per P10), integer epoch-millis
-      timestamp, populate TPV accuracy fields, and add a SKY branch writing
-      `receiver_metadata` on a ~5s throttle.
+      `track_events`, `receiver_metadata`, `processing_state`. New *tables* go in
+      `init_db`'s `CREATE TABLE IF NOT EXISTS` block (`api/db.py:47`); new *columns*
+      on the existing `gps_points` go through `_add_missing_columns` in
+      `api.db.migrate` (`api/db.py:162`) — the Pi's `gps_points` already exists, so
+      `CREATE TABLE IF NOT EXISTS` alone won't add them.
+      Logger: write raw at 5 Hz (motion-gated per P10), **fixed-width ms-text**
+      timestamp via the ms-extended `canonical_timestamp` (not an integer epoch —
+      see C20 and the storage note: the decision is ms-text, uniform across tiers),
+      populate TPV accuracy fields, and add a SKY branch writing `receiver_metadata`
+      on a ~5s throttle.
 - [ ] **Phase 2 — Processor skeleton.** `gps-processor` service: tail raw by the
       committed cursor, **copy-through** to `track_points` (no denoise yet) to
       validate plumbing, cursor persistence, WAL concurrency, deploy — and prove
@@ -378,6 +444,25 @@ field, deduping on the ms string. Keep the format **uniform across tiers** so
 lexical range comparisons stay correct — mixing widths breaks ordering (`'.'` sorts
 before `'Z'`), so a one-time migration rewrites existing whole-second rows to
 `.000Z`. Cheap in a prototype; flag for review before implementing.
+
+> **Writer-site audit (vs. code).** Extending `canonical_timestamp` alone is *not*
+> enough: several writers build the whole-second string directly with
+> `strftime('%Y-%m-%dT%H:%M:%SZ')` and bypass the function. Each must move to ms in
+> the same change, or it re-introduces the width mismatch and the `'.'`<`'Z'` hazard:
+> the logger INSERT (`logger/gps_logger.py:234`), the `marks` upsert
+> (`api/routes/annotations.py:162`), and the frozen-window cutoff the `/gpsd` page
+> compares against raw (`api/routes/status_gpsd.py:103` — a whole-second cutoff vs.
+> ms-stored rows drops the cutoff-second's points, since `.000Z` < `Z`).
+>
+> **Migration cost (vs. code).** The one-time rewrite of existing rows is a
+> full-table `UPDATE` on `gps_points` (already 1 yr+ of 5 s data, growing to 38 M+/yr
+> at 5 Hz). Guard it idempotently (e.g. `WHERE timestamp NOT LIKE '%.%'`) and note it
+> runs inside `migrate()` (`api/db.py:186`), which executes at **both** logger and
+> app startup — a heavy `UPDATE` there briefly holds the WAL write lock against the
+> live logger (`busy_timeout=30000`, `api/db.py:41`). The browser already sends
+> ms-precision bounds via `toISOString()` (`static/js/timeline.js:74`), so today's
+> params↔storage width mismatch is *latent*; the ms storage migration actually makes
+> the comparison fully consistent.
 
 ---
 
