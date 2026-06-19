@@ -13,6 +13,15 @@
 > **Iteration 4** — locked P10 as tiered motion-gated writes (C20); ms-precision
 > canonical timestamps across all tiers (no raw divergence); clarified the
 > RW-vs-Visvalingam importance metric for LOD.
+>
+> **Iteration 5** — folded the codebase review (PR #1) into settled decisions:
+> kept the raw timestamp index (C21); reworked C17 size-aware decimation to
+> per-kind (stops always survive, moving vertices ranked within-kind); pinned the
+> UBX message set incl. NMEA-off-UART1 + throttled DOP/SAT (C22); kept wall-clock
+> `now()` as the timestamp source (it's PPS-disciplined stratum-1) and extended it to
+> ms, with a defensive negative-clamp (C23); enabled-gated the processor unit and
+> flagged the manual Pi-side hook edit (C24). The Phase-1 writer-site and
+> ms-migration audits are captured as implementation notes, not open decisions.
 
 ## Context
 
@@ -65,17 +74,22 @@ processed tier from scratch whenever we retune.
 | C14 | Point "size" metadata | **Every `track_point` carries `n_raw` (fixes that went into it) + an `importance` score**; stops also carry dwell | Answers "how much data is behind this point." Drives both the rendered dot size and size-aware decimation (C17). For stops the two coincide (big + protected); for moving vertices, `importance` is the simplification significance (C19). |
 | C15 | Auto-events | **Processor emits "interesting" events to a separate `track_events` table** | Mode transitions, rate-of-change spikes, average drift, stop start/end. Distinct from the user-curated `annotations` table; can be promoted to annotations later. Rebuildable like `track_points`. |
 | C16 | Naming | `track_points` / `receiver_metadata` / `processing_state` / `track_events` | Bikeshed-friendly; settled. |
-| C17 | Large-range decimation | **`?bucket=` retained but made size-aware** — rank by `importance`, drop lowest first; stops & sharp turns protected | A year-scale view must still thin, but not blindly: a huge dwell point or a sharp turn must survive while a 3-hour straightaway collapses. Filter `kind='stop' OR importance >= floor(span)`. |
+| C17 | Large-range decimation | **Size-aware, decimated per-kind** — always keep every `kind='stop'`; fill the remaining point budget with the highest-`importance` moving vertices | A year-scale view must still thin, but a huge dwell or a sharp turn must survive while a straightaway collapses. `importance` is *not* one scale across kinds (stop = dwell weight, moving = deviation-m), so rank *within* the moving kind: two-stage `ORDER BY importance DESC LIMIT` then re-sort by time. Stops are sparse and always survive; `truncated` then means "moving vertices were dropped." Replaces the dimensionally-broken `floor(span)` threshold. |
 | C18 | Raw nav rate | **5 Hz via UBX-NAV-PVT, baud 38400** | Lane-level moving fidelity (~2.7 m/vertex at 30 mph). UBX's compactness keeps it within the baud budget so the baud doctrine is untouched; a rate-revert is graceful. See *Raw spatial resolution*. |
 | C19 | Moving-regime thinning | **Online line simplification (Reumann–Witkam / open-window)** | Emit a vertex on perpendicular deviation > `simplify_epsilon`, not on raw distance — so straightaways collapse to endpoints and vertices land at genuine bends. The deviation magnitude is the per-vertex `importance` (C14). |
 | C20 | Raw write cadence | **Tiered motion-gated writes** — 5 Hz moving, throttle to ~1 Hz (or 0.2 Hz) parked; room for more tiers keyed on speed/dynamics | 5 Hz parked is pure correlated bloat; the 5 Hz goal is moving sharpness. Cuts raw ~4–8× (~19→~5 GB/yr). One speed conditional on the existing write throttle; the freeze watchdog (tracks the fix *stream*, not writes) is unaffected. Cost: raw is no longer "every native fix" — a small, accepted purity hit. |
+| C21 | Raw timestamp index | **Keep `idx_gps_points_timestamp`** | "No index needed" held only for the processor's rowid cursor. `/api/points/latest`, `/gpsd` (latest fix + frozen-window), `precache`, and `annotations.point_count` still range/order raw *by timestamp* (`api/db.py:57`); dropping the index full-scans a 38 M-row table. Cost is sub-GB/yr and bounded. Latest-fix readers *may* move to `ORDER BY id DESC` opportunistically (faster, index-free), but it's purely optional — the `now()`-sourced `timestamp` stays monotonic with `id` (C23), so `ORDER BY timestamp DESC` remains correct — and the range readers keep the index regardless. |
+| C22 | UBX message set | **NAV-PVT at the nav rate + NAV-DOP & NAV-SAT throttled to ~5 s; NMEA disabled on UART1** | NAV-PVT alone fills `pdop`/`nsat_used`; `hdop`/`vdop`/`nsat_seen` need NAV-DOP + NAV-SAT. Throttled to ~5 s (the C9 cadence) they're negligible against the 38400 budget, so `receiver_metadata` is fully populated rather than half-NULL. NMEA off UART1 so 4-constellation GSV at 5 Hz can't blow the budget. **Conditional on Phase 0** verifying gpsd emits a populated `SKY` under UBX-only; if not, accept partial telemetry. |
+| C23 | Timestamp source & order | **Keep wall-clock `now()` as the source (already PPS-disciplined stratum-1), extended to ms; `id` stays the determinism anchor; defensive negative-clamp in the processor** | The Pi's clock is chrony-disciplined to GPS+PPS (stratum 1, sub-µs), so `now()` *is* GPS-quality time — sourcing TPV `time` instead buys no accuracy and reintroduces backward jitter + an absent-value case (the logger reads TPV `time` only for the >10 s staleness guard, `logger/gps_logger.py:216`). `now()` is monotonic with `id` (chrony slews, doesn't step back in steady state), so `timestamp` stays monotonic with `id` and the "id == time order" assumption (C7) holds. Logger change is just the ms-precision extension — it already stamps `now()` (`logger/gps_logger.py:234`). The ~tens-of-ms receiver→logger latency is a near-constant offset (jitter sub-meter, below the ~1–2 m accuracy floor). Processor still clamps negative dwell/`dt` to 0 as cheap insurance against a rare chrony step / pre-PPS-lock boot. |
+| C24 | Processor deploy | **`gps-processor.service`: enabled-gated restart (mirrors `mqtt-ingest`); manual Pi-side post-receive hook edit for the 5th unit; `PYTHONPATH` + `GPS_DB_PATH` env** | The hook lives in the Pi bare repo and hardcodes "four unit files," so committing the unit here doesn't teach it the fifth — an explicit Pi-side hook edit (install + enabled-gated restart) is a deploy step. Enabled-gating avoids crash-loops on hosts without the processor. The unit imports `api.db`, so it needs the same env as the others. |
 
 ---
 
 ## Open decisions
 
 All resolved. *(Iteration history: P1→C11, P5→C9, P6→C8; P2→C12, P3→C13, P4→C14,
-P7→C16, P8→C17, P9→C18, P10→C20.)*
+P7→C16, P8→C17, P9→C18, P10→C20. Iteration 5 added C21–C24 from the PR #1 codebase
+review.)*
 
 ---
 
@@ -91,8 +105,10 @@ P7→C16, P8→C17, P9→C18, P10→C20.)*
 - **Same DB.** All tiers live in `/mnt/nvme/data/gps_history.db` (persists across
   deploys) so processed↔raw and GPS↔sensor stay local joins.
 - **Deploy model.** New `deploy/gps-processor.service` slots into the post-receive
-  hook (always-restart, like `gps-dashboard`/`mqtt-ingest` — it resumes from its
-  cursor, so a restart is safe). CLAUDE.md deploy section updated when it lands.
+  hook (enabled-gated restart, like `mqtt-ingest` — not `gps-dashboard`'s always-on;
+  it resumes from its cursor, so a restart is safe; C24). The hook is Pi-side and
+  hardcodes four units, so teaching it the fifth is a manual edit (C24). CLAUDE.md
+  deploy section updated when it lands.
 - **Reuse what exists.** Migrations go through `api.db.migrate`. All tiers stay on
   `api.db.canonical_timestamp`, **extended to millisecond precision** (fixed-width,
   still lexically sortable) so raw 5 Hz fixes are sub-second-distinct without
@@ -131,33 +147,36 @@ api /api/points (trail/history) ──reads processed─────────
 The processor must produce **bit-identical** output for a given raw prefix, so a
 rebuild after a retune is trustworthy.
 
-- **Deterministic algorithm.** State transitions depend only on raw rows (ordered
-  by `id`, which equals time order on an append-only table) and the fixed
-  threshold config. No wall-clock, no RNG. The robust stop estimate and the
-  line-simplification significance are *recompute-from-fixes* (same fixes → same
-  result), never an order-dependent incremental accumulator.
+- **Deterministic algorithm.** State transitions depend only on raw rows ordered
+  by `id` (insertion order — the determinism anchor, per C23; the `now()`-sourced
+  `timestamp` tracks `id` but `id` stays the canonical ordering key) and the fixed
+  threshold config. No wall-clock in the *algorithm*, no RNG. The robust stop
+  estimate and the line-simplification
+  significance are *recompute-from-fixes* (same fixes → same result), never an
+  order-dependent incremental accumulator.
 - **Commit at safe boundaries.** The persisted cursor `last_committed_raw_id`
   advances only to the last *finalized* emit. An open stop, an open moving
   segment, and any un-emitted tail are **provisional**.
 - **Restart.** Load the cursor, delete provisional `track_points`/`track_events`
-  (`src_raw_id` beyond the cursor), reprocess forward → identical output.
-  Replaying even a multi-hour tail is sub-second.
+  (`src_raw_id` beyond the cursor), reprocess forward → identical output. Replay
+  cost is bounded by the longest open stop (below), not the tail.
 - **Full rebuild.** Truncate `track_points` + `track_events`, set cursor → 0, run.
 - **Caveat:** idempotency holds *per threshold set*. Changing a threshold is the
   intended trigger to rebuild — a feature, not a violation.
-- **Caveat (vs. code):** Phase 1 sources the raw `timestamp` from the TPV `time`
-  field (GPS time) while `id` is insertion order. These can disagree — GPS time can
-  jitter backwards a little, and the logger's only time guard rejects fixes >10 s
-  *behind* wall clock (`GPS_TIME_MAX_AGE_SECONDS`, `logger/gps_logger.py:15`), not
-  small reorderings. So "`id` == time order" is *almost* true but not guaranteed;
-  the processor's dwell/`dt` math must clamp negative intervals to 0 to stay
-  deterministic. Also specify the fallback when TPV `time` is absent (a fix can
-  arrive without it) — the logger currently always uses wall-clock `now()`
-  (`logger/gps_logger.py:234`); switching the source needs a defined fallback.
-- **Open-stop cost:** while the van is parked for days, no boundary finalizes, so the
-  cursor never advances and a restart reprocesses the whole open dwell. At 1 Hz
-  parked that is ~86 k rows/day — still fast, but the "replaying a multi-hour tail is
-  sub-second" claim should say *bounded by the longest open stop*, not the tail.
+- **Timestamp source & order (C23).** The stored raw `timestamp` stays sourced from
+  wall-clock `now()`, which on this Pi is chrony-disciplined to GPS+PPS (stratum 1,
+  sub-µs) — already GPS-quality, so there's no reason to switch to the TPV `time`
+  field (which can jitter backward and be absent; the logger reads it only for the
+  >10 s staleness guard, `GPS_TIME_MAX_AGE_SECONDS`, `logger/gps_logger.py:15,216`).
+  `now()` is monotonic with `id` in steady state (chrony slews, doesn't step back),
+  so `timestamp` tracks `id` and determinism holds. The only logger change is
+  extending the stamp to ms (`logger/gps_logger.py:234`). The processor still orders
+  by `id` and clamps negative dwell/`dt` to 0 as insurance against a rare chrony step
+  or a pre-PPS-lock boot.
+- **Open-stop cost.** While the van is parked for days, no boundary finalizes, so
+  the cursor never advances and a restart reprocesses the whole open dwell. At 1 Hz
+  parked that is ~86 k rows/day — still fast, but replay cost is *bounded by the
+  longest open stop*, not the loaded tail.
 
 ---
 
@@ -237,16 +256,17 @@ Receiver-config sub-task (ubxtool: `CFG-RATE-MEAS`/`CFG-RATE-NAV` +
 `CFG-MSGOUT-UBX_NAV_PVT_UART1`, persist to flash), sequenced alongside Phase 1.
 Target 5 Hz; test 10 Hz empirically.
 
-> **Message selection (open).** The baud budget above assumes UBX-NAV-PVT *only*.
-> The default NMEA sentences must be **disabled on UART1** (`CFG-MSGOUT-NMEA_*_UART1
-> = 0`), or NMEA (esp. GSV across 4 constellations at 5 Hz) competes for the link and
-> blows the budget. But the SKY-sourced `receiver_metadata` (C9) depends on what gpsd
-> can derive: NAV-PVT carries `pDOP` and `numSV` only — so `pdop`/`nsat_used` are
-> fillable, but `hdop`/`vdop`/`nsat_seen` need **NAV-DOP** and **NAV-SAT** enabled
-> too (NAV-SAT is per-satellite and not free at 5 Hz). Decide whether to throttle the
-> DOP/SAT messages (they only need ~5 s cadence, not the nav rate) or accept partial
-> `receiver_metadata`. Also verify gpsd emits a `SKY` class at all under UBX-only —
-> the logger's new SKY branch is a no-op otherwise.
+> **Message set — resolved (C22).** The baud budget above assumes UBX-NAV-PVT at the
+> nav rate, so the default NMEA sentences are **disabled on UART1**
+> (`CFG-MSGOUT-NMEA_*_UART1 = 0`) — otherwise NMEA (esp. GSV across 4 constellations
+> at 5 Hz) competes for the link and blows the budget. The SKY-sourced
+> `receiver_metadata` (C9) needs more than NAV-PVT (which carries only `pDOP`/`numSV`
+> → `pdop`/`nsat_used`): **NAV-DOP** and **NAV-SAT** are also enabled, but throttled
+> to ~5 s (the C9 cadence, not the nav rate), so the per-satellite NAV-SAT cost stays
+> negligible against the budget and `hdop`/`vdop`/`nsat_seen` are fully populated.
+> **Phase 0 must verify gpsd actually emits a populated `SKY` class under this
+> UBX-only config** — the logger's SKY branch is a no-op otherwise; if it doesn't,
+> fall back to partial `receiver_metadata`.
 
 ---
 
@@ -257,16 +277,17 @@ fixed-width ms timestamp string). The processor tails raw by its rowid cursor, s
 *it* needs no timestamp index. (ms-text costs ~15 B/row over an integer epoch; with
 motion-gating that delta is sub-GB/yr — consistency wins.)
 
-> **Index caveat (vs. code).** "No timestamp index needed" only holds for the
-> processor. Other readers still range/order raw `gps_points` *by timestamp* and
-> would regress to full scans without `idx_gps_points_timestamp` (`api/db.py:57`):
-> `/api/points/latest` orders by `timestamp DESC` (`api/routes/points.py:16`), the
-> `/gpsd` page reads the latest fix and the frozen-window (`api/routes/status_gpsd.py:79,106`),
-> `precache.py:131` reads the latest fix, and — even after the frontend trail moves
-> to `track_points` — the annotations list still counts raw points inside each range
-> (`api/routes/annotations.py:43`). Keep the index, or migrate these readers to rowid
-> order first. At 38 M+ raw rows/yr this is the difference between a fast page and a
-> table scan.
+> **Index — resolved (C21): keep `idx_gps_points_timestamp`.** "No timestamp index
+> needed" holds only for the processor's rowid cursor. Other readers still
+> range/order raw `gps_points` *by timestamp* and would full-scan a 38 M+-row table
+> without the index (`api/db.py:57`): `/api/points/latest` orders by `timestamp DESC`
+> (`api/routes/points.py:16`), the `/gpsd` page reads the latest fix + frozen-window
+> (`api/routes/status_gpsd.py:79,106`), `precache.py:131` reads the latest fix, and
+> the annotations list counts raw points inside each range
+> (`api/routes/annotations.py:43`). The latest-fix readers *may* later move to
+> `ORDER BY id DESC` (faster, index-free), but it's purely optional — `timestamp`
+> stays `now()`-sourced and monotonic with `id` (C23) — and the range readers keep
+> the index regardless.
 
 | Raw write policy | Rows/year | GB/year |
 |---|---|---|
@@ -358,24 +379,26 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 - `/api/points` (trail/history) reads `track_points`, returning `n_raw`/`importance`
   so the renderer can size dots and the client/serverside decimator can rank.
 - `/api/points/latest` keeps reading raw `gps_points` (live dot = true current fix).
-- `?bucket=` reworked to **size-aware** decimation (C17): for huge spans, filter
-  `kind='stop' OR importance >= floor(span)` rather than grouping blindly by time.
-  > **Scale caveat (open, vs. C14/C19).** `importance` is *not* one comparable scale
-  > today: a stop's importance is a dwell weight (seconds/log-seconds), a moving
-  > vertex's is a perpendicular deviation (metres). A single threshold
-  > `importance >= floor(span)` can't rank across both kinds, and `floor(span)`
-  > mixes a time-span with deviation-metres dimensionally. Normalize importance to a
-  > common 0–1 rank at emit time, or decimate per-kind. Also: the current handler
+- `?bucket=` reworked to **size-aware** decimation (C17): for huge spans, keep every
+  `kind='stop'` and fill the remaining point budget with the highest-`importance`
+  moving vertices, rather than grouping blindly by time.
+  > **Resolved (C17): per-kind, not one scale.** `importance` is *not* comparable
+  > across kinds — a stop's is a dwell weight (seconds/log-seconds), a moving vertex's
+  > a perpendicular deviation (metres) — so the old `kind='stop' OR importance >=
+  > floor(span)` was dimensionally broken (it mixed a time-span with deviation-metres).
+  > Instead: always include stops (sparse, always wanted), then a two-stage query
+  > `ORDER BY importance DESC LIMIT` over the moving vertices (deviation-metres *is*
+  > comparable within that kind) and re-sort by time for rendering. The current handler
   > bounds output with `ORDER BY timestamp ASC LIMIT ?` and reports `truncated` when
-  > `len == limit` (`api/routes/points.py:79,94`); an importance filter alone is
-  > unbounded on dense data, so it still needs `ORDER BY importance DESC LIMIT` then a
-  > re-sort by time for rendering — two-stage, and the `truncated` semantics change.
+  > `len == limit` (`api/routes/points.py:79,94`); under C17 `truncated` means *moving
+  > vertices were dropped* — stops always survive.
 - **The annotations list still range-queries raw** (`api/routes/annotations.py:43`):
   `point_count` is `COUNT(*)` over `gps_points WHERE timestamp BETWEEN start AND end`.
-  Moving the trail to `track_points` does *not* move this. Decide: keep it on raw
-  (needs `idx_gps_points_timestamp`; O(range) per annotation over a 38 M-row table on
-  a page that lists *every* annotation), or re-point it at `track_points`/`n_raw`
-  (cheaper, but the count then means "processed points," a semantic change).
+  Moving the trail to `track_points` does *not* move this. **Resolved: keep it on
+  raw** — the count stays an honest "how many underlying fixes," and C21 keeps
+  `idx_gps_points_timestamp` so the O(range)-per-annotation query (on a page that
+  lists *every* annotation) stays fast. Not re-pointed at `track_points`/`n_raw`:
+  that would silently change the count's meaning to "processed points."
 - A future `/api/events` (or inclusion in the points payload) surfaces `track_events`.
 - Frontend trail rendering still consumes a point list; stop rows / high-`n_raw`
   points can get a distinct marker (dwell pin) sized by `n_raw`.
@@ -388,13 +411,13 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
   hook, matching `mqtt-ingest` — CLAUDE.md: the hook always restarts
   `gps-dashboard` and restarts `mqtt-ingest` *if enabled*; mirror that so a host
   without the processor enabled never crash-loops).
-  > **Hook edit (vs. docs).** The post-receive hook lives on the **Pi bare repo**
+  > **Resolved (C24).** The post-receive hook lives on the **Pi bare repo**
   > (`/mnt/nvme/gps-dashboard.git`), **not in this repo**, and per CLAUDE.md it
   > hardcodes reinstalling *"all four unit files"*. Committing
   > `deploy/gps-processor.service` here does **not** teach the hook about a fifth
-  > unit — adding install + restart for it is a manual Pi-side hook edit. Call this
-  > out as an explicit deploy step; the unit also needs `PYTHONPATH` + `GPS_DB_PATH`
-  > env like the other units (it imports `api.db`).
+  > unit — install + enabled-gated restart for it is a manual Pi-side hook edit,
+  > called out as an explicit Phase-2 deploy step below. The unit also needs
+  > `PYTHONPATH` + `GPS_DB_PATH` env like the other units (it imports `api.db`).
 - Restart is safe at any time — the processor resumes from `processing_state` and
   recomputes the provisional tail (C7).
 - Heartbeat to the journal: emitted track points, emitted/updated stops, events
@@ -406,8 +429,11 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 ## Phasing / action items
 
 - [ ] **Phase 0 — Receiver config.** Set 5 Hz + UBX-NAV-PVT on the M9N (ubxtool),
-      persist to flash, confirm gpsd reports 5 Hz TPV with `epx`/`epy`. Decouple-able
-      from the rest (graceful fallback to 1 Hz).
+      disable NMEA on UART1, enable NAV-DOP + NAV-SAT throttled to ~5 s (C22), persist
+      to flash. Confirm gpsd reports 5 Hz TPV with `epx`/`epy` **and a populated `SKY`
+      class** (hdop/vdop/nsat) under the UBX-only config; if `SKY` is absent, fall back
+      to partial `receiver_metadata` (C22). Decouple-able from the rest (graceful
+      fallback to 1 Hz NMEA).
 - [ ] **Phase 1 — Schema + logger.** Add `gps_points` TPV columns, `track_points`,
       `track_events`, `receiver_metadata`, `processing_state`. New *tables* go in
       `init_db`'s `CREATE TABLE IF NOT EXISTS` block (`api/db.py:47`); new *columns*
@@ -422,7 +448,10 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 - [ ] **Phase 2 — Processor skeleton.** `gps-processor` service: tail raw by the
       committed cursor, **copy-through** to `track_points` (no denoise yet) to
       validate plumbing, cursor persistence, WAL concurrency, deploy — and prove
-      idempotency (run twice, diff output).
+      idempotency (run twice, diff output). **Deploy step (C24):** commit
+      `deploy/gps-processor.service` (with `PYTHONPATH` + `GPS_DB_PATH` env), then
+      manually edit the Pi-side post-receive hook to install the 5th unit and
+      enabled-gate-restart it; update CLAUDE.md's deploy section (four→five units).
 - [ ] **Phase 3 — Online filter.** Implement the parked/moving state machine
       (static hold with continuous refinement + online line simplification +
       accuracy gating), `n_raw`/`importance` tagging, `track_events` emission,
@@ -439,13 +468,14 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
 
 `canonical_timestamp` currently emits whole-second UTC; at 5 Hz that collides and
 gives no sub-second dedup key. Extend it to **fixed-width ms**
-(`%Y-%m-%dT%H:%M:%S.%fZ`, 3-digit fraction) and source raw time from the TPV `time`
-field, deduping on the ms string. Keep the format **uniform across tiers** so
-lexical range comparisons stay correct — mixing widths breaks ordering (`'.'` sorts
-before `'Z'`), so a one-time migration rewrites existing whole-second rows to
-`.000Z`. Cheap in a prototype; flag for review before implementing.
+(`%Y-%m-%dT%H:%M:%S.%fZ`, 3-digit fraction) while **keeping the source as wall-clock
+`now()`** (PPS-disciplined stratum-1, C23 — not TPV `time`); at ms precision `now()`
+is distinct per write at 5 Hz, so it doubles as the dedup key. Keep the format
+**uniform across tiers** so lexical range comparisons stay correct — mixing widths
+breaks ordering (`'.'` sorts before `'Z'`), so a one-time migration rewrites existing
+whole-second rows to `.000Z`. Cheap in a prototype; flag for review before implementing.
 
-> **Writer-site audit (vs. code).** Extending `canonical_timestamp` alone is *not*
+> **Phase-1 impl — writer-site audit.** Extending `canonical_timestamp` alone is *not*
 > enough: several writers build the whole-second string directly with
 > `strftime('%Y-%m-%dT%H:%M:%SZ')` and bypass the function. Each must move to ms in
 > the same change, or it re-introduces the width mismatch and the `'.'`<`'Z'` hazard:
@@ -454,7 +484,7 @@ before `'Z'`), so a one-time migration rewrites existing whole-second rows to
 > compares against raw (`api/routes/status_gpsd.py:103` — a whole-second cutoff vs.
 > ms-stored rows drops the cutoff-second's points, since `.000Z` < `Z`).
 >
-> **Migration cost (vs. code).** The one-time rewrite of existing rows is a
+> **Phase-1 impl — migration cost.** The one-time rewrite of existing rows is a
 > full-table `UPDATE` on `gps_points` (already 1 yr+ of 5 s data, growing to 38 M+/yr
 > at 5 Hz). Guard it idempotently (e.g. `WHERE timestamp NOT LIKE '%.%'`) and note it
 > runs inside `migrate()` (`api/db.py:186`), which executes at **both** logger and
