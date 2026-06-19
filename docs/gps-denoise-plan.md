@@ -35,6 +35,14 @@
 > re-enables its own message set at rate 1 on every device activation, so a flash
 > throttle wouldn't survive a gpsd restart anyway. SKY is throttled where it
 > matters — in the logger's `receiver_metadata` write (~5 s), not on the wire.
+>
+> **Iteration 7** — Phase 1 + Phase 2 deployed to the Pi. The logger now writes
+> motion-gated 5 Hz/1 Hz with accuracy cols + `receiver_metadata`; `gps-processor`
+> is enabled and live as a **copy-through skeleton** (no denoise yet), backfilled
+> ~269 k `track_points` and tails raw with backlog 0. The post-receive hook was
+> taught the 5th unit (install + enabled-gated restart). Next up is Phase 3 (the
+> online filter) — nothing reads `track_points` yet, so the skeleton is inert from
+> the frontend's view; Phase 4 wires it in.
 
 ## Context
 
@@ -458,7 +466,7 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
       see C20 and the storage note: the decision is ms-text, uniform across tiers),
       populate TPV accuracy fields, and add a SKY branch writing `receiver_metadata`
       on a ~5s throttle.
-- [ ] **Phase 2 — Processor skeleton.** `gps-processor` service: tail raw by the
+- [x] **Phase 2 — Processor skeleton.** `gps-processor` service: tail raw by the
       committed cursor, **copy-through** to `track_points` (no denoise yet) to
       validate plumbing, cursor persistence, WAL concurrency, deploy — and prove
       idempotency (run twice, diff output). **Deploy step (C24):** commit
