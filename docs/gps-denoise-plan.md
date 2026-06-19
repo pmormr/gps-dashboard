@@ -434,7 +434,7 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
       class** (hdop/vdop/nsat) under the UBX-only config; if `SKY` is absent, fall back
       to partial `receiver_metadata` (C22). Decouple-able from the rest (graceful
       fallback to 1 Hz NMEA).
-- [ ] **Phase 1 — Schema + logger.** Add `gps_points` TPV columns, `track_points`,
+- [x] **Phase 1 — Schema + logger.** Add `gps_points` TPV columns, `track_points`,
       `track_events`, `receiver_metadata`, `processing_state`. New *tables* go in
       `init_db`'s `CREATE TABLE IF NOT EXISTS` block (`api/db.py:47`); new *columns*
       on the existing `gps_points` go through `_add_missing_columns` in
