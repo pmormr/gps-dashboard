@@ -8,7 +8,15 @@ from datetime import datetime, timezone
 
 from api.db import get_connection, init_db, migrate, now_canonical
 
-LOG_INTERVAL_SECONDS = 5
+# Motion-gated raw write cadence (C20): full nav rate while moving, throttled to
+# ~1 Hz while parked. Parked 5 Hz is correlated bloat the processor's static hold
+# collapses anyway; the moving rate is where the spatial fidelity lives. This gates
+# only writes, layered on the live fix stream, so the freeze watchdog (which tracks
+# the stream, not writes) is unaffected.
+MOVING_WRITE_INTERVAL_SECONDS = 0.2   # 5 Hz
+PARKED_WRITE_INTERVAL_SECONDS = 1.0   # ~1 Hz
+PARKED_SPEED_MPS = 0.5                # below this Doppler speed, treat as parked
+
 SOCKET_TIMEOUT_SECONDS = 30
 HEARTBEAT_SECONDS = 60
 STALE_RECONNECT_SECONDS = 120
@@ -136,8 +144,10 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
                 stats: LoggerStats) -> float:
     """Stream TPV records from gpsd into the database for one connection.
 
-    Connects to gpsd, watches the JSON feed, and inserts valid fixes throttled
-    to one per LOG_INTERVAL_SECONDS. Emits a heartbeat every HEARTBEAT_SECONDS
+    Connects to gpsd, watches the JSON feed, and inserts valid fixes at a
+    motion-gated cadence (the full nav rate while moving, throttled to ~1 Hz
+    while parked), with per-fix accuracy fields. Emits a heartbeat every
+    HEARTBEAT_SECONDS
     and returns early (forcing a reconnect) if no valid fix is seen for
     STALE_RECONNECT_SECONDS while data is still arriving — the case the raw
     socket timeout cannot detect, because gpsd keeps emitting SKY/no-fix TPV.
@@ -227,21 +237,35 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
             # A usable fix arrived; the stream is alive even if we throttle it.
             last_fix_time = now
             stats.note_fix(lat, lon, now)
-            if now - last_log_time < LOG_INTERVAL_SECONDS:
+
+            # Motion-gated cadence: full nav rate moving, ~1 Hz parked (C20).
+            # Unknown speed errs toward moving so raw never silently loses fixes.
+            speed = report.get('speed')
+            parked = speed is not None and speed < PARKED_SPEED_MPS
+            write_interval = (PARKED_WRITE_INTERVAL_SECONDS if parked
+                              else MOVING_WRITE_INTERVAL_SECONDS)
+            if now - last_log_time < write_interval:
                 stats.throttled += 1
                 continue
 
-            timestamp = now_canonical()
             conn.execute(
-                "INSERT INTO gps_points (timestamp, lat, lon, speed, altitude, track) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO gps_points "
+                "(timestamp, lat, lon, speed, altitude, track, "
+                "epx, epy, epv, eps, climb, mode) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    timestamp,
+                    now_canonical(),
                     lat,
                     lon,
-                    report.get('speed'),
+                    speed,
                     report.get('alt'),
                     report.get('track'),
+                    report.get('epx'),
+                    report.get('epy'),
+                    report.get('epv'),
+                    report.get('eps'),
+                    report.get('climb'),
+                    mode,
                 ),
             )
             conn.commit()
