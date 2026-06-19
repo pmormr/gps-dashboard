@@ -1,0 +1,18 @@
+[Unit]
+Description=GPS track processor (denoise / two-tier)
+After=network.target gps-logger.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python processor/gps_processor.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
