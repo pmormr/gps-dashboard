@@ -43,6 +43,20 @@
 > taught the 5th unit (install + enabled-gated restart). Next up is Phase 3 (the
 > online filter) — nothing reads `track_points` yet, so the skeleton is inert from
 > the frontend's view; Phase 4 wires it in.
+>
+> **Iteration 8** — landed Phase 3 in code: the copy-through `process_batch` is
+> replaced by a causal `TrackFilter` (states MOVING / CANDIDATE / PARKED). Stops
+> use an **accuracy-weighted mean** with O(1) running accumulators + eph rejection
+> rather than C10's geometric median — bounded memory on a multi-day open stop and
+> a free swap later (C7); flagged and confirmed. Moving uses Reumann–Witkam, with
+> `importance` = the breaking perpendicular deviation and a `move_emit_max_gap`
+> keep-alive. The committed cursor advances only to the last finalized emit; the
+> open dwell + its `stop_start` are written as a provisional snapshot and re-derived
+> on restart. Determinism is enforced by reconstructing the moving anchor from the
+> last committed vertex on startup, and verified with a synthetic harness: a
+> mid-stop restart and a double rebuild both reproduce byte-identical
+> `track_points`/`track_events`. **Not yet wired to the frontend (Phase 4), and the
+> knobs are untuned (Phase 5 — calibrate against the Chick-fil-A trip).**
 
 ## Context
 
@@ -473,10 +487,15 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
       `deploy/gps-processor.service` (with `PYTHONPATH` + `GPS_DB_PATH` env), then
       manually edit the Pi-side post-receive hook to install the 5th unit and
       enabled-gate-restart it; update CLAUDE.md's deploy section (four→five units).
-- [ ] **Phase 3 — Online filter.** Implement the parked/moving state machine
+- [x] **Phase 3 — Online filter.** Implement the parked/moving state machine
       (static hold with continuous refinement + online line simplification +
       accuracy gating), `n_raw`/`importance` tagging, `track_events` emission,
       safe-boundary commits.
+      **Deploy step:** after pushing, run one `uv run processor/gps_processor.py
+      --rebuild` on the Pi (stop the service first) — the Phase-2 skeleton left
+      ~269 k copy-through `track_points` and advanced the cursor past them, so a
+      plain resume would leave copy-through history below the cursor and denoised
+      history above it. One rebuild reprocesses all raw through the filter (C7).
 - [ ] **Phase 4 — Wire the frontend.** Point `/api/points` at `track_points`;
       keep `/api/points/latest` on raw; rework `?bucket=` to size-aware; confirm
       live + history both behave.

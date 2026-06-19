@@ -50,7 +50,7 @@ App runs at `http://192.168.42.178:5000`.
 ### Processes
 
 - **Logger** (`logger/gps_logger.py`) — standalone script, no Flask. Reads from gpsd via TCP socket on `localhost:2947`. The only writer of raw (`gps_points` + `receiver_metadata`); position writes are motion-gated (5 Hz moving / ~1 Hz parked).
-- **Processor** (`processor/gps_processor.py`) — standalone, no Flask. Tails raw `gps_points` by a persisted id cursor and derives the processed tier (`track_points` + `track_events`) the frontend reads. Idempotent and fully rebuildable from raw; never writes raw. Enabled-gated service. (Phase 2: copy-through skeleton; the denoise filter lands in Phase 3 — see `docs/gps-denoise-plan.md`.)
+- **Processor** (`processor/gps_processor.py`) — standalone, no Flask. Tails raw `gps_points` by a persisted id cursor and derives the processed tier (`track_points` + `track_events`) the frontend reads. Idempotent and fully rebuildable from raw; never writes raw. Enabled-gated service. (Phase 3: online denoise — software static-hold stops (accuracy-weighted mean) + Reumann–Witkam moving simplification + per-fix accuracy gating, emitting `stop_start`/`stop_end` events; the cursor advances only to finalized emits, so an open dwell and the open moving segment stay provisional. Frontend wiring is Phase 4 — nothing reads `track_points` yet. See `docs/gps-denoise-plan.md`.)
 - **Web app** (`api/app.py`) — Flask, read-heavy. Serves the frontend, JSON API, tile proxy, and status pages.
 
 ### Data Model
@@ -63,7 +63,7 @@ SQLite (`gps_history.db`). Core GPS tables:
 
 Processed/denoise tier — derived from raw by `gps-processor`, fully rebuildable (see `docs/gps-denoise-plan.md`):
 
-- `track_points(...)` — the denoised/simplified points the frontend reads (`kind` `track`|`stop`, `n_raw`, `importance`, `accuracy`, stop `dwell_*`/`radius`, `src_raw_id`). Phase 2 copies raw through 1:1; Phase 3 collapses stops + simplifies moving segments.
+- `track_points(...)` — the denoised/simplified points the frontend reads (`kind` `track`|`stop`, `n_raw`, `importance`, `accuracy`, stop `dwell_*`/`radius`, `src_raw_id`). Phase 3 collapses each parked dwell to one accuracy-weighted point and simplifies moving segments (Reumann–Witkam, `importance` = perpendicular deviation); not yet read by the frontend (Phase 4).
 - `track_events(...)` — processor-emitted events (stop start/end, mode transitions, …); distinct from the user-curated `annotations`.
 - `receiver_metadata(id, timestamp, hdop, vdop, pdop, nsat_used, nsat_seen)` — SKY-sourced DOP + sat counts, written by the logger on a ~5 s throttle; standalone telemetry, not joined into the position path.
 - `processing_state(key, value)` — the processor's `last_committed_raw_id` cursor.
