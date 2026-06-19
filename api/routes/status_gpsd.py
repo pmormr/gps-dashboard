@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, render_template
 
-from api.db import get_connection
+from api.db import canonical_timestamp, get_connection
 
 status_gpsd_bp = Blueprint('status_gpsd', __name__)
 
@@ -98,9 +98,10 @@ def _position_frozen():
         True if the position appears frozen, False otherwise.
     """
     try:
-        cutoff = (datetime.now(timezone.utc)
-                  - timedelta(seconds=FROZEN_WINDOW_SECONDS)
-                  ).strftime('%Y-%m-%dT%H:%M:%SZ')
+        cutoff = canonical_timestamp(
+            (datetime.now(timezone.utc)
+             - timedelta(seconds=FROZEN_WINDOW_SECONDS)).isoformat()
+        )
         conn = get_connection()
         rows = conn.execute(
             "SELECT lat, lon, timestamp FROM gps_points "

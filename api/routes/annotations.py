@@ -1,8 +1,6 @@
-from datetime import datetime, timezone
-
 from flask import Blueprint, jsonify, request
 
-from api.db import canonical_timestamp, get_connection
+from api.db import canonical_timestamp, get_connection, now_canonical
 
 annotations_bp = Blueprint('annotations', __name__)
 
@@ -159,7 +157,7 @@ def mark_timestamp():
     if marker not in ('start', 'end'):
         return jsonify({'error': "'marker' must be 'start' or 'end'"}), 400
 
-    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    timestamp = now_canonical()
     conn = get_connection()
     conn.execute(
         "INSERT INTO marks (key, timestamp) VALUES (?, ?) "

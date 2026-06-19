@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from api.db import get_connection, init_db, migrate
+from api.db import get_connection, init_db, migrate, now_canonical
 
 LOG_INTERVAL_SECONDS = 5
 SOCKET_TIMEOUT_SECONDS = 30
@@ -231,7 +231,7 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
                 stats.throttled += 1
                 continue
 
-            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            timestamp = now_canonical()
             conn.execute(
                 "INSERT INTO gps_points (timestamp, lat, lon, speed, altitude, track) "
                 "VALUES (?, ?, ?, ?, ?, ?)",

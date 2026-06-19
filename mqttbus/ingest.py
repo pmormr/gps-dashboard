@@ -120,7 +120,7 @@ def resolve_timestamp(payload: dict, receipt_dt: datetime,
         stats: Counters, mutated in place when a fallback is taken.
 
     Returns:
-        A canonical whole-second UTC timestamp.
+        A canonical fixed-width millisecond UTC timestamp.
     """
     raw = payload.get('ts')
     if not raw:

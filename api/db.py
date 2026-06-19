@@ -5,32 +5,68 @@ from pathlib import Path
 
 DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
 
-TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
+# Whole-second strftime template; canonical timestamps append a 3-digit
+# millisecond fraction and a ``Z`` suffix to this (see ``_canonical``).
+_SECONDS_FORMAT = '%Y-%m-%dT%H:%M:%S'
+
+
+def _canonical(dt: datetime) -> str:
+    """Format a datetime as fixed-width millisecond UTC text.
+
+    Produces ``2026-06-09T14:55:55.200Z`` — whole seconds plus a zero-padded
+    3-digit millisecond fraction and a ``Z`` suffix. The width is fixed so
+    lexical ordering matches chronological ordering across every timestamp
+    column; mixing widths breaks it, since ``'.'`` sorts before ``'Z'`` (a
+    whole-second ``...55Z`` would sort *after* a millisecond ``...55.200Z``).
+
+    Args:
+        dt: A datetime; naive values are treated as UTC.
+
+    Returns:
+        The timestamp as fixed-width millisecond UTC text.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    return f"{dt.strftime(_SECONDS_FORMAT)}.{dt.microsecond // 1000:03d}Z"
 
 
 def canonical_timestamp(value: str) -> str:
     """Normalize an ISO-8601 timestamp to the canonical storage format.
 
-    Every timestamp column stores whole-second UTC strings
-    (``2026-06-09T14:55:55Z``). The logger and marks already write this form;
-    annotation bounds arrive from the browser as ``...000Z``. Collapsing both
-    to one width-aligned UTC format keeps the lexical range comparisons in the
-    points and annotations queries correct.
+    Every timestamp column stores fixed-width millisecond UTC strings
+    (``2026-06-09T14:55:55.200Z``). The logger, marks, and sensor receipts write
+    this form via ``now_canonical``; annotation bounds arrive from the browser as
+    ``...000Z``. Collapsing every source to one width-aligned UTC format keeps the
+    lexical range comparisons in the points, annotations, and sensor queries
+    correct — and at 5 Hz the millisecond fraction makes raw fixes
+    sub-second-distinct (a usable dedup key), which whole-second strings were not.
 
     Args:
         value: An ISO-8601 timestamp, with or without a ``Z`` suffix, an explicit
             offset, or fractional seconds.
 
     Returns:
-        The timestamp as a whole-second UTC string.
+        The timestamp as a fixed-width millisecond UTC string.
 
     Raises:
         ValueError: If ``value`` is not a parseable ISO-8601 timestamp.
     """
-    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).strftime(TIMESTAMP_FORMAT)
+    return _canonical(datetime.fromisoformat(value.replace('Z', '+00:00')))
+
+
+def now_canonical() -> str:
+    """Return the current time as a fixed-width millisecond canonical string.
+
+    The single source for "now" timestamps written across tiers (the logger's
+    raw inserts, the marks upsert). Wall-clock ``now()`` is PPS-disciplined
+    stratum-1 GPS time on the Pi (C23), so it is GPS-quality without the backward
+    jitter of the TPV ``time`` field.
+
+    Returns:
+        The current UTC time as fixed-width millisecond canonical text.
+    """
+    return _canonical(datetime.now(timezone.utc))
 
 
 def get_connection() -> sqlite3.Connection:
@@ -120,6 +156,68 @@ def init_db(conn: sqlite3.Connection) -> None:
             value       REAL,
             timestamp   TEXT NOT NULL
         );
+
+        -- Processed tier: denoised/simplified points the frontend reads. Derived
+        -- from raw gps_points by gps-processor; fully rebuildable (see the denoise
+        -- plan). kind='stop' rows carry dwell_start/dwell_end/radius.
+        CREATE TABLE IF NOT EXISTS track_points (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT NOT NULL,
+            lat         REAL NOT NULL,
+            lon         REAL NOT NULL,
+            speed       REAL,
+            altitude    REAL,
+            track       REAL,
+            kind        TEXT NOT NULL,
+            n_raw       INTEGER NOT NULL,
+            importance  REAL NOT NULL,
+            accuracy    REAL,
+            dwell_start TEXT,
+            dwell_end   TEXT,
+            radius      REAL,
+            src_raw_id  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_points_timestamp
+            ON track_points(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_track_points_src_raw_id
+            ON track_points(src_raw_id);
+
+        -- Processor-emitted "interesting" events (stop_start/end, mode transitions,
+        -- rate spikes, drift). Distinct from the user-curated annotations table;
+        -- rebuildable like track_points.
+        CREATE TABLE IF NOT EXISTS track_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT NOT NULL,
+            end_time    TEXT,
+            type        TEXT NOT NULL,
+            magnitude   REAL,
+            payload     TEXT,
+            src_raw_id  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_events_timestamp
+            ON track_events(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_track_events_src_raw_id
+            ON track_events(src_raw_id);
+
+        -- SKY-sourced receiver telemetry (DOP + sat counts), written by the logger
+        -- on its own ~5s throttle. Standalone — not joined into the position path.
+        CREATE TABLE IF NOT EXISTS receiver_metadata (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT NOT NULL,
+            hdop        REAL,
+            vdop        REAL,
+            pdop        REAL,
+            nsat_used   INTEGER,
+            nsat_seen   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_receiver_metadata_timestamp
+            ON receiver_metadata(timestamp);
+
+        -- gps-processor cursor (e.g. last_committed_raw_id) + any future scalar state.
+        CREATE TABLE IF NOT EXISTS processing_state (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
     """)
     conn.commit()
 
@@ -194,6 +292,37 @@ def migrate(conn: sqlite3.Connection) -> None:
             'breath_voc_equivalent': 'REAL',
         },
     )
+
+    # Per-fix accuracy/quality fields from gpsd TPV, for accuracy-weighted denoise
+    # and richer analysis (C4). Existing rows get NULL.
+    _add_missing_columns(
+        conn,
+        'gps_points',
+        {
+            'epx': 'REAL',
+            'epy': 'REAL',
+            'epv': 'REAL',
+            'eps': 'REAL',
+            'climb': 'REAL',
+            'mode': 'INTEGER',
+        },
+    )
+
+    # One-time, idempotent: widen whole-second timestamps to fixed-width ms
+    # (``...SSZ`` → ``...SS.000Z``). canonical_timestamp now emits ms everywhere,
+    # so any range-compared table left at whole-second width would reintroduce the
+    # ``'.'`` < ``'Z'`` ordering hazard (a whole-second row sorts *after* its ms
+    # sibling). Annotations re-normalize below via canonical_timestamp; these tables
+    # need a direct rewrite. The gps_points pass is a full-table UPDATE that briefly
+    # holds the WAL write lock against the live logger (busy_timeout=30000 covers it).
+    for table in ('gps_points', 'bme680_readings', 'marks'):
+        widened = conn.execute(
+            f"UPDATE {table} SET timestamp = substr(timestamp, 1, 19) || '.000Z' "
+            "WHERE length(timestamp) = 20 AND timestamp NOT LIKE '%.%'"
+        ).rowcount
+        if widened:
+            conn.commit()
+            print(f"Migration: widened {widened} {table} timestamp(s) to ms")
 
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='location_history'"
