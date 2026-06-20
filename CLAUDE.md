@@ -84,7 +84,9 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /api/sensors` — sensor registry, each row with its latest reading embedded
 - `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
+- `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY message (no DB/schema): per-sat az/el/SNR/used/constellation + DOP + used/seen counts; feeds the skyplot
 - `GET /gpsd` — read-only gpsd status page
+- `GET /skyplot` — live 3D satellite skyplot page
 - `GET /ntp` — read-only NTP/chrony status page
 - `GET /sensors` — sensor viewer (current values + trend charts)
 
@@ -100,12 +102,13 @@ One map-centric view at `/`:
 - **Decimation** — server-side and size-aware (C17): the client always requests `limit=20000` and the `/api/points` handler keeps every stop + the highest-`importance` moving vertices (see the API section). The old client-side `?bucket=` time-bucketing is gone — the processed tier is already sparse, so blind time-decimation isn't needed.
 - **Other map controls** — ⊕ FAB zooms to the most recent GPS fix; the ⚙ Labels panel (vector basemap) tunes POI categories, label density, and minor-street-name visibility; the 🏔 3D panel toggles terrain draping and sets exaggeration (off = flat 2D, north-up; on unlocks pitch + rotate).
 
-Three standalone pages:
+Four standalone pages:
 - `/gpsd` — gpsd service state, fix mode, satellite count, latest coordinates, pass/fail indicators
+- `/skyplot` — live 3D satellite skyplot (`static/js/skyplot.js`). Polls `/api/gpsd/sky` every ~4s and renders the visible constellation on a draggable, tilted wireframe hemisphere in plain canvas (no 3D lib — stays offline). Satellites placed by az/el, depth-sorted with a stem to the dome floor, colored by constellation, filled = used / hollow = visible, sized by SNR. Drag to orbit/tilt; a "Top-down" button sets tilt 90° for the classic flat azimuth plot. Reads gpsd directly — no schema, no history stored.
 - `/ntp` — chrony sync status, stratum, offset, GPS/PPS source state, LAN server status
 - `/sensors` — per-sensor current values + trend charts. JS-driven (`static/js/sensors.js`), polling `/api/sensors` and `/api/sensors/:id/readings` every 30s, charting with vendored uPlot. Reads from the logged DB — no live broker needed — so it works regardless of the broker's websockets support. Range buttons (1h/6h/24h/7d) and a liveness dot per sensor (online/stale/offline from the registry).
 
-`/gpsd` and `/ntp` auto-refresh every 30 seconds via `<meta refresh>`; `/sensors` polls in place (a full reload would drop chart state).
+`/gpsd` and `/ntp` auto-refresh every 30 seconds via `<meta refresh>`; `/skyplot` and `/sensors` poll in place (a full reload would drop canvas/chart state).
 
 ### Basemaps & Terrain: Vector OSM + Raster USGS + Terrain DEM
 
@@ -179,7 +182,8 @@ gps-dashboard/
 │   ├── img/tile-error.png
 │   ├── js/
 │   │   ├── api.js, app.js, geo.js, map.js, labels.js, timeline.js, annotations.js
-│   │   └── sensors.js      # /sensors viewer (current values + uPlot charts)
+│   │   ├── sensors.js      # /sensors viewer (current values + uPlot charts)
+│   │   └── skyplot.js      # /skyplot 3D satellite hemisphere (plain canvas)
 │   └── vendor/
 │       ├── leaflet/        # unused — deleted after Phase 8 validation
 │       ├── nouislider/
@@ -190,6 +194,7 @@ gps-dashboard/
 ├── templates/
 │   ├── index.html
 │   ├── gpsd.html
+│   ├── skyplot.html
 │   ├── ntp.html
 │   └── sensors.html
 ├── tools/

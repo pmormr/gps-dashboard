@@ -14,6 +14,42 @@ status_gpsd_bp = Blueprint('status_gpsd', __name__)
 
 FIX_LABELS = {0: 'Unknown', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix'}
 
+# gpsd/u-blox gnssid → constellation name. The M9N tracks GPS + GLONASS +
+# Galileo + BeiDou, plus SBAS/QZSS augmentation.
+GNSS_NAMES = {0: 'GPS', 1: 'SBAS', 2: 'Galileo', 3: 'BeiDou',
+              4: 'IMES', 5: 'QZSS', 6: 'GLONASS'}
+
+
+def _constellation(sat):
+    """Resolve a SKY satellite's constellation name.
+
+    Prefers gpsd's explicit ``gnssid``; falls back to coarse legacy PRN ranges
+    for older gpsd builds that omit it.
+
+    Args:
+        sat: One satellite object from a gpsd SKY message.
+
+    Returns:
+        Constellation name (e.g. 'GPS', 'Galileo'), or 'Other' if unresolved.
+    """
+    gid = sat.get('gnssid')
+    if gid in GNSS_NAMES:
+        return GNSS_NAMES[gid]
+    prn = sat.get('PRN') or 0
+    if 1 <= prn <= 32:
+        return 'GPS'
+    if 65 <= prn <= 96:
+        return 'GLONASS'
+    if 120 <= prn <= 158:
+        return 'SBAS'
+    if 193 <= prn <= 199:
+        return 'QZSS'
+    if 201 <= prn <= 263:
+        return 'BeiDou'
+    if 301 <= prn <= 336:
+        return 'Galileo'
+    return 'Other'
+
 # Mirror of the logger's frozen-fix detection, derived from the DB instead of the
 # live gpsd stream so the status page (a separate process) needs no IPC. A stuck
 # receiver keeps writing valid points, so a window of recent points that are all
@@ -175,3 +211,58 @@ def gpsd_status():
         data_age=data_age,
         frozen=frozen,
     )
+
+
+@status_gpsd_bp.get('/skyplot')
+def skyplot():
+    """Live 3D satellite skyplot page (client polls ``/api/gpsd/sky``)."""
+    return render_template('skyplot.html')
+
+
+@status_gpsd_bp.get('/api/gpsd/sky')
+def gpsd_sky():
+    """Live satellite sky sourced straight from gpsd's SKY message.
+
+    Opens a short-lived gpsd socket (no DB, no schema — the live skyplot reads
+    gpsd directly) and returns the current constellation for the polar/3D plot:
+    per-satellite azimuth, elevation, SNR, used-flag, and constellation, plus
+    DOP and used/seen counts. Satellites without an az/el (no almanac yet) are
+    omitted from ``satellites`` but still counted in ``seen``.
+
+    Returns:
+        JSON dict with ``connected``, ``fix_mode``/``fix_label``, ``used``,
+        ``seen``, ``hdop``/``vdop``/``pdop``, and a ``satellites`` list of
+        ``{prn, az, el, ss, used, gnss}``.
+    """
+    gpsd = _query_gpsd()
+    sky = gpsd['sky']
+    tpv = gpsd['tpv']
+    sats = sky.get('satellites', []) or []
+
+    plotted = []
+    for s in sats:
+        az = s.get('az')
+        el = s.get('el')
+        if az is None or el is None:
+            continue
+        plotted.append({
+            'prn': s.get('PRN'),
+            'az': az,
+            'el': el,
+            'ss': s.get('ss'),
+            'used': bool(s.get('used')),
+            'gnss': _constellation(s),
+        })
+
+    mode = tpv.get('mode', 0)
+    return {
+        'connected': gpsd['connected'],
+        'fix_mode': mode,
+        'fix_label': FIX_LABELS.get(mode, 'Unknown'),
+        'used': sum(1 for s in sats if s.get('used')),
+        'seen': len(sats),
+        'hdop': sky.get('hdop'),
+        'vdop': sky.get('vdop'),
+        'pdop': sky.get('pdop'),
+        'satellites': plotted,
+    }
