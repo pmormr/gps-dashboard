@@ -39,11 +39,11 @@ streams: `obd-platform`, `motion-imu`.
 
 | # | Decision | Choice | Rationale |
 |---|----------|--------|-----------|
-| 1 | Extraction engine | **ExifTool `-ee -p`** (shell out) | Off-the-shelf, maintained, decodes all three drones' `dvtm` protos + parses the per-frame UTC timestamp for free. Validated against a hand-rolled protobuf decode (lat/lon matched to the last digit). |
+| 1 | Extraction engine | **ExifTool `-ee -p`, ≥13.x, in a pinned container** | Off-the-shelf, maintained, decodes all three drones' `dvtm` protos + parses the per-frame UTC timestamp for free. Validated against a hand-rolled protobuf decode (lat/lon matched to the last digit). **Version-sensitive: the NAS's stock 12.86 reads identity tags but cannot decode `dvtm` GPS (`GPSDateTime not defined`)** — needs ≥13.x (Mini 5 Pro support landed in the 13.x DJI.pm). Pinned via `exiftool:13x` Docker image (CPAN → 13.55, the validated version). |
 | 2 | Data tier | **`drone_flights` + `drone_track_points`** in `gps_history.db` | Mirrors the van's `annotations`+`track_points` model; **canonical ms-UTC** timestamps put drone points on the *same time axis* as GPS → time-correlation for free. Rebuildable from source media. |
-| 3 | Idempotency / natural key | **`(drone serial, first-fix UTC)`** | Globally unique, stable across copies/renames. Lets the SD-now import and the NAS-later scan converge with no duplicate; the NAS scan **backfills the canonical media path** onto a flight first imported from the card. |
+| 3 | Idempotency / natural key | **`(model_code, first-fix UTC)`** | Stable across copies/renames, content-derived. **No model exposes a serial via ExifTool** (validated on real Avata 2 / Mini 5 Pro / Neo clips), so the original `(serial, …)` key is dead. `model_code` = the `model_name:` field of the `Category` tag (`FC9313` Mini 5 Pro / `FC8485` Avata 2 / `FC8671` Neo); first-fix UTC = the ms-UTC of the first valid GPS frame. Effectively unique for a one-of-each fleet (two same-model flights starting the same millisecond is implausible). Lets the SD-now import and the NAS-later scan converge with no duplicate; the NAS scan **backfills the canonical media path** onto a flight first imported from the card. |
 | 4 | Ingestion shape | **One portable extractor, two front-ends** | `tools/import_drone.py --source DIR` extracts locally, then either writes the DB (Pi-side) or `POST`s a Pi ingest API (remote). Both user scenarios fall out of one tool. |
-| 5 | Home auto-sync host | **Pi mounts rex-nas** | Pi `systemd` timer mounts the NAS share when home, scans new clips, extracts over the mount, writes its own DB. No code deployed to the NAS; Pi owns the write. (Perf over the mount = Phase 0 validation.) |
+| 5 | Home auto-sync host | **Pi triggers a transient container on the NAS** | Pi `systemd` timer (when home) `ssh`es to rex-nas and runs `docker run --rm -v /volume2/misc/Drone:/data:ro exiftool:13x …`. ExifTool reads the video bytes **locally on the NAS** (fast, single-core CPU-bound ~30 s/clip — parallelize across clips); only the telemetry **text** (~MBs/clip) crosses the LAN to the Pi, which parses/thins/dedups and writes its **own** DB. No persistent NAS service and no mount needed for extraction — the `exiftool:13x` image is built once (Dockerfile = repo artifact). Supersedes the earlier "Pi mounts rex-nas + extract over the mount" idea, which the scattered-seek I/O made a poor fit. |
 | 6 | Manual / off-grid path | **Laptop CLI → Pi over van LAN** | Out boondocking, the laptop joins the van WiFi and reaches `192.168.42.178:5000` with no internet — consistent with the trusted-LAN/no-auth model. Scan an attached SD/drive, POST to the Pi. |
 | 7 | v1 scope | **Data tier + sync + basic map overlay** | Land tables/CLI/API + a simple drone-track layer (altitude on the 3D terrain). Defer media pins / rich UI to the map redesign. |
 | 8 | Media storage | **Blobs stay on disk (rex-nas); DB holds path + telemetry** | Same pattern as PMTiles/tiles on the NVMe — never ingest the ~10 GB videos into SQLite. |
@@ -141,22 +141,37 @@ See memory `drone-telemetry-format` for the reverse-engineered field paths and g
 Sequenced so the data lands and is provable before any scheduling or UI — same incremental
 tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
 
-- **Phase 0 — De-risk (hard gate before building the importer).** (a) Time `exiftool -ee`
-  against a 10 GB clip **over the rex-nas mount from the Pi** (metadata is a seekable MP4
-  track — small bytes, many seeks — so likely fine, but confirm). (b) **Confirm Avata 2 +
-  Neo** tag names / field availability on real clips from the mixed store (only the Mini 5
-  Pro is proven). (c) Sanity-run **content-based discovery** across a mixed rex-nas folder —
-  every drone's clips identified by `Protocol`/`Model`, non-DJI / re-encoded video skipped
-  cleanly.
-- **Phase 1 — Data tier + extraction core + local loader.** `drone_flights` /
-  `drone_track_points` schema; `tools/import_drone.py --source DIR --db PATH` end-to-end on a
-  local directory (the mounted SD card is the test fixture). Dedup on the natural key; thin
-  to ~10 Hz.
-- **Phase 2 — Pi home sync.** `gps-drone-sync.service` + `.timer`: mount rex-nas when
-  reachable, incremental scan (skip already-imported by key), local DB write, path-backfill.
+- **Phase 0 — De-risk (DONE 2026-06-20, on the real mixed store `/volume2/misc/Drone`, 165 files).**
+  (a) Perf: extraction runs **in a container on the NAS**, single-core CPU-bound ~30 s for a
+  ~5-min clip's full metadata track off local disk — the mount-seek worry is moot (extraction
+  no longer crosses the mount). Lever = parallelize across clips. (b) **Avata 2 + Neo decode
+  confirmed** — all three models yield UTC `GPSDateTime` + full-precision lat/lon +
+  `AbsoluteAltitude` (m); ~60 Hz frames (16–19 k per clip). (c) Discovery/skip validated: model
+  spread **86 Avata 2 / 18 Mini 5 Pro / 8 Neo / 40 controller-headset recordings**, all
+  self-identifying via `Encoder` (`DJI Avata2`/`DJI Mini5Pro`/`DJI NEO`) + `Category`
+  (`pb_file:dvtm_*.proto;model_name:FC####`). The recordings are cleanly skippable — single
+  `avc1` track, `Encoder: DEFAULT ENCODING`, **no `dvtm` Category** and no GPS. Note: the
+  `Model` tag is empty across the board; identity lives in `Encoder`/`Category`, not `Model`.
+- **Phase 1 — Data tier + extraction core + loader. DONE 2026-06-20.** `drone_flights` /
+  `drone_track_points` schema (`api/db.py`); `processor/simplify.py` shares the
+  Reumann–Witkam thinner with the van processor; `tools/import_drone.py` does content-based
+  discovery (skip recordings), parallel extraction, parse → dedup (consecutive identical) →
+  RW-thin, and an idempotent loader keyed on `(model_code, first_fix_utc)` with media-path
+  backfill. **Both extraction backends landed** — `--source DIR` (local exiftool) and `--ssh
+  HOST --remote-dir DIR` (transient container on the NAS, `deploy/exiftool.Dockerfile`).
+  Validated against the real store: 125 telemetry clips discovered (86 Avata 2 / 31 Mini 5
+  Pro / 8 Neo), all three models decode, idempotent re-import + backfill confirmed.
+  **Known v1 limitation:** RW is horizontal-only (lat/lon), so a near-vertical
+  climb/descent at fixed lat/lon collapses and loses its altitude profile — revisit
+  (3D thinning or altitude-change keepalive) when Phase 4 drapes `abs_alt` on terrain.
+- **Phase 2 — Pi home sync.** `gps-drone-sync.service` + `.timer`: when rex-nas is reachable,
+  drive the importer (`--ssh rex-nas`) and write the local DB. The `--ssh` container backend
+  already exists; what's left is the timer/reachability gate and an **incremental skip** so a
+  re-scan doesn't re-extract all 125 clips (e.g. skip clips whose `media_path` is already
+  present — stable NAS paths make this cheap, at the cost of not re-checking a moved file).
 - **Phase 3 — Ingest API + remote CLI.** `POST /api/drone/flights` (idempotent, behind the
-  same write fn) + `GET /api/drone/flights?bbox=&start=&end=`; `import_drone.py --api URL`
-  for the laptop manual path over the van LAN.
+  same write fn as `load_flight`) + `GET /api/drone/flights?bbox=&start=&end=`;
+  `import_drone.py --api URL` for the laptop manual path over the van LAN.
 - **Phase 4 — Basic map overlay.** Drone tracks styled distinctly from van tracks on `/`,
   **colored per drone model** (Mini 5 Pro / Avata 2 / Neo), `abs_alt` draped on the 3D
   terrain, media path surfaced on click. (Rich media-pin UI = deferred, folds into

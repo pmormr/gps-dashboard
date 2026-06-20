@@ -218,6 +218,47 @@ def init_db(conn: sqlite3.Connection) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT
         );
+
+        -- Drone telemetry tier — aerial GPS tracks extracted from DJI footage by
+        -- tools/import_drone.py (offline batch import, NOT the live MQTT path).
+        -- One row per clip; canonical ms-UTC puts drone points on the same time
+        -- axis as gps_points. Rebuildable from the source media. See the drone
+        -- platform plan. media_path is the canonical rex-nas path, NULL when a
+        -- flight is first imported from an SD card and backfilled by the NAS scan.
+        CREATE TABLE IF NOT EXISTS drone_flights (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            model         TEXT NOT NULL,
+            model_code    TEXT NOT NULL,
+            first_fix_utc TEXT NOT NULL,
+            last_fix_utc  TEXT NOT NULL,
+            media_path    TEXT,
+            source_name   TEXT,
+            n_points      INTEGER NOT NULL,
+            min_lat       REAL NOT NULL,
+            min_lon       REAL NOT NULL,
+            max_lat       REAL NOT NULL,
+            max_lon       REAL NOT NULL,
+            imported_at   TEXT NOT NULL
+        );
+        -- Natural key (decision 3): no model exposes a serial, so dedup on the
+        -- model code + the first valid fix's ms-UTC. Idempotent re-import and
+        -- SD-now/NAS-later convergence both rely on this.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_drone_flights_natural_key
+            ON drone_flights(model_code, first_fix_utc);
+
+        CREATE TABLE IF NOT EXISTS drone_track_points (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            flight_id   INTEGER NOT NULL,
+            timestamp   TEXT NOT NULL,
+            lat         REAL NOT NULL,
+            lon         REAL NOT NULL,
+            abs_alt     REAL,
+            importance  REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_drone_track_points_flight
+            ON drone_track_points(flight_id);
+        CREATE INDEX IF NOT EXISTS idx_drone_track_points_timestamp
+            ON drone_track_points(timestamp);
     """)
     conn.commit()
 

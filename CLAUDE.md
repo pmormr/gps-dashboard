@@ -70,6 +70,11 @@ Processed/denoise tier — derived from raw by `gps-processor`, fully rebuildabl
 - `receiver_metadata(id, timestamp, hdop, vdop, pdop, nsat_used, nsat_seen)` — SKY-sourced DOP + sat counts, written by the logger on a ~5 s throttle; standalone telemetry, not joined into the position path.
 - `processing_state(key, value)` — the processor's `last_committed_raw_id` cursor.
 
+Drone telemetry tier — aerial GPS tracks batch-imported from DJI footage by `tools/import_drone.py`, fully rebuildable from the source media (see `plans/drone-platform-plan.md`):
+
+- `drone_flights(id, model, model_code, first_fix_utc, last_fix_utc, media_path, source_name, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per clip. Natural key `(model_code, first_fix_utc)` (no DJI model exposes a serial); `media_path` is the canonical rex-nas path, NULL on an SD-card import for the NAS scan to backfill.
+- `drone_track_points(id, flight_id, timestamp, lat, lon, abs_alt, importance)` — the thinned track (Reumann–Witkam, shared via `processor/simplify.py`); canonical ms-UTC puts drone points on the same time axis as `gps_points`. `abs_alt` is MSL metres.
+
 The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
@@ -128,7 +133,8 @@ gps-dashboard/
 ├── logger/
 │   └── gps_logger.py
 ├── processor/                  # processed-tier deriver (tails raw → track_points/track_events)
-│   └── gps_processor.py
+│   ├── gps_processor.py
+│   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
 ├── sensors/                    # Pi-side reader / --fake harness (BME680 now lives on an ESP32 node)
 │   └── bme680.py
 ├── mqttbus/                    # broker-side consumers + shared MQTT helpers
@@ -166,7 +172,8 @@ gps-dashboard/
 │   ├── gpsd_validate.py
 │   ├── ntp_setup.py
 │   ├── ntp_validate.py
-│   └── obd_probe.py            # OBD-II Phase-0 connectivity probe (plans/obd-platform-plan.md)
+│   ├── obd_probe.py            # OBD-II Phase-0 connectivity probe (plans/obd-platform-plan.md)
+│   └── import_drone.py         # DJI drone telemetry importer (plans/drone-platform-plan.md)
 ├── deploy/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service
