@@ -298,8 +298,8 @@ const MapView = (() => {
       compact: true,
       customAttribution: [VECTOR_ATTRIBUTION, TERRAIN_ATTRIBUTION],
     }));
-    // Lock to a flat, north-up view by default — exact parity with the old
-    // Leaflet 2D map. The 3D toggle unlocks rotate + pitch (setTerrainEnabled).
+    // Lock to a flat, north-up view by default. The 3D toggle unlocks rotate +
+    // pitch (setTerrainEnabled).
     setRotationEnabled(false);
     map.on('styledata', reinstallOverlays);
     map.on('style.load', handleStyleLoad);

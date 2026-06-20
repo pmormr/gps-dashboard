@@ -8,8 +8,6 @@ A GPS history browser for a Raspberry Pi installed in a van, serving a local net
 
 Users connect via phone or laptop over the van's WiFi. No authentication is required — the LAN is trusted.
 
-The full implementation plan is at `docs/plan.md`.
-
 ## Deployment
 
 Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dashboard` (serves the web app). Both are managed via a bare git repo with a post-receive hook.
@@ -78,7 +76,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `POST /api/annotations` — create annotation; omit (or pass null) `end_time` for a point bookmark
 - `PATCH /api/annotations/:id` — edit name, notes, or bounds (including transitioning point↔range)
 - `DELETE /api/annotations/:id`
-- `POST /api/annotations/mark` — upsert `start` or `end` mark with current UTC time
+- `GET/POST /api/annotations/mark` — read the persisted `start`/`end` marks (restores live range-construction across reloads); POST upserts one with current UTC time
 - `GET /tiles/osm.pmtiles` — vector OSM basemap (single PMTiles archive) served with HTTP range support
 - `GET /tiles/terrain.pmtiles` — terrain DEM (Mapzen Terrarium PNGs in a PMTiles archive) served with HTTP range support; read client-side by MapLibre via `raster-dem` + `encoding: 'terrarium'`
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
@@ -128,7 +126,7 @@ A collapsible "⚙ Labels" panel (vector only) tunes POI categories, label densi
 
 ### GPS Logger Detail
 
-Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `localhost:2947`. Sends `?WATCH={"enable":true,"json":true}\n`, parses TPV JSON records. Throttles DB writes to one point per 5s. Reconnects automatically on failure with 5s backoff.
+Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `localhost:2947`. Sends `?WATCH={"enable":true,"json":true}\n`, parses TPV JSON records. Motion-gates raw writes: the full nav rate (~5 Hz) while moving, throttled to ~1 Hz while parked (Doppler speed < 0.5 m/s) — parked 5 Hz is correlated bloat the processor's static-hold collapses anyway. SKY-sourced DOP + sat counts write to `receiver_metadata` on a separate ~5 s throttle. Reconnects automatically on failure with 5s backoff.
 
 Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd (no bytes at all), and a staleness watchdog forces a reconnect if no valid fix is seen for 120s *while data is still flowing* — the case the socket timeout misses, since gpsd keeps emitting SKY/no-fix TPV. Every 60s it logs a heartbeat with points written, current fix mode, age of the last write, and a breakdown of dropped records by reason (no_fix, no_latlon, bad_range, null_island, stale_time, throttled, json_err), so a silent stall names its own cause in the journal.
 
@@ -176,7 +174,9 @@ gps-dashboard/
 │   ├── client.py
 │   └── ingest.py
 ├── firmware/                   # ESPHome configs for remote ESP32 sensor nodes
-│   └── cabin-bme680.yaml       # XIAO ESP32-C6 + BME680 (BSEC2 IAQ)
+│   ├── cabin-bme680.yaml       # XIAO ESP32-C6 + BME680 (BSEC2 IAQ)
+│   ├── README.md
+│   └── secrets.yaml.example    # copy to secrets.yaml before flashing
 ├── static/
 │   ├── css/app.css
 │   ├── img/tile-error.png
@@ -185,9 +185,8 @@ gps-dashboard/
 │   │   ├── sensors.js      # /sensors viewer (current values + uPlot charts)
 │   │   └── skyplot.js      # /skyplot 3D satellite hemisphere (plain canvas)
 │   └── vendor/
-│       ├── leaflet/        # unused — deleted after Phase 8 validation
 │       ├── nouislider/
-│       ├── maplibre/       # maplibre-gl (leaflet-maplibre-gl.js here is unused, pending deletion)
+│       ├── maplibre/       # maplibre-gl
 │       ├── pmtiles/        # pmtiles.js range reader
 │       ├── uplot/          # uPlot time-series charts (sensor trends)
 │       └── basemap/        # Protomaps style.json + glyphs + sprite
@@ -204,7 +203,8 @@ gps-dashboard/
 │   ├── gpsd_setup.py
 │   ├── gpsd_validate.py
 │   ├── ntp_setup.py
-│   └── ntp_validate.py
+│   ├── ntp_validate.py
+│   └── obd_probe.py            # OBD-II Phase-0 connectivity probe (docs/obd-platform-plan.md)
 ├── deploy/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service
@@ -215,13 +215,7 @@ gps-dashboard/
 │   ├── chrony-gps-only.conf
 │   ├── chrony-gps-pps.conf
 │   └── 99-gps-dongle.rules
-├── docs/
-│   ├── plan.md
-│   ├── gps-denoise-plan.md
-│   ├── sensor-platform-plan.md
-│   ├── terrain-integration-plan.md
-│   ├── terrain-tiles-plan.md
-│   └── vector-tiles-prototype-plan.md
+├── docs/                       # per-subsystem plan + design docs (one *-plan.md each)
 └── pyproject.toml
 ```
 

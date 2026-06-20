@@ -7,9 +7,9 @@
 # .format(z=, x=, y=) call works regardless of layer.
 #
 # `max_zoom` is the highest zoom the upstream actually serves; requests beyond
-# it are rejected with 400. The frontend uses this as Leaflet's maxNativeZoom
-# so it upsamples the deepest tile rather than asking for ones that don't
-# exist.
+# it are rejected with 400. The frontend caps the raster source's `maxzoom`
+# here so MapLibre overzooms the deepest tile rather than asking for ones that
+# don't exist.
 
 # Raster layers only. OSM is now a vector PMTiles basemap served separately
 # (see api/routes/tiles.py:osm_pmtiles and static/vendor/basemap), so USGS is
