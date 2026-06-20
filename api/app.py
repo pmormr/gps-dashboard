@@ -2,6 +2,7 @@ from flask import Flask, render_template
 
 from api.db import get_connection, init_db, migrate
 from api.routes.annotations import annotations_bp
+from api.routes.drone import drone_bp
 from api.routes.points import points_bp
 from api.routes.sensors import sensors_bp
 from api.routes.status_gpsd import status_gpsd_bp
@@ -19,6 +20,7 @@ def create_app():
     app.register_blueprint(points_bp)
     app.register_blueprint(sensors_bp)
     app.register_blueprint(annotations_bp)
+    app.register_blueprint(drone_bp)
     app.register_blueprint(tiles_bp)
     app.register_blueprint(status_gpsd_bp)
     app.register_blueprint(status_ntp_bp)

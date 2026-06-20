@@ -176,9 +176,18 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
   clip, so completions come in bursts and 125 clips take far longer than the ~30 s/clip
   single-clip figure implied. It's a one-time backfill (steady-state incremental runs touch
   only new clips); `--jobs` in the timer unit is the knob if it loads the NAS too hard.
-- **Phase 3 — Ingest API + remote CLI.** `POST /api/drone/flights` (idempotent, behind the
-  same write fn as `load_flight`) + `GET /api/drone/flights?bbox=&start=&end=`;
-  `import_drone.py --api URL` for the laptop manual path over the van LAN.
+- **Phase 3 — Ingest API + remote CLI. DONE 2026-06-20.** `api/routes/drone.py`:
+  `POST /api/drone/flights` reconstructs a `Flight` from identity + thinned points
+  (the server *derives* time bounds / bbox / `n_points` — RW keeps both endpoints, so
+  `points[0]`/`points[-1]` bound the track) and writes it through the shared
+  `load_flight`, so the `(model_code, first_fix_utc)` natural key dedups the remote
+  path identically (201 import / 200 skip|backfill). `GET /api/drone/flights?bbox=&start=&end=&points=`
+  returns flights whose bounds *overlap* the filters (all optional), thinned track
+  embedded unless `points=0`. `import_drone.py` grows a `Loader` sink ABC
+  (`DbLoader` / `ApiLoader`, mirroring the `Extractor` pattern) + `--api URL` (POSTs
+  via `requests`; mutually exclusive with `--db` / `--incremental`, which are the
+  local-DB home-sync path). Round-trip smoke-tested (POST→GET, idempotency,
+  media-path backfill, bbox/time overlap filters, validation).
 - **Phase 4 — Basic map overlay.** Drone tracks styled distinctly from van tracks on `/`,
   **colored per drone model** (Mini 5 Pro / Avata 2 / Neo), `abs_alt` draped on the 3D
   terrain, media path surfaced on click. (Rich media-pin UI = deferred, folds into

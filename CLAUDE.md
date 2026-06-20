@@ -91,6 +91,8 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /api/sensors` — sensor registry, each row with its latest reading embedded
 - `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
+- `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
+- `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
 - `GET /gpsd` — read-only gpsd status page
 - `GET /skyplot` — live 3D satellite skyplot page
@@ -128,6 +130,7 @@ gps-dashboard/
 │       ├── annotations.py
 │       ├── tiles.py
 │       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
+│       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
 │       ├── status_gpsd.py
 │       └── status_ntp.py
 ├── logger/

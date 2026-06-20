@@ -20,16 +20,22 @@ Two extraction backends (decisions 4–6):
 Extraction is single-core CPU-bound per clip, so clips fan out across ``--jobs``
 workers; DB writes are serialized on the main thread (single SQLite writer).
 
+Two write sinks pair with the backends: a local SQLite write (default — the Pi-side
+home sync) or ``--api URL``, which POSTs each thinned flight to a running dashboard
+(``POST /api/drone/flights``). The API sink is the off-grid laptop path — scan an
+attached card and ship the flights to the Pi over the van LAN, no internet — and the
+server dedups on the same natural key, so it is idempotent without ``--incremental``.
+
 Examples::
 
     # Home sync: Pi extracts on the NAS in a container, writes its local DB
     uv run tools/import_drone.py --ssh rex-nas --remote-dir /volume2/misc/Drone
 
-    # Laptop manual path: scan an attached card with local exiftool
-    uv run tools/import_drone.py --source /Volumes/DJI_SD --db /tmp/drone.db
+    # Laptop manual path: scan an attached card, POST flights to the Pi over the LAN
+    uv run tools/import_drone.py --source /Volumes/DJI_SD --api http://192.168.42.178:5000
 
     uv run tools/import_drone.py --ssh rex-nas --remote-dir /volume2/misc/Drone \\
-        --limit 2 --dry-run        # discover + extract, no DB write
+        --limit 2 --dry-run        # discover + extract, no write
 """
 
 from __future__ import annotations
@@ -42,6 +48,8 @@ import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+
+import requests
 
 from api.db import canonical_timestamp, get_connection, init_db, now_canonical
 from processor.simplify import reumann_witkam
@@ -483,6 +491,103 @@ def load_flight(conn: sqlite3.Connection, flight: Flight) -> str:
     return 'imported'
 
 
+def flight_payload(flight: Flight) -> dict:
+    """Serialize a flight for the ``POST /api/drone/flights`` ingest body.
+
+    Carries only identity + the thinned points; the server derives the time bounds,
+    bbox, and point count from the points (Reumann–Witkam keeps both endpoints, so
+    they bound the track). Kept symmetric with the route's ``_flight_from_json``.
+
+    Args:
+        flight: The flight to serialize.
+
+    Returns:
+        A JSON-serializable request body.
+    """
+    clip = flight.clip
+    return {
+        'model': clip.model,
+        'model_code': clip.model_code,
+        'media_path': clip.media_path,
+        'source_name': clip.name,
+        'points': [
+            {
+                'timestamp': p.timestamp,
+                'lat': p.lat,
+                'lon': p.lon,
+                'abs_alt': p.abs_alt,
+                'importance': p.importance,
+            }
+            for p in flight.points
+        ],
+    }
+
+
+# --- Write sinks ---------------------------------------------------------------
+
+
+class Loader(ABC):
+    """A write sink for parsed flights (local SQLite, or a remote dashboard API)."""
+
+    @abstractmethod
+    def load(self, flight: Flight) -> str:
+        """Persist one flight and return its outcome word.
+
+        Args:
+            flight: The flight to write.
+
+        Returns:
+            ``imported``, ``backfilled``, or ``skipped``.
+        """
+
+    def imported_media_paths(self) -> set[str]:
+        """Return canonical media paths already loaded (for ``--incremental``).
+
+        Empty for sinks that cannot cheaply answer it; only the local DB sink
+        supports incremental skipping (the API path forbids it at parse time).
+        """
+        return set()
+
+
+class DbLoader(Loader):
+    """Writes flights to the local SQLite DB — the Pi-side home sync."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        """Initialize the sink.
+
+        Args:
+            conn: An open, initialized connection (the single writer).
+        """
+        self._conn = conn
+
+    def load(self, flight: Flight) -> str:
+        return load_flight(self._conn, flight)
+
+    def imported_media_paths(self) -> set[str]:
+        return {
+            row['media_path'] for row in self._conn.execute(
+                "SELECT media_path FROM drone_flights WHERE media_path IS NOT NULL"
+            )
+        }
+
+
+class ApiLoader(Loader):
+    """POSTs flights to a running dashboard's ingest API — the laptop LAN path."""
+
+    def __init__(self, base_url: str) -> None:
+        """Initialize the sink.
+
+        Args:
+            base_url: The dashboard base URL, e.g. ``http://192.168.42.178:5000``.
+        """
+        self._url = base_url.rstrip('/') + '/api/drone/flights'
+
+    def load(self, flight: Flight) -> str:
+        response = requests.post(self._url, json=flight_payload(flight), timeout=30)
+        response.raise_for_status()
+        return response.json()['outcome']
+
+
 # --- Orchestration -------------------------------------------------------------
 
 
@@ -499,6 +604,22 @@ def build_extractor(args: argparse.Namespace) -> Extractor:
     if args.ssh:
         return SshDockerExtractor(args.ssh, args.remote_dir, args.image)
     return LocalExtractor(args.source, args.exiftool)
+
+
+def build_loader(args: argparse.Namespace) -> Loader:
+    """Construct the write sink selected by the CLI args.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An :class:`ApiLoader` (``--api``), or a :class:`DbLoader` over the local DB.
+    """
+    if args.api:
+        return ApiLoader(args.api)
+    conn = get_connection()
+    init_db(conn)
+    return DbLoader(conn)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -524,16 +645,10 @@ def run(args: argparse.Namespace) -> int:
     if not clips:
         return 0
 
-    conn = None if args.dry_run else get_connection()
-    if conn is not None:
-        init_db(conn)
+    loader = None if args.dry_run else build_loader(args)
 
-    if args.incremental and conn is not None:
-        imported = {
-            row['media_path'] for row in conn.execute(
-                "SELECT media_path FROM drone_flights WHERE media_path IS NOT NULL"
-            )
-        }
+    if args.incremental and loader is not None:
+        imported = loader.imported_media_paths()
         kept = [clip for clip in clips if clip.media_path not in imported]
         print(f'Incremental: {len(clips) - len(kept)} already imported, '
               f'{len(kept)} to extract', flush=True)
@@ -559,12 +674,12 @@ def run(args: argparse.Namespace) -> int:
                     counts['empty'] += 1
                     print(f'  {clip.name}: no valid GPS fix — skipped', flush=True)
                     continue
-                if conn is None:
+                if loader is None:
                     print(f'  {clip.name}: {len(flight.points)} pts '
                           f'[{flight.first_fix_utc}] (dry-run)', flush=True)
                     n_points += len(flight.points)
                     continue
-                outcome = load_flight(conn, flight)
+                outcome = loader.load(flight)
                 counts[outcome] += 1
                 if outcome == 'imported':
                     n_points += len(flight.points)
@@ -617,7 +732,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--remote-dir', help='Directory on the --ssh host to scan/mount (required with --ssh)')
     parser.add_argument('--image', default=DEFAULT_IMAGE, help=f'Container image for --ssh (default: {DEFAULT_IMAGE})')
     parser.add_argument('--exiftool', default='exiftool', help='ExifTool executable for --source (default: exiftool)')
-    parser.add_argument('--db', help='SQLite DB path (default: GPS_DB_PATH / ~/gps_history.db)')
+    parser.add_argument('--db', help='SQLite DB path for the local sink (default: GPS_DB_PATH / ~/gps_history.db)')
+    parser.add_argument('--api', help='POST flights to a dashboard URL instead of a local DB (laptop LAN path)')
     parser.add_argument('--epsilon', type=float, default=DEFAULT_EPSILON,
                         help=f'Reumann–Witkam tolerance in metres (default: {DEFAULT_EPSILON})')
     parser.add_argument('--jobs', type=int, default=DEFAULT_JOBS,
@@ -629,6 +745,10 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.ssh and not args.remote_dir:
         parser.error('--remote-dir is required with --ssh')
+    if args.api and args.db:
+        parser.error('--db is the local sink and cannot combine with --api')
+    if args.api and args.incremental:
+        parser.error('--incremental is the local-DB home-sync path and cannot combine with --api')
     return args
 
 
