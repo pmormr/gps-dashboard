@@ -8,6 +8,10 @@ A GPS history browser for a Raspberry Pi installed in a van, serving a local net
 
 Users connect via phone or laptop over the van's WiFi. No authentication is required — the LAN is trusted.
 
+## Documentation layout
+
+This file is the architectural map and router: base architecture + pointers. Subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `sensors`); per-subsystem design + roadmap live in `docs/*-plan.md`. Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here.
+
 ## Deployment
 
 Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dashboard` (serves the web app). Both are managed via a bare git repo with a post-receive hook.
@@ -90,59 +94,17 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### Frontend
 
-Separate files in `static/` and `templates/`. All JS/CSS vendored in `static/vendor/` — no CDN calls at runtime. Mobile-first (primary client is a phone browser).
+Plain files in `static/` + `templates/`, all JS/CSS vendored in `static/vendor/` (no CDN at runtime), mobile-first. One map-centric MapLibre view at `/` (time picker, sub-range slider, annotations drawer, server-side size-aware decimation) plus four standalone pages — `/gpsd`, `/skyplot`, `/ntp`, `/sensors`. See **`.claude/modules/frontend.md`** for the view controls and per-page detail.
 
-One map-centric view at `/`:
-- **Time picker** (`TimePicker`, `static/js/timepicker.js`) — Graylog-style. Modes Last / Around / From→To with anchor + window state; preset chips (15m/1h/6h/24h/7d/30d) collapse to Live + Last. A Live flag pins the anchor to `now()` and re-fetches every 30s.
-- **Sub-range slider** (`noUiSlider`) — zooms inside the loaded window. The trail polyline + map-fit follow the slider's selection; in live re-fetches `fitBounds` is skipped so the view doesn't jerk.
-- **Annotations drawer** — right-edge drawer on desktop, bottom sheet on mobile, toggled from the tab bar. Lists points + ranges; click jumps the picker (range → `range` mode, point → `around` mode keeping current window) and pans to the nearest fix. Map overlays: cyan polylines for in-window ranges, amber pins for in-window points; matching bands + ticks on the slider.
-- **Creation** — "Create Range" uses the slider's `[lo, hi]` (≥2 points); "Drop Pin" captures the slider's `hi` handle (or `now` in live).
-- **Decimation** — server-side and size-aware (C17): the client always requests `limit=20000` and the `/api/points` handler keeps every stop + the highest-`importance` moving vertices (see the API section). The old client-side `?bucket=` time-bucketing is gone — the processed tier is already sparse, so blind time-decimation isn't needed.
-- **Other map controls** — ⊕ FAB zooms to the most recent GPS fix; the ⚙ Labels panel (vector basemap) tunes POI categories, label density, and minor-street-name visibility; the 🏔 3D panel toggles terrain draping and sets exaggeration (off = flat 2D, north-up; on unlocks pitch + rotate).
+### Basemaps & Terrain
 
-Four standalone pages:
-- `/gpsd` — gpsd service state, fix mode, satellite count, latest coordinates, pass/fail indicators
-- `/skyplot` — live 3D satellite skyplot (`static/js/skyplot.js`). Polls `/api/gpsd/sky` every ~4s and renders the visible constellation on a draggable, tilted wireframe hemisphere in plain canvas (no 3D lib — stays offline). Satellites placed by az/el, depth-sorted with a stem to the dome floor, colored by constellation, filled = used / hollow = visible, sized by SNR. Drag to orbit/tilt; a "Top-down" button sets tilt 90° for the classic flat azimuth plot. A van glyph at dome center is oriented to the GPS heading (falls back to an observer dot when stopped). The legend chips tap-to-toggle each constellation's visibility, and "Trails"/"Vectors" overlay each satellite's trajectory and a moving-average direction arrow. DOP is illustrated three ways: always-on H/V/PDOP gauge bars (zoned by quality) + a colored Quality label, a toggleable "Footprint" (horizontal error ellipse on the dome floor from xdop/ydop + a VDOP pillar from the van, colored by PDOP band), and a toggleable "Geometry" hull (dashed convex hull of the used satellites — the spread that produces the DOP). All toggles persist in `localStorage`. Satellite motion history is accumulated client-side across polls (pruned after ~5 min); the server stores nothing.
-- `/ntp` — chrony sync status, stratum, offset, GPS/PPS source state, LAN server status
-- `/sensors` — per-sensor current values + trend charts. JS-driven (`static/js/sensors.js`), polling `/api/sensors` and `/api/sensors/:id/readings` every 30s, charting with vendored uPlot. Reads from the logged DB — no live broker needed — so it works regardless of the broker's websockets support. Range buttons (1h/6h/24h/7d) and a liveness dot per sensor (online/stale/offline from the registry).
-
-`/gpsd` and `/ntp` auto-refresh every 30 seconds via `<meta refresh>`; `/skyplot` and `/sensors` poll in place (a full reload would drop canvas/chart state).
-
-### Basemaps & Terrain: Vector OSM + Raster USGS + Terrain DEM
-
-Two basemaps, served two different ways, plus an elevation source for 3D rendering. A single `maplibregl.Map` (`MapView` in `static/js/map.js`) renders the view — Leaflet was dropped for pure MapLibre GL so the map can pitch and drape on terrain. A layer dropdown in the tab bar switches the active basemap; a 🏔 3D panel toggles terrain draping (see Terrain below).
-
-**OSM — vector (default).** A single immutable PMTiles archive (`northamerica.pmtiles`, z0–15, ~33 GB) rendered client-side by MapLibre GL. Flask serves the archive at `GET /tiles/osm.pmtiles` with HTTP range support (`send_file(conditional=True)`); `pmtiles.js` issues range requests for the header, directories, and tiles. Path from `$GPS_PMTILES_PATH` (`/mnt/nvme/tiles/northamerica.pmtiles` on the Pi; dev fallback `~/.cache/gps-dashboard/northamerica.pmtiles`). The MapLibre lib, pmtiles.js, and the Protomaps "light" style + full Noto Sans BMP glyphs + sprite are vendored under `static/vendor/{maplibre,pmtiles,basemap}` — no CDN at runtime. Crisp overzoom past z15 is free. The archive is a persistent asset (like the DB), updated only by a full re-extract + atomic file replace (see `docs/vector-tiles-prototype-plan.md`), never per-tile — there is no `?refresh` for vector. `map.js` loads the style as an object and absolutizes `sprite`/`glyphs` against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL stays root-relative.
-
-**USGS — raster.** Flask proxies USGS Topo tiles when online and caches to `$GPS_TILE_CACHE_DIR/usgs/{z}/{x}/{y}.png` (`/mnt/nvme/cache/tiles` on the Pi; dev fallback `~/.cache/gps-dashboard/tiles/`). Serves from cache offline; 503 if uncached and offline. Route shape `GET /tiles/<layer>/<z>/<x>/<y>.png`; unknown layer or z past the layer's max → 400. `api/tile_layers.py` is the raster layer registry (USGS only now), imported by both the route and `precache.py`. ETags live in sidecar files (`<layer>/{z}/{x}/{y}.etag`); `?refresh=1` fires a background `If-None-Match` GET per tile and silently updates the cache. The "↻" checkbox in the tab bar enables refresh mode — raster only, disabled while the vector base is selected. Tile writes are atomic (thread-unique `.tmp` then `replace`), so a crash mid-write can never leave a torn PNG.
-
-**Terrain — Mapzen Terrarium PNG, served as PMTiles.** Not a basemap of its own; an elevation source MapLibre reads via a `raster-dem` style source with `encoding: 'terrarium'`. A single immutable PMTiles archive (`northamerica-terrain.pmtiles`, z0–12, ~105 GB) covering the same NA bbox as the OSM archive. Flask serves it at `GET /tiles/terrain.pmtiles` with byte-range support — same `send_file(conditional=True)` shape as `osm.pmtiles`. Path from `$GPS_TERRAIN_PMTILES_PATH` (`/mnt/nvme/tiles/northamerica-terrain.pmtiles` on the Pi; dev fallback `~/.cache/gps-dashboard/northamerica-terrain.pmtiles`). Each PNG tile encodes elevation in meters per pixel as `(R*256 + G + B/256) - 32768`. Source: AWS Open Data `s3://elevation-tiles-prod/terrarium/` (CONUS layer is built from USGS NED 10m, ~z12 native resolution; global coverage outside CONUS). Update model identical to OSM: full re-fetch + atomic replace, no `?refresh`. The 🏔 3D panel toggle drapes the active basemap (vector OSM or USGS) on the mesh and unlocks pitch + rotate; default load is flat 2D, north-up. The DEM feeds two `raster-dem` sources — one for `setTerrain` (the mesh), one for an optional hillshade layer inserted below the vector labels (USGS topo already bakes in relief, so hillshade is vector-only). The GPS track and annotation ranges are plain GeoJSON `line` layers, which MapLibre drapes onto the mesh automatically via render-to-texture — no special draping property needed (`line-elevation-reference` is a Mapbox-only feature and is not used). See `docs/terrain-integration-plan.md` for the integration and `docs/terrain-tiles-plan.md` for the archive build.
-
-A collapsible "⚙ Labels" panel (vector only) tunes POI categories, label density, and minor-street-name visibility by driving the MapLibre map directly (`static/js/labels.js`).
-
-`tools/precache.py` pre-downloads raster tiles (USGS only) for a bbox + zoom range. Region table is in `tools/regions.py` (frozen `Region` dataclass, shared with `fetch_terrain_tiles.py`). Practical zoom z8–z14 for USGS. Source modes: `--region`, `--bbox`, and `--local` (bbox around the current GPS fix, configurable `--radius` km, default 50).
-
-`tools/fetch_terrain_tiles.py` downloads Mapzen Terrarium PNGs into an MBTiles archive (asyncio + httpx worker pool, per-zoom resume, TMS-Y inversion on write). `pmtiles convert` then packs the MBTiles into the served PMTiles archive. Build off-Pi (dev laptop or NAS) and ship via rsync; never build on the Pi.
+A single MapLibre map (`MapView`, `static/js/map.js`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The ⚙ Labels and 🏔 3D panels drive the map directly. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
 
 ### GPS Logger Detail
 
 Bypasses the Python `gps` library in favor of a direct TCP socket to gpsd on `localhost:2947`. Sends `?WATCH={"enable":true,"json":true}\n`, parses TPV JSON records. Motion-gates raw writes: the full nav rate (~5 Hz) while moving, throttled to ~1 Hz while parked (Doppler speed < 0.5 m/s) — parked 5 Hz is correlated bloat the processor's static-hold collapses anyway. SKY-sourced DOP + sat counts write to `receiver_metadata` on a separate ~5 s throttle. Reconnects automatically on failure with 5s backoff.
 
 Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd (no bytes at all), and a staleness watchdog forces a reconnect if no valid fix is seen for 120s *while data is still flowing* — the case the socket timeout misses, since gpsd keeps emitting SKY/no-fix TPV. Every 60s it logs a heartbeat with points written, current fix mode, age of the last write, and a breakdown of dropped records by reason (no_fix, no_latlon, bad_range, null_island, stale_time, throttled, json_err), so a silent stall names its own cause in the journal.
-
-### gpsd & NTP Setup
-
-Setup and validation are handled by CLI scripts in `tools/`, not through the web UI. Service config templates live in `deploy/`.
-
-- `tools/gpsd_setup.py` — interactive: detects devices, writes `/etc/default/gpsd`, restarts gpsd. For USB serial devices (ttyACM*/ttyUSB*), reads VID/PID via udevadm and offers to install the udev rule and switch to `/dev/gps0`. After restart, polls until gpsd is active and a TPV fix (mode ≥ 2) is received (up to 90s) before running validation.
-- `deploy/99-gps-dongle.rules` — **legacy USB dongle only** (not the current serial GPS). udev rule that pins the u-blox dongle (VID 1546, PID 01a7) to `/dev/gps0` and notifies gpsd via `gpsdctl add` on every plug-in, so gpsd re-attaches whenever the dongle re-enumerates. `gpsd_setup.py` installs it for USB devices. Manual install: `sudo cp deploy/99-gps-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger`.
-- `tools/gpsd_validate.py` — checks service, device, fix, data flow; prints PASS/FAIL per check
-- `tools/ntp_setup.py` — interactive: configures chrony with GPS SHM source, optional PPS; enables Pi as LAN NTP server
-- `tools/ntp_validate.py` — checks chrony sync, GPS/PPS source, stratum, LAN serving
-
-Two chrony config templates:
-- `deploy/chrony-gps-pps.conf` — **current**: serial GPS with PPS (sub-microsecond accuracy), stratum 1
-- `deploy/chrony-gps-only.conf` — legacy USB dongle, no PPS (~100ms accuracy), stratum 10
 
 ### Sensor Platform (MQTT)
 
@@ -221,15 +183,7 @@ gps-dashboard/
 
 ## Hardware Notes
 
-Current GPS hardware: a u-blox **NEO-M9N** module (4-constellation: GPS + GLONASS + Galileo + BeiDou, plus SBAS/QZSS; firmware SPG 4.04, PROTVER 32.01) wired to the Raspberry Pi (CM5) GPIO header. gpsd reads the module as **UBX binary** (not NMEA) on the primary header UART `/dev/ttyAMA0` at 38400 baud — gpsd auto-configures the M9N on attach (NMEA off, UBX NAV-PVT/SAT/DOP on), so TPV carries per-fix accuracy (`epx`/`epy`) and `SKY` is fully populated. The module's TIMEPULSE is wired to GPIO 4 and read via the `pps-gpio` overlay → `/dev/pps0`. gpsd and the logger both reference `/dev/ttyAMA0`. NTP runs in GPS+PPS mode (chrony stratum 1, sub-microsecond accuracy via PPS).
-
-(gpsd also exposes a phantom `/dev/pps1` from attaching the PPS line discipline to the UART; nothing is wired to it. Chrony only uses `/dev/pps0`.)
-
-The module runs at 38400 — its factory default — set via `GPSD_OPTIONS="-n -s 38400"` in `/etc/default/gpsd`. The rule is "match the module's reset-default baud rate," not the literal number: an earlier attempt to drive the previous module at 115200 was lost when its config-backup power drained (cable borrowed mid-trip), reverting it to its factory default on the next reboot while gpsd kept forcing 115200 — gpsd then silently received nothing and the logger stalled invisibly for days. Keeping gpsd pointed at the module's reset default means a power loss can't desync them. PPS, not baud, drives timing precision, so the headline number is irrelevant — 38400 comfortably carries the **5 Hz UBX** nav stream from all four constellations. The nav rate (`CFG-RATE-MEAS`) is set to 200 ms / 5 Hz and persisted to flash; gpsd never *forces* a rate (unlike baud), so a flash revert to the 1 Hz factory default is graceful, not a silent stall.
-
-Legacy hardware:
-- The immediately previous module was a serial GPS at 9600 baud (its factory default); the M9N replaces it on the same UART and same GPIO 4 PPS pin, just at a higher baud rate.
-- Before that, a u-blox 7 USB dongle (VID 1546, PID 01a7) pinned to `/dev/gps0` via `deploy/99-gps-dongle.rules` and run GPS-only (stratum 10, ~100ms). That udev rule and the `/dev/gps0` path apply only to the USB dongle, not the current serial GPS.
+Current GPS: a u-blox **NEO-M9N** read by gpsd as **UBX binary** on `/dev/ttyAMA0` @ 38400, 5 Hz, 4-constellation; PPS on GPIO 4 → `/dev/pps0` drives chrony stratum 1. **Baud trap:** keep gpsd at the module's *reset-default* baud (38400), never a higher forced rate — a power-drained config revert once desynced gpsd and stalled the logger silently for days. Full module/PPS/baud detail, legacy hardware, and the gpsd/NTP setup + validation tooling are in **`.claude/modules/hardware.md`**.
 
 ## Tool Scripts
 
@@ -241,8 +195,8 @@ All scripts in `tools/` must handle `KeyboardInterrupt` gracefully — print `"\
 # Install dependencies
 uv sync
 
-# Run the web app locally
-uv run api/app.py
+# Run the web app locally (module form — api/app.py uses package imports)
+uv run python -m api.app
 
 # Pre-cache tiles for a region
 uv run tools/precache.py --region colorado --zoom 8-15
