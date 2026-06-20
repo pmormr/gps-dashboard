@@ -27,9 +27,10 @@ transitions emit `track_events` (`stop_start` / `stop_end`).
 
 **PARKED (software static hold):** enter when speed stays below `stop_speed_enter` for
 `stop_min_duration` with displacement within `stop_radius`. While parked, maintain **one
-provisional** `kind='stop'` row, continuously recomputing an accuracy-weighted position
-(weighted/geometric median of lat/lon; drop or down-weight fixes whose
-`eph`≈√(epx²+epy²) exceeds `accuracy_reject`) and updating `dwell_end` / `n_raw` /
+provisional** `kind='stop'` row, continuously recomputing the held position as an
+**accuracy-weighted mean** of lat/lon (`w = 1/max(eph, floor)²`, O(1) running weighted
+sums — a true geometric median is deferred), down-weighting / rejecting fixes whose
+`eph`≈√(epx²+epy²) exceeds `accuracy_reject`, and updating `dwell_end` / `n_raw` /
 `radius` as fixes arrive — the estimate improves as the stop lengthens. Exit on
 `stop_speed_exit` (hysteresis) or leaving `stop_radius`; finalize, emit `stop_end`,
 advance the cursor.
