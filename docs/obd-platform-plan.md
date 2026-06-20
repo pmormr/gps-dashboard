@@ -11,6 +11,17 @@
 > fast-poll path (O7), and the MPG = OBD-fuel × GPS-distance synergy (O8). Phase 0
 > (de-risk with the BAFX, no purchase) is the immediate actionable; everything
 > downstream hinges on what that session reveals.
+>
+> **Iteration 2** (2026-06-19) — ran Phase 0 against the BAFX. The full software path
+> is proven end-to-end (BT-Classic pair → `rfcomm` → `/dev/rfcomm0` → `python-OBD` →
+> `tools/obd_probe.py`, all driven on the Pi), and `python-OBD` (O6) is
+> approved/installed (`obd==0.7.3`). **But the van's bus is gated:** every CAN protocol
+> (11/29-bit, 500/250k, J1939) returns `CAN ERROR` against a perfectly healthy ELM
+> (13.2 V, all `AT` `OK`) — the OBD-II diagnostic CAN is isolated from the adapter.
+> That's the **FCA/Fiat Security Gateway** blocking a cheap ELM327 v1.5 clone (the BAFX
+> has never worked on this van). **BAFX eliminated;** Phase 0 resumes on the incoming
+> **OBDLink EX** (STN chip, SGW-capable), with a 12+8 SGW-bypass harness as the
+> offline-safe fallback. See Phase 0 below.
 
 ## Context
 
@@ -49,12 +60,14 @@ future phase, and is *why* the data model is built generically now.
   mass-airflow sensor — so PID `10` (MAF) is expected to be **unsupported**, which
   shapes the fuel-rate approach (see O8 / open decision B). Authoritative answer comes
   from the Phase 0 supported-PID query, not from this assumption.
-- **FCA Security Gateway (SGW).** 2018+ Stellantis vehicles add a Secure Gateway
-  Module that blocks *write* access (clearing codes, actuator tests) through the OBD
-  port. Read-only live-data polling — exactly this use case — **generally** passes,
-  but with enough model-year variance that **Phase 0 must confirm reads work on this
-  van** before any hardware spend. (If reads are blocked, a 12+8 SGW-bypass harness
-  exists, but it's invasive and almost certainly unnecessary for passive logging.)
+- **FCA Security Gateway (SGW) — confirmed blocking (2026-06-19).** 2018+ FCA/Fiat
+  vehicles put a Secure Gateway between the OBD port and the real CAN buses. On this
+  van it isolates the diagnostic CAN from a cheap ELM327: the BAFX returns `CAN ERROR`
+  on *every* CAN protocol — not "writes blocked, reads pass," but **no bus access at
+  all**. The fix is a gateway-capable adapter (the OBDLink EX's STN chip is built for
+  FCA SGW vehicles) and, if even that can't read live data, a **12+8 SGW-bypass
+  harness** that bridges the diagnostic CAN around the gateway — pure hardware, no
+  internet/AutoAuth, so it's the offline-safe answer for a permanent off-grid install.
 
 ### The reader(s) — a swappable component (O1)
 
@@ -64,7 +77,7 @@ dongle. Validate with what's on hand, upgrade as an isolated swap.
 
 | Reader | Conn | Chip | Role | Notes |
 |--------|------|------|------|-------|
-| **BAFX Bluetooth** (owned) | BT-Classic SPP | ELM327 clone | **Phase 0 validation** | Free; settles SGW-reads + PID support today. Weaknesses (slow, no true sleep → parasitic draw, flaky rfcomm reconnect) are why we don't keep it as the permanent reader. |
+| **BAFX Bluetooth** (owned) | BT-Classic SPP | ELM327 v1.5 clone | **Phase 0 — eliminated** | `CAN ERROR` on every protocol → can't clear this van's FCA SGW (2026-06-19). Proved the software path works; retired as a reader. |
 | **OBDLink EX** (incoming) | **USB** | STN2120 | Permanent install | Deterministic `/dev/ttyUSB0`, udev-pinnable like the GPS; no radio, no pairing. Wired is the right call for a fixed van install. |
 
 WiFi dongles (make their own AP, fight the van LAN) and BLE dongles (custom GATT,
@@ -245,30 +258,38 @@ framing) — `vehicle/obd.py` is the semantic alternative (open decision D).
 
 Each phase ships something real and de-risks the next.
 
-### Phase 0 — De-risk with the BAFX (no purchase) — **immediate focus**
+### Phase 0a — De-risk with the BAFX — **DONE (BAFX eliminated, 2026-06-19)**
 
-Everything downstream hinges on what this reveals. Runs on the **Pi, in the van,
-engine running**, with the owned BAFX.
+Ran on the Pi in the van, engine running. Proved the software path end-to-end and
+delivered the hardware verdict: the cheap BAFX can't get through the van's gateway.
 
-- [ ] **Approve `python-OBD`** (O6) — or elect the raw-serial fallback for the probe.
-- [ ] **Pair the BAFX** over BT-Classic on the Pi: `bluetoothctl` scan/pair/trust the
-      dongle MAC, then `sudo rfcomm bind 0 <MAC> 1` → `/dev/rfcomm0`. (rfcomm is
-      semi-deprecated in BlueZ but works; its flakiness is exactly why the permanent
-      reader is the USB EX.)
-- [ ] **`tools/obd_probe.py`** (throwaway, `KeyboardInterrupt`→130): connect, print
-      `connection.supported_commands`, then log live values for a short drive to a
-      file. Settles, from the real vehicle:
-      - **Does the FCA SGW allow read-only PID polling?** (any data back = yes; the
-        whole reader question is unblocked.)
-      - **What does the Pentastar actually report?** MAF (`10`) absent as expected?
-        Is fuel rate (`5E`) present, or must we derive fuel? Fuel level (`2F`)?
-      - **Real throughput** (PIDs/sec on this clone) → informs cadence + the fast/slow
-        PID split.
-      - **DTCs present?** (mode `03`) — for the health use case.
-- [ ] **Decision gate:** finalize the PID set + cadence (open A), the fuel-rate source
-      (open B), and the drain/hardware approach (O5 — EX sleep vs ignition relay,
-      informed by how long the van actually sits). The OBDLink EX is on the way as the
-      permanent reader regardless.
+- [x] **`python-OBD` approved + installed** (O6) — `obd==0.7.3` (pulls `pyserial` +
+      `pint`), committed and deployed to the Pi.
+- [x] **BAFX paired** over BT-Classic (`00:1D:A5:1D:F9:B6 OBDII`, PIN-less SSP) →
+      `sudo rfcomm bind 0 … 1` → `/dev/rfcomm0`. Pair + bind + the whole pipeline
+      (pair → rfcomm → python-OBD → probe, driven over SSH) all work.
+- [x] **`tools/obd_probe.py`** written and run. ELM healthy (v1.5 clone, all `AT`
+      `OK`, `ATRV` 13.2 V) but **no ECU answers:** `0100` → `UNABLE TO CONNECT` on
+      auto, `CAN ERROR` on forced `ATSP6/7/8/9/A` (11/29-bit, 500/250k, J1939). No
+      DTCs readable either.
+- [x] **Verdict: the FCA/Fiat Security Gateway blocks the cheap BAFX clone** (it has
+      never worked on this van). `CAN ERROR` everywhere = the adapter is on the pins
+      but the diagnostic CAN is isolated — **not** an ignition/connection issue
+      (tested engine-running; voltage present; ELM fully responsive).
+
+### Phase 0b — Re-run on the OBDLink EX — **pending hardware (EX incoming)**
+
+The reader is swappable (O1), so this is a drop-in retry on a gateway-capable adapter.
+
+- [ ] Plug the **OBDLink EX** (USB → `/dev/ttyUSB0`, no Bluetooth); udev-pin it for a
+      stable path. Re-run `tools/obd_probe.py --port /dev/ttyUSB0`.
+- [ ] **If it reads live data** (STN chips usually clear the FCA SGW for J1979 reads):
+      Phase 0 succeeds — capture the supported-PID set + throughput, then settle the
+      PID set/cadence (open A), the fuel-rate source (open B), and the drain approach
+      (O5).
+- [ ] **If it still `CAN ERROR`s:** fit a **12+8 SGW-bypass harness** (bridges the
+      diagnostic CAN around the gateway; hardware-only, offline-safe — no AutoAuth).
+      The EX then reads normally.
 
 ### Phase 1 — Reader + schema + ingest
 
@@ -371,9 +392,10 @@ the existing lists. Update as each phase lands, not retroactively.
 
 ## Success criteria (go/no-go per phase)
 
-0. **Phase 0:** the BAFX, plugged into the van with the engine running, returns
-   read-only PID data through the SGW; we know the supported-PID set, real throughput,
-   and whether fuel rate is native or must be derived.
+0. **Phase 0:** a gateway-capable adapter (the OBDLink EX — the BAFX was eliminated,
+   it `CAN ERROR`s through the FCA SGW) returns read-only PID data; we know the
+   supported-PID set, real throughput, and whether fuel rate is native or must be
+   derived.
 1. **Phase 1:** a live OBD reading travels dongle → MQTT → `obd_readings`,
    auto-registers `(van, obd)`, carries a correct ms timestamp, and survives an ingest
    restart without loss.
