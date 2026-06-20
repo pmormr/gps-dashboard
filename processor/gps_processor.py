@@ -38,6 +38,11 @@ from datetime import datetime
 from enum import Enum
 
 from api.db import get_connection, init_db
+from processor.simplify import (
+    EARTH_RADIUS_M,
+    local_meters as _local_meters,
+    perp_distance_m as _perp_distance_m,
+)
 
 CURSOR_KEY = 'last_committed_raw_id'
 POLL_INTERVAL_SECONDS = 2.0
@@ -45,7 +50,6 @@ BATCH_SIZE = 5000
 HEARTBEAT_SECONDS = 60
 ERROR_BACKOFF_SECONDS = 5
 
-EARTH_RADIUS_M = 6_371_000.0
 # Weight clamp for the accuracy-weighted stop estimate: w = 1/max(eph, floor)^2.
 # Floors how much a single very-precise fix can dominate and avoids div-by-zero.
 EPH_FLOOR_M = 1.0
@@ -203,28 +207,6 @@ def _ts_seconds(ts: str) -> float:
     return datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
 
 
-def _local_meters(
-    lat: float, lon: float, ref_lat: float, ref_lon: float
-) -> tuple[float, float]:
-    """Project a point to local east/north metres about a reference point.
-
-    Equirectangular approximation — accurate to well under a metre at the
-    sub-kilometre scales the filter compares (deviations, dwell radii).
-
-    Args:
-        lat: Point latitude (deg).
-        lon: Point longitude (deg).
-        ref_lat: Reference latitude (deg).
-        ref_lon: Reference longitude (deg).
-
-    Returns:
-        ``(east, north)`` offset in metres from the reference.
-    """
-    east = math.radians(lon - ref_lon) * EARTH_RADIUS_M * math.cos(math.radians(ref_lat))
-    north = math.radians(lat - ref_lat) * EARTH_RADIUS_M
-    return east, north
-
-
 def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Planar distance in metres between two points.
 
@@ -239,30 +221,6 @@ def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     east, north = _local_meters(lat1, lon1, lat2, lon2)
     return math.hypot(east, north)
-
-
-def _perp_distance_m(
-    p: tuple[float, float], a: tuple[float, float], b: tuple[float, float]
-) -> float:
-    """Perpendicular distance (m) from point ``p`` to the infinite line ``a``–``b``.
-
-    The Reumann–Witkam deviation metric. When ``a`` and ``b`` coincide, falls
-    back to the distance to ``a``.
-
-    Args:
-        p: The test point ``(lat, lon)``.
-        a: A point on the line ``(lat, lon)`` — the anchor.
-        b: A second point on the line ``(lat, lon)`` — the direction reference.
-
-    Returns:
-        Perpendicular distance in metres.
-    """
-    pe, pn = _local_meters(p[0], p[1], a[0], a[1])
-    be, bn = _local_meters(b[0], b[1], a[0], a[1])
-    seg = math.hypot(be, bn)
-    if seg == 0.0:
-        return math.hypot(pe, pn)
-    return abs(pe * bn - pn * be) / seg
 
 
 def _weight(eph: float | None) -> float:
