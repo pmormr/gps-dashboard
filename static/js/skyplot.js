@@ -71,7 +71,7 @@ const view = {
 
 /** @returns {{hidden:string[], trails:boolean, vectors:boolean}} Stored prefs. */
 function loadPrefs() {
-  const base = { hidden: [], trails: false, vectors: false };
+  const base = { hidden: [], trails: false, vectors: false, footprint: false, geometry: false };
   try {
     return Object.assign(base, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'));
   } catch (e) {
@@ -156,6 +156,25 @@ function px(p, cx, cy, r) {
 function rgba(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+/** Color a DOP value by quality band (lower is better geometry). */
+function dopColor(d) {
+  if (typeof d !== 'number') return '#64748b';
+  if (d < 2) return '#22c55e';
+  if (d < 5) return '#f59e0b';
+  if (d < 10) return '#f97316';
+  return '#ef4444';
+}
+
+/** Word label for an overall (P)DOP value. */
+function dopLabel(d) {
+  if (typeof d !== 'number') return '—';
+  if (d < 1) return 'Excellent';
+  if (d < 2) return 'Good';
+  if (d < 5) return 'Moderate';
+  if (d < 10) return 'Fair';
+  return 'Poor';
 }
 
 /** Draw the wireframe hemisphere: rings, meridians, zenith, compass labels. */
@@ -289,6 +308,107 @@ function drawArrow(x0, y0, x1, y1, color) {
   ctx.fill();
 }
 
+/**
+ * Draw the DOP "precision footprint": a horizontal error ellipse on the dome
+ * floor (semi-axes from xdop east / ydop north) plus a VDOP pillar rising from
+ * the van, both colored by the PDOP quality band. The ellipse and pillar are
+ * projected through the camera, so they tilt/foreshorten with the 3D view
+ * (top-down collapses the pillar to a point — vertical extent is unseen from
+ * straight above). Sizes are illustrative (grow with DOP), not metric error.
+ *
+ * @param {number} cx Canvas center x.
+ * @param {number} cy Canvas center y.
+ * @param {number} r Dome radius in pixels.
+ */
+function drawFootprint(cx, cy, r) {
+  const m = view.meta;
+  if (!m) return;
+  const xd = typeof m.xdop === 'number' ? m.xdop : m.hdop;
+  const yd = typeof m.ydop === 'number' ? m.ydop : m.hdop;
+  if (typeof xd !== 'number' || typeof yd !== 'number') return;
+  const color = dopColor(m.pdop);
+  const sE = (8 + xd * 18) / r;  // dome units → ellipse semi-axis east
+  const sN = (8 + yd * 18) / r;  // → north
+
+  ctx.beginPath();
+  for (let a = 0; a <= 360; a += 6) {
+    const ar = a * DEG;
+    const [x, y] = px(camera(sE * Math.cos(ar), sN * Math.sin(ar), 0), cx, cy, r);
+    a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = rgba(color, 0.16);
+  ctx.fill();
+  ctx.strokeStyle = rgba(color, 0.9);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  if (typeof m.vdop === 'number') {
+    const h = (10 + m.vdop * 16) / r;
+    const [x0, y0] = px(camera(0, 0, 0), cx, cy, r);
+    const [x1, y1] = px(camera(0, 0, h), cx, cy, r);
+    ctx.strokeStyle = rgba(color, 0.85);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x1, y1, 3.5, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
+/** 2D convex hull (monotone chain) of screen points. */
+function convexHull(pts) {
+  if (pts.length < 3) return pts.slice();
+  const p = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+/**
+ * Shade the convex hull of the satellites used in the fix — the geometry that
+ * produces the DOP. A large, well-spread hull means low DOP; a tight or
+ * lopsided one means high DOP.
+ *
+ * @param {number} cx Canvas center x.
+ * @param {number} cy Canvas center y.
+ * @param {number} r Dome radius in pixels.
+ * @param {Array} sats Currently visible satellites.
+ */
+function drawHull(cx, cy, r, sats) {
+  const used = sats.filter((s) => s.used)
+    .map((s) => { const [x, y] = px(project(s.az, s.el), cx, cy, r); return { x, y }; });
+  if (used.length < 3) return;
+  const hull = convexHull(used);
+  ctx.beginPath();
+  hull.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  const color = dopColor(view.meta && view.meta.pdop);
+  ctx.fillStyle = rgba(color, 0.10);
+  ctx.fill();
+  ctx.setLineDash([4, 3]);
+  ctx.strokeStyle = rgba(color, 0.55);
+  ctx.lineWidth = 1.25;
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 /** Draw one satellite: stem to the dome floor, then the marker + PRN label. */
 function drawSat(s, cx, cy, r) {
   const color = GNSS[s.gnss] || GNSS.Other;
@@ -397,6 +517,8 @@ function draw() {
   drawDome(cx, cy, r);
 
   const sats = visibleSats();
+  if (prefs.geometry) drawHull(cx, cy, r, sats);
+  if (prefs.footprint) drawFootprint(cx, cy, r);
   if (prefs.trails) drawTrails(cx, cy, r, sats);
 
   const ordered = sats
@@ -426,14 +548,37 @@ function renderStats() {
   set('st-fix', m.fix_label || '—', m.fix_mode >= 3 ? 'ok' : m.fix_mode >= 2 ? 'warn' : 'err');
   set('st-head', typeof m.track === 'number' ? `${Math.round(m.track)}° ${cardinal(m.track)}` : '—');
   set('st-speed', typeof m.speed === 'number' ? `${(m.speed * 2.23694).toFixed(1)} mph` : '—');
-  const dop = (v) => (typeof v === 'number' ? v.toFixed(1) : '—');
-  set('st-hdop', dop(m.hdop));
-  set('st-vdop', dop(m.vdop));
-  set('st-pdop', dop(m.pdop));
+  const q = document.getElementById('st-quality');
+  q.textContent = dopLabel(m.pdop);
+  q.className = 'v';
+  q.style.color = dopColor(m.pdop);
+  gauge('h', m.hdop);
+  gauge('v', m.vdop);
+  gauge('p', m.pdop);
   if (view.updatedAt) {
     const age = Math.round((Date.now() - view.updatedAt) / 1000);
     set('st-age', age <= 1 ? 'now' : `${age}s ago`);
   }
+}
+
+/**
+ * Position a DOP gauge marker (0–10 scale, clamped) and set its value text.
+ *
+ * @param {string} k Gauge id prefix ('h' | 'v' | 'p').
+ * @param {number} val DOP value.
+ */
+function gauge(k, val) {
+  const mark = document.getElementById(`dop-${k}-mark`);
+  const vEl = document.getElementById(`dop-${k}-v`);
+  if (typeof val !== 'number') {
+    vEl.textContent = '—';
+    mark.style.display = 'none';
+    return;
+  }
+  mark.style.display = 'block';
+  mark.style.left = `${Math.max(0, Math.min(1, val / 10)) * 100}%`;
+  vEl.textContent = val.toFixed(2);
+  vEl.style.color = dopColor(val);
 }
 
 /** Build the constellation toggle chips from the set seen this session. */
@@ -517,7 +662,8 @@ function demoSky() {
   return {
     connected: true, fix_mode: 3, fix_label: '3D Fix', track: 295, speed: 12.4,
     used: sats.filter((s) => s.used).length, seen: sats.length,
-    hdop: 0.8, vdop: 1.2, pdop: 1.5, satellites: sats,
+    hdop: 0.8, vdop: 1.2, pdop: 1.5, xdop: 0.5, ydop: 0.7, gdop: 1.9, tdop: 0.9,
+    satellites: sats,
   };
 }
 
@@ -602,6 +748,8 @@ document.getElementById('btn-reset').addEventListener('click', () => {
 });
 bindToggle('btn-trails', 'trails');
 bindToggle('btn-vectors', 'vectors');
+bindToggle('btn-footprint', 'footprint');
+bindToggle('btn-geometry', 'geometry');
 
 window.addEventListener('resize', resize);
 bindDrag();

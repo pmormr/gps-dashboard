@@ -43,6 +43,17 @@
     .leg-toggle.off { opacity: .4; text-decoration: line-through; }
     .swatch { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
     .leg-note { width: 100%; color: var(--muted); font-size: 11px; padding-top: 2px; }
+
+    /* DOP gauges */
+    .dop { padding: 12px 14px; border-top: 1px solid var(--border); }
+    .dop-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
+    .dop-row { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 10px; margin-bottom: 7px; }
+    .dop-row:last-child { margin-bottom: 0; }
+    .dop-k { font-size: 12px; color: var(--muted); }
+    .dop-track { position: relative; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #22c55e 0%, #22c55e 18%, #f59e0b 50%, #f97316 72%, #ef4444 100%); opacity: .85; }
+    .dop-mark { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px; background: #f8fafc; box-shadow: 0 0 0 1px rgba(15,23,42,.7); transform: translateX(-50%); }
+    .dop-v { font-size: 13px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+    .dop-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin: 4px 0 0 54px; }
     .refresh-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
   </style>
 </head>
@@ -69,18 +80,26 @@
     <button class="btn" id="btn-reset">Reset view</button>
     <button class="btn toggle" id="btn-trails">Trails</button>
     <button class="btn toggle" id="btn-vectors">Vectors</button>
+    <button class="btn toggle" id="btn-footprint">Footprint</button>
+    <button class="btn toggle" id="btn-geometry">Geometry</button>
   </div>
 
   <div class="legend" id="legend"></div>
+
+  <div class="dop">
+    <div class="dop-title">Dilution of precision (geometry)</div>
+    <div class="dop-row"><span class="dop-k">HDOP</span><div class="dop-track"><div class="dop-mark" id="dop-h-mark"></div></div><span class="dop-v" id="dop-h-v">—</span></div>
+    <div class="dop-row"><span class="dop-k">VDOP</span><div class="dop-track"><div class="dop-mark" id="dop-v-mark"></div></div><span class="dop-v" id="dop-v-v">—</span></div>
+    <div class="dop-row"><span class="dop-k">PDOP</span><div class="dop-track"><div class="dop-mark" id="dop-p-mark"></div></div><span class="dop-v" id="dop-p-v">—</span></div>
+    <div class="dop-scale"><span>0</span><span>2</span><span>5</span><span>10+</span></div>
+  </div>
 
   <div class="stats">
     <div class="stat"><div class="k">Used / Seen</div><div class="v" id="st-sats">— / —</div></div>
     <div class="stat"><div class="k">Fix</div><div class="v" id="st-fix">—</div></div>
     <div class="stat"><div class="k">Heading</div><div class="v" id="st-head">—</div></div>
     <div class="stat"><div class="k">Speed</div><div class="v" id="st-speed">—</div></div>
-    <div class="stat"><div class="k">HDOP</div><div class="v" id="st-hdop">—</div></div>
-    <div class="stat"><div class="k">VDOP</div><div class="v" id="st-vdop">—</div></div>
-    <div class="stat"><div class="k">PDOP</div><div class="v" id="st-pdop">—</div></div>
+    <div class="stat"><div class="k">Quality</div><div class="v" id="st-quality">—</div></div>
     <div class="stat"><div class="k">Updated</div><div class="v" id="st-age">—</div></div>
   </div>
 </div>

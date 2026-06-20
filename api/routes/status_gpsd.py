@@ -266,5 +266,9 @@ def gpsd_sky():
         'hdop': sky.get('hdop'),
         'vdop': sky.get('vdop'),
         'pdop': sky.get('pdop'),
+        'xdop': sky.get('xdop'),
+        'ydop': sky.get('ydop'),
+        'gdop': sky.get('gdop'),
+        'tdop': sky.get('tdop'),
         'satellites': plotted,
     }
