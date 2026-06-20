@@ -188,10 +188,19 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
   via `requests`; mutually exclusive with `--db` / `--incremental`, which are the
   local-DB home-sync path). Round-trip smoke-tested (POST→GET, idempotency,
   media-path backfill, bbox/time overlap filters, validation).
-- **Phase 4 — Basic map overlay.** Drone tracks styled distinctly from van tracks on `/`,
-  **colored per drone model** (Mini 5 Pro / Avata 2 / Neo), `abs_alt` draped on the 3D
-  terrain, media path surfaced on click. (Rich media-pin UI = deferred, folds into
-  [[next-ui-pass]].)
+- **Phase 4 — Basic map overlay. DONE 2026-06-20.** A 🚁 Drone floating panel on `/`
+  (toggle + per-model color legend) lazily fetches *all* flights once (`Drone`,
+  `static/js/drone.js`) and renders them as a standalone `drone-line` layer
+  (`static/js/map.js`), **colored per model** via a `match` on `model_code`
+  (Mini 5 Pro purple / Avata 2 orange / Neo pink), independent of the van time
+  picker (chosen over time-window coupling — the dataset is tiny and a 24h window
+  would usually be empty). Click a track → a themed popup with model, time span,
+  **`abs_alt` range**, point count, and the media path. **v1 limitation — tracks
+  drape flat on the terrain, not at flight altitude:** the vendored MapLibre has no
+  `line-z-offset`/elevated-line support, so `abs_alt` is popup-only. Elevating the
+  track to true flight height (upgrade for `line-z-offset`, or fill-extrusion
+  pillars, or a three.js custom layer) is the deferred follow-up — pairs with the
+  RW horizontal-thinning altitude-loss limitation.
 
 ---
 

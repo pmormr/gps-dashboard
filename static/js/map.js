@@ -101,9 +101,22 @@ const MapView = (() => {
 
   let installing = false;     // re-entrancy guard for reinstallOverlays
   let rangePopup = null;
+  let dronePopup = null;
+
+  // Drone overlay state, re-applied after every style load like the track/range.
+  let droneFeatures = [];
 
   const TRACK_COLOR = '#ef4444';
   const RANGE_COLOR = '#22d3ee';
+
+  // Per-model drone-track colors, keyed by the FC#### model_code. Keep in sync
+  // with the legend swatches in templates/index.html.
+  const DRONE_COLORS = {
+    FC9313: '#a855f7', // DJI Mini 5 Pro — purple
+    FC8485: '#f97316', // DJI Avata 2 — orange
+    FC8671: '#ec4899', // DJI Neo — pink
+  };
+  const DRONE_DEFAULT_COLOR = '#94a3b8';
 
   function emptyFC() {
     return { type: 'FeatureCollection', features: [] };
@@ -123,6 +136,50 @@ const MapView = (() => {
 
   function rangeFC() {
     return { type: 'FeatureCollection', features: rangeFeatures };
+  }
+
+  function droneFC() {
+    return { type: 'FeatureCollection', features: droneFeatures };
+  }
+
+  function droneColor(modelCode) {
+    return DRONE_COLORS[modelCode] || DRONE_DEFAULT_COLOR;
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // One LineString feature per flight; abs_alt min/max are folded into properties
+  // here (popup-only — the line itself drapes flat onto the terrain in v1). The
+  // model_code property drives the per-model line color via a match expression.
+  function droneFlightToFeature(flight) {
+    const pts = flight.points || [];
+    let altMin = null;
+    let altMax = null;
+    for (const p of pts) {
+      if (p.abs_alt == null) continue;
+      if (altMin == null || p.abs_alt < altMin) altMin = p.abs_alt;
+      if (altMax == null || p.abs_alt > altMax) altMax = p.abs_alt;
+    }
+    return {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: pts.map(p => [p.lon, p.lat]) },
+      properties: {
+        flight_id: flight.id,
+        model: flight.model,
+        model_code: flight.model_code,
+        media_path: flight.media_path || '',
+        source_name: flight.source_name || '',
+        first_fix_utc: flight.first_fix_utc,
+        last_fix_utc: flight.last_fix_utc,
+        n_points: flight.n_points,
+        alt_min: altMin,
+        alt_max: altMax,
+      },
+    };
   }
 
   // ── DOM markers (terrain-aware; clamp to ground automatically) ──
@@ -238,11 +295,36 @@ const MapView = (() => {
         });
       }
 
+      // Drone tracks sit above the van track/ranges. One source, per-model color
+      // via a match on model_code (default for any unknown FC#### code).
+      if (!map.getSource('drone-tracks')) map.addSource('drone-tracks', { type: 'geojson', data: droneFC() });
+      if (!map.getLayer('drone-line')) {
+        map.addLayer({
+          id: 'drone-line',
+          type: 'line',
+          source: 'drone-tracks',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': [
+              'match', ['get', 'model_code'],
+              'FC9313', DRONE_COLORS.FC9313,
+              'FC8485', DRONE_COLORS.FC8485,
+              'FC8671', DRONE_COLORS.FC8671,
+              DRONE_DEFAULT_COLOR,
+            ],
+            'line-width': 2.5,
+            'line-opacity': 0.9,
+          },
+        });
+      }
+
       // Sources are fresh after a style swap — push the current data back in.
       const track = map.getSource('track');
       if (track) track.setData(trackData);
       const range = map.getSource('ann-range');
       if (range) range.setData(rangeFC());
+      const drone = map.getSource('drone-tracks');
+      if (drone) drone.setData(droneFC());
 
       applyTerrain();
     } catch (e) {
@@ -282,6 +364,40 @@ const MapView = (() => {
     });
   }
 
+  // Click a drone track → a popup with model, time span, altitude range, and the
+  // canonical media path. Registered once; the layer-scoped handlers no-op until
+  // the drone-line layer exists.
+  function dronePopupHtml(p) {
+    const durMs = new Date(p.last_fix_utc) - new Date(p.first_fix_utc);
+    const alt = (p.alt_min != null && p.alt_max != null)
+      ? `${fmtAltitude(p.alt_min)}–${fmtAltitude(p.alt_max)} MSL`
+      : '—';
+    const path = p.media_path
+      ? `<div class="drone-popup-path" title="${escapeHtml(p.media_path)}">${escapeHtml(p.media_path)}</div>`
+      : `<div class="drone-popup-path muted">${escapeHtml(p.source_name || 'no media path')}</div>`;
+    return (
+      `<div class="drone-popup">` +
+      `<div class="drone-popup-title">` +
+      `<span class="drone-popup-swatch" style="background:${droneColor(p.model_code)}"></span>` +
+      `${escapeHtml(p.model)}</div>` +
+      `<div class="drone-popup-meta">${fmtDate(p.first_fix_utc)} · ${fmtTime(p.first_fix_utc)} → ${fmtTime(p.last_fix_utc)} · ${fmtDuration(durMs)}</div>` +
+      `<div class="drone-popup-meta">Alt ${alt} · ${p.n_points} pts</div>` +
+      path +
+      `</div>`
+    );
+  }
+
+  function wireDronePopup() {
+    dronePopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' });
+    map.on('mouseenter', 'drone-line', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'drone-line', () => { map.getCanvas().style.cursor = ''; });
+    map.on('click', 'drone-line', (e) => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      dronePopup.setLngLat(e.lngLat).setHTML(dronePopupHtml(f.properties)).addTo(map);
+    });
+  }
+
   // ── Public API ──
 
   function init(elementId) {
@@ -304,6 +420,7 @@ const MapView = (() => {
     map.on('styledata', reinstallOverlays);
     map.on('style.load', handleStyleLoad);
     wireRangeTooltip();
+    wireDronePopup();
     applyBasemap(currentLayer);
   }
 
@@ -383,6 +500,22 @@ const MapView = (() => {
     addMarker(pinMarkers, pinElement(), lat, lon, 'bottom', name || '');
   }
 
+  // Replace the drone overlay with the given flights (≥2-point tracks only — a
+  // LineString needs two coords; degenerate single-fix flights are dropped). The
+  // features are retained so reinstallOverlays can re-push them after a style swap.
+  function showDroneTracks(flights) {
+    droneFeatures = (flights || [])
+      .filter(f => (f.points || []).length >= 2)
+      .map(droneFlightToFeature);
+    if (map && map.getSource('drone-tracks')) map.getSource('drone-tracks').setData(droneFC());
+  }
+
+  function clearDroneTracks() {
+    droneFeatures = [];
+    if (dronePopup) dronePopup.remove();
+    if (map && map.getSource('drone-tracks')) map.getSource('drone-tracks').setData(droneFC());
+  }
+
   function fitTo(points) {
     if (!map || !points.length) return;
     const b = new maplibregl.LngLatBounds();
@@ -434,6 +567,7 @@ const MapView = (() => {
     init, showTrack, clearTrack, fitToTrack, zoomTo, invalidateSize,
     setRefreshMode, setLayer, getVectorBase, onVectorBase,
     clearAnnotations, addRangeOverlay, addPinOverlay,
+    showDroneTracks, clearDroneTracks,
     setTerrainEnabled, setExaggeration, getTerrainEnabled,
   };
 })();

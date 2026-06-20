@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   TimePicker.init();
   Timeline.init();
   Annotations.init();
+  Drone.init();
 
   // Annotations drawer toggle (replaces the old Annotations tab)
   const drawer = document.getElementById('annotations-drawer');
@@ -71,5 +72,12 @@ document.addEventListener('DOMContentLoaded', () => {
   terrainExag.addEventListener('input', () => {
     terrainExagVal.textContent = terrainExag.value;
     MapView.setExaggeration(parseFloat(terrainExag.value));
+  });
+
+  // Drone overlay panel — collapse toggle mirrors the other floating panels; the
+  // show/hide checkbox is wired inside Drone.init().
+  const dronePanel = document.getElementById('drone-panel');
+  document.getElementById('drone-panel-toggle').addEventListener('click', () => {
+    dronePanel.classList.toggle('collapsed');
   });
 });

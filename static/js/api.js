@@ -17,6 +17,18 @@ const API = {
     return this._fetch('/api/points/latest');
   },
 
+  // Drone flights for the map overlay. No filters ⇒ every flight (the dataset is
+  // tiny); pass start/end/bbox to scope, or points:false for a metadata listing.
+  getDroneFlights(opts = {}) {
+    const params = new URLSearchParams();
+    if (opts.start) params.set('start', opts.start);
+    if (opts.end) params.set('end', opts.end);
+    if (opts.bbox) params.set('bbox', opts.bbox);
+    if (opts.points === false) params.set('points', '0');
+    const qs = params.toString();
+    return this._fetch('/api/drone/flights' + (qs ? `?${qs}` : ''));
+  },
+
   getAnnotations() {
     return this._fetch('/api/annotations');
   },

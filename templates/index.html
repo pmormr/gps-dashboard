@@ -66,6 +66,21 @@
             </div>
           </div>
         </div>
+        <div id="drone-panel" class="floating-panel collapsed">
+          <button id="drone-panel-toggle" class="floating-panel-hdr" type="button">🚁 Drone</button>
+          <div class="floating-panel-body">
+            <label class="label-check">
+              <input type="checkbox" id="drone-toggle"> Show drone flights
+            </label>
+            <!-- Swatch colors mirror DRONE_COLORS in static/js/map.js -->
+            <div class="drone-legend">
+              <span class="drone-legend-item"><span class="drone-swatch" style="background:#a855f7"></span>Mini 5 Pro</span>
+              <span class="drone-legend-item"><span class="drone-swatch" style="background:#f97316"></span>Avata 2</span>
+              <span class="drone-legend-item"><span class="drone-swatch" style="background:#ec4899"></span>Neo</span>
+            </div>
+            <p id="drone-status" class="muted"></p>
+          </div>
+        </div>
       </div>
 
       <!-- Bottom: slider strip + actions -->
@@ -217,6 +232,7 @@
 <script src="/static/js/timepicker.js"></script>
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/annotations.js"></script>
+<script src="/static/js/drone.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

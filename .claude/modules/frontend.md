@@ -25,6 +25,12 @@ A single MapLibre map (`MapView`, `static/js/map.js`) with time-range controls o
 - **Creation** — "Create Range" uses the slider's `[lo, hi]` (≥2 points); "Drop Pin"
   captures the slider's `hi` handle (or `now` in live).
 - **⊕ FAB** — zooms to the most recent GPS fix.
+- **🚁 Drone panel** (`static/js/drone.js`) — toggles the drone-track overlay. On
+  first enable it fetches *all* flights once from `GET /api/drone/flights` (tiny
+  dataset; independent of the time picker) and renders them as the `drone-line`
+  layer, colored per model (Mini 5 Pro / Avata 2 / Neo). Click a track → a popup
+  with model, time span, `abs_alt` range, and media path. v1 drapes the tracks flat
+  on the terrain (no elevated-line support in the vendored MapLibre).
 
 **View behavior.** Default view is Live, last 24h, centered on the most recent fix. The
 map re-centers **only** when Live is on or an annotation is clicked — otherwise the user
