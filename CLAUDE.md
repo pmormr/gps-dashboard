@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `drone-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 ## Deployment
 
