@@ -171,6 +171,11 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
   SSH `preflight()` makes an away-run (boondocking) a clean exit-0 no-op. Pi→NAS SSH is keyed
   (`gps-drone-sync@pmpi1` ed25519, `~/.ssh/config` Host `rex-nas` → 10.1.100.224, `pmorgan`
   in the NAS `docker` group); the post-receive hook installs the units and enables the timer.
+  **Perf correction:** the initial full backfill is **disk-I/O-bound on the NAS, not
+  CPU-bound** — 8 concurrent containers each do scattered random reads across a multi-GB 4K
+  clip, so completions come in bursts and 125 clips take far longer than the ~30 s/clip
+  single-clip figure implied. It's a one-time backfill (steady-state incremental runs touch
+  only new clips); `--jobs` in the timer unit is the knob if it loads the NAS too hard.
 - **Phase 3 — Ingest API + remote CLI.** `POST /api/drone/flights` (idempotent, behind the
   same write fn as `load_flight`) + `GET /api/drone/flights?bbox=&start=&end=`;
   `import_drone.py --api URL` for the laptop manual path over the van LAN.
