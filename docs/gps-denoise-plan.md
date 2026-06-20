@@ -71,6 +71,17 @@
 > `dwell_start` timestamp, the frontend's slider extent can run earlier than the
 > requested window; candidate Phase-5 refinement (clamp the stop's returned
 > timestamp or the slider range). Next is Phase 5 (tune the knobs).
+>
+> **Iteration 10** — Phase 5 (tune) done; **no thresholds changed**. The historical
+> data was all old ~5 s-throttle cadence, so a real ~54-min drive was logged first
+> under the new pipeline (which also validated motion-gating: 5 Hz moving @ 0.21 s /
+> 1 Hz parked @ 1.12 s, gate flipping at the 0.5 m/s threshold). Calibrated against
+> that trip: stop detection correct (44 s light caught, no missed/false stops), and
+> a `simplify_epsilon` sweep confirmed the default 2.5 m is the knee — it matches the
+> simplification tolerance to the receiver's ~1–2 m accuracy floor (p95 deviation
+> 2.0 m, 25× reduction). The denoise effort is now feature-complete through Phase 5;
+> only Phase 6 (events in the UI) and the deferred items remain. The slider-extent
+> nuance (Iteration 9) is still open, untouched.
 
 ## Context
 
@@ -526,8 +537,17 @@ Processor output, rebuildable like `track_points`. Distinct from the user-curate
       `dwell_end >= start AND dwell_start <= end`. Verified end-to-end against a Pi
       DB snapshot (273 k raw / 1015 track_points) via headless Chrome: history
       renders the denoised trail, live renders the open dwell, no JS errors.
-- [ ] **Phase 5 — Tune.** Calibrate the knobs against the marked Chick-fil-A trip
-      and a parked-overnight window; eyeball before/after.
+- [x] **Phase 5 — Tune.** Calibrated against a real ~54-min drive (2026-06-19,
+      13.4 k moving fixes) captured entirely under the new pipeline — the historical
+      data was all old ~5 s-throttle cadence, so a fresh drive was logged first.
+      **The starting knobs held up; no values changed.** An `simplify_epsilon` sweep
+      (2.0 / 2.5 / 3.0 / 3.5 / 5.0 m) showed 2.5 m sits exactly at the receiver's
+      ~1–2 m accuracy floor (25× reduction, raw→polyline deviation p95 2.0 m): lower
+      fits GPS noise, higher loses real shape for negligible vertex savings (stops
+      are the storage win, not vertices). Stop detection was correct (the 44 s light
+      caught, no missed/false stops); motion-gating validated 5 Hz moving / 1 Hz
+      parked. `importance` saturates near ε (RW characteristic) — a weak year-scale
+      ranking signal, exactly what the deferred Visvalingam upgrade addresses.
 - [ ] **Phase 6 (future) — Events in the UI.** Surface `track_events` as suggestions;
       optionally promote to `annotations`.
 
