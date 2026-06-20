@@ -26,6 +26,11 @@ A single MapLibre map (`MapView`, `static/js/map.js`) with time-range controls o
   captures the slider's `hi` handle (or `now` in live).
 - **⊕ FAB** — zooms to the most recent GPS fix.
 
+**View behavior.** Default view is Live, last 24h, centered on the most recent fix. The
+map re-centers **only** when Live is on or an annotation is clicked — otherwise the user
+pans/zooms freely (browsing ≠ navigation). Live is offered only in `last` mode (an
+`around`/`range` Live window would extend into the future).
+
 **Decimation is server-side and size-aware (C17):** the client always requests
 `limit=20000`; the `/api/points` handler keeps every stop plus the highest-
 `importance` moving vertices (see the API Endpoints section in CLAUDE.md). The old
@@ -57,3 +62,10 @@ client-side `?bucket=` time-bucketing is gone — the processed tier is already 
 
 `/gpsd` and `/ntp` auto-refresh every 30s via `<meta refresh>`; `/skyplot` and
 `/sensors` poll in place (a full reload would drop canvas/chart state).
+
+## Deferred
+
+- Richer trail rendering: color-by-speed, direction chevrons, head dot.
+- Per-annotation elevation profiles + speed-over-time charts (uPlot is already vendored
+  from `/sensors`).
+- Annotation-list pagination — hundreds of annotations render fine without it.

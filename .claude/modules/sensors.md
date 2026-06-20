@@ -5,12 +5,11 @@ still logs GPS unchanged, and additionally ingests environmental sensors (first 
 BME680: temperature, humidity, pressure, gas/VOC) over an MQTT bus, into the **same**
 SQLite DB so GPS↔sensor correlation is a local join.
 
-Roadmap, locked decisions, and per-phase success criteria live in
-`docs/sensor-platform-plan.md` — this file documents what has **landed**. Phases 0–2
-(schema + broker + ingest + the first remote ESP32 node) are in, plus a DB-backed
-**`/sensors` viewer** (current values + trend charts) that delivers the Phase 3 value
-without the blocked WS transport. Still open: *live* (push) readouts over MQTT-over-WS,
-alarms, and correlation UX.
+This module documents the sensor platform — what has **landed** and what's still open.
+Phases 0–2 (schema + broker + ingest + the first remote ESP32 node) are in, plus a
+DB-backed **`/sensors` viewer** (current values + trend charts) that delivers the
+live-readout value without the blocked WS transport. Still open: *live* (push) readouts
+over MQTT-over-WS, alarms, and correlation UX.
 
 The first sensor is a **BME680 on a dedicated ESPHome ESP32-C6 node**
 (`firmware/cabin-bme680.yaml`), not Pi-attached: it runs Bosch **BSEC2** on-device for
@@ -44,8 +43,13 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   (`static/js/sensors.js`, vendored uPlot) polls every 30s for current values and
   per-metric trend charts. This is the non-live half of Phase 3; it sidesteps the
   broker websockets blocker entirely.
-- **Browser (live)** — Phase 3 push path via MQTT-over-WS, not built (blocked on the
-  broker; see plan blocker F). The DB-backed viewer above covers most of the need.
+- **Browser (live)** — Phase 3 push path via MQTT-over-WS, **blocked:** the Pi's
+  mosquitto (Debian bookworm, 2.0.11 arm64) is built *without* libwebsockets, so a
+  `:9001` `protocol websockets` listener makes the broker refuse to start —
+  `deploy/mosquitto.conf` stays tcp `:1883` only. Resolve by rebuilding mosquitto with
+  libwebsockets, finding a WS-enabled package, or bridging MQTT→browser through Flask
+  (SSE / server-side WS). The DB-backed viewer above sidesteps it and covers most of the
+  need.
 
 `mqttbus/client.py` is the shared paho v2 client factory (env broker host/port,
 bounded reconnect backoff, optional retained LWT). `mqttbus/topics.py` is the single

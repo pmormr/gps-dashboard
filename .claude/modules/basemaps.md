@@ -19,8 +19,8 @@ header, directories, and tiles. Path from `$GPS_PMTILES_PATH`
 Protomaps "light" style + full Noto Sans BMP glyphs + sprite are vendored under
 `static/vendor/{maplibre,pmtiles,basemap}` — no CDN at runtime. Crisp overzoom past z15
 is free. The archive is a persistent asset (like the DB), updated only by a full
-re-extract + atomic file replace (see `docs/vector-tiles-prototype-plan.md`), never
-per-tile — there is no `?refresh` for vector.
+re-extract + atomic file replace (see Archive build notes below), never per-tile —
+there is no `?refresh` for vector.
 
 **Trap:** `map.js` loads the style as an object and absolutizes `sprite`/`glyphs`
 against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL
@@ -62,9 +62,6 @@ render-to-texture.
 **Eliminated pathway:** no special draping property is needed — `line-elevation-reference`
 is a Mapbox-only feature and is not used.
 
-See `docs/terrain-integration-plan.md` for the integration and `docs/terrain-tiles-plan.md`
-for the archive build.
-
 ## Tile tooling
 
 `tools/precache.py` pre-downloads raster tiles (USGS only) for a bbox + zoom range. The
@@ -76,3 +73,23 @@ region table is in `tools/regions.py` (frozen `Region` dataclass, shared with
 (asyncio + httpx worker pool, per-zoom resume, TMS-Y inversion on write). `pmtiles
 convert` then packs the MBTiles into the served PMTiles archive. Build off-Pi (dev
 laptop or NAS) and ship via rsync; never build on the Pi.
+
+## Archive build notes
+
+Both archives are built **off-Pi** (dev laptop or the `rex-nas` NAS) and atomic-replaced
+on the Pi (rsync → `.tmp`, `ssh mv` → final).
+
+**Vector OSM** — a Protomaps **extract** of a dated planet build (not planetiler),
+z0–15, NA bbox `-168,7,-52,72`. Identical-tile RLE gives real free compression here.
+
+**Terrain DEM** — Mapzen Terrarium PNG → MBTiles (`fetch_terrain_tiles.py`) → `pmtiles
+convert`, same NA bbox.
+- **z0–z12, not z13.** NA z13 projects to ~369 GB (over the ~200 GB budget); z12 is
+  ~116 GB at native NED 10m resolution — z13 buys only interpolation.
+- **Terrarium PNGs are ~40–100 KB/tile** (high-entropy elevation, ~3× the naive
+  estimate) and **don't dedup** (content ratio ~1.0), unlike the OSM archive — so the
+  zoom cap, not byte savings, is the size lever.
+- **Build-host gotchas:** write the MBTiles to SSD/ext4, not BTRFS-over-hybrid — SQLite
+  fsync at WAL checkpoints made the NAS ~2× slower on BTRFS. Detach long NAS jobs with
+  `setsid nohup … & disown` (bare `nohup` inherits SIGHUP and dies on ssh teardown).
+  `pmtiles` installs via `brew install pmtiles` (formula is `pmtiles`, not `go-pmtiles`).
