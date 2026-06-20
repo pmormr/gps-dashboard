@@ -201,6 +201,14 @@ def _classify(directory: str, name: str, encoder: str, category: str) -> Clip | 
 class Extractor(ABC):
     """An ExifTool execution context (local binary, or remote container)."""
 
+    def preflight(self) -> bool:
+        """Return True if the backend's host is reachable (default: always).
+
+        The home-sync timer fires regardless of where the van is; an unreachable
+        backend (boondocking) is a clean no-op, not an error.
+        """
+        return True
+
     @abstractmethod
     def _run(self, exif_args: list[str]) -> str:
         """Run ExifTool with ``exif_args`` and return its stdout.
@@ -322,6 +330,13 @@ class SshDockerExtractor(Extractor):
         if result.returncode not in (0, 1):
             raise RuntimeError(f"ssh/docker exiftool failed ({result.returncode}): {result.stderr.strip()}")
         return result.stdout
+
+    def preflight(self) -> bool:
+        result = subprocess.run(
+            ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', self._host, 'true'],
+            capture_output=True, text=True, check=False,
+        )
+        return result.returncode == 0
 
     def discover(self) -> list[Clip]:
         return self._discover_from('/data', self._to_media_path)
@@ -496,10 +511,11 @@ def run(args: argparse.Namespace) -> int:
         A process exit code.
     """
     extractor = build_extractor(args)
+    if not extractor.preflight():
+        print('Extraction host unreachable — nothing to do.', flush=True)
+        return 0
     print('Discovering telemetry clips...', flush=True)
     clips = extractor.discover()
-    if args.limit:
-        clips = clips[: args.limit]
     by_model: dict[str, int] = {}
     for clip in clips:
         by_model[clip.model] = by_model.get(clip.model, 0) + 1
@@ -511,6 +527,22 @@ def run(args: argparse.Namespace) -> int:
     conn = None if args.dry_run else get_connection()
     if conn is not None:
         init_db(conn)
+
+    if args.incremental and conn is not None:
+        imported = {
+            row['media_path'] for row in conn.execute(
+                "SELECT media_path FROM drone_flights WHERE media_path IS NOT NULL"
+            )
+        }
+        kept = [clip for clip in clips if clip.media_path not in imported]
+        print(f'Incremental: {len(clips) - len(kept)} already imported, '
+              f'{len(kept)} to extract', flush=True)
+        clips = kept
+        if not clips:
+            return 0
+
+    if args.limit:
+        clips = clips[: args.limit]
 
     counts = {'imported': 0, 'backfilled': 0, 'skipped': 0, 'empty': 0}
     n_points = 0
@@ -590,6 +622,8 @@ def parse_args() -> argparse.Namespace:
                         help=f'Reumann–Witkam tolerance in metres (default: {DEFAULT_EPSILON})')
     parser.add_argument('--jobs', type=int, default=DEFAULT_JOBS,
                         help=f'Parallel extractions (default: {DEFAULT_JOBS})')
+    parser.add_argument('--incremental', action='store_true',
+                        help='Skip clips whose media_path is already imported (home-sync timer)')
     parser.add_argument('--limit', type=int, help='Process at most N clips (testing)')
     parser.add_argument('--dry-run', action='store_true', help='Discover + extract, but do not write the DB')
     args = parser.parse_args()

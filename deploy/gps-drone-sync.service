@@ -1,0 +1,16 @@
+[Unit]
+Description=Drone telemetry home sync (import DJI footage from rex-nas)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+# Drives a transient exiftool container on the NAS over SSH; --incremental skips
+# clips already imported (by media_path). A no-op when rex-nas is unreachable
+# (boondocking) — the importer preflights the SSH host and exits 0.
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.import_drone \
+    --ssh rex-nas --remote-dir /volume2/misc/Drone --incremental --jobs 8

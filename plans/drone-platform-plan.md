@@ -164,11 +164,13 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
   **Known v1 limitation:** RW is horizontal-only (lat/lon), so a near-vertical
   climb/descent at fixed lat/lon collapses and loses its altitude profile — revisit
   (3D thinning or altitude-change keepalive) when Phase 4 drapes `abs_alt` on terrain.
-- **Phase 2 — Pi home sync.** `gps-drone-sync.service` + `.timer`: when rex-nas is reachable,
-  drive the importer (`--ssh rex-nas`) and write the local DB. The `--ssh` container backend
-  already exists; what's left is the timer/reachability gate and an **incremental skip** so a
-  re-scan doesn't re-extract all 125 clips (e.g. skip clips whose `media_path` is already
-  present — stable NAS paths make this cheap, at the cost of not re-checking a moved file).
+- **Phase 2 — Pi home sync. DONE 2026-06-20.** `deploy/gps-drone-sync.{service,timer}` — a
+  6-hourly oneshot driving `import_drone --ssh rex-nas --remote-dir /volume2/misc/Drone
+  --incremental --jobs 8`. `--incremental` skips clips whose `media_path` is already imported
+  (cheap discovery-only filter; a moved file re-extracts and the natural key dedups it). An
+  SSH `preflight()` makes an away-run (boondocking) a clean exit-0 no-op. Pi→NAS SSH is keyed
+  (`gps-drone-sync@pmpi1` ed25519, `~/.ssh/config` Host `rex-nas` → 10.1.100.224, `pmorgan`
+  in the NAS `docker` group); the post-receive hook installs the units and enables the timer.
 - **Phase 3 — Ingest API + remote CLI.** `POST /api/drone/flights` (idempotent, behind the
   same write fn as `load_flight`) + `GET /api/drone/flights?bbox=&start=&end=`;
   `import_drone.py --api URL` for the laptop manual path over the van LAN.
