@@ -11,4 +11,5 @@ dependencies = [
     "click>=8.0",
     "paho-mqtt>=2.1.0",
     "bme680>=2.0.0",
+    "obd>=0.7.3",
 ]
