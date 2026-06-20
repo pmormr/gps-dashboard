@@ -259,6 +259,8 @@ def gpsd_sky():
         'connected': gpsd['connected'],
         'fix_mode': mode,
         'fix_label': FIX_LABELS.get(mode, 'Unknown'),
+        'track': tpv.get('track'),
+        'speed': tpv.get('speed'),
         'used': sum(1 for s in sats if s.get('used')),
         'seen': len(sats),
         'hdop': sky.get('hdop'),

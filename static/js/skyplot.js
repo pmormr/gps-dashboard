@@ -1,16 +1,22 @@
 /**
  * Live 3D satellite skyplot.
  *
- * Polls the read-only `/api/gpsd/sky` endpoint (gpsd's SKY message, no history
- * stored) and renders the visible constellation on a tilted wireframe
- * hemisphere in plain canvas — no 3D library, so it stays offline-clean.
+ * Polls the read-only `/api/gpsd/sky` endpoint (gpsd's SKY + TPV, no history
+ * stored server-side) and renders the visible constellation on a tilted
+ * wireframe hemisphere in plain canvas — no 3D library, so it stays
+ * offline-clean.
  *
  * Each satellite is placed on a unit hemisphere by azimuth (compass angle) and
  * elevation (height), orthographically projected through a draggable
- * yaw/tilt camera. At tilt = 90° the projection collapses to the classic
- * flat top-down azimuth plot ("Top-down" button). Satellites are depth-sorted
- * so nearer ones occlude farther ones, with a vertical stem to the dome floor
- * as a height cue.
+ * yaw/tilt camera. At tilt = 90° the projection collapses to the classic flat
+ * top-down azimuth plot ("Top-down" button). Satellites are depth-sorted so
+ * nearer ones occlude farther ones, with a vertical stem to the dome floor as
+ * a height cue.
+ *
+ * Three overlays: a van glyph at dome center oriented to the GPS heading;
+ * per-constellation visibility toggles (the legend chips); and client-side
+ * per-satellite motion — trajectory trails and moving-average direction
+ * vectors accumulated across polls.
  */
 
 'use strict';
@@ -28,32 +34,68 @@ const GNSS = {
   SBAS: '#94a3b8',
   Other: '#64748b',
 };
+const GNSS_ORDER = ['GPS', 'GLONASS', 'Galileo', 'BeiDou', 'QZSS', 'SBAS', 'Other'];
 
 const DEG = Math.PI / 180;
 const TILT_DEFAULT = 55 * DEG;
 const TILT_MIN = 12 * DEG;
 const TILT_MAX = 90 * DEG;
+const MOVING_MS = 0.5;          // speed (m/s) above which heading is trusted
+const HISTORY_MAX = 45;         // samples kept per satellite (~3 min at 4s)
+const HISTORY_TTL_MS = 300000;  // drop a satellite's track after 5 min unseen
+const PREFS_KEY = 'skyplot.prefs';
 
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
 const wrap = document.getElementById('sky-wrap');
 const statusEl = document.getElementById('sky-status');
+const legendEl = document.getElementById('legend');
 
-/** @type {{size:number, yaw:number, tilt:number, sats:Array, meta:Object|null, updatedAt:number|null}} */
+/** Persisted prefs: which constellations are hidden + overlay toggles. */
+const prefs = loadPrefs();
+
 const view = {
   size: 0,
   yaw: 0,
   tilt: TILT_DEFAULT,
+  /** @type {Array<{prn:number, az:number, el:number, ss:number, used:boolean, gnss:string}>} */
   sats: [],
+  /** @type {Object|null} */
   meta: null,
   updatedAt: null,
+  /** Constellations seen this session (stable toggle bar). @type {Set<string>} */
+  seen: new Set(),
+  /** gnss-prn → [{az, el, t}] sample history for trails/vectors. @type {Map<string, Array>} */
+  history: new Map(),
 };
+
+/** @returns {{hidden:string[], trails:boolean, vectors:boolean}} Stored prefs. */
+function loadPrefs() {
+  const base = { hidden: [], trails: false, vectors: false };
+  try {
+    return Object.assign(base, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'));
+  } catch (e) {
+    return base;
+  }
+}
+
+/** Persist the current prefs to localStorage. */
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch (e) { /* private mode — non-fatal */ }
+}
+
+/** @param {Object} s Satellite. @returns {string} Stable history key. */
+function satKey(s) {
+  return s.gnss + '-' + s.prn;
+}
 
 /**
  * Rotate a world point (east, north, up) through the camera and project it to
  * screen space. At tilt = 90° the screen axes are (east, north) — top-down.
  *
- * @param {number} e East component of the unit vector.
+ * @param {number} e East component.
  * @param {number} n North component.
  * @param {number} u Up component.
  * @returns {{x:number, y:number, depth:number}} Screen offset from center (in
@@ -110,11 +152,15 @@ function px(p, cx, cy, r) {
   return [cx + p.x * r, cy + p.y * r];
 }
 
+/** Apply an alpha to a #rrggbb color. */
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
 /** Draw the wireframe hemisphere: rings, meridians, zenith, compass labels. */
 function drawDome(cx, cy, r) {
   ctx.lineWidth = 1;
-
-  // Elevation rings (horizon + 30° + 60°).
   for (const { el, strong } of [{ el: 0, strong: true }, { el: 30 }, { el: 60 }]) {
     ctx.beginPath();
     for (let az = 0; az <= 360; az += 4) {
@@ -126,7 +172,6 @@ function drawDome(cx, cy, r) {
     ctx.stroke();
   }
 
-  // Azimuth meridians from horizon to zenith.
   ctx.strokeStyle = 'rgba(148,163,184,0.18)';
   for (let az = 0; az < 360; az += 45) {
     ctx.beginPath();
@@ -137,14 +182,12 @@ function drawDome(cx, cy, r) {
     ctx.stroke();
   }
 
-  // Zenith marker.
   const [zx, zy] = px(project(0, 90), cx, cy, r);
   ctx.fillStyle = 'rgba(148,163,184,0.5)';
   ctx.beginPath();
   ctx.arc(zx, zy, 2, 0, 2 * Math.PI);
   ctx.fill();
 
-  // Compass labels, nudged outward from center along the screen radial.
   ctx.fillStyle = 'rgba(226,232,240,0.85)';
   ctx.font = '600 13px -apple-system, sans-serif';
   ctx.textAlign = 'center';
@@ -155,30 +198,105 @@ function drawDome(cx, cy, r) {
   ]) {
     const p = project(az, 0);
     const len = Math.hypot(p.x, p.y) || 1;
-    const [x, y] = [cx + (p.x / len) * (Math.hypot(p.x, p.y) * r + 14),
-                    cy + (p.y / len) * (Math.hypot(p.x, p.y) * r + 14)];
-    ctx.fillText(label, x, y);
+    const out = len * r + 14;
+    ctx.fillText(label, cx + (p.x / len) * out, cy + (p.y / len) * out);
+  }
+}
+
+/** Visible satellites after applying constellation toggles. */
+function visibleSats() {
+  const hidden = new Set(prefs.hidden);
+  return view.sats.filter((s) => !hidden.has(s.gnss));
+}
+
+/** Draw fading trajectory polylines from each satellite's sample history. */
+function drawTrails(cx, cy, r, sats) {
+  ctx.lineWidth = 1.6;
+  for (const s of sats) {
+    const h = view.history.get(satKey(s));
+    if (!h || h.length < 2) continue;
+    const color = GNSS[s.gnss] || GNSS.Other;
+    for (let i = 1; i < h.length; i++) {
+      const [x0, y0] = px(project(h[i - 1].az, h[i - 1].el), cx, cy, r);
+      const [x1, y1] = px(project(h[i].az, h[i].el), cx, cy, r);
+      ctx.strokeStyle = rgba(color, 0.12 + 0.45 * (i / h.length));
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
   }
 }
 
 /**
- * Draw one satellite: stem to the dome floor, then the marker.
+ * Moving-average per-step velocity (deg az/el) from a satellite's history.
  *
- * @param {Object} s Normalized satellite ({az, el, ss, used, gnss, prn}).
- * @param {number} cx Canvas center x.
- * @param {number} cy Canvas center y.
- * @param {number} r Dome radius in pixels.
+ * @param {string} key History key.
+ * @returns {{daz:number, del:number}|null} Averaged step, or null if too short.
  */
+function avgVelocity(key) {
+  const h = view.history.get(key);
+  if (!h || h.length < 3) return null;
+  let daz = 0;
+  let del = 0;
+  let n = 0;
+  for (let i = 1; i < h.length; i++) {
+    daz += ((h[i].az - h[i - 1].az + 540) % 360) - 180;  // shortest az step
+    del += h[i].el - h[i - 1].el;
+    n++;
+  }
+  return n ? { daz: daz / n, del: del / n } : null;
+}
+
+/** Draw a fixed-length direction arrow per satellite along its mean velocity. */
+function drawVectors(cx, cy, r, sats) {
+  const PXLEN = 22;
+  for (const s of sats) {
+    const v = avgVelocity(satKey(s));
+    if (!v) continue;
+    const p0 = project(s.az, s.el);
+    const ahead = project(
+      s.az + v.daz * 40,
+      Math.max(0, Math.min(90, s.el + v.del * 40)),
+    );
+    let dx = ahead.x - p0.x;
+    let dy = ahead.y - p0.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-4) continue;
+    dx = (dx / len) * PXLEN;
+    dy = (dy / len) * PXLEN;
+    const [x0, y0] = px(p0, cx, cy, r);
+    drawArrow(x0, y0, x0 + dx, y0 + dy, GNSS[s.gnss] || GNSS.Other);
+  }
+}
+
+/** Draw a line with an arrowhead from (x0,y0) to (x1,y1). */
+function drawArrow(x0, y0, x1, y1, color) {
+  const ang = Math.atan2(y1 - y0, x1 - x0);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.stroke();
+  const a = 5;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - a * Math.cos(ang - 0.5), y1 - a * Math.sin(ang - 0.5));
+  ctx.lineTo(x1 - a * Math.cos(ang + 0.5), y1 - a * Math.sin(ang + 0.5));
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Draw one satellite: stem to the dome floor, then the marker + PRN label. */
 function drawSat(s, cx, cy, r) {
   const color = GNSS[s.gnss] || GNSS.Other;
-  const top = project(s.az, s.el);
-  const [tx, ty] = px(top, cx, cy, r);
+  const [tx, ty] = px(project(s.az, s.el), cx, cy, r);
 
-  // Vertical stem from the satellite down to the dome floor (same az/el footprint).
   const azr = s.az * DEG;
   const ce = Math.cos(s.el * DEG);
-  const foot = camera(ce * Math.sin(azr), ce * Math.cos(azr), 0);
-  const [fx, fy] = px(foot, cx, cy, r);
+  const [fx, fy] = px(camera(ce * Math.sin(azr), ce * Math.cos(azr), 0), cx, cy, r);
   ctx.strokeStyle = 'rgba(148,163,184,0.28)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -188,7 +306,6 @@ function drawSat(s, cx, cy, r) {
 
   const ss = typeof s.ss === 'number' ? s.ss : 0;
   const radius = 4 + Math.max(0, Math.min(50, ss)) / 50 * 5;
-
   ctx.beginPath();
   ctx.arc(tx, ty, radius, 0, 2 * Math.PI);
   if (s.used) {
@@ -214,6 +331,60 @@ function drawSat(s, cx, cy, r) {
   }
 }
 
+/** Rounded-rectangle path (manual — avoids relying on ctx.roundRect). */
+function roundRectPath(x, y, w, h, rad) {
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
+}
+
+/**
+ * Draw the van at dome center, oriented to the GPS heading. Falls back to a
+ * plain observer dot when stopped or heading is unavailable.
+ *
+ * @param {number} cx Canvas center x.
+ * @param {number} cy Canvas center y.
+ */
+function drawVan(cx, cy) {
+  const m = view.meta;
+  const moving = m && typeof m.track === 'number' && typeof m.speed === 'number' && m.speed > MOVING_MS;
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (moving) {
+    const v = camera(Math.sin(m.track * DEG), Math.cos(m.track * DEG), 0);
+    ctx.rotate(Math.atan2(v.y, v.x));  // glyph drawn pointing +x = forward
+    // Body.
+    roundRectPath(-11, -7, 22, 14, 3);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#0f172a';
+    ctx.stroke();
+    // Windshield (front) + heading nose.
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(4, -5, 4, 10);
+    ctx.beginPath();
+    ctx.moveTo(11, -6);
+    ctx.lineTo(20, 0);
+    ctx.lineTo(11, 6);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, 2 * Math.PI);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#0f172a';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Repaint the whole plot from `view`. */
 function draw() {
   const size = view.size;
@@ -225,11 +396,21 @@ function draw() {
 
   drawDome(cx, cy, r);
 
-  // Painter's algorithm: farthest (smallest depth) first.
-  const ordered = view.sats
+  const sats = visibleSats();
+  if (prefs.trails) drawTrails(cx, cy, r, sats);
+
+  const ordered = sats
     .map((s) => ({ s, depth: project(s.az, s.el).depth }))
     .sort((a, b) => a.depth - b.depth);
   for (const { s } of ordered) drawSat(s, cx, cy, r);
+
+  if (prefs.vectors) drawVectors(cx, cy, r, sats);
+  drawVan(cx, cy);
+}
+
+/** 8-point compass label for a heading in degrees. */
+function cardinal(deg) {
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
 }
 
 /** Push the live metadata into the stats strip. */
@@ -241,9 +422,10 @@ function renderStats() {
     el.className = 'v' + (cls ? ' ' + cls : '');
   };
   if (!m) return;
-  const usedCls = m.used >= 4 ? 'ok' : m.used > 0 ? 'warn' : 'err';
-  set('st-sats', `${m.used} / ${m.seen}`, usedCls);
+  set('st-sats', `${m.used} / ${m.seen}`, m.used >= 4 ? 'ok' : m.used > 0 ? 'warn' : 'err');
   set('st-fix', m.fix_label || '—', m.fix_mode >= 3 ? 'ok' : m.fix_mode >= 2 ? 'warn' : 'err');
+  set('st-head', typeof m.track === 'number' ? `${Math.round(m.track)}° ${cardinal(m.track)}` : '—');
+  set('st-speed', typeof m.speed === 'number' ? `${(m.speed * 2.23694).toFixed(1)} mph` : '—');
   const dop = (v) => (typeof v === 'number' ? v.toFixed(1) : '—');
   set('st-hdop', dop(m.hdop));
   set('st-vdop', dop(m.vdop));
@@ -254,17 +436,27 @@ function renderStats() {
   }
 }
 
-/** Build the constellation legend from the colors actually in use. */
+/** Build the constellation toggle chips from the set seen this session. */
 function renderLegend() {
-  const present = new Set(view.sats.map((s) => s.gnss));
-  const order = ['GPS', 'GLONASS', 'Galileo', 'BeiDou', 'QZSS', 'SBAS', 'Other'];
-  const items = order.filter((g) => present.has(g));
-  const legend = document.getElementById('legend');
-  legend.innerHTML =
-    items.map((g) =>
-      `<span class="leg"><span class="swatch" style="background:${GNSS[g]}"></span>${g}</span>`
+  const hidden = new Set(prefs.hidden);
+  const chips = GNSS_ORDER.filter((g) => view.seen.has(g));
+  legendEl.innerHTML =
+    chips.map((g) =>
+      `<button class="leg-toggle${hidden.has(g) ? ' off' : ''}" data-gnss="${g}">` +
+      `<span class="swatch" style="background:${GNSS[g]}"></span>${g}</button>`
     ).join('') +
-    '<span class="leg-note">● filled = used in fix · ○ hollow = visible · size = signal strength</span>';
+    '<span class="leg-note">tap to toggle · ● used in fix · ○ visible · size = signal</span>';
+  legendEl.querySelectorAll('.leg-toggle').forEach((b) => {
+    b.addEventListener('click', () => {
+      const g = b.dataset.gnss;
+      const set = new Set(prefs.hidden);
+      set.has(g) ? set.delete(g) : set.add(g);
+      prefs.hidden = [...set];
+      savePrefs();
+      renderLegend();
+      draw();
+    });
+  });
 }
 
 /** Show/hide the centered status overlay (connecting / no fix / offline). */
@@ -277,33 +469,59 @@ function setStatus(msg) {
   }
 }
 
-/** Synthetic sky for local rendering checks (`?demo`) — no gpsd in dev. */
-let _demoSky = null;
+/** Append the latest az/el samples to per-satellite history and prune stale. */
+function updateHistory(sats) {
+  const now = Date.now();
+  for (const s of sats) {
+    const k = satKey(s);
+    let h = view.history.get(k);
+    if (!h) {
+      h = [];
+      view.history.set(k, h);
+    }
+    h.push({ az: s.az, el: s.el, t: now });
+    if (h.length > HISTORY_MAX) h.shift();
+  }
+  for (const [k, h] of view.history) {
+    if (now - h[h.length - 1].t > HISTORY_TTL_MS) view.history.delete(k);
+  }
+}
+
+/** Synthetic, slowly drifting sky for local checks (`?demo`) — no gpsd in dev. */
+let _demoSats = null;
 function demoSky() {
-  if (_demoSky) return _demoSky;
-  const defs = [['GPS', 8], ['GLONASS', 6], ['Galileo', 6], ['BeiDou', 5], ['QZSS', 2], ['SBAS', 2]];
-  const sats = [];
-  let prn = 1;
-  for (const [gnss, n] of defs) {
-    for (let i = 0; i < n; i++) {
-      sats.push({
-        prn: prn++, gnss,
-        az: Math.random() * 360,
-        el: Math.random() * 84 + 4,
-        ss: Math.random() * 38 + 12,
-        used: Math.random() > 0.35,
-      });
+  if (!_demoSats) {
+    const defs = [['GPS', 8], ['GLONASS', 6], ['Galileo', 6], ['BeiDou', 5], ['QZSS', 2], ['SBAS', 2]];
+    _demoSats = [];
+    let prn = 1;
+    for (const [gnss, n] of defs) {
+      for (let i = 0; i < n; i++) {
+        _demoSats.push({
+          prn: prn++, gnss,
+          az: Math.random() * 360,
+          el: Math.random() * 80 + 5,
+          ss: Math.random() * 38 + 12,
+          used: Math.random() > 0.35,
+          vaz: (Math.random() - 0.5) * 1.4,   // deg/poll drift
+          vel: (Math.random() - 0.5) * 0.5,
+        });
+      }
     }
   }
-  _demoSky = {
-    connected: true, fix_mode: 3, fix_label: '3D Fix',
+  for (const s of _demoSats) {
+    s.az = (s.az + s.vaz + 360) % 360;
+    s.el += s.vel;
+    if (s.el > 88 || s.el < 4) s.vel *= -1;
+  }
+  const sats = _demoSats.map(({ prn, gnss, az, el, ss, used }) => ({ prn, gnss, az, el, ss, used }));
+  return {
+    connected: true, fix_mode: 3, fix_label: '3D Fix', track: 295, speed: 12.4,
     used: sats.filter((s) => s.used).length, seen: sats.length,
     hdop: 0.8, vdop: 1.2, pdop: 1.5, satellites: sats,
   };
-  return _demoSky;
 }
 
-/** Fetch one sky snapshot, update state, and repaint. */
+/** Fetch one sky snapshot, update state + history, and repaint. */
 async function poll() {
   let data;
   try {
@@ -321,8 +539,16 @@ async function poll() {
   view.meta = data;
   view.sats = data.satellites || [];
   view.updatedAt = Date.now();
+  let added = false;
+  for (const s of view.sats) {
+    if (!view.seen.has(s.gnss)) {
+      view.seen.add(s.gnss);
+      added = true;
+    }
+  }
+  updateHistory(view.sats);
   setStatus(view.sats.length ? '' : 'No satellites with a known position yet…');
-  renderLegend();
+  if (added) renderLegend();
   renderStats();
   draw();
 }
@@ -352,6 +578,18 @@ function bindDrag() {
   canvas.addEventListener('pointercancel', end);
 }
 
+/** Wire an overlay toggle button to a boolean pref. */
+function bindToggle(id, key) {
+  const btn = document.getElementById(id);
+  if (prefs[key]) btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    prefs[key] = !prefs[key];
+    btn.classList.toggle('active', prefs[key]);
+    savePrefs();
+    draw();
+  });
+}
+
 document.getElementById('btn-topdown').addEventListener('click', () => {
   view.tilt = TILT_MAX;
   view.yaw = 0;
@@ -362,6 +600,8 @@ document.getElementById('btn-reset').addEventListener('click', () => {
   view.yaw = 0;
   draw();
 });
+bindToggle('btn-trails', 'trails');
+bindToggle('btn-vectors', 'vectors');
 
 window.addEventListener('resize', resize);
 bindDrag();
