@@ -599,12 +599,12 @@ whole-second rows to `.000Z`. Cheap in a prototype; flag for review before imple
 - **Retroactive cleanup of historical data:** out of scope (C5).
 - **Raw retention / rollup policy:** deferred. At 5 Hz-always raw grows ~20 GB/yr;
   revisit a downsample-old-raw policy if NVMe pressure appears (or adopt P10).
-- **Satellite skyplot / per-satellite capture:** future. gpsd's SKY message already
-  carries per-satellite elevation, azimuth, SNR, used-flag, and constellation
-  (4-constellation on the M9N) — everything for a polar skyplot. A *live* skyplot
-  needs no schema (read gpsd's SKY directly, like `/gpsd`). *Historical* replay
-  would add a `satellite_observations` child table keyed to each SKY epoch —
-  deferred as voluminous (~100M+ rows/year) and speculative. `receiver_metadata`
-  stays summary-only (DOP + sat counts) for now; the logger already parses SKY, so
-  adding per-sat capture later is cheap.
+- **Satellite skyplot / per-satellite capture:** live skyplot **done** — the 3D
+  `/skyplot` page reads gpsd's SKY directly via `/api/gpsd/sky` (per-satellite
+  elevation, azimuth, SNR, used-flag, and constellation; 4-constellation on the
+  M9N), no schema. *Historical* per-satellite replay stays **deferred**: it would
+  add a `satellite_observations` child table keyed to each SKY epoch — voluminous
+  (~100M+ rows/year) and speculative. `receiver_metadata` stays summary-only
+  (DOP + sat counts) for now; the logger already parses SKY, so adding per-sat
+  capture later is cheap.
 ```
