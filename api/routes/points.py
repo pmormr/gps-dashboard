@@ -1,8 +1,7 @@
-from datetime import datetime
-
 from flask import Blueprint, jsonify, request
 
 from api.db import get_connection
+from api.params import parse_bbox, parse_limit, parse_time
 
 points_bp = Blueprint('points', __name__)
 
@@ -43,42 +42,29 @@ def get_points():
     """
     start = request.args.get('start')
     end = request.args.get('end')
-
     if not start or not end:
         return jsonify({'error': "'start' and 'end' query params are required"}), 400
+    start, err = parse_time(start, 'start')
+    if err:
+        return err
+    end, err = parse_time(end, 'end')
+    if err:
+        return err
 
-    for value, name in ((start, 'start'), (end, 'end')):
-        try:
-            datetime.fromisoformat(value.replace('Z', '+00:00'))
-        except ValueError:
-            return jsonify({'error': f"Invalid timestamp for '{name}': {value}"}), 400
+    limit, err = parse_limit(request.args, default=5000, maximum=20000)
+    if err:
+        return err
 
-    try:
-        limit = min(int(request.args.get('limit', 5000)), 20000)
-    except ValueError:
-        return jsonify({'error': "'limit' must be an integer"}), 400
-    if limit <= 0:
-        return jsonify({'error': "'limit' must be > 0"}), 400
-
-    bbox_str = request.args.get('bbox')
-    bbox = None
-    if bbox_str is not None:
-        parts = bbox_str.split(',')
-        if len(parts) != 4:
-            return jsonify({'error': "'bbox' must be 'W,S,E,N' (4 comma-separated floats)"}), 400
-        try:
-            w, s, e, n = (float(p) for p in parts)
-        except ValueError:
-            return jsonify({'error': "'bbox' must be 4 floats"}), 400
-        if w > e or s > n:
-            return jsonify({'error': "'bbox' must have W<=E and S<=N"}), 400
-        bbox = (w, s, e, n)
+    bbox, err = parse_bbox(request.args)
+    if err:
+        return err
 
     bbox_where = []
     bbox_params: list = []
     if bbox is not None:
+        w, s, e, n = bbox
         bbox_where = ["lat BETWEEN ? AND ?", "lon BETWEEN ? AND ?"]
-        bbox_params = [bbox[1], bbox[3], bbox[0], bbox[2]]
+        bbox_params = [s, n, w, e]
 
     conn = get_connection()
 

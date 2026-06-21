@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, render_template, request
 
-from api.db import canonical_timestamp, get_connection
+from api.db import canonical_timestamp, get_connection, now_canonical
+from api.params import parse_limit, parse_time
 
 sensors_bp = Blueprint('sensors', __name__)
 
@@ -95,19 +96,24 @@ def sensor_readings(sensor_id):
 
     end = request.args.get('end')
     start = request.args.get('start')
-    try:
-        end_ts = canonical_timestamp(end) if end else canonical_timestamp(
-            datetime.now(timezone.utc).isoformat())
-        start_ts = canonical_timestamp(start) if start else canonical_timestamp(
-            (datetime.now(timezone.utc)
-             - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat())
-    except ValueError as exc:
-        return jsonify({'error': f'Invalid timestamp: {exc}'}), 400
+    if end:
+        end_ts, err = parse_time(end, 'end')
+        if err:
+            return err
+    else:
+        end_ts = now_canonical()
+    if start:
+        start_ts, err = parse_time(start, 'start')
+        if err:
+            return err
+    else:
+        start_ts = canonical_timestamp(
+            (datetime.now(timezone.utc) - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat()
+        )
 
-    try:
-        limit = min(int(request.args.get('limit', MAX_READINGS)), MAX_READINGS)
-    except ValueError:
-        return jsonify({'error': "'limit' must be an integer"}), 400
+    limit, err = parse_limit(request.args, default=MAX_READINGS, maximum=MAX_READINGS)
+    if err:
+        return err
 
     cols = ', '.join(['timestamp', *spec['metrics']])
     rows = conn.execute(

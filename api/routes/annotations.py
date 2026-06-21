@@ -1,27 +1,11 @@
 from flask import Blueprint, jsonify, request
 
-from api.db import canonical_timestamp, get_connection, now_canonical
+from api.db import get_connection, now_canonical
+from api.params import parse_time
 
 annotations_bp = Blueprint('annotations', __name__)
 
 ALLOWED_ANNOTATION_FIELDS = {'name', 'start_time', 'end_time', 'notes'}
-
-
-def _canonicalize(value: str, name: str):
-    """Validate a timestamp and return it in the canonical storage format.
-
-    Args:
-        value: The incoming timestamp string.
-        name: Field name, used in the error message.
-
-    Returns:
-        A ``(canonical, None)`` pair on success, or ``(None, error_response)``
-        where ``error_response`` is a Flask ``(json, status)`` tuple.
-    """
-    try:
-        return canonical_timestamp(value), None
-    except ValueError:
-        return None, (jsonify({'error': f"Invalid timestamp for '{name}': {value}"}), 400)
 
 
 @annotations_bp.get('/api/annotations')
@@ -61,12 +45,12 @@ def create_annotation():
     if not start_time:
         return jsonify({'error': "'start_time' is required"}), 400
 
-    start_time, err = _canonicalize(start_time, 'start_time')
+    start_time, err = parse_time(start_time, 'start_time')
     if err:
         return err
 
     if end_time:
-        end_time, err = _canonicalize(end_time, 'end_time')
+        end_time, err = parse_time(end_time, 'end_time')
         if err:
             return err
         if start_time >= end_time:
@@ -102,7 +86,7 @@ def update_annotation(annotation_id):
 
     for field in ('start_time', 'end_time'):
         if field in updates and updates[field]:
-            updates[field], err = _canonicalize(updates[field], field)
+            updates[field], err = parse_time(updates[field], field)
             if err:
                 return err
         elif field == 'end_time' and field in updates and not updates[field]:

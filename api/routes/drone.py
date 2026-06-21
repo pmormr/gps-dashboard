@@ -20,6 +20,7 @@ trusting client-computed bounds.
 from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection
+from api.params import parse_bbox, parse_time
 from tools.import_drone import Clip, Flight, TrackPoint, load_flight
 
 drone_bp = Blueprint('drone', __name__)
@@ -135,24 +136,17 @@ def list_flights():
     ):
         if value is None:
             continue
-        try:
-            canonical = canonical_timestamp(value)
-        except ValueError:
-            return jsonify({'error': f"Invalid timestamp for '{name}': {value}"}), 400
+        canonical, err = parse_time(value, name)
+        if err:
+            return err
         where.append(f"{column} {op} ?")
         params.append(canonical)
 
-    bbox_str = request.args.get('bbox')
-    if bbox_str is not None:
-        parts = bbox_str.split(',')
-        if len(parts) != 4:
-            return jsonify({'error': "'bbox' must be 'W,S,E,N' (4 comma-separated floats)"}), 400
-        try:
-            w, s, e, n = (float(p) for p in parts)
-        except ValueError:
-            return jsonify({'error': "'bbox' must be 4 floats"}), 400
-        if w > e or s > n:
-            return jsonify({'error': "'bbox' must have W<=E and S<=N"}), 400
+    bbox, err = parse_bbox(request.args)
+    if err:
+        return err
+    if bbox is not None:
+        w, s, e, n = bbox
         where += ["max_lon >= ?", "min_lon <= ?", "max_lat >= ?", "min_lat <= ?"]
         params += [w, e, s, n]
 
