@@ -25,3 +25,12 @@ build-backend = "hatchling.build"
 # `common`, `api`, `processor`, … with no sys.path bootstrap.
 [tool.hatch.build.targets.wheel]
 packages = ["api", "common", "logger", "mqttbus", "processor", "sensors", "tools"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

@@ -252,7 +252,14 @@ sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
 sqlite3 "$GPS_DB_PATH" "SELECT * FROM annotations;"
 ```
 
-No test suite or linter is configured.
+### Tests
+
+```bash
+uv run pytest                          # full suite
+uv run pytest tests/test_simplify.py   # one module
+```
+
+`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. Tests in `tests/` cover the load-bearing pure logic — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner — plus the `/api/points` size-aware decimation read path (real Flask client against a temp SQLite DB; see `tests/conftest.py`). No linter is configured.
 
 ## Offline Constraint
 
