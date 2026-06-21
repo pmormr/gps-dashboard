@@ -22,6 +22,19 @@
 > has never worked on this van). **BAFX eliminated;** Phase 0 resumes on the incoming
 > **OBDLink EX** (STN chip, SGW-capable), with a 12+8 SGW-bypass harness as the
 > offline-safe fallback. See Phase 0 below.
+>
+> **Iteration 3** (2026-06-21) — ran Phase 0b on the **OBDLink EX** (genuine
+> ScanTool STN2232 v5.12.4, `/dev/ttyUSB0`, USB serial 223230408915, `ATRV` 14.1 V
+> engine-running). **Same gateway wall as the BAFX:** auto-detect → `UNABLE TO
+> CONNECT`; forced CAN 11/500 (ATSP6) and 29/500 (ATSP7) → `CAN ERROR` (no ACK =
+> the OBD port's CAN pins are physically isolated by the SGW). Two independent
+> adapters now confirm it's the vehicle gateway, not the adapter. Genuine STN
+> hardware does **not** clear it via the plain ELM327/python-OBD path — OBDLink's
+> only software unlock is **AutoAuth**, which is online *and* locked inside the
+> OBDLink app (no python-OBD/headless hook), so it fails the offline + headless
+> architecture on two counts. **The 12+8 SGW-bypass harness is now the confirmed,
+> only path** (it was the planned fallback). Next: source a ProMaster-fit harness,
+> locate the SGW module, fit it, re-run the probe.
 
 ## Context
 
@@ -64,10 +77,12 @@ future phase, and is *why* the data model is built generically now.
   vehicles put a Secure Gateway between the OBD port and the real CAN buses. On this
   van it isolates the diagnostic CAN from a cheap ELM327: the BAFX returns `CAN ERROR`
   on *every* CAN protocol — not "writes blocked, reads pass," but **no bus access at
-  all**. The fix is a gateway-capable adapter (the OBDLink EX's STN chip is built for
-  FCA SGW vehicles) and, if even that can't read live data, a **12+8 SGW-bypass
-  harness** that bridges the diagnostic CAN around the gateway — pure hardware, no
-  internet/AutoAuth, so it's the offline-safe answer for a permanent off-grid install.
+  all**. **A genuine STN adapter doesn't help here either:** the OBDLink EX (STN2232)
+  `CAN ERROR`s identically (2026-06-21). OBDLink's only software unlock is AutoAuth —
+  online *and* locked inside the OBDLink app, so it's unfit for a headless offline
+  reader. The fix is a **12+8 SGW-bypass harness** that bridges the diagnostic CAN
+  around the gateway — pure hardware, no internet/AutoAuth, so it's the offline-safe
+  answer for a permanent off-grid install.
 
 ### The reader(s) — a swappable component (O1)
 
@@ -78,7 +93,7 @@ dongle. Validate with what's on hand, upgrade as an isolated swap.
 | Reader | Conn | Chip | Role | Notes |
 |--------|------|------|------|-------|
 | **BAFX Bluetooth** (owned) | BT-Classic SPP | ELM327 v1.5 clone | **Phase 0 — eliminated** | `CAN ERROR` on every protocol → can't clear this van's FCA SGW (2026-06-19). Proved the software path works; retired as a reader. |
-| **OBDLink EX** (incoming) | **USB** | STN2120 | Permanent install | Deterministic `/dev/ttyUSB0`, udev-pinnable like the GPS; no radio, no pairing. Wired is the right call for a fixed van install. |
+| **OBDLink EX** (in hand) | **USB** | STN2232 v5.12.4 | Permanent install — **needs SGW harness** | Genuine ScanTool unit on `/dev/ttyUSB0` (USB serial 223230408915), udev-pinnable like the GPS. Software-healthy but `CAN ERROR`s through the FCA SGW (2026-06-21) just like the BAFX — needs the 12+8 bypass harness to reach the bus. |
 
 WiFi dongles (make their own AP, fight the van LAN) and BLE dongles (custom GATT,
 more Linux integration work) are both rejected for this install.
@@ -277,19 +292,24 @@ delivered the hardware verdict: the cheap BAFX can't get through the van's gatew
       but the diagnostic CAN is isolated — **not** an ignition/connection issue
       (tested engine-running; voltage present; ELM fully responsive).
 
-### Phase 0b — Re-run on the OBDLink EX — **pending hardware (EX incoming)**
+### Phase 0b — Re-run on the OBDLink EX — **DONE: same SGW wall (2026-06-21)**
 
-The reader is swappable (O1), so this is a drop-in retry on a gateway-capable adapter.
+Drop-in retry on a gateway-capable adapter (O1). Result: the EX hits the same gateway.
 
-- [ ] Plug the **OBDLink EX** (USB → `/dev/ttyUSB0`, no Bluetooth); udev-pin it for a
-      stable path. Re-run `tools/obd_probe.py --port /dev/ttyUSB0`.
-- [ ] **If it reads live data** (STN chips usually clear the FCA SGW for J1979 reads):
-      Phase 0 succeeds — capture the supported-PID set + throughput, then settle the
-      PID set/cadence (open A), the fuel-rate source (open B), and the drain approach
-      (O5).
-- [ ] **If it still `CAN ERROR`s:** fit a **12+8 SGW-bypass harness** (bridges the
-      diagnostic CAN around the gateway; hardware-only, offline-safe — no AutoAuth).
-      The EX then reads normally.
+- [x] Plugged the **OBDLink EX** (USB → `/dev/ttyUSB0`; genuine ScanTool STN2232
+      v5.12.4, USB serial 223230408915). `ATRV` 14.1 V confirmed engine-running.
+      Re-ran `tools/obd_probe.py --port /dev/ttyUSB0` + a raw AT sweep.
+- [x] **Result — gateway, doubly confirmed:** auto (ATSP0) → `UNABLE TO CONNECT`;
+      forced CAN 11/500 (ATSP6) + 29/500 (ATSP7) → `CAN ERROR` (no bus ACK = OBD CAN
+      pins isolated by the SGW). Same as the BAFX → it's the van's gateway, not the
+      adapter. Genuine STN hardware does **not** bypass the SGW via the plain
+      ELM327/python-OBD path; OBDLink's AutoAuth unlock is online + app-locked, unfit
+      for the headless offline reader. No DTCs; no PID set captured (open A/B still
+      blocked on bus access).
+- [ ] **Path forward — 12+8 SGW-bypass harness** (the planned fallback, now the only
+      option): bridges the diagnostic CAN around the gateway; hardware-only,
+      offline-safe — no AutoAuth. Source a ProMaster-fit harness, locate the SGW
+      module, fit it, then re-run the probe. PID discovery + throughput resume there.
 
 ### Phase 1 — Reader + schema + ingest
 
