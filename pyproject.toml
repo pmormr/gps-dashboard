@@ -13,3 +13,15 @@ dependencies = [
     "bme680>=2.0.0",
     "obd>=0.7.3",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Flat layout: the importable packages live at the repo root rather than under a
+# src/ dir, so enumerate them explicitly (hatchling can't infer a single package
+# from the distribution name). `uv sync` installs the project editable, which puts
+# every package on sys.path — so scripts run as `uv run tools/foo.py` can import
+# `common`, `api`, `processor`, … with no sys.path bootstrap.
+[tool.hatch.build.targets.wheel]
+packages = ["api", "common", "logger", "mqttbus", "processor", "sensors", "tools"]

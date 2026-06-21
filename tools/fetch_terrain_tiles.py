@@ -29,9 +29,8 @@ from pathlib import Path
 import click
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from tools.precache import count_tiles, tiles_for_bbox  # noqa: E402
-from tools.regions import REGIONS  # noqa: E402
+from tools.precache import count_tiles, tiles_for_bbox
+from tools.regions import REGIONS
 
 TERRARIUM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'

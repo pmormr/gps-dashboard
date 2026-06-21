@@ -12,10 +12,8 @@ from pathlib import Path
 import click
 import requests
 
-# Make `api.tile_layers` importable when this script is run directly via uv.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from api.tile_layers import LAYERS  # noqa: E402
-from tools.regions import REGIONS  # noqa: E402
+from api.tile_layers import LAYERS
+from tools.regions import REGIONS
 
 TILE_CACHE_DIR = Path(
     os.environ.get('GPS_TILE_CACHE_DIR', Path.home() / '.cache' / 'gps-dashboard' / 'tiles')

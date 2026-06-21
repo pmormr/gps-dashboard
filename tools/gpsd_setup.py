@@ -246,8 +246,6 @@ def main(device, baud, validate):
 
     if validate:
         click.echo('\nRunning validation…\n')
-        # Import here so the script can run without the full project installed
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from tools.gpsd_validate import run_all
         results = run_all()
         sys.exit(0 if all(ok for _, ok, _ in results) else 1)

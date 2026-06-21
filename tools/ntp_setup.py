@@ -199,7 +199,6 @@ def main(mode, gpio_pin, validate):
 
     if validate:
         click.echo('Running validation…\n')
-        sys.path.insert(0, REPO_DIR)
         from tools.ntp_validate import run_all
         results = run_all(check_pps=(mode == 'gps-pps'))
         sys.exit(0 if all(ok for _, ok, _ in results) else 1)
