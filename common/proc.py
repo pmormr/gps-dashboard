@@ -28,7 +28,7 @@ def run(cmd: list[str], timeout: float = 10) -> tuple[int, str, str]:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
     except FileNotFoundError:
-        return -1, '', f"Command not found: {cmd[0]}"
+        return -1, '', f'Command not found: {cmd[0]}'
     except Exception as exc:
         return -1, '', str(exc)
 

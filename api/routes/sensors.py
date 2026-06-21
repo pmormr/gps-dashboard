@@ -7,7 +7,7 @@ MQTT connection and works regardless of the broker's websockets support
 can swap the poll for an MQTT-over-WS push without changing the schema.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, jsonify, render_template, request
 
@@ -23,8 +23,14 @@ READING_TABLES = {
     'bme680': {
         'table': 'bme680_readings',
         'metrics': [
-            'temp_c', 'humidity_pct', 'pressure_hpa', 'iaq', 'iaq_accuracy',
-            'co2_equivalent', 'breath_voc_equivalent', 'gas_ohms',
+            'temp_c',
+            'humidity_pct',
+            'pressure_hpa',
+            'iaq',
+            'iaq_accuracy',
+            'co2_equivalent',
+            'breath_voc_equivalent',
+            'gas_ohms',
         ],
     },
 }
@@ -50,8 +56,7 @@ def _latest_reading(conn, sensor_id, type):
         return None
     cols = ', '.join(['timestamp', *spec['metrics']])
     row = conn.execute(
-        f"SELECT {cols} FROM {spec['table']} "
-        "WHERE sensor_id = ? ORDER BY timestamp DESC LIMIT 1",
+        f'SELECT {cols} FROM {spec["table"]} WHERE sensor_id = ? ORDER BY timestamp DESC LIMIT 1',
         (sensor_id,),
     ).fetchone()
     return dict(row) if row else None
@@ -66,8 +71,8 @@ def list_sensors():
     """
     conn = get_connection()
     rows = conn.execute(
-        "SELECT id, node, type, location, description, first_seen, last_seen, "
-        "status FROM sensors ORDER BY node, type"
+        'SELECT id, node, type, location, description, first_seen, last_seen, '
+        'status FROM sensors ORDER BY node, type'
     ).fetchall()
     sensors = []
     for row in rows:
@@ -85,9 +90,7 @@ def sensor_readings(sensor_id):
     Rows are ascending by time so the chart plots left-to-right.
     """
     conn = get_connection()
-    sensor = conn.execute(
-        "SELECT id, type FROM sensors WHERE id = ?", (sensor_id,)
-    ).fetchone()
+    sensor = conn.execute('SELECT id, type FROM sensors WHERE id = ?', (sensor_id,)).fetchone()
     if sensor is None:
         return jsonify({'error': f'No sensor with id {sensor_id}'}), 404
     spec = READING_TABLES.get(sensor['type'])
@@ -108,7 +111,7 @@ def sensor_readings(sensor_id):
             return err
     else:
         start_ts = canonical_timestamp(
-            (datetime.now(timezone.utc) - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat()
+            (datetime.now(UTC) - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat()
         )
 
     limit, err = parse_limit(request.args, default=MAX_READINGS, maximum=MAX_READINGS)
@@ -117,21 +120,23 @@ def sensor_readings(sensor_id):
 
     cols = ', '.join(['timestamp', *spec['metrics']])
     rows = conn.execute(
-        f"SELECT {cols} FROM {spec['table']} "
-        "WHERE sensor_id = ? AND timestamp >= ? AND timestamp <= ? "
-        "ORDER BY timestamp ASC LIMIT ?",
+        f'SELECT {cols} FROM {spec["table"]} '
+        'WHERE sensor_id = ? AND timestamp >= ? AND timestamp <= ? '
+        'ORDER BY timestamp ASC LIMIT ?',
         (sensor_id, start_ts, end_ts, limit),
     ).fetchall()
     readings = [dict(r) for r in rows]
-    return jsonify({
-        'type': sensor['type'],
-        'metrics': spec['metrics'],
-        'start': start_ts,
-        'end': end_ts,
-        'readings': readings,
-        'count': len(readings),
-        'truncated': len(readings) == limit,
-    })
+    return jsonify(
+        {
+            'type': sensor['type'],
+            'metrics': spec['metrics'],
+            'start': start_ts,
+            'end': end_ts,
+            'readings': readings,
+            'count': len(readings),
+            'truncated': len(readings) == limit,
+        }
+    )
 
 
 @sensors_bp.get('/sensors')

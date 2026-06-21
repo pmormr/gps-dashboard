@@ -94,9 +94,7 @@ def terrain_pmtiles():
     # elevation mesh; we just stream bytes.
     if not TERRAIN_PMTILES_PATH.exists():
         abort(404)
-    return send_file(
-        TERRAIN_PMTILES_PATH, mimetype='application/octet-stream', conditional=True
-    )
+    return send_file(TERRAIN_PMTILES_PATH, mimetype='application/octet-stream', conditional=True)
 
 
 @tiles_bp.get('/tiles/<layer>/<int:z>/<int:x>/<int:y>.png')
@@ -104,7 +102,7 @@ def tile(layer, z, x, y):
     if layer not in LAYERS:
         abort(400)
     max_zoom = LAYERS[layer]['max_zoom']
-    if not (0 <= z <= max_zoom and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
+    if not (0 <= z <= max_zoom and 0 <= x < 2**z and 0 <= y < 2**z):
         abort(400)
 
     cache_path = TILE_CACHE_DIR / layer / str(z) / str(x) / f'{y}.png'

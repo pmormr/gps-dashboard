@@ -8,8 +8,13 @@ status_ntp_bp = Blueprint('status_ntp', __name__)
 
 
 _TRACKING_DEFAULTS = {
-    'reference': None, 'synced': False, 'stratum': None,
-    'offset_ms': None, 'offset_dir': None, 'rms_ms': None, 'leap_status': None,
+    'reference': None,
+    'synced': False,
+    'stratum': None,
+    'offset_ms': None,
+    'offset_dir': None,
+    'rms_ms': None,
+    'leap_status': None,
 }
 
 
@@ -34,14 +39,15 @@ def _parse_tracking():
         offset_dir = offset_match.group(2)
 
     return {
-        'reference':   ref_match.group(1) if ref_match else None,
-        'synced':      'Not synchronised' not in out and bool(ref_match),
-        'stratum':     int(stratum_match.group(1)) if stratum_match else None,
-        'offset_ms':   offset_ms,
-        'offset_dir':  offset_dir,
-        'rms_ms':      float(rms_match.group(1)) * 1000 if rms_match else None,
+        'reference': ref_match.group(1) if ref_match else None,
+        'synced': 'Not synchronised' not in out and bool(ref_match),
+        'stratum': int(stratum_match.group(1)) if stratum_match else None,
+        'offset_ms': offset_ms,
+        'offset_dir': offset_dir,
+        'rms_ms': float(rms_match.group(1)) * 1000 if rms_match else None,
         'leap_status': _field(r'Leap status\s*:\s*(.+)'),
     }
+
 
 def _parse_sources():
     _, out, _ = proc.run(['chronyc', 'sources'])
@@ -50,13 +56,15 @@ def _parse_sources():
         # Lines starting with # are reference clocks (GPS/PPS)
         m = re.match(r'([#^])([\*\+\-\?x ])\s+(\S+)\s+(\d+)\s+\S+\s+\S+\s+\S+\s+(.*)', line)
         if m:
-            sources.append({
-                'type':     'refclock' if m.group(1) == '#' else 'server',
-                'selected': m.group(2) == '*',
-                'name':     m.group(3),
-                'stratum':  int(m.group(4)),
-                'sample':   m.group(5).strip(),
-            })
+            sources.append(
+                {
+                    'type': 'refclock' if m.group(1) == '#' else 'server',
+                    'selected': m.group(2) == '*',
+                    'name': m.group(3),
+                    'stratum': int(m.group(4)),
+                    'sample': m.group(5).strip(),
+                }
+            )
     return sources
 
 
@@ -80,24 +88,25 @@ def ntp_status():
     serving = _ntp_serving()
     conflicts = _conflicting_services()
 
-    gps_source  = next((s for s in sources if 'GPS' in s['name']), None)
-    pps_source  = next((s for s in sources if 'PPS' in s['name']), None)
-    pps_mode    = pps_source is not None
+    gps_source = next((s for s in sources if 'GPS' in s['name']), None)
+    pps_source = next((s for s in sources if 'PPS' in s['name']), None)
+    pps_mode = pps_source is not None
 
     checks = [
         ('no conflicting services', not conflicts),
-        ('chrony service',          service_state == 'active'),
-        ('GPS SHM source',          gps_source is not None),
-        ('synchronised',            tracking.get('synced', False)),
-        ('stratum ≤ 10',            (tracking.get('stratum') or 99) <= 10),
-        ('NTP serving (LAN)',       serving),
+        ('chrony service', service_state == 'active'),
+        ('GPS SHM source', gps_source is not None),
+        ('synchronised', tracking.get('synced', False)),
+        ('stratum ≤ 10', (tracking.get('stratum') or 99) <= 10),
+        ('NTP serving (LAN)', serving),
     ]
     if pps_mode:
         checks.insert(3, ('PPS source selected', bool(pps_source and pps_source['selected'])))
 
     overall_ok = all(ok for _, ok in checks)
 
-    return render_template('ntp.html',
+    return render_template(
+        'ntp.html',
         conflicts=conflicts,
         overall_ok=overall_ok,
         checks=checks,

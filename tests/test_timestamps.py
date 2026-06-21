@@ -6,7 +6,7 @@ millisecond-UTC string so lexical ordering equals chronological ordering — the
 width, the UTC conversion, and the lexical==chronological property.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -47,14 +47,14 @@ def test_lexical_order_matches_chronological_order():
     # The crux: sorting the canonical strings must agree with sorting the
     # datetimes — including a whole-second value adjacent to a sub-second one.
     moments = [
-        datetime(2026, 6, 9, 14, 55, 55, 0, tzinfo=timezone.utc),
-        datetime(2026, 6, 9, 14, 55, 55, 200_000, tzinfo=timezone.utc),
-        datetime(2026, 6, 9, 14, 55, 56, 0, tzinfo=timezone.utc),
-        datetime(2026, 6, 9, 14, 55, 54, 999_000, tzinfo=timezone.utc),
-        datetime(2026, 6, 10, 0, 0, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 6, 9, 14, 55, 55, 0, tzinfo=UTC),
+        datetime(2026, 6, 9, 14, 55, 55, 200_000, tzinfo=UTC),
+        datetime(2026, 6, 9, 14, 55, 56, 0, tzinfo=UTC),
+        datetime(2026, 6, 9, 14, 55, 54, 999_000, tzinfo=UTC),
+        datetime(2026, 6, 10, 0, 0, 0, 0, tzinfo=UTC),
     ]
     canon = [_canonical(m) for m in moments]
-    by_time = [c for _, c in sorted(zip(moments, canon))]
+    by_time = [c for _, c in sorted(zip(moments, canon, strict=True))]
     assert sorted(canon) == by_time
 
 

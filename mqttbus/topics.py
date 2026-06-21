@@ -73,7 +73,7 @@ def _validate_segment(segment: str, *, name: str) -> str:
         raise TopicError(f'{name} must not be empty')
     bad = set(segment) & {'/', '+', '#'}
     if bad:
-        raise TopicError(f"{name} {segment!r} must not contain {sorted(bad)}")
+        raise TopicError(f'{name} {segment!r} must not contain {sorted(bad)}')
     return segment
 
 
@@ -137,10 +137,6 @@ def parse_sensor_topic(topic: str) -> SensorTopic | None:
     parts = topic.split('/')
     if len(parts) == 3 and parts[0] == SENSORS_PREFIX:
         return SensorTopic(node=parts[1], type=parts[2], kind='reading')
-    if (
-        len(parts) == 4
-        and parts[0] == SENSORS_PREFIX
-        and parts[3] == STATUS_SUFFIX
-    ):
+    if len(parts) == 4 and parts[0] == SENSORS_PREFIX and parts[3] == STATUS_SUFFIX:
         return SensorTopic(node=parts[1], type=parts[2], kind='status')
     return None

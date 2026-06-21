@@ -16,8 +16,19 @@ def _ts(hh, mm):
     return f'2026-06-20T{hh:02d}:{mm:02d}:00.000Z'
 
 
-def _insert(client, *, kind, timestamp=None, importance=0.0, lat=40.0, lon=-105.0,
-            dwell_start=None, dwell_end=None, n_raw=1, src_raw_id=0):
+def _insert(
+    client,
+    *,
+    kind,
+    timestamp=None,
+    importance=0.0,
+    lat=40.0,
+    lon=-105.0,
+    dwell_start=None,
+    dwell_end=None,
+    n_raw=1,
+    src_raw_id=0,
+):
     """Insert one track_points row into the test database."""
     conn = db.get_connection()
     conn.execute(
@@ -37,8 +48,13 @@ def _get(client, **overrides):
 
 def test_stops_always_kept_even_below_limit(client):
     for i in range(3):
-        _insert(client, kind='stop', timestamp=_ts(12, 10 + i),
-                dwell_start=_ts(12, 10 + i), dwell_end=_ts(12, 20 + i))
+        _insert(
+            client,
+            kind='stop',
+            timestamp=_ts(12, 10 + i),
+            dwell_start=_ts(12, 10 + i),
+            dwell_end=_ts(12, 20 + i),
+        )
     for i in range(5):
         _insert(client, kind='track', timestamp=_ts(12, 30 + i), importance=float(i + 1))
 
@@ -91,10 +107,22 @@ def test_stop_matched_on_interval_overlap_not_just_start(client):
     # A stop whose dwell straddles the window start must be kept; one entirely
     # before the window must not. (The response omits dwell_* columns, so the
     # distinct lat identifies which stop came back.)
-    _insert(client, kind='stop', timestamp=_ts(11, 30), lat=40.0,
-            dwell_start=_ts(11, 30), dwell_end=_ts(12, 30))
-    _insert(client, kind='stop', timestamp=_ts(8, 0), lat=41.0,
-            dwell_start=_ts(8, 0), dwell_end=_ts(9, 0))
+    _insert(
+        client,
+        kind='stop',
+        timestamp=_ts(11, 30),
+        lat=40.0,
+        dwell_start=_ts(11, 30),
+        dwell_end=_ts(12, 30),
+    )
+    _insert(
+        client,
+        kind='stop',
+        timestamp=_ts(8, 0),
+        lat=41.0,
+        dwell_start=_ts(8, 0),
+        dwell_end=_ts(9, 0),
+    )
 
     body = _get(client).get_json()
     assert body['count'] == 1

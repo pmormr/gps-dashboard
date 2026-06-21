@@ -14,9 +14,7 @@ import math
 EARTH_RADIUS_M = 6_371_000.0
 
 
-def local_meters(
-    lat: float, lon: float, ref_lat: float, ref_lon: float
-) -> tuple[float, float]:
+def local_meters(lat: float, lon: float, ref_lat: float, ref_lon: float) -> tuple[float, float]:
     """Project a point to local east/north metres about a reference point.
 
     Equirectangular approximation — accurate to well under a metre at the
@@ -60,9 +58,7 @@ def perp_distance_m(
     return abs(pe * bn - pn * be) / seg
 
 
-def reumann_witkam(
-    coords: list[tuple[float, float]], epsilon: float
-) -> list[tuple[int, float]]:
+def reumann_witkam(coords: list[tuple[float, float]], epsilon: float) -> list[tuple[int, float]]:
     """Batch Reumann–Witkam simplification of a (lat, lon) track.
 
     Walks the track keeping an anchor and a direction reference; points within

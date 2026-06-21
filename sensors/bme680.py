@@ -23,7 +23,7 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from mqttbus import topics
 from mqttbus.client import (
@@ -45,7 +45,7 @@ def default_node() -> str:
 
 def now_iso() -> str:
     """Return the current time as a whole-second UTC ISO-8601 string."""
-    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 class FakeSensor:
@@ -91,7 +91,7 @@ class Bme680Sensor:
 
         try:
             self._sensor = driver.BME680(driver.I2C_ADDR_PRIMARY)
-        except (RuntimeError, IOError):
+        except (OSError, RuntimeError):
             self._sensor = driver.BME680(driver.I2C_ADDR_SECONDARY)
         s = self._sensor
         s.set_humidity_oversample(driver.OS_2X)
@@ -135,19 +135,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument(
-        '--node', default=default_node(),
+        '--node',
+        default=default_node(),
         help='Node name / location (topic <node> segment). Default $GPS_SENSOR_NODE or "cabin".',
     )
     parser.add_argument(
-        '--fake', action='store_true',
+        '--fake',
+        action='store_true',
         help='Publish synthetic readings instead of reading I2C hardware.',
     )
     parser.add_argument(
-        '--interval', type=float, default=READ_INTERVAL_SECONDS,
+        '--interval',
+        type=float,
+        default=READ_INTERVAL_SECONDS,
         help=f'Seconds between readings (default {READ_INTERVAL_SECONDS}).',
     )
     parser.add_argument(
-        '--once', action='store_true',
+        '--once',
+        action='store_true',
         help='Publish a single reading and exit (for testing).',
     )
     return parser.parse_args(argv)
@@ -167,8 +172,7 @@ def main() -> int:
 
     def on_connect(client, userdata, flags, reason_code, properties) -> None:
         client.publish(status_topic, 'online', qos=1, retain=True)
-        print(f'reader connected ({reason_code}); status online on {status_topic}',
-              flush=True)
+        print(f'reader connected ({reason_code}); status online on {status_topic}', flush=True)
 
     client = make_client(
         f'gps-sensor-{node}-{SENSOR_TYPE}',
@@ -179,8 +183,9 @@ def main() -> int:
     client.connect(broker_host(), broker_port(), keepalive=KEEPALIVE_SECONDS)
     client.loop_start()
 
-    print(f'BME680 reader started (node={node}, fake={args.fake}, '
-          f'topic={reading_topic})', flush=True)
+    print(
+        f'BME680 reader started (node={node}, fake={args.fake}, topic={reading_topic})', flush=True
+    )
     written = 0
     dropped = 0
     last_heartbeat = time.monotonic()
@@ -198,8 +203,7 @@ def main() -> int:
                 break
             now = time.monotonic()
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
-                print(f'heartbeat: published={written} dropped={dropped} '
-                      f'node={node}', flush=True)
+                print(f'heartbeat: published={written} dropped={dropped} node={node}', flush=True)
                 written = 0
                 dropped = 0
                 last_heartbeat = now

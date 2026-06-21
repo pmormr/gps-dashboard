@@ -24,24 +24,21 @@ def _run(cmd, **kwargs):
 
 
 def _sudo_write(path, content):
-    r = _run(['sudo', 'tee', path], input=content, text=True,
-             capture_output=True)
+    r = _run(['sudo', 'tee', path], input=content, text=True, capture_output=True)
     if r.returncode != 0:
-        click.echo(f"Error writing {path}: {r.stderr}", err=True)
+        click.echo(f'Error writing {path}: {r.stderr}', err=True)
         return False
     return True
 
 
 def _apt_install(package):
-    click.echo(f"Installing {package}…")
-    r = _run(['sudo', 'apt-get', 'install', '-y', package],
-             capture_output=False)
+    click.echo(f'Installing {package}…')
+    r = _run(['sudo', 'apt-get', 'install', '-y', package], capture_output=False)
     return r.returncode == 0
 
 
 def _service(action, name):
-    r = _run(['sudo', 'systemctl', action, name],
-             capture_output=True, timeout=15)
+    r = _run(['sudo', 'systemctl', action, name], capture_output=True, timeout=15)
     return r.returncode == 0
 
 
@@ -52,20 +49,20 @@ def disable_conflicts():
     if not found:
         return True
 
-    click.echo(f"Found conflicting NTP service(s): {', '.join(found)}")
-    click.echo("These must be stopped before chrony can take over.")
+    click.echo(f'Found conflicting NTP service(s): {", ".join(found)}')
+    click.echo('These must be stopped before chrony can take over.')
     if not click.confirm('Stop and disable them now?', default=True):
         click.echo('Cannot continue with conflicting services running.', err=True)
         return False
 
     for svc in found:
-        click.echo(f"  Stopping {svc}…")
+        click.echo(f'  Stopping {svc}…')
         _run(['sudo', 'systemctl', 'stop', svc], capture_output=True)
         _run(['sudo', 'systemctl', 'disable', svc], capture_output=True)
         # Special case: mask systemd-timesyncd so it doesn't restart automatically
         if svc == 'systemd-timesyncd':
             _run(['sudo', 'systemctl', 'mask', svc], capture_output=True)
-            click.echo(f"  Masked {svc} (prevents auto-restart)")
+            click.echo(f'  Masked {svc} (prevents auto-restart)')
 
     return True
 
@@ -121,9 +118,12 @@ def setup_gps_pps(gpio_pin):
 
     # 3. Add pps-gpio overlay to boot config (skip if pps devices already exist)
     import glob
+
     existing_pps = glob.glob('/dev/pps*')
     if existing_pps:
-        click.echo(f'PPS devices already present ({", ".join(existing_pps)}) — skipping GPIO overlay.')
+        click.echo(
+            f'PPS devices already present ({", ".join(existing_pps)}) — skipping GPIO overlay.'
+        )
     else:
         overlay_line = f'dtoverlay=pps-gpio,gpiopin={gpio_pin}'
         boot_config_path = BOOT_CONFIG if os.path.exists(BOOT_CONFIG) else '/boot/config.txt'
@@ -132,7 +132,11 @@ def setup_gps_pps(gpio_pin):
             with open(boot_config_path) as f:
                 boot_cfg = f.read()
         except FileNotFoundError:
-            click.echo(f"Could not read {boot_config_path}. You may need to add '{overlay_line}' manually.", err=True)
+            click.echo(
+                f'Could not read {boot_config_path}. '
+                f"You may need to add '{overlay_line}' manually.",
+                err=True,
+            )
             boot_cfg = None
 
         if boot_cfg is not None and overlay_line not in boot_cfg:
@@ -156,12 +160,16 @@ def setup_gps_pps(gpio_pin):
 
 
 @click.command()
-@click.option('--mode', type=click.Choice(['gps-only', 'gps-pps']),
-              default=None, help='Skip mode prompt')
-@click.option('--gpio-pin', default=PPS_GPIO_PIN_DEFAULT, show_default=True,
-              help='GPIO pin number for PPS signal (GPS+PPS mode only)')
-@click.option('--validate/--no-validate', default=True,
-              help='Run validation after setup')
+@click.option(
+    '--mode', type=click.Choice(['gps-only', 'gps-pps']), default=None, help='Skip mode prompt'
+)
+@click.option(
+    '--gpio-pin',
+    default=PPS_GPIO_PIN_DEFAULT,
+    show_default=True,
+    help='GPIO pin number for PPS signal (GPS+PPS mode only)',
+)
+@click.option('--validate/--no-validate', default=True, help='Run validation after setup')
 def main(mode, gpio_pin, validate):
     """Configure chrony to use GPS as the NTP time source."""
     click.echo('=== NTP Setup (chrony + GPS) ===\n')
@@ -199,6 +207,7 @@ def main(mode, gpio_pin, validate):
     if validate:
         click.echo('Running validation…\n')
         from tools.ntp_validate import run_all
+
         results = run_all(check_pps=(mode == 'gps-pps'))
         sys.exit(0 if all(ok for _, ok, _ in results) else 1)
 

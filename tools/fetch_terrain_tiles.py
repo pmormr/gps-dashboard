@@ -90,8 +90,7 @@ def init_mbtiles(
         'maxzoom': str(maxzoom),
         'type': 'baselayer',
         'description': (
-            'Terrarium-encoded elevation tiles from '
-            's3://elevation-tiles-prod/terrarium/'
+            'Terrarium-encoded elevation tiles from s3://elevation-tiles-prod/terrarium/'
         ),
     }
     conn.executemany(
@@ -326,8 +325,7 @@ async def dry_run(
         proj_b = int(mean_b * n)
         grand_total += proj_b
         click.echo(
-            f'  {z:>4} {n:>14,} {len(sizes):>8} {mean_b / 1024:>10.1f} '
-            f'{humanize_bytes(proj_b):>14}'
+            f'  {z:>4} {n:>14,} {len(sizes):>8} {mean_b / 1024:>10.1f} {humanize_bytes(proj_b):>14}'
         )
     click.echo(f'  {"-" * 4} {"-" * 14} {"-" * 8} {"-" * 10} {"-" * 14}')
     click.echo(f'  Projected archive size: {humanize_bytes(grand_total)}')
@@ -344,9 +342,7 @@ def _resolve_bbox(
     try:
         parts = [float(p) for p in bbox.split(',')]  # type: ignore[union-attr]
     except ValueError as e:
-        raise click.BadParameter(
-            '--bbox must be "min_lon,min_lat,max_lon,max_lat"'
-        ) from e
+        raise click.BadParameter('--bbox must be "min_lon,min_lat,max_lon,max_lat"') from e
     if len(parts) != 4:
         raise click.BadParameter('--bbox must have exactly four comma-separated floats')
     return (parts[0], parts[1], parts[2], parts[3]), None

@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
@@ -26,9 +26,9 @@ def _canonical(dt: datetime) -> str:
         The timestamp as fixed-width millisecond UTC text.
     """
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    dt = dt.astimezone(timezone.utc)
-    return f"{dt.strftime(_SECONDS_FORMAT)}.{dt.microsecond // 1000:03d}Z"
+        dt = dt.replace(tzinfo=UTC)
+    dt = dt.astimezone(UTC)
+    return f'{dt.strftime(_SECONDS_FORMAT)}.{dt.microsecond // 1000:03d}Z'
 
 
 def canonical_timestamp(value: str) -> str:
@@ -66,15 +66,15 @@ def now_canonical() -> str:
     Returns:
         The current UTC time as fixed-width millisecond canonical text.
     """
-    return _canonical(datetime.now(timezone.utc))
+    return _canonical(datetime.now(UTC))
 
 
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA synchronous=NORMAL')
+    conn.execute('PRAGMA busy_timeout=30000')
     return conn
 
 
@@ -295,12 +295,10 @@ def _maybe_rename_trips_to_annotations(conn: sqlite3.Connection) -> None:
             ON annotations(start_time);
     """)
     conn.commit()
-    print("Migration: renamed trips → annotations (end_time now nullable)")
+    print('Migration: renamed trips → annotations (end_time now nullable)')
 
 
-def _add_missing_columns(
-    conn: sqlite3.Connection, table: str, columns: dict[str, str]
-) -> None:
+def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
     """Add any columns absent from ``table`` (idempotent schema migration).
 
     ``init_db`` uses ``CREATE TABLE IF NOT EXISTS``, which leaves an already-created
@@ -313,13 +311,13 @@ def _add_missing_columns(
         table: Table name (a trusted literal, not user input).
         columns: Mapping of column name to its SQL type/declaration.
     """
-    existing = {row['name'] for row in conn.execute(f"PRAGMA table_info({table})")}
+    existing = {row['name'] for row in conn.execute(f'PRAGMA table_info({table})')}
     added = [name for name in columns if name not in existing]
     for name in added:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {columns[name]}")
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {name} {columns[name]}')
     if added:
         conn.commit()
-        print(f"Migration: added {table} column(s): {', '.join(added)}")
+        print(f'Migration: added {table} column(s): {", ".join(added)}')
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -363,39 +361,33 @@ def migrate(conn: sqlite3.Connection) -> None:
         ).rowcount
         if widened:
             conn.commit()
-            print(f"Migration: widened {widened} {table} timestamp(s) to ms")
+            print(f'Migration: widened {widened} {table} timestamp(s) to ms')
 
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='location_history'"
     ).fetchone()
     if row is not None:
-        count = conn.execute("SELECT COUNT(*) FROM location_history").fetchone()[0]
-        conn.execute("DROP TABLE location_history")
+        count = conn.execute('SELECT COUNT(*) FROM location_history').fetchone()[0]
+        conn.execute('DROP TABLE location_history')
         conn.commit()
-        print(f"Migration: dropped legacy location_history table ({count} rows)")
+        print(f'Migration: dropped legacy location_history table ({count} rows)')
 
-    deleted = conn.execute(
-        "DELETE FROM gps_points WHERE lat = 0 AND lon = 0"
-    ).rowcount
+    deleted = conn.execute('DELETE FROM gps_points WHERE lat = 0 AND lon = 0').rowcount
     conn.commit()
     if deleted:
-        print(f"Migration: deleted {deleted} null-island gps_points rows")
+        print(f'Migration: deleted {deleted} null-island gps_points rows')
 
     normalized = 0
-    rows = conn.execute(
-        "SELECT id, start_time, end_time FROM annotations"
-    ).fetchall()
+    rows = conn.execute('SELECT id, start_time, end_time FROM annotations').fetchall()
     for row in rows:
         new_start = canonical_timestamp(row['start_time'])
-        new_end = (
-            canonical_timestamp(row['end_time']) if row['end_time'] else None
-        )
+        new_end = canonical_timestamp(row['end_time']) if row['end_time'] else None
         if new_start != row['start_time'] or new_end != row['end_time']:
             conn.execute(
-                "UPDATE annotations SET start_time = ?, end_time = ? WHERE id = ?",
+                'UPDATE annotations SET start_time = ?, end_time = ? WHERE id = ?',
                 (new_start, new_end, row['id']),
             )
             normalized += 1
     if normalized:
         conn.commit()
-        print(f"Migration: normalized timestamps on {normalized} annotation(s)")
+        print(f'Migration: normalized timestamps on {normalized} annotation(s)')

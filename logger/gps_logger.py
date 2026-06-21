@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from api.db import get_connection, init_db, migrate, now_canonical
 
@@ -13,9 +13,9 @@ from api.db import get_connection, init_db, migrate, now_canonical
 # collapses anyway; the moving rate is where the spatial fidelity lives. This gates
 # only writes, layered on the live fix stream, so the freeze watchdog (which tracks
 # the stream, not writes) is unaffected.
-MOVING_WRITE_INTERVAL_SECONDS = 0.2   # 5 Hz
-PARKED_WRITE_INTERVAL_SECONDS = 1.0   # ~1 Hz
-PARKED_SPEED_MPS = 0.5                # below this Doppler speed, treat as parked
+MOVING_WRITE_INTERVAL_SECONDS = 0.2  # 5 Hz
+PARKED_WRITE_INTERVAL_SECONDS = 1.0  # ~1 Hz
+PARKED_SPEED_MPS = 0.5  # below this Doppler speed, treat as parked
 
 # SKY-sourced receiver telemetry throttle (C9/C22): DOP + sat counts to
 # receiver_metadata, off the position hot-path and at its own cadence.
@@ -85,8 +85,7 @@ class LoggerStats:
         """
         pos = (lat, lon)
         gap = now - self.last_usable_fix if self.last_usable_fix else 0.0
-        if (self.last_position is None or pos != self.last_position
-                or gap > FIX_GAP_RESET_SECONDS):
+        if self.last_position is None or pos != self.last_position or gap > FIX_GAP_RESET_SECONDS:
             self.last_position = pos
             self.position_since = now
         self.last_usable_fix = now
@@ -132,23 +131,22 @@ class LoggerStats:
         Returns:
             A human-readable heartbeat string for the journal.
         """
-        age = f"{write_age:.0f}s" if write_age is not None else "never"
+        age = f'{write_age:.0f}s' if write_age is not None else 'never'
         pos_age = self.position_age(now)
-        pos = f"{pos_age:.0f}s" if pos_age is not None else "n/a"
-        frozen = "yes" if self.is_frozen(now) else "no"
+        pos = f'{pos_age:.0f}s' if pos_age is not None else 'n/a'
+        frozen = 'yes' if self.is_frozen(now) else 'no'
         return (
-            f"heartbeat: wrote={self.written} sky={self.sky_written} "
-            f"mode={self.last_fix_mode} "
-            f"last_write={age} pos_age={pos} frozen={frozen} | dropped "
-            f"no_fix={self.no_fix} no_latlon={self.no_latlon} "
-            f"bad_range={self.bad_range} null_island={self.null_island} "
-            f"stale_time={self.stale_time} throttled={self.throttled} "
-            f"json_err={self.json_err}"
+            f'heartbeat: wrote={self.written} sky={self.sky_written} '
+            f'mode={self.last_fix_mode} '
+            f'last_write={age} pos_age={pos} frozen={frozen} | dropped '
+            f'no_fix={self.no_fix} no_latlon={self.no_latlon} '
+            f'bad_range={self.bad_range} null_island={self.null_island} '
+            f'stale_time={self.stale_time} throttled={self.throttled} '
+            f'json_err={self.json_err}'
         )
 
 
-def run_session(conn: sqlite3.Connection, last_log_time: float,
-                stats: LoggerStats) -> float:
+def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerStats) -> float:
     """Stream TPV records from gpsd into the database for one connection.
 
     Connects to gpsd, watches the JSON feed, and inserts valid fixes at a
@@ -184,20 +182,22 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
                 print(stats.heartbeat_line(now, write_age), flush=True)
                 if stats.is_frozen(now):
                     print(
-                        f"WARNING: position frozen at {stats.last_position} for "
-                        f"{now - stats.position_since:.0f}s while fixes keep "
-                        "arriving; receiver may need a cold start",
-                        file=sys.stderr, flush=True,
+                        f'WARNING: position frozen at {stats.last_position} for '
+                        f'{now - stats.position_since:.0f}s while fixes keep '
+                        'arriving; receiver may need a cold start',
+                        file=sys.stderr,
+                        flush=True,
                     )
                 stats.reset_window()
                 stats.last_heartbeat = now
 
             if now - last_fix_time >= STALE_RECONNECT_SECONDS:
                 print(
-                    f"No valid fix in {STALE_RECONNECT_SECONDS}s "
-                    f"(mode={stats.last_fix_mode}) despite data flow; "
-                    "reconnecting",
-                    file=sys.stderr, flush=True,
+                    f'No valid fix in {STALE_RECONNECT_SECONDS}s '
+                    f'(mode={stats.last_fix_mode}) despite data flow; '
+                    'reconnecting',
+                    file=sys.stderr,
+                    flush=True,
                 )
                 return last_log_time
 
@@ -214,9 +214,9 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
                 if now - stats.last_sky_write >= RECEIVER_METADATA_INTERVAL_SECONDS:
                     sats = report.get('satellites') or []
                     conn.execute(
-                        "INSERT INTO receiver_metadata "
-                        "(timestamp, hdop, vdop, pdop, nsat_used, nsat_seen) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        'INSERT INTO receiver_metadata '
+                        '(timestamp, hdop, vdop, pdop, nsat_used, nsat_seen) '
+                        'VALUES (?, ?, ?, ?, ?, ?)',
                         (
                             now_canonical(),
                             report.get('hdop'),
@@ -259,7 +259,7 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
             if gps_time_str:
                 try:
                     gps_dt = datetime.fromisoformat(gps_time_str.replace('Z', '+00:00'))
-                    age = (datetime.now(timezone.utc) - gps_dt).total_seconds()
+                    age = (datetime.now(UTC) - gps_dt).total_seconds()
                     if age > GPS_TIME_MAX_AGE_SECONDS:
                         stats.stale_time += 1
                         continue
@@ -274,17 +274,18 @@ def run_session(conn: sqlite3.Connection, last_log_time: float,
             # Unknown speed errs toward moving so raw never silently loses fixes.
             speed = report.get('speed')
             parked = speed is not None and speed < PARKED_SPEED_MPS
-            write_interval = (PARKED_WRITE_INTERVAL_SECONDS if parked
-                              else MOVING_WRITE_INTERVAL_SECONDS)
+            write_interval = (
+                PARKED_WRITE_INTERVAL_SECONDS if parked else MOVING_WRITE_INTERVAL_SECONDS
+            )
             if now - last_log_time < write_interval:
                 stats.throttled += 1
                 continue
 
             conn.execute(
-                "INSERT INTO gps_points "
-                "(timestamp, lat, lon, speed, altitude, track, "
-                "epx, epy, epv, eps, climb, mode) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                'INSERT INTO gps_points '
+                '(timestamp, lat, lon, speed, altitude, track, '
+                'epx, epy, epv, eps, climb, mode) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (
                     now_canonical(),
                     lat,
@@ -315,7 +316,7 @@ def main() -> None:
     init_db(conn)
     migrate(conn)
 
-    print("GPS logger started", flush=True)
+    print('GPS logger started', flush=True)
     last_log_time = 0.0
     stats = LoggerStats()
 
@@ -323,10 +324,10 @@ def main() -> None:
         try:
             last_log_time = run_session(conn, last_log_time, stats)
         except KeyboardInterrupt:
-            print("GPS logger stopped", flush=True)
+            print('GPS logger stopped', flush=True)
             break
         except Exception as e:
-            print(f"GPS error: {e}, reconnecting in 5s", file=sys.stderr, flush=True)
+            print(f'GPS error: {e}, reconnecting in 5s', file=sys.stderr, flush=True)
             time.sleep(5)
 
 

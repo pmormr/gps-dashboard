@@ -26,8 +26,7 @@ FIX_LABELS = {0: 'Unknown', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix'}
 
 # gpsd/u-blox gnssid -> constellation name. The M9N tracks GPS + GLONASS +
 # Galileo + BeiDou, plus SBAS/QZSS augmentation.
-GNSS_NAMES = {0: 'GPS', 1: 'SBAS', 2: 'Galileo', 3: 'BeiDou',
-              4: 'IMES', 5: 'QZSS', 6: 'GLONASS'}
+GNSS_NAMES = {0: 'GPS', 1: 'SBAS', 2: 'Galileo', 3: 'BeiDou', 4: 'IMES', 5: 'QZSS', 6: 'GLONASS'}
 
 
 def query_gpsd(timeout: float = 5) -> dict:

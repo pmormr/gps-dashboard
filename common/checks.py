@@ -8,7 +8,7 @@ existing CLI output verbatim.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 Check = tuple[str, Callable[[], tuple[bool, str]]]
 Result = tuple[str, bool, str]
@@ -30,14 +30,15 @@ def run_checks(checks: list[Check], verbose: bool = True) -> list[Result]:
         ok, msg = fn()
         results.append((name, ok, msg))
         if verbose:
-            print(f"{'  PASS' if ok else '  FAIL'}  {name}")
-            print(f"        {msg}")
+            print(f'{"  PASS" if ok else "  FAIL"}  {name}')
+            print(f'        {msg}')
 
     if verbose:
         passed = sum(1 for _, ok, _ in results if ok)
         total = len(results)
         print()
-        print(f"All {total} checks passed." if passed == total
-              else f"{passed}/{total} checks passed.")
+        print(
+            f'All {total} checks passed.' if passed == total else f'{passed}/{total} checks passed.'
+        )
 
     return results

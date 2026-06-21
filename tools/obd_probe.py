@@ -35,24 +35,24 @@ from common.cli import run_cli
 # Probe column name -> OBD command. Names mirror the planned obd_readings
 # columns so the JSONL log doubles as a preview of the eventual MQTT payload.
 PROBE_COMMANDS: dict[str, obd.OBDCommand] = {
-    "rpm": obd.commands.RPM,
-    "speed_kph": obd.commands.SPEED,
-    "coolant_c": obd.commands.COOLANT_TEMP,
-    "intake_c": obd.commands.INTAKE_TEMP,
-    "map_kpa": obd.commands.INTAKE_PRESSURE,
-    "engine_load_pct": obd.commands.ENGINE_LOAD,
-    "throttle_pct": obd.commands.THROTTLE_POS,
-    "fuel_level_pct": obd.commands.FUEL_LEVEL,
-    "fuel_rate_lph": obd.commands.FUEL_RATE,
-    "voltage_v": obd.commands.CONTROL_MODULE_VOLTAGE,
-    "run_time_s": obd.commands.RUN_TIME,
-    "maf_g_s": obd.commands.MAF,
+    'rpm': obd.commands.RPM,
+    'speed_kph': obd.commands.SPEED,
+    'coolant_c': obd.commands.COOLANT_TEMP,
+    'intake_c': obd.commands.INTAKE_TEMP,
+    'map_kpa': obd.commands.INTAKE_PRESSURE,
+    'engine_load_pct': obd.commands.ENGINE_LOAD,
+    'throttle_pct': obd.commands.THROTTLE_POS,
+    'fuel_level_pct': obd.commands.FUEL_LEVEL,
+    'fuel_rate_lph': obd.commands.FUEL_RATE,
+    'voltage_v': obd.commands.CONTROL_MODULE_VOLTAGE,
+    'run_time_s': obd.commands.RUN_TIME,
+    'maf_g_s': obd.commands.MAF,
 }
 
 # Always polled regardless of the supported set: ATRV is an ELM AT-command, not a
 # vehicle PID, so it answers even with the ignition off (a "is the dongle alive"
 # signal) and gives a chassis-battery voltage when PID 0142 is unsupported.
-ELM_VOLTAGE_COLUMN = "elm_voltage_v"
+ELM_VOLTAGE_COLUMN = 'elm_voltage_v'
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,14 +61,38 @@ def parse_args() -> argparse.Namespace:
     Returns:
         The parsed argument namespace.
     """
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", default=None, help="Serial port (default: auto-scan, e.g. /dev/rfcomm0, /dev/ttyUSB0)")
-    parser.add_argument("--baud", type=int, default=None, help="Baud rate (default: auto-detect)")
-    parser.add_argument("--interval", type=float, default=0.5, help="Seconds to sleep between poll cycles (default: 0.5)")
-    parser.add_argument("--duration", type=float, default=None, help="Stop after N seconds (default: run until Ctrl+C)")
-    parser.add_argument("--log", default=None, help="Append live readings to this JSONL file")
-    parser.add_argument("--fast", action="store_true", help="Enable python-OBD fast mode (default off; cheap clones are flakier with it)")
-    parser.add_argument("--verbose", action="store_true", help="Enable python-OBD DEBUG logging (connection troubleshooting)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        '--port',
+        default=None,
+        help='Serial port (default: auto-scan, e.g. /dev/rfcomm0, /dev/ttyUSB0)',
+    )
+    parser.add_argument('--baud', type=int, default=None, help='Baud rate (default: auto-detect)')
+    parser.add_argument(
+        '--interval',
+        type=float,
+        default=0.5,
+        help='Seconds to sleep between poll cycles (default: 0.5)',
+    )
+    parser.add_argument(
+        '--duration',
+        type=float,
+        default=None,
+        help='Stop after N seconds (default: run until Ctrl+C)',
+    )
+    parser.add_argument('--log', default=None, help='Append live readings to this JSONL file')
+    parser.add_argument(
+        '--fast',
+        action='store_true',
+        help='Enable python-OBD fast mode (default off; cheap clones are flakier with it)',
+    )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable python-OBD DEBUG logging (connection troubleshooting)',
+    )
     return parser.parse_args()
 
 
@@ -85,7 +109,7 @@ def numeric(response: obd.OBDResponse) -> float | None:
     if response is None or response.is_null():
         return None
     value = response.value
-    magnitude = getattr(value, "magnitude", value)
+    magnitude = getattr(value, 'magnitude', value)
     try:
         return float(magnitude)
     except (TypeError, ValueError):
@@ -109,41 +133,46 @@ def connect(port: str | None, baud: int | None, fast: bool) -> obd.OBD:
 def report_connection(connection: obd.OBD) -> None:
     """Print connection status, port, protocol, and dongle voltage."""
     status = connection.status()
-    print("\n=== Connection ===")
-    print(f"  port:     {connection.port_name()}")
-    print(f"  status:   {status}")
-    print(f"  protocol: {connection.protocol_name()} (id {connection.protocol_id()})")
-    print(f"  {ELM_VOLTAGE_COLUMN}: {numeric(connection.query(obd.commands.ELM_VOLTAGE))} V")
+    print('\n=== Connection ===')
+    print(f'  port:     {connection.port_name()}')
+    print(f'  status:   {status}')
+    print(f'  protocol: {connection.protocol_name()} (id {connection.protocol_id()})')
+    print(f'  {ELM_VOLTAGE_COLUMN}: {numeric(connection.query(obd.commands.ELM_VOLTAGE))} V')
     if status != obd.OBDStatus.CAR_CONNECTED:
         print("  WARNING: status is not CAR_CONNECTED — the ECU isn't answering.")
-        print("           Turn the ignition on (engine running); PID queries return null otherwise.")
+        print(
+            '           Turn the ignition on (engine running); PID queries return null otherwise.'
+        )
 
 
 def report_supported(connection: obd.OBD) -> None:
     """Print every supported command plus a checklist of the probe's PIDs."""
     supported = connection.supported_commands
-    print(f"\n=== Supported commands ({len(supported)}) ===")
+    print(f'\n=== Supported commands ({len(supported)}) ===')
     for cmd in sorted(supported, key=lambda c: c.command):
-        print(f"  {cmd.command.decode():6s} {cmd.name:26s} {cmd.desc}")
+        print(f'  {cmd.command.decode():6s} {cmd.name:26s} {cmd.desc}')
 
-    print("\n=== PIDs of interest (planned obd_readings columns) ===")
+    print('\n=== PIDs of interest (planned obd_readings columns) ===')
     for column, cmd in PROBE_COMMANDS.items():
-        mark = "yes" if cmd in supported else "NO "
-        print(f"  [{mark}] {column:16s} {cmd.name:26s} ({cmd.command.decode()})")
+        mark = 'yes' if cmd in supported else 'NO '
+        print(f'  [{mark}] {column:16s} {cmd.name:26s} ({cmd.command.decode()})')
 
 
 def report_dtcs(connection: obd.OBD) -> None:
     """Print the MIL/DTC-count summary and any stored trouble codes."""
-    print("\n=== Diagnostic trouble codes ===")
+    print('\n=== Diagnostic trouble codes ===')
     status = connection.query(obd.commands.STATUS)
     if not status.is_null():
-        print(f"  MIL on: {getattr(status.value, 'MIL', '?')}  DTC count: {getattr(status.value, 'DTC_count', '?')}")
+        print(
+            f'  MIL on: {getattr(status.value, "MIL", "?")}  '
+            f'DTC count: {getattr(status.value, "DTC_count", "?")}'
+        )
     dtcs = connection.query(obd.commands.GET_DTC)
     if dtcs.is_null() or not dtcs.value:
-        print("  (none stored)")
+        print('  (none stored)')
         return
     for code, description in dtcs.value:
-        print(f"  {code}  {description}")
+        print(f'  {code}  {description}')
 
 
 def poll_columns(connection: obd.OBD) -> list[str]:
@@ -160,14 +189,14 @@ def poll_columns(connection: obd.OBD) -> list[str]:
 
 def utc_now_ms() -> str:
     """Return the current UTC time as a fixed-width millisecond ISO string."""
-    now = dt.datetime.now(dt.timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    now = dt.datetime.now(dt.UTC)
+    return now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{now.microsecond // 1000:03d}Z'
 
 
 def format_row(row: dict[str, object]) -> str:
     """Render a reading row as a compact ``key=value`` line, skipping nulls."""
-    fields = " ".join(f"{k}={v}" for k, v in row.items() if k != "ts" and v is not None)
-    return f"{row['ts']}  {fields}"
+    fields = ' '.join(f'{k}={v}' for k, v in row.items() if k != 'ts' and v is not None)
+    return f'{row["ts"]}  {fields}'
 
 
 def poll_loop(
@@ -189,18 +218,18 @@ def poll_loop(
         duration: Stop after this many seconds, or None to run until interrupted.
         log_file: Open JSONL sink, or None to only print.
     """
-    print(f"\n=== Polling {len(columns)} columns + {ELM_VOLTAGE_COLUMN} (Ctrl+C to stop) ===")
+    print(f'\n=== Polling {len(columns)} columns + {ELM_VOLTAGE_COLUMN} (Ctrl+C to stop) ===')
     start = time.monotonic()
     while True:
         cycle_start = time.monotonic()
-        row: dict[str, object] = {"ts": utc_now_ms()}
+        row: dict[str, object] = {'ts': utc_now_ms()}
         row[ELM_VOLTAGE_COLUMN] = numeric(connection.query(obd.commands.ELM_VOLTAGE))
         for col in columns:
             row[col] = numeric(connection.query(PROBE_COMMANDS[col]))
-        row["cycle_s"] = round(time.monotonic() - cycle_start, 3)
+        row['cycle_s'] = round(time.monotonic() - cycle_start, 3)
 
         if log_file is not None:
-            log_file.write(json.dumps(row) + "\n")
+            log_file.write(json.dumps(row) + '\n')
             log_file.flush()
         print(format_row(row))
 
@@ -212,13 +241,15 @@ def poll_loop(
 def main() -> None:
     """Connect, report capabilities, then log live readings."""
     args = parse_args()
-    logging.getLogger("obd").setLevel(logging.DEBUG if args.verbose else logging.WARNING)
+    logging.getLogger('obd').setLevel(logging.DEBUG if args.verbose else logging.WARNING)
 
     connection = connect(args.port, args.baud, args.fast)
     try:
         report_connection(connection)
         if connection.status() == obd.OBDStatus.NOT_CONNECTED:
-            print("\nNo reader found. Check pairing/rfcomm bind (BAFX) or the USB path, then retry.")
+            print(
+                '\nNo reader found. Check pairing/rfcomm bind (BAFX) or the USB path, then retry.'
+            )
             sys.exit(1)
 
         report_supported(connection)
@@ -226,11 +257,13 @@ def main() -> None:
 
         columns = poll_columns(connection)
         if not columns:
-            print("\nNo probe PIDs supported (ignition off, or reads blocked?). Skipping live poll.")
+            print(
+                '\nNo probe PIDs supported (ignition off, or reads blocked?). Skipping live poll.'
+            )
             return
 
         if args.log:
-            with open(args.log, "a", encoding="utf-8") as log_file:
+            with open(args.log, 'a', encoding='utf-8') as log_file:
                 poll_loop(connection, columns, args.interval, args.duration, log_file)
         else:
             poll_loop(connection, columns, args.interval, args.duration, None)
@@ -238,5 +271,5 @@ def main() -> None:
         connection.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     run_cli(main)

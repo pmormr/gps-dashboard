@@ -54,8 +54,9 @@ class RateLimiter:
             else:
                 self._next = now + self._min_interval
 
+
 def lat_lon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int]:
-    n = 2 ** z
+    n = 2**z
     x = int((lon + 180) / 360 * n)
     lat_r = math.radians(lat)
     y = int((1 - math.asinh(math.tan(lat_r)) / math.pi) / 2 * n)
@@ -71,11 +72,7 @@ def tiles_for_bbox(min_lon, min_lat, max_lon, max_lat, z):
 
 
 def count_tiles(bbox, zoom_levels):
-    return sum(
-        1
-        for z in zoom_levels
-        for _ in tiles_for_bbox(*bbox, z)
-    )
+    return sum(1 for z in zoom_levels for _ in tiles_for_bbox(*bbox, z))
 
 
 def _atomic_write(path, data):
@@ -148,21 +145,38 @@ def parse_zoom(zoom_str: str) -> list[int]:
 
 
 @click.command()
-@click.option('--layer', default='usgs', show_default=True, type=click.Choice(sorted(LAYERS)), help='Tile layer to cache')
+@click.option(
+    '--layer',
+    default='usgs',
+    show_default=True,
+    type=click.Choice(sorted(LAYERS)),
+    help='Tile layer to cache',
+)
 @click.option('--region', default=None, help='Named region (see --list-regions)')
 @click.option('--bbox', default=None, help='Bounding box: "min_lon,min_lat,max_lon,max_lat"')
 @click.option('--local', 'use_local', is_flag=True, help='Cache tiles around current GPS position')
-@click.option('--radius', default=50.0, show_default=True, type=float, help='Radius in km (used with --local)')
+@click.option(
+    '--radius', default=50.0, show_default=True, type=float, help='Radius in km (used with --local)'
+)
 @click.option('--zoom', default='8-14', show_default=True, help='Zoom range, e.g. 8-14 or 12')
 @click.option('--list-regions', 'list_regions', is_flag=True, help='List available regions')
 @click.option('--workers', default=4, show_default=True, help='Parallel download workers')
-@click.option('--rate', default=20.0, show_default=True, type=float, help='Max requests/sec across all workers (0 = unlimited)')
+@click.option(
+    '--rate',
+    default=20.0,
+    show_default=True,
+    type=float,
+    help='Max requests/sec across all workers (0 = unlimited)',
+)
 def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, rate):
     """Pre-download map tiles for offline use."""
     if list_regions:
         click.echo('Available regions:')
         for name, r in sorted(REGIONS.items()):
-            click.echo(f'  {name:<15} ({r.min_lat:.1f}°N–{r.max_lat:.1f}°N, {r.min_lon:.1f}°–{r.max_lon:.1f}°)')
+            click.echo(
+                f'  {name:<15} ({r.min_lat:.1f}°N–{r.max_lat:.1f}°N, '
+                f'{r.min_lon:.1f}°–{r.max_lon:.1f}°)'
+            )
         return
 
     sources = sum([bool(region), bool(bbox), use_local])
@@ -174,7 +188,9 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
     if region:
         region = region.lower().replace(' ', '_')
         if region not in REGIONS:
-            raise click.BadParameter(f"Unknown region '{region}'. Use --list-regions to see options.")
+            raise click.BadParameter(
+                f"Unknown region '{region}'. Use --list-regions to see options."
+            )
         selected_bbox = REGIONS[region].bbox
     elif bbox:
         try:
@@ -183,7 +199,7 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
                 raise ValueError
             selected_bbox = tuple(parts)
         except ValueError:
-            raise click.BadParameter('--bbox must be "min_lon,min_lat,max_lon,max_lat"')
+            raise click.BadParameter('--bbox must be "min_lon,min_lat,max_lon,max_lat"') from None
     else:
         lat, lon = get_current_location()
         selected_bbox = bbox_from_center(lat, lon, radius)
@@ -201,24 +217,24 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
     click.echo(f'Tiles to download: ~{total:,} (skips already cached)')
     if rate > 0:
         eta_s = total / rate
-        click.echo(f'Rate limit:  {rate:g} req/s  (worst-case ETA ~{eta_s / 3600:.1f}h for a full run)')
+        click.echo(
+            f'Rate limit:  {rate:g} req/s  (worst-case ETA ~{eta_s / 3600:.1f}h for a full run)'
+        )
     else:
         click.echo('Rate limit:  unlimited')
     click.confirm('Proceed?', abort=True)
 
     limiter = RateLimiter(rate)
 
-    all_tiles = [
-        tile
-        for z in zoom_levels
-        for tile in tiles_for_bbox(*selected_bbox, z)
-    ]
+    all_tiles = [tile for z in zoom_levels for tile in tiles_for_bbox(*selected_bbox, z)]
 
     downloaded = cached = etag_added = errors = 0
     interrupted = False
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(download_tile, layer, z, x, y, limiter): (z, x, y) for z, x, y in all_tiles}
+        futures = {
+            pool.submit(download_tile, layer, z, x, y, limiter): (z, x, y) for z, x, y in all_tiles
+        }
         try:
             for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
@@ -231,17 +247,28 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
                 else:
                     errors += 1
                 if i % 100 == 0 or i == total:
-                    click.echo(f'\r  {i:,}/{total:,} tiles  ({downloaded} downloaded, {cached} cached, {etag_added} etag-added, {errors} errors)', nl=False)
+                    click.echo(
+                        f'\r  {i:,}/{total:,} tiles  '
+                        f'({downloaded} downloaded, {cached} cached, '
+                        f'{etag_added} etag-added, {errors} errors)',
+                        nl=False,
+                    )
         except KeyboardInterrupt:
             interrupted = True
             for f in futures:
                 f.cancel()
 
     if interrupted:
-        click.echo(f'\nInterrupted. {downloaded} downloaded, {cached} already cached, {etag_added} etags backfilled, {errors} errors.')
+        click.echo(
+            f'\nInterrupted. {downloaded} downloaded, {cached} already cached, '
+            f'{etag_added} etags backfilled, {errors} errors.'
+        )
         sys.exit(130)
     else:
-        click.echo(f'\nDone. {downloaded} downloaded, {cached} already cached, {etag_added} etags backfilled, {errors} errors.')
+        click.echo(
+            f'\nDone. {downloaded} downloaded, {cached} already cached, '
+            f'{etag_added} etags backfilled, {errors} errors.'
+        )
 
 
 if __name__ == '__main__':

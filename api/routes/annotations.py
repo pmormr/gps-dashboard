@@ -60,23 +60,19 @@ def create_annotation():
 
     conn = get_connection()
     cursor = conn.execute(
-        "INSERT INTO annotations (name, start_time, end_time, notes) VALUES (?, ?, ?, ?)",
+        'INSERT INTO annotations (name, start_time, end_time, notes) VALUES (?, ?, ?, ?)',
         (name, start_time, end_time, notes),
     )
     conn.commit()
 
-    row = conn.execute(
-        "SELECT * FROM annotations WHERE id = ?", (cursor.lastrowid,)
-    ).fetchone()
+    row = conn.execute('SELECT * FROM annotations WHERE id = ?', (cursor.lastrowid,)).fetchone()
     return jsonify(dict(row)), 201
 
 
 @annotations_bp.patch('/api/annotations/<int:annotation_id>')
 def update_annotation(annotation_id):
     conn = get_connection()
-    if not conn.execute(
-        "SELECT 1 FROM annotations WHERE id = ?", (annotation_id,)
-    ).fetchone():
+    if not conn.execute('SELECT 1 FROM annotations WHERE id = ?', (annotation_id,)).fetchone():
         return jsonify({'error': 'Annotation not found'}), 404
 
     body = request.get_json(silent=True) or {}
@@ -94,7 +90,7 @@ def update_annotation(annotation_id):
 
     if 'start_time' in updates or 'end_time' in updates:
         existing = conn.execute(
-            "SELECT start_time, end_time FROM annotations WHERE id = ?",
+            'SELECT start_time, end_time FROM annotations WHERE id = ?',
             (annotation_id,),
         ).fetchone()
         effective_start = updates.get('start_time', existing['start_time'])
@@ -102,27 +98,23 @@ def update_annotation(annotation_id):
         if effective_end is not None and effective_start >= effective_end:
             return jsonify({'error': "'start_time' must be before 'end_time'"}), 400
 
-    set_clause = ', '.join(f"{k} = ?" for k in updates)
+    set_clause = ', '.join(f'{k} = ?' for k in updates)
     conn.execute(
-        f"UPDATE annotations SET {set_clause} WHERE id = ?",
+        f'UPDATE annotations SET {set_clause} WHERE id = ?',
         (*updates.values(), annotation_id),
     )
     conn.commit()
 
-    row = conn.execute(
-        "SELECT * FROM annotations WHERE id = ?", (annotation_id,)
-    ).fetchone()
+    row = conn.execute('SELECT * FROM annotations WHERE id = ?', (annotation_id,)).fetchone()
     return jsonify(dict(row))
 
 
 @annotations_bp.delete('/api/annotations/<int:annotation_id>')
 def delete_annotation(annotation_id):
     conn = get_connection()
-    if not conn.execute(
-        "SELECT 1 FROM annotations WHERE id = ?", (annotation_id,)
-    ).fetchone():
+    if not conn.execute('SELECT 1 FROM annotations WHERE id = ?', (annotation_id,)).fetchone():
         return jsonify({'error': 'Annotation not found'}), 404
-    conn.execute("DELETE FROM annotations WHERE id = ?", (annotation_id,))
+    conn.execute('DELETE FROM annotations WHERE id = ?', (annotation_id,))
     conn.commit()
     return '', 204
 
@@ -130,7 +122,7 @@ def delete_annotation(annotation_id):
 @annotations_bp.get('/api/annotations/mark')
 def get_marks():
     conn = get_connection()
-    rows = conn.execute("SELECT key, timestamp FROM marks").fetchall()
+    rows = conn.execute('SELECT key, timestamp FROM marks').fetchall()
     return jsonify({r['key']: r['timestamp'] for r in rows})
 
 
@@ -144,12 +136,12 @@ def mark_timestamp():
     timestamp = now_canonical()
     conn = get_connection()
     conn.execute(
-        "INSERT INTO marks (key, timestamp) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET timestamp = excluded.timestamp",
+        'INSERT INTO marks (key, timestamp) VALUES (?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET timestamp = excluded.timestamp',
         (marker, timestamp),
     )
     conn.commit()
 
-    rows = conn.execute("SELECT key, timestamp FROM marks").fetchall()
+    rows = conn.execute('SELECT key, timestamp FROM marks').fetchall()
     result = {r['key']: r['timestamp'] for r in rows}
     return jsonify(result)

@@ -28,8 +28,8 @@ drone_bp = Blueprint('drone', __name__)
 # Flight metadata columns returned to the map layer (every column but none of the
 # track points, which are joined in separately when requested).
 _FLIGHT_COLUMNS = (
-    "id, model, model_code, first_fix_utc, last_fix_utc, media_path, "
-    "source_name, n_points, min_lat, min_lon, max_lat, max_lon, imported_at"
+    'id, model, model_code, first_fix_utc, last_fix_utc, media_path, '
+    'source_name, n_points, min_lat, min_lon, max_lat, max_lon, imported_at'
 )
 
 
@@ -107,7 +107,7 @@ def ingest_flight():
     conn = get_connection()
     outcome = load_flight(conn, flight)
     row = conn.execute(
-        "SELECT id FROM drone_flights WHERE model_code = ? AND first_fix_utc = ?",
+        'SELECT id FROM drone_flights WHERE model_code = ? AND first_fix_utc = ?',
         (flight.clip.model_code, flight.first_fix_utc),
     ).fetchone()
     status = 201 if outcome == 'imported' else 200
@@ -139,7 +139,7 @@ def list_flights():
         canonical, err = parse_time(value, name)
         if err:
             return err
-        where.append(f"{column} {op} ?")
+        where.append(f'{column} {op} ?')
         params.append(canonical)
 
     bbox, err = parse_bbox(request.args)
@@ -147,22 +147,22 @@ def list_flights():
         return err
     if bbox is not None:
         w, s, e, n = bbox
-        where += ["max_lon >= ?", "min_lon <= ?", "max_lat >= ?", "min_lat <= ?"]
+        where += ['max_lon >= ?', 'min_lon <= ?', 'max_lat >= ?', 'min_lat <= ?']
         params += [w, e, s, n]
 
-    sql = f"SELECT {_FLIGHT_COLUMNS} FROM drone_flights"
+    sql = f'SELECT {_FLIGHT_COLUMNS} FROM drone_flights'
     if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY first_fix_utc ASC"
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY first_fix_utc ASC'
     flights = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     if request.args.get('points') != '0' and flights:
         ids = [f['id'] for f in flights]
         placeholders = ','.join('?' * len(ids))
         rows = conn.execute(
-            "SELECT flight_id, timestamp, lat, lon, abs_alt, importance "
-            f"FROM drone_track_points WHERE flight_id IN ({placeholders}) "
-            "ORDER BY flight_id, timestamp",
+            'SELECT flight_id, timestamp, lat, lon, abs_alt, importance '
+            f'FROM drone_track_points WHERE flight_id IN ({placeholders}) '
+            'ORDER BY flight_id, timestamp',
             ids,
         ).fetchall()
         by_flight: dict[int, list[dict]] = {}

@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, render_template
 
@@ -27,8 +27,8 @@ def _latest_point():
     try:
         conn = get_connection()
         row = conn.execute(
-            "SELECT timestamp, lat, lon, speed, altitude FROM gps_points "
-            "ORDER BY timestamp DESC LIMIT 1"
+            'SELECT timestamp, lat, lon, speed, altitude FROM gps_points '
+            'ORDER BY timestamp DESC LIMIT 1'
         ).fetchone()
         return dict(row) if row else None
     except Exception:
@@ -50,19 +50,18 @@ def _position_frozen():
     """
     try:
         cutoff = canonical_timestamp(
-            (datetime.now(timezone.utc)
-             - timedelta(seconds=FROZEN_WINDOW_SECONDS)).isoformat()
+            (datetime.now(UTC) - timedelta(seconds=FROZEN_WINDOW_SECONDS)).isoformat()
         )
         conn = get_connection()
         rows = conn.execute(
-            "SELECT lat, lon, timestamp FROM gps_points "
-            "WHERE timestamp >= ? ORDER BY id", (cutoff,)
+            'SELECT lat, lon, timestamp FROM gps_points WHERE timestamp >= ? ORDER BY id', (cutoff,)
         ).fetchall()
         if len(rows) < FROZEN_MIN_POINTS:
             return False
-        span = (datetime.fromisoformat(rows[-1]['timestamp'].replace('Z', '+00:00'))
-                - datetime.fromisoformat(rows[0]['timestamp'].replace('Z', '+00:00'))
-                ).total_seconds()
+        span = (
+            datetime.fromisoformat(rows[-1]['timestamp'].replace('Z', '+00:00'))
+            - datetime.fromisoformat(rows[0]['timestamp'].replace('Z', '+00:00'))
+        ).total_seconds()
         if span < FROZEN_WINDOW_SECONDS * 0.8:
             return False
         return len({(r['lat'], r['lon']) for r in rows}) == 1
@@ -92,7 +91,7 @@ def gpsd_status():
     if latest:
         try:
             ts = datetime.fromisoformat(latest['timestamp'].replace('Z', '+00:00'))
-            data_age = int((datetime.now(timezone.utc) - ts).total_seconds())
+            data_age = int((datetime.now(UTC) - ts).total_seconds())
             data_fresh = data_age < 30
         except Exception:
             data_fresh = False
@@ -102,17 +101,18 @@ def gpsd_status():
     frozen = bool(data_fresh) and _position_frozen()
 
     checks = [
-        ('gpsd service',       service_state == 'active'),
-        ('device present',     device_present),
-        ('port 2947 open',     gpsd['connected']),
-        ('GPS fix',            fix_mode >= 2),
+        ('gpsd service', service_state == 'active'),
+        ('device present', device_present),
+        ('port 2947 open', gpsd['connected']),
+        ('GPS fix', fix_mode >= 2),
         ('data fresh (< 30s)', bool(data_fresh)),
-        ('position moving',    not frozen),
+        ('position moving', not frozen),
     ]
 
     overall_ok = all(ok for _, ok in checks)
 
-    return render_template('gpsd.html',
+    return render_template(
+        'gpsd.html',
         overall_ok=overall_ok,
         checks=checks,
         service_state=service_state,
@@ -160,14 +160,16 @@ def gpsd_sky():
         el = s.get('el')
         if az is None or el is None:
             continue
-        plotted.append({
-            'prn': s.get('PRN'),
-            'az': az,
-            'el': el,
-            'ss': s.get('ss'),
-            'used': bool(s.get('used')),
-            'gnss': constellation(s),
-        })
+        plotted.append(
+            {
+                'prn': s.get('PRN'),
+                'az': az,
+                'el': el,
+                'ss': s.get('ss'),
+                'used': bool(s.get('used')),
+                'gnss': constellation(s),
+            }
+        )
 
     mode = tpv.get('mode', 0)
     return {

@@ -199,8 +199,10 @@ def _classify(directory: str, name: str, encoder: str, category: str) -> Clip | 
     code = _parse_model_code(category)
     if code is None:
         return None
-    model = encoder if encoder not in ('-', '', 'DEFAULT ENCODING') else MODEL_BY_CODE.get(code, code)
-    ref = f"{directory.rstrip('/')}/{name}"
+    model = (
+        encoder if encoder not in ('-', '', 'DEFAULT ENCODING') else MODEL_BY_CODE.get(code, code)
+    )
+    ref = f'{directory.rstrip("/")}/{name}'
     return Clip(ref=ref, name=name, media_path=None, model=model, model_code=code)
 
 
@@ -268,10 +270,15 @@ class Extractor(ABC):
             directory, name, encoder, category = line.split('|')
             clip = _classify(directory, name, encoder, category)
             if clip is not None:
-                clips.append(Clip(
-                    ref=clip.ref, name=clip.name, media_path=to_media_path(clip),
-                    model=clip.model, model_code=clip.model_code,
-                ))
+                clips.append(
+                    Clip(
+                        ref=clip.ref,
+                        name=clip.name,
+                        media_path=to_media_path(clip),
+                        model=clip.model,
+                        model_code=clip.model_code,
+                    )
+                )
         return clips
 
 
@@ -295,10 +302,12 @@ class LocalExtractor(Extractor):
     def _run(self, exif_args: list[str]) -> str:
         result = subprocess.run(
             [self._exiftool, *exif_args],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode not in (0, 1):  # 1 = "minor" (e.g. unsupported files)
-            raise RuntimeError(f"exiftool failed ({result.returncode}): {result.stderr.strip()}")
+            raise RuntimeError(f'exiftool failed ({result.returncode}): {result.stderr.strip()}')
         return result.stdout
 
     def discover(self) -> list[Clip]:
@@ -328,22 +337,33 @@ class SshDockerExtractor(Extractor):
 
     def _run(self, exif_args: list[str]) -> str:
         docker = [
-            'docker', 'run', '--rm', '-v', f'{self._remote_dir}:/data:ro',
-            self._image, *exif_args,
+            'docker',
+            'run',
+            '--rm',
+            '-v',
+            f'{self._remote_dir}:/data:ro',
+            self._image,
+            *exif_args,
         ]
         remote_cmd = ' '.join(shlex.quote(arg) for arg in docker)
         result = subprocess.run(
             ['ssh', self._host, remote_cmd],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode not in (0, 1):
-            raise RuntimeError(f"ssh/docker exiftool failed ({result.returncode}): {result.stderr.strip()}")
+            raise RuntimeError(
+                f'ssh/docker exiftool failed ({result.returncode}): {result.stderr.strip()}'
+            )
         return result.stdout
 
     def preflight(self) -> bool:
         result = subprocess.run(
             ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', self._host, 'true'],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         return result.returncode == 0
 
@@ -352,7 +372,7 @@ class SshDockerExtractor(Extractor):
 
     def _to_media_path(self, clip: Clip) -> str:
         """Map a container ``/data/...`` ref back to the canonical remote path."""
-        return self._remote_dir + clip.ref[len('/data'):]
+        return self._remote_dir + clip.ref[len('/data') :]
 
 
 # --- Parse / thin --------------------------------------------------------------
@@ -460,13 +480,13 @@ def load_flight(conn: sqlite3.Connection, flight: Flight) -> str:
     """
     clip = flight.clip
     existing = conn.execute(
-        "SELECT id, media_path FROM drone_flights WHERE model_code = ? AND first_fix_utc = ?",
+        'SELECT id, media_path FROM drone_flights WHERE model_code = ? AND first_fix_utc = ?',
         (clip.model_code, flight.first_fix_utc),
     ).fetchone()
     if existing is not None:
         if clip.media_path and existing['media_path'] is None:
             conn.execute(
-                "UPDATE drone_flights SET media_path = ? WHERE id = ?",
+                'UPDATE drone_flights SET media_path = ? WHERE id = ?',
                 (clip.media_path, existing['id']),
             )
             conn.commit()
@@ -474,18 +494,25 @@ def load_flight(conn: sqlite3.Connection, flight: Flight) -> str:
         return 'skipped'
 
     cursor = conn.execute(
-        "INSERT INTO drone_flights (model, model_code, first_fix_utc, last_fix_utc, "
-        "media_path, source_name, n_points, min_lat, min_lon, max_lat, max_lon, imported_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        'INSERT INTO drone_flights (model, model_code, first_fix_utc, last_fix_utc, '
+        'media_path, source_name, n_points, min_lat, min_lon, max_lat, max_lon, imported_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
-            clip.model, clip.model_code, flight.first_fix_utc, flight.last_fix_utc,
-            clip.media_path, clip.name, len(flight.points), *flight.bbox, now_canonical(),
+            clip.model,
+            clip.model_code,
+            flight.first_fix_utc,
+            flight.last_fix_utc,
+            clip.media_path,
+            clip.name,
+            len(flight.points),
+            *flight.bbox,
+            now_canonical(),
         ),
     )
     flight_id = cursor.lastrowid
     conn.executemany(
-        "INSERT INTO drone_track_points (flight_id, timestamp, lat, lon, abs_alt, importance) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        'INSERT INTO drone_track_points (flight_id, timestamp, lat, lon, abs_alt, importance) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
         [(flight_id, p.timestamp, p.lat, p.lon, p.abs_alt, p.importance) for p in flight.points],
     )
     conn.commit()
@@ -566,8 +593,9 @@ class DbLoader(Loader):
 
     def imported_media_paths(self) -> set[str]:
         return {
-            row['media_path'] for row in self._conn.execute(
-                "SELECT media_path FROM drone_flights WHERE media_path IS NOT NULL"
+            row['media_path']
+            for row in self._conn.execute(
+                'SELECT media_path FROM drone_flights WHERE media_path IS NOT NULL'
             )
         }
 
@@ -651,8 +679,10 @@ def run(args: argparse.Namespace) -> int:
     if args.incremental and loader is not None:
         imported = loader.imported_media_paths()
         kept = [clip for clip in clips if clip.media_path not in imported]
-        print(f'Incremental: {len(clips) - len(kept)} already imported, '
-              f'{len(kept)} to extract', flush=True)
+        print(
+            f'Incremental: {len(clips) - len(kept)} already imported, {len(kept)} to extract',
+            flush=True,
+        )
         clips = kept
         if not clips:
             return 0
@@ -664,8 +694,7 @@ def run(args: argparse.Namespace) -> int:
     n_points = 0
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures: dict[Future[Flight | None], Clip] = {
-            pool.submit(extract_flight, extractor, clip, args.epsilon): clip
-            for clip in clips
+            pool.submit(extract_flight, extractor, clip, args.epsilon): clip for clip in clips
         }
         try:
             for future in _as_completed(futures):
@@ -676,16 +705,20 @@ def run(args: argparse.Namespace) -> int:
                     print(f'  {clip.name}: no valid GPS fix — skipped', flush=True)
                     continue
                 if loader is None:
-                    print(f'  {clip.name}: {len(flight.points)} pts '
-                          f'[{flight.first_fix_utc}] (dry-run)', flush=True)
+                    print(
+                        f'  {clip.name}: {len(flight.points)} pts '
+                        f'[{flight.first_fix_utc}] (dry-run)',
+                        flush=True,
+                    )
                     n_points += len(flight.points)
                     continue
                 outcome = loader.load(flight)
                 counts[outcome] += 1
                 if outcome == 'imported':
                     n_points += len(flight.points)
-                print(f'  {clip.name}: {outcome} ({len(flight.points)} pts, {clip.model})',
-                      flush=True)
+                print(
+                    f'  {clip.name}: {outcome} ({len(flight.points)} pts, {clip.model})', flush=True
+                )
         except KeyboardInterrupt:
             for future in futures:
                 future.cancel()
@@ -700,6 +733,7 @@ def run(args: argparse.Namespace) -> int:
 def _as_completed(futures: dict[Future, Clip]):
     """Yield futures as they finish (thin wrapper for the KeyboardInterrupt path)."""
     from concurrent.futures import as_completed
+
     yield from as_completed(futures)
 
 
@@ -729,20 +763,49 @@ def parse_args() -> argparse.Namespace:
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--source', help='Local directory to scan with the host exiftool')
-    source.add_argument('--ssh', help='SSH host: extract in a container on the remote (e.g. rex-nas)')
-    parser.add_argument('--remote-dir', help='Directory on the --ssh host to scan/mount (required with --ssh)')
-    parser.add_argument('--image', default=DEFAULT_IMAGE, help=f'Container image for --ssh (default: {DEFAULT_IMAGE})')
-    parser.add_argument('--exiftool', default='exiftool', help='ExifTool executable for --source (default: exiftool)')
-    parser.add_argument('--db', help='SQLite DB path for the local sink (default: GPS_DB_PATH / ~/gps_history.db)')
-    parser.add_argument('--api', help='POST flights to a dashboard URL instead of a local DB (laptop LAN path)')
-    parser.add_argument('--epsilon', type=float, default=DEFAULT_EPSILON,
-                        help=f'Reumann–Witkam tolerance in metres (default: {DEFAULT_EPSILON})')
-    parser.add_argument('--jobs', type=int, default=DEFAULT_JOBS,
-                        help=f'Parallel extractions (default: {DEFAULT_JOBS})')
-    parser.add_argument('--incremental', action='store_true',
-                        help='Skip clips whose media_path is already imported (home-sync timer)')
+    source.add_argument(
+        '--ssh', help='SSH host: extract in a container on the remote (e.g. rex-nas)'
+    )
+    parser.add_argument(
+        '--remote-dir', help='Directory on the --ssh host to scan/mount (required with --ssh)'
+    )
+    parser.add_argument(
+        '--image',
+        default=DEFAULT_IMAGE,
+        help=f'Container image for --ssh (default: {DEFAULT_IMAGE})',
+    )
+    parser.add_argument(
+        '--exiftool',
+        default='exiftool',
+        help='ExifTool executable for --source (default: exiftool)',
+    )
+    parser.add_argument(
+        '--db', help='SQLite DB path for the local sink (default: GPS_DB_PATH / ~/gps_history.db)'
+    )
+    parser.add_argument(
+        '--api', help='POST flights to a dashboard URL instead of a local DB (laptop LAN path)'
+    )
+    parser.add_argument(
+        '--epsilon',
+        type=float,
+        default=DEFAULT_EPSILON,
+        help=f'Reumann–Witkam tolerance in metres (default: {DEFAULT_EPSILON})',
+    )
+    parser.add_argument(
+        '--jobs',
+        type=int,
+        default=DEFAULT_JOBS,
+        help=f'Parallel extractions (default: {DEFAULT_JOBS})',
+    )
+    parser.add_argument(
+        '--incremental',
+        action='store_true',
+        help='Skip clips whose media_path is already imported (home-sync timer)',
+    )
     parser.add_argument('--limit', type=int, help='Process at most N clips (testing)')
-    parser.add_argument('--dry-run', action='store_true', help='Discover + extract, but do not write the DB')
+    parser.add_argument(
+        '--dry-run', action='store_true', help='Discover + extract, but do not write the DB'
+    )
     args = parser.parse_args()
     if args.ssh and not args.remote_dir:
         parser.error('--remote-dir is required with --ssh')
@@ -757,8 +820,10 @@ def main() -> None:
     """Entry point: parse args, set the DB path, run the importer."""
     args = parse_args()
     if args.db:
-        import api.db
         from pathlib import Path
+
+        import api.db
+
         api.db.DB_PATH = Path(args.db)
     sys.exit(run(args))
 

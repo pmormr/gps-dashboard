@@ -23,7 +23,7 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from api.db import canonical_timestamp, get_connection, init_db, migrate
 from mqttbus import topics
@@ -78,8 +78,7 @@ class IngestStats:
         )
 
 
-def ensure_sensor(conn: sqlite3.Connection, node: str, type: str,
-                  first_seen: str) -> int:
+def ensure_sensor(conn: sqlite3.Connection, node: str, type: str, first_seen: str) -> int:
     """Return the sensor row id, inserting a registry row if it's new.
 
     Does not touch ``last_seen``/``status`` (those are updated by the reading and
@@ -96,17 +95,16 @@ def ensure_sensor(conn: sqlite3.Connection, node: str, type: str,
         The ``sensors.id`` for ``(node, type)``.
     """
     conn.execute(
-        "INSERT OR IGNORE INTO sensors (node, type, first_seen, status) "
+        'INSERT OR IGNORE INTO sensors (node, type, first_seen, status) '
         "VALUES (?, ?, ?, 'unknown')",
         (node, type, first_seen),
     )
     return conn.execute(
-        "SELECT id FROM sensors WHERE node = ? AND type = ?", (node, type)
+        'SELECT id FROM sensors WHERE node = ? AND type = ?', (node, type)
     ).fetchone()['id']
 
 
-def resolve_timestamp(payload: dict, receipt_dt: datetime,
-                      stats: IngestStats) -> str:
+def resolve_timestamp(payload: dict, receipt_dt: datetime, stats: IngestStats) -> str:
     """Resolve a reading's storage timestamp from its payload (Decision #5).
 
     Uses the node-supplied ``ts`` when present, parseable, and not implausibly far
@@ -132,16 +130,20 @@ def resolve_timestamp(payload: dict, receipt_dt: datetime,
         stats.ts_bad += 1
         return canonical_timestamp(receipt_dt.isoformat())
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     if (dt - receipt_dt).total_seconds() > FUTURE_SKEW_SECONDS:
         stats.ts_future += 1
         return canonical_timestamp(receipt_dt.isoformat())
     return canonical_timestamp(dt.isoformat())
 
 
-def record_reading(conn: sqlite3.Connection, topic: topics.SensorTopic,
-                   payload: dict, receipt_dt: datetime,
-                   stats: IngestStats) -> None:
+def record_reading(
+    conn: sqlite3.Connection,
+    topic: topics.SensorTopic,
+    payload: dict,
+    receipt_dt: datetime,
+    stats: IngestStats,
+) -> None:
     """Upsert the sensor and insert one typed reading row.
 
     Args:
@@ -158,10 +160,10 @@ def record_reading(conn: sqlite3.Connection, topic: topics.SensorTopic,
     sensor_id = ensure_sensor(conn, topic.node, topic.type, receipt_iso)
     ts = resolve_timestamp(payload, receipt_dt, stats)
     conn.execute(
-        "INSERT INTO bme680_readings "
-        "(sensor_id, timestamp, temp_c, humidity_pct, pressure_hpa, gas_ohms, "
-        "iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        'INSERT INTO bme680_readings '
+        '(sensor_id, timestamp, temp_c, humidity_pct, pressure_hpa, gas_ohms, '
+        'iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
             sensor_id,
             ts,
@@ -175,15 +177,18 @@ def record_reading(conn: sqlite3.Connection, topic: topics.SensorTopic,
             payload.get('breath_voc_equivalent'),
         ),
     )
-    conn.execute(
-        "UPDATE sensors SET last_seen = ? WHERE id = ?", (receipt_iso, sensor_id)
-    )
+    conn.execute('UPDATE sensors SET last_seen = ? WHERE id = ?', (receipt_iso, sensor_id))
     conn.commit()
     stats.written += 1
 
 
-def apply_status(conn: sqlite3.Connection, topic: topics.SensorTopic,
-                 value: str, receipt_dt: datetime, stats: IngestStats) -> None:
+def apply_status(
+    conn: sqlite3.Connection,
+    topic: topics.SensorTopic,
+    value: str,
+    receipt_dt: datetime,
+    stats: IngestStats,
+) -> None:
     """Apply a retained LWT status to the registry.
 
     Args:
@@ -196,7 +201,7 @@ def apply_status(conn: sqlite3.Connection, topic: topics.SensorTopic,
     receipt_iso = canonical_timestamp(receipt_dt.isoformat())
     ensure_sensor(conn, topic.node, topic.type, receipt_iso)
     conn.execute(
-        "UPDATE sensors SET status = ? WHERE node = ? AND type = ?",
+        'UPDATE sensors SET status = ? WHERE node = ? AND type = ?',
         (value, topic.node, topic.type),
     )
     conn.commit()
@@ -206,8 +211,7 @@ def apply_status(conn: sqlite3.Connection, topic: topics.SensorTopic,
 def on_connect(client, userdata, flags, reason_code, properties) -> None:
     """Subscribe to the full sensor tree on (re)connect."""
     client.subscribe(topics.SENSORS_WILDCARD, qos=1)
-    print(f'ingest connected ({reason_code}); subscribed '
-          f'{topics.SENSORS_WILDCARD}', flush=True)
+    print(f'ingest connected ({reason_code}); subscribed {topics.SENSORS_WILDCARD}', flush=True)
 
 
 def on_message(client, userdata, msg) -> None:
@@ -222,7 +226,7 @@ def on_message(client, userdata, msg) -> None:
     topic = topics.parse_sensor_topic(msg.topic)
     if topic is None:
         return
-    receipt_dt = datetime.now(timezone.utc)
+    receipt_dt = datetime.now(UTC)
 
     if topic.kind == 'status':
         value = msg.payload.decode('utf-8', 'replace').strip()

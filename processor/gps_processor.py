@@ -40,7 +40,11 @@ from enum import Enum
 from api.db import get_connection, init_db
 from processor.simplify import (
     EARTH_RADIUS_M,
+)
+from processor.simplify import (
     local_meters as _local_meters,
+)
+from processor.simplify import (
     perp_distance_m as _perp_distance_m,
 )
 
@@ -310,9 +314,7 @@ class Stop:
         """Weighted RMS spread of the dwell about its centroid, in metres."""
         mean_e = self._swx / self._sw
         mean_n = self._swy / self._sw
-        var = (self._swxx / self._sw - mean_e * mean_e) + (
-            self._swyy / self._sw - mean_n * mean_n
-        )
+        var = (self._swxx / self._sw - mean_e * mean_e) + (self._swyy / self._sw - mean_n * mean_n)
         return math.sqrt(var) if var > 0.0 else 0.0
 
     @property
@@ -340,9 +342,7 @@ class TrackFilter:
     replaying from the cursor reproduces steady-state output exactly (C7).
     """
 
-    def __init__(
-        self, thresholds: Thresholds, cursor: int, anchor: Anchor | None
-    ) -> None:
+    def __init__(self, thresholds: Thresholds, cursor: int, anchor: Anchor | None) -> None:
         """Initialize at a committed boundary.
 
         Args:
@@ -625,9 +625,7 @@ def get_cursor(conn: sqlite3.Connection) -> int:
     Returns:
         The raw ``gps_points.id`` up to which the processed tier is finalized.
     """
-    row = conn.execute(
-        "SELECT value FROM processing_state WHERE key = ?", (CURSOR_KEY,)
-    ).fetchone()
+    row = conn.execute('SELECT value FROM processing_state WHERE key = ?', (CURSOR_KEY,)).fetchone()
     return int(row['value']) if row else 0
 
 
@@ -639,8 +637,8 @@ def set_cursor(conn: sqlite3.Connection, raw_id: int) -> None:
         raw_id: The raw id up to which the processed tier is now finalized.
     """
     conn.execute(
-        "INSERT INTO processing_state (key, value) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        'INSERT INTO processing_state (key, value) VALUES (?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
         (CURSOR_KEY, str(raw_id)),
     )
 
@@ -660,10 +658,8 @@ def discard_provisional(conn: sqlite3.Connection, cursor: int) -> int:
     Returns:
         The number of ``track_points`` rows discarded.
     """
-    n = conn.execute(
-        "DELETE FROM track_points WHERE src_raw_id > ?", (cursor,)
-    ).rowcount
-    conn.execute("DELETE FROM track_events WHERE src_raw_id > ?", (cursor,))
+    n = conn.execute('DELETE FROM track_points WHERE src_raw_id > ?', (cursor,)).rowcount
+    conn.execute('DELETE FROM track_events WHERE src_raw_id > ?', (cursor,))
     conn.commit()
     return n
 
@@ -684,8 +680,8 @@ def reconstruct_anchor(conn: sqlite3.Connection, cursor: int) -> Anchor | None:
         The reconstructed anchor, or None when no committed output exists.
     """
     row = conn.execute(
-        "SELECT lat, lon, timestamp, src_raw_id FROM track_points "
-        "WHERE src_raw_id <= ? ORDER BY src_raw_id DESC LIMIT 1",
+        'SELECT lat, lon, timestamp, src_raw_id FROM track_points '
+        'WHERE src_raw_id <= ? ORDER BY src_raw_id DESC LIMIT 1',
         (cursor,),
     ).fetchone()
     if row is None:
@@ -694,34 +690,47 @@ def reconstruct_anchor(conn: sqlite3.Connection, cursor: int) -> Anchor | None:
 
 
 _TRACK_COLUMNS = (
-    "timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, "
-    "accuracy, dwell_start, dwell_end, radius, src_raw_id"
+    'timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, '
+    'accuracy, dwell_start, dwell_end, radius, src_raw_id'
 )
-_TRACK_PLACEHOLDERS = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
-_EVENT_COLUMNS = "timestamp, end_time, type, magnitude, payload, src_raw_id"
-_EVENT_PLACEHOLDERS = "?, ?, ?, ?, ?, ?"
+_TRACK_PLACEHOLDERS = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?'
+_EVENT_COLUMNS = 'timestamp, end_time, type, magnitude, payload, src_raw_id'
+_EVENT_PLACEHOLDERS = '?, ?, ?, ?, ?, ?'
 
 
 def _track_tuple(row: TrackRow) -> tuple:
     """Flatten a :class:`TrackRow` to the ``track_points`` column order."""
     return (
-        row.timestamp, row.lat, row.lon, row.speed, row.altitude, row.track,
-        row.kind, row.n_raw, row.importance, row.accuracy, row.dwell_start,
-        row.dwell_end, row.radius, row.src_raw_id,
+        row.timestamp,
+        row.lat,
+        row.lon,
+        row.speed,
+        row.altitude,
+        row.track,
+        row.kind,
+        row.n_raw,
+        row.importance,
+        row.accuracy,
+        row.dwell_start,
+        row.dwell_end,
+        row.radius,
+        row.src_raw_id,
     )
 
 
 def _event_tuple(row: EventRow) -> tuple:
     """Flatten an :class:`EventRow` to the ``track_events`` column order."""
     return (
-        row.timestamp, row.end_time, row.type, row.magnitude, row.payload,
+        row.timestamp,
+        row.end_time,
+        row.type,
+        row.magnitude,
+        row.payload,
         row.src_raw_id,
     )
 
 
-def apply_drain(
-    conn: sqlite3.Connection, prev_cursor: int, result: DrainResult
-) -> None:
+def apply_drain(conn: sqlite3.Connection, prev_cursor: int, result: DrainResult) -> None:
     """Persist one drained batch atomically (clear → finalize → advance → snapshot).
 
     The pre-write clear uses ``prev_cursor`` (not the new cursor) so a closing
@@ -735,27 +744,27 @@ def apply_drain(
         prev_cursor: The committed cursor before this batch.
         result: The batch's drained emits.
     """
-    conn.execute("DELETE FROM track_points WHERE src_raw_id > ?", (prev_cursor,))
-    conn.execute("DELETE FROM track_events WHERE src_raw_id > ?", (prev_cursor,))
+    conn.execute('DELETE FROM track_points WHERE src_raw_id > ?', (prev_cursor,))
+    conn.execute('DELETE FROM track_events WHERE src_raw_id > ?', (prev_cursor,))
     if result.finalized_tracks:
         conn.executemany(
-            f"INSERT INTO track_points ({_TRACK_COLUMNS}) VALUES ({_TRACK_PLACEHOLDERS})",
+            f'INSERT INTO track_points ({_TRACK_COLUMNS}) VALUES ({_TRACK_PLACEHOLDERS})',
             [_track_tuple(r) for r in result.finalized_tracks],
         )
     if result.finalized_events:
         conn.executemany(
-            f"INSERT INTO track_events ({_EVENT_COLUMNS}) VALUES ({_EVENT_PLACEHOLDERS})",
+            f'INSERT INTO track_events ({_EVENT_COLUMNS}) VALUES ({_EVENT_PLACEHOLDERS})',
             [_event_tuple(r) for r in result.finalized_events],
         )
     set_cursor(conn, result.cursor)
     if result.provisional_tracks:
         conn.executemany(
-            f"INSERT INTO track_points ({_TRACK_COLUMNS}) VALUES ({_TRACK_PLACEHOLDERS})",
+            f'INSERT INTO track_points ({_TRACK_COLUMNS}) VALUES ({_TRACK_PLACEHOLDERS})',
             [_track_tuple(r) for r in result.provisional_tracks],
         )
     if result.provisional_events:
         conn.executemany(
-            f"INSERT INTO track_events ({_EVENT_COLUMNS}) VALUES ({_EVENT_PLACEHOLDERS})",
+            f'INSERT INTO track_events ({_EVENT_COLUMNS}) VALUES ({_EVENT_PLACEHOLDERS})',
             [_event_tuple(r) for r in result.provisional_events],
         )
     conn.commit()
@@ -789,8 +798,8 @@ def run(conn: sqlite3.Connection, rebuild: bool) -> None:
         conn.commit()
     discarded = discard_provisional(conn, cursor)
     anchor = reconstruct_anchor(conn, cursor)
-    note = f"; discarded {discarded} provisional" if discarded else ""
-    print(f"processor: resuming after raw id {cursor}{note}", flush=True)
+    note = f'; discarded {discarded} provisional' if discarded else ''
+    print(f'processor: resuming after raw id {cursor}{note}', flush=True)
 
     filt = TrackFilter(Thresholds(), cursor, anchor)
     committed = cursor
@@ -800,8 +809,8 @@ def run(conn: sqlite3.Connection, rebuild: bool) -> None:
     last_heartbeat = time.monotonic()
     while True:
         rows = conn.execute(
-            "SELECT id, timestamp, lat, lon, speed, altitude, track, epx, epy "
-            "FROM gps_points WHERE id > ? ORDER BY id LIMIT ?",
+            'SELECT id, timestamp, lat, lon, speed, altitude, track, epx, epy '
+            'FROM gps_points WHERE id > ? ORDER BY id LIMIT ?',
             (read_id, BATCH_SIZE),
         ).fetchall()
         if rows:
@@ -815,9 +824,7 @@ def run(conn: sqlite3.Connection, rebuild: bool) -> None:
         now = time.monotonic()
         if now - last_heartbeat >= HEARTBEAT_SECONDS:
             cur = _Counters.snapshot(filt)
-            max_raw = conn.execute(
-                "SELECT COALESCE(MAX(id), 0) FROM gps_points"
-            ).fetchone()[0]
+            max_raw = conn.execute('SELECT COALESCE(MAX(id), 0) FROM gps_points').fetchone()[0]
             print(cur.heartbeat_line(last, committed, max_raw, filt.state), flush=True)
             last = cur
             last_heartbeat = now
@@ -841,13 +848,15 @@ class _Counters:
     def snapshot(cls, filt: TrackFilter) -> '_Counters':
         """Capture the filter's current cumulative counters."""
         return cls(
-            filt.fixes_seen, filt.dropped, filt.vertices_emitted,
-            filt.stops_opened, filt.stops_closed, filt.events_emitted,
+            filt.fixes_seen,
+            filt.dropped,
+            filt.vertices_emitted,
+            filt.stops_opened,
+            filt.stops_closed,
+            filt.events_emitted,
         )
 
-    def heartbeat_line(
-        self, prev: '_Counters', cursor: int, max_raw: int, state: State
-    ) -> str:
+    def heartbeat_line(self, prev: '_Counters', cursor: int, max_raw: int, state: State) -> str:
         """Format a one-line window summary against the previous snapshot.
 
         Args:
@@ -860,40 +869,41 @@ class _Counters:
             A human-readable heartbeat string for the journal.
         """
         return (
-            f"heartbeat: fixes={self.fixes - prev.fixes} "
-            f"vertices={self.vertices - prev.vertices} "
-            f"stops_opened={self.stops_opened - prev.stops_opened} "
-            f"stops_closed={self.stops_closed - prev.stops_closed} "
-            f"events={self.events - prev.events} "
-            f"dropped={self.dropped - prev.dropped} "
-            f"state={state.value} cursor={cursor} backlog={max_raw - cursor}"
+            f'heartbeat: fixes={self.fixes - prev.fixes} '
+            f'vertices={self.vertices - prev.vertices} '
+            f'stops_opened={self.stops_opened - prev.stops_opened} '
+            f'stops_closed={self.stops_closed - prev.stops_closed} '
+            f'events={self.events - prev.events} '
+            f'dropped={self.dropped - prev.dropped} '
+            f'state={state.value} cursor={cursor} backlog={max_raw - cursor}'
         )
 
 
 def main() -> None:
     """Run the processor loop, recovering from transient errors."""
-    parser = argparse.ArgumentParser(
-        description="GPS track processor (denoise / two-tier)."
-    )
+    parser = argparse.ArgumentParser(description='GPS track processor (denoise / two-tier).')
     parser.add_argument(
-        "--rebuild", action="store_true",
-        help="Truncate the processed tier and reprocess from raw id 0.",
+        '--rebuild',
+        action='store_true',
+        help='Truncate the processed tier and reprocess from raw id 0.',
     )
     args = parser.parse_args()
 
     conn = get_connection()
-    print("GPS processor started" + (" (rebuild)" if args.rebuild else ""),
-          flush=True)
+    print('GPS processor started' + (' (rebuild)' if args.rebuild else ''), flush=True)
     rebuild = args.rebuild
     while True:
         try:
             run(conn, rebuild)
         except KeyboardInterrupt:
-            print("GPS processor stopped", flush=True)
+            print('GPS processor stopped', flush=True)
             break
         except Exception as e:
-            print(f"processor error: {e}; retrying in {ERROR_BACKOFF_SECONDS}s",
-                  file=sys.stderr, flush=True)
+            print(
+                f'processor error: {e}; retrying in {ERROR_BACKOFF_SECONDS}s',
+                file=sys.stderr,
+                flush=True,
+            )
             time.sleep(ERROR_BACKOFF_SECONDS)
         rebuild = False  # rebuild applies only to the first pass
 

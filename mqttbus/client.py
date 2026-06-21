@@ -65,9 +65,7 @@ def make_client(
         client_id=client_id,
         clean_session=clean_session,
     )
-    client.reconnect_delay_set(
-        min_delay=RECONNECT_MIN_DELAY, max_delay=RECONNECT_MAX_DELAY
-    )
+    client.reconnect_delay_set(min_delay=RECONNECT_MIN_DELAY, max_delay=RECONNECT_MAX_DELAY)
     if lwt_topic is not None:
         client.will_set(lwt_topic, lwt_payload, qos=1, retain=True)
     return client

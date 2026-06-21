@@ -6,10 +6,11 @@ from api.params import parse_bbox, parse_limit, parse_time
 points_bp = Blueprint('points', __name__)
 
 
-
 # Processed-tier columns the trail renderer reads. kind/n_raw/importance let the
 # client size dots and reason about how much raw data each point represents.
-_TRACK_COLUMNS = "id, timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, accuracy"
+_TRACK_COLUMNS = (
+    'id, timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, accuracy'
+)
 
 
 @points_bp.get('/api/points/latest')
@@ -19,8 +20,8 @@ def latest_point():
     # row converging over its first minute (C13).
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, timestamp, lat, lon, speed, altitude, track "
-        "FROM gps_points ORDER BY timestamp DESC LIMIT 1"
+        'SELECT id, timestamp, lat, lon, speed, altitude, track '
+        'FROM gps_points ORDER BY timestamp DESC LIMIT 1'
     ).fetchone()
     if row is None:
         return jsonify({'error': 'No GPS data available yet'}), 404
@@ -63,7 +64,7 @@ def get_points():
     bbox_params: list = []
     if bbox is not None:
         w, s, e, n = bbox
-        bbox_where = ["lat BETWEEN ? AND ?", "lon BETWEEN ? AND ?"]
+        bbox_where = ['lat BETWEEN ? AND ?', 'lon BETWEEN ? AND ?']
         bbox_params = [s, n, w, e]
 
     conn = get_connection()
@@ -78,18 +79,18 @@ def get_points():
     #     representative timestamp sits at its start) drops out of any recent
     #     window even while the van is still parked there, e.g. "last 1h" while
     #     parked overnight would render empty.
-    stop_where = ["kind = 'stop'", "dwell_end >= ?", "dwell_start <= ?", *bbox_where]
+    stop_where = ["kind = 'stop'", 'dwell_end >= ?', 'dwell_start <= ?', *bbox_where]
     stops = conn.execute(
-        f"SELECT {_TRACK_COLUMNS} FROM track_points "
-        f"WHERE {' AND '.join(stop_where)} ORDER BY dwell_start ASC",
+        f'SELECT {_TRACK_COLUMNS} FROM track_points '
+        f'WHERE {" AND ".join(stop_where)} ORDER BY dwell_start ASC',
         [start, end, *bbox_params],
     ).fetchall()
 
-    move_where = ["kind = 'track'", "timestamp >= ?", "timestamp <= ?", *bbox_where]
+    move_where = ["kind = 'track'", 'timestamp >= ?', 'timestamp <= ?', *bbox_where]
     move_budget = max(0, limit - len(stops))
     moving = conn.execute(
-        f"SELECT {_TRACK_COLUMNS} FROM track_points "
-        f"WHERE {' AND '.join(move_where)} ORDER BY importance DESC LIMIT ?",
+        f'SELECT {_TRACK_COLUMNS} FROM track_points '
+        f'WHERE {" AND ".join(move_where)} ORDER BY importance DESC LIMIT ?',
         [start, end, *bbox_params, move_budget],
     ).fetchall()
 

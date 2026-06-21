@@ -12,9 +12,12 @@ import click
 from common.cli import run_cli
 
 CANDIDATE_DEVICES = [
-    '/dev/ttyUSB0', '/dev/ttyUSB1',
-    '/dev/ttyACM0', '/dev/ttyACM1',
-    '/dev/ttyAMA0', '/dev/ttyS0',
+    '/dev/ttyUSB0',
+    '/dev/ttyUSB1',
+    '/dev/ttyACM0',
+    '/dev/ttyACM1',
+    '/dev/ttyAMA0',
+    '/dev/ttyS0',
 ]
 
 BAUD_RATES = ['4800', '9600', '38400', '115200']
@@ -43,7 +46,8 @@ def get_usb_ids(device):
     try:
         r = subprocess.run(
             ['udevadm', 'info', '--query=property', f'--name={device}'],
-            capture_output=True, text=True
+            capture_output=True,
+            text=True,
         )
         vid = pid = None
         for line in r.stdout.splitlines():
@@ -64,10 +68,9 @@ def install_udev_rule(vendor_id, product_id):
         f'SYMLINK+="gps0", GROUP="dialout", MODE="0664", '
         f'RUN+="/usr/sbin/gpsdctl add /dev/%k"\n'
     )
-    r = subprocess.run(['sudo', 'tee', UDEV_RULE_PATH],
-                       input=rule, text=True, capture_output=True)
+    r = subprocess.run(['sudo', 'tee', UDEV_RULE_PATH], input=rule, text=True, capture_output=True)
     if r.returncode != 0:
-        click.echo(f"Error writing udev rule: {r.stderr}", err=True)
+        click.echo(f'Error writing udev rule: {r.stderr}', err=True)
         return False
     subprocess.run(['sudo', 'udevadm', 'control', '--reload-rules'], capture_output=True)
     subprocess.run(['sudo', 'udevadm', 'trigger'], capture_output=True)
@@ -95,15 +98,14 @@ def write_config(device, baud):
     )
     try:
         result = subprocess.run(
-            ['sudo', 'tee', GPSD_CONFIG_PATH],
-            input=config, text=True, capture_output=True
+            ['sudo', 'tee', GPSD_CONFIG_PATH], input=config, text=True, capture_output=True
         )
         if result.returncode != 0:
-            click.echo(f"Error writing config: {result.stderr}", err=True)
+            click.echo(f'Error writing config: {result.stderr}', err=True)
             return False
         return True
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        click.echo(f'Error: {e}', err=True)
         return False
 
 
@@ -112,7 +114,7 @@ def restart_gpsd():
         subprocess.run(['sudo', 'systemctl', 'restart', 'gpsd'], check=True, timeout=15)
         return True
     except Exception as e:
-        click.echo(f"Failed to restart gpsd: {e}", err=True)
+        click.echo(f'Failed to restart gpsd: {e}', err=True)
         return False
 
 
@@ -123,8 +125,7 @@ def wait_for_gpsd(timeout=90):
     # 1. Wait for service to report active
     click.echo('  Waiting for gpsd service…', nl=False)
     while time.monotonic() < deadline:
-        r = subprocess.run(['systemctl', 'is-active', 'gpsd'],
-                           capture_output=True, text=True)
+        r = subprocess.run(['systemctl', 'is-active', 'gpsd'], capture_output=True, text=True)
         if r.stdout.strip() == 'active':
             click.echo(' active.')
             break
@@ -183,11 +184,9 @@ def main(device, baud, validate):
     if not device:
         detected = detect_devices()
         if detected:
-            click.echo(f"Detected devices: {', '.join(detected)}")
+            click.echo(f'Detected devices: {", ".join(detected)}')
             device = click.prompt(
-                'Select device',
-                default=detected[0],
-                type=click.Choice(detected + ['other'])
+                'Select device', default=detected[0], type=click.Choice(detected + ['other'])
             )
             if device == 'other':
                 device = click.prompt('Enter device path')
@@ -196,7 +195,7 @@ def main(device, baud, validate):
             device = click.prompt('Enter device path manually (e.g. /dev/ttyUSB0)')
 
     if not os.path.exists(device):
-        click.echo(f"Warning: {device} does not currently exist.", err=True)
+        click.echo(f'Warning: {device} does not currently exist.', err=True)
         if not click.confirm('Continue anyway?', default=False):
             sys.exit(1)
 
@@ -224,13 +223,15 @@ def main(device, baud, validate):
                         click.echo(f'  {UDEV_SYMLINK} → {os.readlink(UDEV_SYMLINK)}')
                         device = UDEV_SYMLINK
                     else:
-                        click.echo(f'  Warning: {UDEV_SYMLINK} not yet present — using {device}', err=True)
+                        click.echo(
+                            f'  Warning: {UDEV_SYMLINK} not yet present — using {device}', err=True
+                        )
                 else:
                     click.echo('  udev rule install failed, continuing with original device.')
         else:
             click.echo(f'\nCould not read USB IDs for {device} — skipping udev rule.')
 
-    click.echo(f'\nConfiguration:')
+    click.echo('\nConfiguration:')
     click.echo(f'  Device: {device}')
     click.echo(f'  Baud:   {baud}')
     click.confirm('\nWrite config and restart gpsd?', default=True, abort=True)
@@ -249,6 +250,7 @@ def main(device, baud, validate):
     if validate:
         click.echo('\nRunning validation…\n')
         from tools.gpsd_validate import run_all
+
         results = run_all()
         sys.exit(0 if all(ok for _, ok, _ in results) else 1)
 

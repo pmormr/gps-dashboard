@@ -13,7 +13,7 @@ that inner handler exits first, and these wrappers are the outer safety net.
 from __future__ import annotations
 
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 INTERRUPTED_EXIT = 130
 
