@@ -4,6 +4,7 @@ import re
 import sys
 
 from common import proc
+from common.checks import run_checks
 
 CONFLICTING_SERVICES = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
 
@@ -102,27 +103,7 @@ def run_all(verbose=True, check_pps=False):
     ]
     if check_pps:
         checks.insert(2, ('PPS source selected', check_pps_source))
-
-    results = []
-    for name, fn in checks:
-        ok, msg = fn()
-        results.append((name, ok, msg))
-        if verbose:
-            status = '  PASS' if ok else '  FAIL'
-            print(f"{status}  {name}")
-            print(f"        {msg}")
-
-    passed = sum(1 for _, ok, _ in results if ok)
-    total = len(results)
-
-    if verbose:
-        print()
-        if passed == total:
-            print(f"All {total} checks passed.")
-        else:
-            print(f"{passed}/{total} checks passed.")
-
-    return results
+    return run_checks(checks, verbose)
 
 
 if __name__ == '__main__':

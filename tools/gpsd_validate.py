@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 
+from common.checks import run_checks
 from common.gpsd import configured_gpsd_device, query_gpsd
 
 
@@ -83,27 +84,7 @@ def run_all(verbose=True):
         ("data flowing",           check_data_flow),
         ("GPS fix acquired",       check_fix),
     ]
-
-    results = []
-    for name, fn in checks:
-        ok, msg = fn()
-        results.append((name, ok, msg))
-        if verbose:
-            status = '  PASS' if ok else '  FAIL'
-            print(f"{status}  {name}")
-            print(f"        {msg}")
-
-    passed = sum(1 for _, ok, _ in results if ok)
-    total = len(results)
-
-    if verbose:
-        print()
-        if passed == total:
-            print(f"All {total} checks passed.")
-        else:
-            print(f"{passed}/{total} checks passed.")
-
-    return results
+    return run_checks(checks, verbose)
 
 
 if __name__ == '__main__':
