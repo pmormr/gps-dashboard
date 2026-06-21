@@ -52,6 +52,7 @@ from dataclasses import dataclass
 import requests
 
 from api.db import canonical_timestamp, get_connection, init_db, now_canonical
+from common.cli import run_cli
 from processor.simplify import reumann_witkam
 
 DEFAULT_IMAGE = 'exiftool:13x'
@@ -763,8 +764,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        print('\nInterrupted.')
-        sys.exit(130)
+    run_cli(main)

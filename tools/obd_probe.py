@@ -30,6 +30,8 @@ from typing import TextIO
 
 import obd
 
+from common.cli import run_cli
+
 # Probe column name -> OBD command. Names mirror the planned obd_readings
 # columns so the JSONL log doubles as a preview of the eventual MQTT payload.
 PROBE_COMMANDS: dict[str, obd.OBDCommand] = {
@@ -237,8 +239,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nInterrupted.")
-        sys.exit(130)
+    run_cli(main)

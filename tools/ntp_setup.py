@@ -8,6 +8,7 @@ import sys
 import click
 
 from common import proc
+from common.cli import run_cli
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHRONY_CONF = '/etc/chrony/chrony.conf'
@@ -203,8 +204,4 @@ def main(mode, gpio_pin, validate):
 
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        click.echo('\nInterrupted.')
-        sys.exit(130)
+    run_cli(main)

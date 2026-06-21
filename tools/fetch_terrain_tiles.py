@@ -22,13 +22,13 @@ MBTiles uses TMS Y origin (bottom-left), inverted from the XYZ Y origin
 import asyncio
 import random
 import sqlite3
-import sys
 import time
 from pathlib import Path
 
 import click
 import httpx
 
+from common.cli import run_click
 from tools.precache import count_tiles, tiles_for_bbox
 from tools.regions import REGIONS
 
@@ -461,19 +461,4 @@ def main(
 
 
 if __name__ == '__main__':
-    try:
-        main(standalone_mode=False)
-    except click.exceptions.Abort as e:
-        # standalone_mode=False lets us tell Ctrl+C apart from "n" at confirm:
-        # Ctrl+C → Abort chained from KeyboardInterrupt; 'n' → bare Abort.
-        if isinstance(e.__cause__, KeyboardInterrupt):
-            click.echo('\nInterrupted.', err=True)
-            sys.exit(130)
-        click.echo('Aborted.', err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo('\nInterrupted.', err=True)
-        sys.exit(130)
-    except click.exceptions.ClickException as e:
-        e.show()
-        sys.exit(e.exit_code)
+    run_click(main)

@@ -3,9 +3,9 @@
 import os
 import socket
 import subprocess
-import sys
 
 from common.checks import run_checks
+from common.cli import run_cli
 from common.gpsd import configured_gpsd_device, query_gpsd
 
 
@@ -88,9 +88,4 @@ def run_all(verbose=True):
 
 
 if __name__ == '__main__':
-    try:
-        results = run_all()
-        sys.exit(0 if all(ok for _, ok, _ in results) else 1)
-    except KeyboardInterrupt:
-        print('\nInterrupted.')
-        sys.exit(130)
+    run_cli(lambda: 0 if all(ok for _, ok, _ in run_all()) else 1)

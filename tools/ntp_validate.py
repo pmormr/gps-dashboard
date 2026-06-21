@@ -1,10 +1,10 @@
 """Validate that chrony is configured correctly and synced to GPS."""
 
 import re
-import sys
 
 from common import proc
 from common.checks import run_checks
+from common.cli import run_cli
 
 CONFLICTING_SERVICES = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
 
@@ -111,9 +111,4 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description='Validate chrony NTP configuration')
     p.add_argument('--pps', action='store_true', help='Also check PPS source')
     args = p.parse_args()
-    try:
-        results = run_all(check_pps=args.pps)
-        sys.exit(0 if all(ok for _, ok, _ in results) else 1)
-    except KeyboardInterrupt:
-        print('\nInterrupted.')
-        sys.exit(130)
+    run_cli(lambda: 0 if all(ok for _, ok, _ in run_all(check_pps=args.pps)) else 1)

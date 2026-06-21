@@ -9,6 +9,8 @@ import time
 
 import click
 
+from common.cli import run_cli
+
 CANDIDATE_DEVICES = [
     '/dev/ttyUSB0', '/dev/ttyUSB1',
     '/dev/ttyACM0', '/dev/ttyACM1',
@@ -252,8 +254,4 @@ def main(device, baud, validate):
 
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        click.echo('\nInterrupted.')
-        sys.exit(130)
+    run_cli(main)
