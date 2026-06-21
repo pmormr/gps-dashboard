@@ -1,22 +1,10 @@
 import re
-import subprocess
 
 from flask import Blueprint, render_template
 
+from common import proc
+
 status_ntp_bp = Blueprint('status_ntp', __name__)
-
-
-def _run(cmd, timeout=10):
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout
-    except Exception:
-        return -1, ''
-
-
-def _service_state():
-    _, out = _run(['systemctl', 'is-active', 'chrony'])
-    return out.strip() or 'unknown'
 
 
 _TRACKING_DEFAULTS = {
@@ -26,7 +14,7 @@ _TRACKING_DEFAULTS = {
 
 
 def _parse_tracking():
-    _, out = _run(['chronyc', 'tracking'])
+    _, out, _ = proc.run(['chronyc', 'tracking'])
     if not out:
         return dict(_TRACKING_DEFAULTS)
 
@@ -56,7 +44,7 @@ def _parse_tracking():
     }
 
 def _parse_sources():
-    _, out = _run(['chronyc', 'sources'])
+    _, out, _ = proc.run(['chronyc', 'sources'])
     sources = []
     for line in out.splitlines():
         # Lines starting with # are reference clocks (GPS/PPS)
@@ -76,22 +64,17 @@ _CONFLICTING = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
 
 
 def _conflicting_services():
-    active = []
-    for svc in _CONFLICTING:
-        _, out = _run(['systemctl', 'is-active', svc])
-        if out.strip() == 'active':
-            active.append(svc)
-    return active
+    return [svc for svc in _CONFLICTING if proc.service_active(svc)]
 
 
 def _ntp_serving():
-    _, out = _run(['ss', '-lnup'])
+    _, out, _ = proc.run(['ss', '-lnup'])
     return bool(re.search(r'[*\d]:123\s', out))
 
 
 @status_ntp_bp.get('/ntp')
 def ntp_status():
-    service_state = _service_state()
+    service_state = proc.service_state('chrony')
     tracking = _parse_tracking()
     sources = _parse_sources()
     serving = _ntp_serving()

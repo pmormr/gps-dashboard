@@ -7,6 +7,8 @@ import sys
 
 import click
 
+from common import proc
+
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHRONY_CONF = '/etc/chrony/chrony.conf'
 CONFLICTING_SERVICES = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
@@ -44,11 +46,7 @@ def _service(action, name):
 
 def disable_conflicts():
     """Stop and disable any NTP services that would conflict with chrony."""
-    found = []
-    for svc in CONFLICTING_SERVICES:
-        r = _run(['systemctl', 'is-active', svc], capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.strip() == 'active':
-            found.append(svc)
+    found = [svc for svc in CONFLICTING_SERVICES if proc.service_active(svc)]
 
     if not found:
         return True

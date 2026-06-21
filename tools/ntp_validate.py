@@ -1,44 +1,28 @@
 """Validate that chrony is configured correctly and synced to GPS."""
 
 import re
-import socket
-import subprocess
 import sys
 
-
-def _run(cmd, timeout=10):
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout, r.stderr
-    except FileNotFoundError:
-        return -1, '', f"Command not found: {cmd[0]}"
-    except Exception as e:
-        return -1, '', str(e)
-
+from common import proc
 
 CONFLICTING_SERVICES = ['ntpd', 'ntp', 'systemd-timesyncd', 'openntpd']
 
 
 def check_no_conflicts():
     """Ensure no other NTP daemons are running alongside chrony."""
-    active = []
-    for svc in CONFLICTING_SERVICES:
-        code, out, _ = _run(['systemctl', 'is-active', svc])
-        if out.strip() == 'active':
-            active.append(svc)
+    active = [svc for svc in CONFLICTING_SERVICES if proc.service_active(svc)]
     if active:
         return False, f"Conflicting NTP service(s) running: {', '.join(active)} — disable before using chrony"
-    return True, f"No conflicting NTP services active"
+    return True, "No conflicting NTP services active"
 
 
 def check_service():
-    code, out, _ = _run(['systemctl', 'is-active', 'chrony'])
-    state = out.strip()
+    state = proc.service_state('chrony')
     return state == 'active', f"chrony service is {state}"
 
 
 def check_gps_source():
-    code, out, err = _run(['chronyc', 'sources'])
+    code, out, err = proc.run(['chronyc', 'sources'])
     if code != 0:
         return False, f"chronyc sources failed: {err.strip()}"
     has_gps = 'GPS' in out
@@ -46,7 +30,7 @@ def check_gps_source():
 
 
 def check_pps_source():
-    code, out, err = _run(['chronyc', 'sources'])
+    code, out, err = proc.run(['chronyc', 'sources'])
     if code != 0:
         return False, f"chronyc sources failed: {err.strip()}"
     has_pps = 'PPS' in out
@@ -59,7 +43,7 @@ def check_pps_source():
 
 
 def check_synced():
-    code, out, err = _run(['chronyc', 'tracking'])
+    code, out, err = proc.run(['chronyc', 'tracking'])
     if code != 0:
         return False, f"chronyc tracking failed: {err.strip()}"
 
@@ -72,7 +56,7 @@ def check_synced():
 
 
 def check_stratum():
-    code, out, _ = _run(['chronyc', 'tracking'])
+    code, out, _ = proc.run(['chronyc', 'tracking'])
     if code != 0:
         return False, 'Could not run chronyc tracking'
     m = re.search(r'Stratum\s*:\s*(\d+)', out)
@@ -84,7 +68,7 @@ def check_stratum():
 
 
 def check_offset():
-    code, out, _ = _run(['chronyc', 'tracking'])
+    code, out, _ = proc.run(['chronyc', 'tracking'])
     if code != 0:
         return True, 'Could not check offset'
     m = re.search(r'System time\s*:\s*([\d.]+)\s*seconds\s*(fast|slow)', out)
@@ -99,7 +83,7 @@ def check_offset():
 
 def check_ntp_serving():
     try:
-        code, out, _ = _run(['ss', '-lnup'])
+        code, out, _ = proc.run(['ss', '-lnup'])
         serving = ':123' in out
         return serving, 'Port 123 listening (serving NTP to LAN)' if serving else 'Port 123 not listening'
     except Exception as e:

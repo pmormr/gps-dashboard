@@ -1,10 +1,10 @@
 import os
-import subprocess
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, render_template
 
 from api.db import canonical_timestamp, get_connection
+from common import proc
 from common.gpsd import (
     FIX_LABELS,
     configured_gpsd_device,
@@ -21,15 +21,6 @@ status_gpsd_bp = Blueprint('status_gpsd', __name__)
 # green. See FROZEN_POSITION_SECONDS in logger/gps_logger.py.
 FROZEN_WINDOW_SECONDS = 120
 FROZEN_MIN_POINTS = 10
-
-
-def _service_state():
-    try:
-        r = subprocess.run(['systemctl', 'is-active', 'gpsd'],
-                           capture_output=True, text=True, timeout=5)
-        return r.stdout.strip()
-    except Exception:
-        return 'unknown'
 
 
 def _latest_point():
@@ -81,7 +72,7 @@ def _position_frozen():
 
 @status_gpsd_bp.get('/gpsd')
 def gpsd_status():
-    service_state = _service_state()
+    service_state = proc.service_state('gpsd')
     device = configured_gpsd_device()
     gpsd = query_gpsd()
     latest = _latest_point()
