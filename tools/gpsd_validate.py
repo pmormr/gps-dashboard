@@ -1,12 +1,11 @@
 """Validate that gpsd is correctly configured and receiving GPS data."""
 
-import json
 import os
-import re
 import socket
 import subprocess
 import sys
-import time
+
+from common.gpsd import configured_gpsd_device, query_gpsd
 
 
 def check_service():
@@ -19,16 +18,6 @@ def check_service():
         return False, "systemctl not found (not running on systemd?)"
     except Exception as e:
         return False, str(e)
-
-
-def get_configured_device():
-    try:
-        with open('/etc/default/gpsd') as f:
-            content = f.read()
-        match = re.search(r'DEVICES="([^"]*)"', content)
-        return match.group(1).strip() if match else None
-    except FileNotFoundError:
-        return None
 
 
 def check_device(device):
@@ -59,71 +48,33 @@ def check_port():
 
 
 def check_data_flow(timeout=10):
-    """Connect to gpsd and wait for a valid TPV record."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect(('127.0.0.1', 2947))
-        s.sendall(b'?WATCH={"enable":true,"json":true}\n')
-        f = s.makefile('r', encoding='utf-8', errors='replace')
-        deadline = time.monotonic() + timeout
-        for line in f:
-            if time.monotonic() > deadline:
-                break
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if r.get('class') == 'TPV' and r.get('lat') is not None:
-                mode = r.get('mode', 0)
-                lat, lon = r['lat'], r['lon']
-                s.close()
-                return True, f"TPV received — mode={mode}, lat={lat:.5f}, lon={lon:.5f}"
-        s.close()
-        return False, f"No TPV record with fix received in {timeout}s"
-    except Exception as e:
-        return False, f"Socket error: {e}"
+    """Connect to gpsd and confirm a TPV carrying a position fix is flowing."""
+    gpsd = query_gpsd(timeout)
+    if not gpsd['connected']:
+        return False, "Could not connect to gpsd on 127.0.0.1:2947"
+    tpv = gpsd['tpv']
+    if tpv.get('lat') is not None:
+        return True, (f"TPV received — mode={tpv.get('mode', 0)}, "
+                      f"lat={tpv['lat']:.5f}, lon={tpv['lon']:.5f}")
+    return False, f"No TPV record with fix received in {timeout}s"
 
 
 def check_fix():
-    """Check current fix mode from gpsd."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(10)
-        s.connect(('127.0.0.1', 2947))
-        s.sendall(b'?WATCH={"enable":true,"json":true}\n')
-        f = s.makefile('r', encoding='utf-8', errors='replace')
-        deadline = time.monotonic() + 10
-        tpv = sky = None
-        for line in f:
-            if time.monotonic() > deadline:
-                break
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if r.get('class') == 'TPV' and tpv is None:
-                tpv = r
-            if r.get('class') == 'SKY' and sky is None:
-                sky = r
-            if tpv and sky:
-                break
-        s.close()
-
-        mode = (tpv or {}).get('mode', 0)
-        mode_names = {0: 'unknown', 1: 'no fix', 2: '2D', 3: '3D'}
-        sats = (sky or {}).get('satellites', [])
-        used = sum(1 for sat in sats if sat.get('used'))
-        visible = len(sats)
-
-        ok = mode >= 2
-        return ok, f"Fix mode: {mode_names.get(mode, mode)} | satellites: {used} used / {visible} visible"
-    except Exception as e:
-        return False, f"Could not query fix: {e}"
+    """Check current fix mode and satellite usage from gpsd."""
+    gpsd = query_gpsd(10)
+    if not gpsd['connected']:
+        return False, "Could not query fix: gpsd connection failed"
+    mode = gpsd['tpv'].get('mode', 0)
+    mode_names = {0: 'unknown', 1: 'no fix', 2: '2D', 3: '3D'}
+    sats = gpsd['sky'].get('satellites', [])
+    used = sum(1 for sat in sats if sat.get('used'))
+    visible = len(sats)
+    ok = mode >= 2
+    return ok, f"Fix mode: {mode_names.get(mode, mode)} | satellites: {used} used / {visible} visible"
 
 
 def run_all(verbose=True):
-    device = get_configured_device()
+    device = configured_gpsd_device()
 
     checks = [
         ("gpsd service active",    check_service),

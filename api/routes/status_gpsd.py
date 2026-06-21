@@ -1,54 +1,18 @@
-import json
 import os
-import re
-import socket
 import subprocess
-import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, render_template
 
 from api.db import canonical_timestamp, get_connection
+from common.gpsd import (
+    FIX_LABELS,
+    configured_gpsd_device,
+    constellation,
+    query_gpsd,
+)
 
 status_gpsd_bp = Blueprint('status_gpsd', __name__)
-
-FIX_LABELS = {0: 'Unknown', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix'}
-
-# gpsd/u-blox gnssid → constellation name. The M9N tracks GPS + GLONASS +
-# Galileo + BeiDou, plus SBAS/QZSS augmentation.
-GNSS_NAMES = {0: 'GPS', 1: 'SBAS', 2: 'Galileo', 3: 'BeiDou',
-              4: 'IMES', 5: 'QZSS', 6: 'GLONASS'}
-
-
-def _constellation(sat):
-    """Resolve a SKY satellite's constellation name.
-
-    Prefers gpsd's explicit ``gnssid``; falls back to coarse legacy PRN ranges
-    for older gpsd builds that omit it.
-
-    Args:
-        sat: One satellite object from a gpsd SKY message.
-
-    Returns:
-        Constellation name (e.g. 'GPS', 'Galileo'), or 'Other' if unresolved.
-    """
-    gid = sat.get('gnssid')
-    if gid in GNSS_NAMES:
-        return GNSS_NAMES[gid]
-    prn = sat.get('PRN') or 0
-    if 1 <= prn <= 32:
-        return 'GPS'
-    if 65 <= prn <= 96:
-        return 'GLONASS'
-    if 120 <= prn <= 158:
-        return 'SBAS'
-    if 193 <= prn <= 199:
-        return 'QZSS'
-    if 201 <= prn <= 263:
-        return 'BeiDou'
-    if 301 <= prn <= 336:
-        return 'Galileo'
-    return 'Other'
 
 # Mirror of the logger's frozen-fix detection, derived from the DB instead of the
 # live gpsd stream so the status page (a separate process) needs no IPC. A stuck
@@ -66,46 +30,6 @@ def _service_state():
         return r.stdout.strip()
     except Exception:
         return 'unknown'
-
-
-def _configured_device():
-    try:
-        with open('/etc/default/gpsd') as f:
-            content = f.read()
-        m = re.search(r'DEVICES="([^"]*)"', content)
-        return m.group(1).strip() if m else None
-    except FileNotFoundError:
-        return None
-
-
-def _query_gpsd(timeout=5):
-    result = {'connected': False, 'tpv': {}, 'sky': {}}
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect(('127.0.0.1', 2947))
-        s.sendall(b'?WATCH={"enable":true,"json":true}\n')
-        f = s.makefile('r', encoding='utf-8', errors='replace')
-        result['connected'] = True
-        deadline = time.monotonic() + timeout
-        for line in f:
-            if time.monotonic() > deadline:
-                break
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            cls = r.get('class')
-            if cls == 'TPV' and not result['tpv']:
-                result['tpv'] = r
-            elif cls == 'SKY' and not result['sky']:
-                result['sky'] = r
-            if result['tpv'] and result['sky']:
-                break
-        s.close()
-    except Exception:
-        pass
-    return result
 
 
 def _latest_point():
@@ -158,8 +82,8 @@ def _position_frozen():
 @status_gpsd_bp.get('/gpsd')
 def gpsd_status():
     service_state = _service_state()
-    device = _configured_device()
-    gpsd = _query_gpsd()
+    device = configured_gpsd_device()
+    gpsd = query_gpsd()
     latest = _latest_point()
 
     tpv = gpsd['tpv']
@@ -234,7 +158,7 @@ def gpsd_sky():
         ``seen``, ``hdop``/``vdop``/``pdop``, and a ``satellites`` list of
         ``{prn, az, el, ss, used, gnss}``.
     """
-    gpsd = _query_gpsd()
+    gpsd = query_gpsd()
     sky = gpsd['sky']
     tpv = gpsd['tpv']
     sats = sky.get('satellites', []) or []
@@ -251,7 +175,7 @@ def gpsd_sky():
             'el': el,
             'ss': s.get('ss'),
             'used': bool(s.get('used')),
-            'gnss': _constellation(s),
+            'gnss': constellation(s),
         })
 
     mode = tpv.get('mode', 0)
