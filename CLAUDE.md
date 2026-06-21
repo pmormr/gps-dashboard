@@ -21,7 +21,7 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync`, then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`. When any `deploy/` file changed it reinstalls all unit files into `/etc/systemd/system/`, `daemon-reload`s, and enables the `gps-drone-sync.timer` — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto`/`sensor-bme680` restart only on their own config/source changes; `gps-drone-sync` is a timer-driven oneshot, not restarted. The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`. When any `deploy/` file changed it reinstalls all unit files into `/etc/systemd/system/`, `daemon-reload`s, and enables the `gps-drone-sync.timer` — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto`/`sensor-bme680` restart only on their own config/source changes; `gps-drone-sync` is a timer-driven oneshot, not restarted. The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
@@ -124,6 +124,7 @@ gps-dashboard/
 ├── api/
 │   ├── app.py
 │   ├── db.py
+│   ├── params.py               # shared request-param validation (bbox/time/limit)
 │   ├── tile_layers.py
 │   └── routes/
 │       ├── points.py
@@ -133,6 +134,11 @@ gps-dashboard/
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
 │       ├── status_gpsd.py
 │       └── status_ntp.py
+├── common/                     # shared core library (imported across api/tools/processor)
+│   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
+│   ├── proc.py                 # subprocess + systemctl (is-active) helpers
+│   ├── checks.py               # PASS/FAIL check-runner for the validate tools
+│   └── cli.py                  # run_cli/run_click — tools' Ctrl+C → "Interrupted." exit 130
 ├── logger/
 │   └── gps_logger.py
 ├── processor/                  # processed-tier deriver (tails raw → track_points/track_events)
@@ -250,6 +256,6 @@ No test suite or linter is configured.
 
 ## Offline Constraint
 
-All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The vector OSM basemap renders fully offline (vendored MapLibre/pmtiles libs + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
+All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (vendored MapLibre/pmtiles libs + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
 
 Development happens with internet available. Building the vector PMTiles archive, pre-caching USGS tiles, and vendoring assets are intentional prep steps before going off-grid.
