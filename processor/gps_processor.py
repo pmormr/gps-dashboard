@@ -36,6 +36,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from api.db import get_connection, init_db
 from processor.simplify import (
@@ -698,7 +699,7 @@ _EVENT_COLUMNS = 'timestamp, end_time, type, magnitude, payload, src_raw_id'
 _EVENT_PLACEHOLDERS = '?, ?, ?, ?, ?, ?'
 
 
-def _track_tuple(row: TrackRow) -> tuple:
+def _track_tuple(row: TrackRow) -> tuple[Any, ...]:
     """Flatten a :class:`TrackRow` to the ``track_points`` column order."""
     return (
         row.timestamp,
@@ -718,7 +719,7 @@ def _track_tuple(row: TrackRow) -> tuple:
     )
 
 
-def _event_tuple(row: EventRow) -> tuple:
+def _event_tuple(row: EventRow) -> tuple[Any, ...]:
     """Flatten an :class:`EventRow` to the ``track_events`` column order."""
     return (
         row.timestamp,

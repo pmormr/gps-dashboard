@@ -10,14 +10,16 @@ return directly. This mirrors the convention the routes already used by hand
 
 from __future__ import annotations
 
-from flask import jsonify
+from flask import Response, jsonify
+from werkzeug.datastructures import MultiDict
 
 from api.db import canonical_timestamp
 
 Bbox = tuple[float, float, float, float]
+ErrorResponse = tuple[Response, int]
 
 
-def _error(message: str, status: int = 400):
+def _error(message: str, status: int = 400) -> ErrorResponse:
     """Build a Flask ``(json, status)`` error response.
 
     Args:
@@ -30,7 +32,7 @@ def _error(message: str, status: int = 400):
     return jsonify({'error': message}), status
 
 
-def parse_time(value: str, name: str):
+def parse_time(value: str, name: str) -> tuple[str | None, ErrorResponse | None]:
     """Validate an ISO-8601 timestamp and normalize it to canonical storage form.
 
     Every range-compared timestamp column stores fixed-width millisecond UTC
@@ -50,7 +52,7 @@ def parse_time(value: str, name: str):
         return None, _error(f"Invalid timestamp for '{name}': {value}")
 
 
-def parse_bbox(args):
+def parse_bbox(args: MultiDict[str, str]) -> tuple[Bbox | None, ErrorResponse | None]:
     """Parse an optional ``bbox=W,S,E,N`` query param.
 
     A missing ``bbox`` is not an error — it yields ``(None, None)`` so callers can
@@ -78,7 +80,9 @@ def parse_bbox(args):
     return (w, s, e, n), None
 
 
-def parse_limit(args, default: int, maximum: int):
+def parse_limit(
+    args: MultiDict[str, str], default: int, maximum: int
+) -> tuple[int | None, ErrorResponse | None]:
     """Parse an optional integer ``limit``, clamped to ``maximum`` and required > 0.
 
     Args:

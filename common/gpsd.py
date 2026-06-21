@@ -14,6 +14,7 @@ import json
 import re
 import socket
 import time
+from typing import Any
 
 GPSD_HOST = '127.0.0.1'
 GPSD_PORT = 2947
@@ -29,7 +30,7 @@ FIX_LABELS = {0: 'Unknown', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix'}
 GNSS_NAMES = {0: 'GPS', 1: 'SBAS', 2: 'Galileo', 3: 'BeiDou', 4: 'IMES', 5: 'QZSS', 6: 'GLONASS'}
 
 
-def query_gpsd(timeout: float = 5) -> dict:
+def query_gpsd(timeout: float = 5) -> dict[str, Any]:
     """Open a short-lived gpsd socket and snapshot the first TPV and SKY reports.
 
     Sends a WATCH request, then reads until both a TPV and a SKY report have
@@ -44,7 +45,7 @@ def query_gpsd(timeout: float = 5) -> dict:
         ``{'connected': bool, 'tpv': dict, 'sky': dict}`` — ``tpv`` and ``sky``
         are the raw gpsd report dicts, or empty dicts if none arrived in time.
     """
-    result = {'connected': False, 'tpv': {}, 'sky': {}}
+    result: dict[str, Any] = {'connected': False, 'tpv': {}, 'sky': {}}
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(timeout)
@@ -73,7 +74,7 @@ def query_gpsd(timeout: float = 5) -> dict:
     return result
 
 
-def constellation(sat: dict) -> str:
+def constellation(sat: dict[str, Any]) -> str:
     """Resolve a SKY satellite's constellation name.
 
     Prefers gpsd's explicit ``gnssid``; falls back to coarse legacy PRN ranges

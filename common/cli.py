@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import click
 
 INTERRUPTED_EXIT = 130
 
@@ -34,7 +38,7 @@ def run_cli(entry: Callable[[], int | None]) -> None:
     sys.exit(code or 0)
 
 
-def run_click(command: Callable) -> None:
+def run_click(command: click.Command) -> None:
     """Run a click command with explicit Ctrl+C / abort / error handling.
 
     Invokes the command with ``standalone_mode=False`` so a Ctrl+C (an
