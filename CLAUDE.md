@@ -271,6 +271,14 @@ uv run ruff format .           # format
 
 `ruff` is a dev dependency, same offline carve-out as pytest. Config lives in `[tool.ruff]` (pyproject.toml): `line-length = 100`, single-quote formatting (the codebase is ~80% single-quoted), and a lean lint set (`E`, `F`, `W`, `I`, `UP`, `B`) — real bugs + modern idioms, low noise. Grow the rule set there as needed.
 
+### Type checking
+
+```bash
+uv run mypy .                  # type check (must be clean)
+```
+
+`mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`bme680`, `obd`, `paho.mqtt`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
+
 ## Offline Constraint
 
 All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (vendored MapLibre/pmtiles libs + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
