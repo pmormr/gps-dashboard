@@ -30,6 +30,8 @@ packages = ["api", "common", "logger", "mqttbus", "processor", "sensors", "tools
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.15.18",
+    "mypy>=1.15",
+    "types-requests>=2.32",
 ]
 
 [tool.pytest.ini_options]
@@ -52,3 +54,32 @@ known-first-party = ["api", "common", "logger", "mqttbus", "processor", "sensors
 [tool.ruff.format]
 # Codebase is overwhelmingly single-quoted; keep it that way.
 quote-style = "single"
+
+[tool.mypy]
+# Lenient global baseline: type-check annotated code and surface real errors,
+# but don't force annotations — untyped function bodies stay unchecked until a
+# module opts into the strict profile below. Strict surface ratchets outward.
+python_version = "3.11"
+files = ["api", "common", "logger", "mqttbus", "processor", "sensors", "tools", "tests"]
+warn_redundant_casts = true
+warn_unused_configs = true
+pretty = true
+
+# Untyped third-party libraries (no stubs shipped).
+[[tool.mypy.overrides]]
+module = ["bme680", "obd", "paho.mqtt.*"]
+ignore_missing_imports = true
+
+# Strict profile for the load-bearing, already-well-typed core. Ratchet items
+# left for later: disallow_untyped_calls, disallow_untyped_decorators, and
+# widening this module list to api.routes.*/tools.*/sensors.*/mqttbus.*.
+[[tool.mypy.overrides]]
+module = ["processor.*", "common.*", "logger.*", "api.db", "api.params"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_any_generics = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+strict_equality = true
+no_implicit_reexport = true
