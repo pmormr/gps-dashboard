@@ -29,8 +29,26 @@ packages = ["api", "common", "logger", "mqttbus", "processor", "sensors", "tools
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.15.18",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Lean baseline: pycodestyle (E/W), pyflakes (F), isort (I), pyupgrade (UP),
+# flake8-bugbear (B). Catches real bugs and modernizes idioms with low noise;
+# grow the set as needed.
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "common", "logger", "mqttbus", "processor", "sensors", "tools"]
+
+[tool.ruff.format]
+# Codebase is overwhelmingly single-quoted; keep it that way.
+quote-style = "single"

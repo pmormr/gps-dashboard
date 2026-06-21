@@ -259,7 +259,17 @@ uv run pytest                          # full suite
 uv run pytest tests/test_simplify.py   # one module
 ```
 
-`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. Tests in `tests/` cover the load-bearing pure logic — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner — plus the `/api/points` size-aware decimation read path (real Flask client against a temp SQLite DB; see `tests/conftest.py`). No linter is configured.
+`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. Tests in `tests/` cover the load-bearing pure logic — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner — plus the `/api/points` size-aware decimation read path (real Flask client against a temp SQLite DB; see `tests/conftest.py`).
+
+### Linting & formatting
+
+```bash
+uv run ruff check .            # lint
+uv run ruff check --fix .      # lint + autofix
+uv run ruff format .           # format
+```
+
+`ruff` is a dev dependency, same offline carve-out as pytest. Config lives in `[tool.ruff]` (pyproject.toml): `line-length = 100`, single-quote formatting (the codebase is ~80% single-quoted), and a lean lint set (`E`, `F`, `W`, `I`, `UP`, `B`) — real bugs + modern idioms, low noise. Grow the rule set there as needed.
 
 ## Offline Constraint
 
