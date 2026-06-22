@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from api.sensor_schema import READING_TABLES
-from sensors.obd import PID_SPECS, FakeReader, engine_running, numeric, poll_loop
+from sensors.obd_reader import PID_SPECS, FakeReader, engine_running, numeric, poll_loop
 
 
 class StubClient:

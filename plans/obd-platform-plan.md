@@ -44,7 +44,7 @@
 > supported-PID reference in **`obd-supported-pids.md`**. Decisions locked for Phase 1:
 > **A** full-snapshot ~1 Hz, no fast/slow split yet (throughput ~22 q/s); **B** capture
 > speed-density inputs now, derive fuel-rate in Phase 4 (`015E` absent); **C** full
-> snapshot/cycle; **D** `sensors/obd.py`; **H** node `van`; **O-ingest** refactor the
+> snapshot/cycle; **D** `sensors/obd_reader.py`; **H** node `van`; **O-ingest** refactor the
 > ingest writer to a shared column-driven spec (option b). **Reader architecture:** a
 > **single serial owner** with a mutable **per-PID rate table** — no centralized queue
 > (the blocking ELM is self-pacing; you can't overrun it), saturation surfaced in the
@@ -177,7 +177,7 @@ quiescent draw. Two clean fixes, not mutually exclusive:
    BAFX (BT/rfcomm) → /dev/rfcomm0     │
    OBDLink EX (USB) → /dev/ttyUSB0     │
        │                               │
-  [Pi: sensors/obd.py] ──publish──→ mosquitto ──sensors/# ──┤
+  [Pi: sensors/obd_reader.py] ──publish──→ mosquitto ──sensors/# ──┤
    python-OBD, engine-gated poll      :1883                  │
    sensors/van/obd  + .../status LWT                         └─→ (future) live readouts / alarms
 
@@ -278,7 +278,7 @@ deploy/
   sensor-obd.service          # enabled-gated, like sensor-bme680
 ```
 
-Reader home is `sensors/obd.py` for platform consistency (it's a Pi-side publisher to
+Reader home is `sensors/obd_reader.py` for platform consistency (it's a Pi-side publisher to
 the `sensors/` topic namespace, and "the van as a sensor" is the project's own
 framing) — `vehicle/obd.py` is the semantic alternative (open decision D).
 
@@ -350,7 +350,7 @@ Design locked from Phase 0c. All desk work.
       MAP, load, throttle, fuel-level, voltage, run-time) + 7 fuel-rate inputs (short/long
       fuel trims both banks, abs load, equiv ratio, baro) + ambient air, plus a nullable
       `fuel_rate_lph` placeholder (NULL until Phase 4). Columns per `obd-supported-pids.md`.
-- [ ] **`sensors/obd.py`**: python-OBD reader, **single serial owner**, **engine-gated**
+- [ ] **`sensors/obd_reader.py`**: python-OBD reader, **single serial owner**, **engine-gated**
       (parked → close the connection so the bus sleeps; voltage-threshold wake ~13.2 V +
       RPM cross-check; running → poll). Polling driven by a **mutable per-PID rate table**
       (the scheduler seed), full snapshot ~1 Hz, publish to `sensors/van/obd` + retained LWT
@@ -447,7 +447,7 @@ the existing lists. Update as each phase lands, not retroactively.
 | A | PID set + cadence | **RESOLVED (0c)** | Full snapshot, ~1 Hz, no fast/slow split in Phase 1; mutable per-PID rate table seeds the Phase 3 scheduler. Throughput ~22 q/s. |
 | B | Fuel-rate source | **RESOLVED (0c)** | `015E` absent → derive (speed-density). Capture inputs as columns now; compute LPH in Phase 4 vs fill-ups. Nullable `fuel_rate_lph` placeholder. |
 | C | Payload shape | **RESOLVED** | Full snapshot per cycle (complete rows). |
-| D | Reader code home | **RESOLVED** | `sensors/obd.py`. |
+| D | Reader code home | **RESOLVED** | `sensors/obd_reader.py`. |
 | H | `node`/`type` naming | **RESOLVED** | `van/obd`. |
 | O-ingest | Ingest writer | **RESOLVED** | Column-driven writer off a shared `{type→table,columns}` spec (option b), shared with the read route; guarded by a bme680 insert test. |
 | Arch | Bus access pattern | **RESOLVED** | Single serial owner + mutable per-PID rate table; **no centralized queue** (blocking ELM self-paces); saturation in the heartbeat. Demand overlay (control topic + TTL decay) deferred to Phase 3. |

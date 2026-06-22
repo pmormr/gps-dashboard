@@ -25,10 +25,14 @@ seed the Phase 3 on-demand viewer modulates (a live gauge raising RPM's rate whi
 it is open). ``fuel_rate_lph`` has no PID on the speed-density Pentastar — it is
 derived in Phase 4, so the reader leaves that column unset (NULL).
 
+The module is ``obd_reader`` (not ``obd``) so a script-form run does not shadow the
+``obd`` library: ``python sensors/obd.py`` would put ``sensors/`` first on the path
+and ``import obd`` would find this file instead of the package.
+
 Run::
 
-    uv run sensors/obd.py --fake --node van          # synthetic, no hardware/broker car
-    uv run sensors/obd.py --port /dev/ttyUSB0         # real adapter (engine running)
+    uv run sensors/obd_reader.py --fake --node van   # synthetic, no hardware/broker car
+    uv run sensors/obd_reader.py --port /dev/ttyUSB0  # real adapter (engine running)
 """
 
 import argparse

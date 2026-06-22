@@ -20,7 +20,7 @@ Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
 Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
 Environment=GPS_SENSOR_NODE=van
 Environment=GPS_OBD_PORT=/dev/ttyUSB0
-ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/obd.py
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/obd_reader.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
