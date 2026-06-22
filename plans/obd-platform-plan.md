@@ -35,6 +35,21 @@
 > architecture on two counts. **The 12+8 SGW-bypass harness is now the confirmed,
 > only path** (it was the planned fallback). Next: source a ProMaster-fit harness,
 > locate the SGW module, fit it, re-run the probe.
+>
+> **Iteration 4** (2026-06-22) — **fitted the 12+8 bypass harness; Phase 0 is DONE.**
+> Re-ran `tools/obd_probe.py` on the EX key-on/engine-off: **gateway defeated** —
+> `CAR_CONNECTED`, ISO 15765-4 **CAN 29/500** (id 7 — 29-bit, not the assumed 11-bit),
+> **126 supported commands**, no DTCs. An engine-running idle capture (90 rows/60 s →
+> `/mnt/nvme/data/obd_phase0_idle.jsonl`) confirmed live dynamic values. Full
+> supported-PID reference in **`obd-supported-pids.md`**. Decisions locked for Phase 1:
+> **A** full-snapshot ~1 Hz, no fast/slow split yet (throughput ~22 q/s); **B** capture
+> speed-density inputs now, derive fuel-rate in Phase 4 (`015E` absent); **C** full
+> snapshot/cycle; **D** `sensors/obd.py`; **H** node `van`; **O-ingest** refactor the
+> ingest writer to a shared column-driven spec (option b). **Reader architecture:** a
+> **single serial owner** with a mutable **per-PID rate table** — no centralized queue
+> (the blocking ELM is self-pacing; you can't overrun it), saturation surfaced in the
+> heartbeat. The rate table is built demand-modulatable for the Phase 3 on-demand viewer
+> (MQTT control topic + TTL-decayed demand overlay; effective rate = max(baseline, demand)).
 
 ## Context
 
@@ -306,28 +321,58 @@ Drop-in retry on a gateway-capable adapter (O1). Result: the EX hits the same ga
       ELM327/python-OBD path; OBDLink's AutoAuth unlock is online + app-locked, unfit
       for the headless offline reader. No DTCs; no PID set captured (open A/B still
       blocked on bus access).
-- [ ] **Path forward — 12+8 SGW-bypass harness** (the planned fallback, now the only
-      option): bridges the diagnostic CAN around the gateway; hardware-only,
-      offline-safe — no AutoAuth. Source a ProMaster-fit harness, locate the SGW
-      module, fit it, then re-run the probe. PID discovery + throughput resume there.
+- [x] **12+8 SGW-bypass harness sourced + fitted → gateway defeated; see Phase 0c.**
+
+### Phase 0c — Fit the bypass harness — **DONE: gateway defeated (2026-06-22)**
+
+Fitted the 12+8 SGW-bypass harness on the ProMaster and re-ran the probe on the EX.
+
+- [x] Key-on/engine-off: status **`CAR_CONNECTED`**, protocol auto-negotiated **ISO
+      15765-4 (CAN 29/500, id 7)** — **29-bit** headers, not the 11-bit assumed; no forced
+      `ATSP` needed. **126 supported commands**, MIL off, no stored DTCs. Every prior
+      `CAN ERROR` is gone — the harness bridges the diagnostic CAN around the SGW.
+- [x] Resolved open A/B: **`015E` fuel-rate ABSENT** → derive (all speed-density inputs
+      present: MAP `010B`, IAT `010F`, RPM `010C`, fuel trims `0106–0109`, abs load `0143`,
+      equiv ratio `0144`, baro `0133`); **`0110` MAF ABSENT** → speed-density confirmed.
+      Throughput **~22 q/s** (fast off) → ~0.49 s / 11-PID snapshot.
+- [x] Engine-running idle capture: 90 rows/60 s → `/mnt/nvme/data/obd_phase0_idle.jsonl`,
+      all dynamic values sane (RPM 1173→764, MAP 98→~50 kPa, coolant 32→52 °C, ctrl-module
+      V ~14.1). Full supported set in **`obd-supported-pids.md`**.
+
+Phase 0 success criteria met. Van work is complete — Phase 1+ is all desk-side.
 
 ### Phase 1 — Reader + schema + ingest
 
-- [ ] **`obd_readings`** table in `init_db` (columns per Phase 0 findings).
-- [ ] **`sensors/obd.py`**: `python-OBD` reader, **engine-state-gated** polling (off →
-      stop + close connection; running → fast set ~1 Hz + slow set throttled),
-      auto-reconnect, heartbeat with dropped-reason counters, graceful shutdown.
-      Publishes a full snapshot per cycle to `sensors/van/obd` + retained LWT on
-      `.../status`. Mirrors `sensors/bme680.py`.
-- [ ] **Ingest**: add the `obd_readings` entry to `READING_TABLES` (the type-dispatch
-      map) — no other ingest change; auto-registration, LWT, and ms-canonicalization
-      are inherited.
-- [ ] **`deploy/sensor-obd.service`** + the Pi-side post-receive hook edit
-      (enabled-gated restart; reader restarts only if `sensors/` changed **and**
-      enabled). Reader runs disabled until the van session.
-- [ ] **Verify** end-to-end: a live OBD reading travels dongle → MQTT → `obd_readings`,
-      auto-registers `(van, obd)`, carries a correct ms timestamp, and survives an
+Design locked from Phase 0c. All desk work.
+
+- [ ] **`obd_readings`** table in `init_db` (`CREATE TABLE IF NOT EXISTS`, mirrors
+      `bme680_readings`): the ~19-column baseline — 10 core (rpm, speed, coolant, intake,
+      MAP, load, throttle, fuel-level, voltage, run-time) + 7 fuel-rate inputs (short/long
+      fuel trims both banks, abs load, equiv ratio, baro) + ambient air, plus a nullable
+      `fuel_rate_lph` placeholder (NULL until Phase 4). Columns per `obd-supported-pids.md`.
+- [ ] **`sensors/obd.py`**: python-OBD reader, **single serial owner**, **engine-gated**
+      (parked → close the connection so the bus sleeps; voltage-threshold wake ~13.2 V +
+      RPM cross-check; running → poll). Polling driven by a **mutable per-PID rate table**
+      (the scheduler seed), full snapshot ~1 Hz, publish to `sensors/van/obd` + retained LWT
+      on `.../status`. Heartbeat with dropped-reason **and saturation** (target vs actual
+      cycle) counters, graceful Ctrl+C. `--fake` mode for desk testing. Mirrors `bme680.py`.
+- [ ] **Ingest (O-ingest = b)**: refactor `record_reading()` to build the INSERT from a
+      shared `{type → table, columns}` spec that both `mqttbus/ingest.py` and the
+      `api/routes/sensors.py` read path import; add the `obd` entry + `obd` to the known
+      types. Auto-registration, LWT, ms-canonicalization inherited. Guard the refactor with
+      a test against the existing bme680 insert.
+- [ ] **`deploy/sensor-obd.service`** (enabled-gated, mirrors `sensor-bme680.service`;
+      `GPS_SENSOR_NODE=van`) + the post-receive hook edit (restart only if `sensors/`
+      changed **and** enabled). Reader stays disabled until wired.
+- [ ] **Verify** end-to-end: `--fake` on the desk first, then real on the Pi — reading →
+      MQTT → `obd_readings`, auto-registers `(van, obd)`, correct ms timestamp, survives an
       ingest restart without loss.
+
+Deferred to **Phase 3** (recorded now so the rate table is built for it): **on-demand
+polling** — a live viewer publishes a demand (e.g. "RPM @ 5 Hz") over an MQTT control
+topic; the reader overlays it on the baseline (effective rate = max(baseline, active
+demands)) and **TTL-decays** demands that stop refreshing, so a crashed viewer can't pin
+the bus. Consumers modulate the schedule via messages; the reader stays the sole serial owner.
 
 ### Phase 2 — Logged views (covers battery/health + fuel logging)
 
@@ -397,16 +442,18 @@ the existing lists. Update as each phase lands, not retroactively.
 
 ## Open decisions (settle as we reach them)
 
-| # | Decision | When | Notes |
-|---|----------|------|-------|
-| A | Exact PID set + cadence (fast/slow split) | Phase 0 | Driven by what the Pentastar reports + measured ELM327 throughput. |
-| B | Fuel-rate source | Phase 0/4 | PID `5E` if supported; else derive from MAP/IAT/RPM speed-density + fuel trims (no MAF on the Pentastar); coarse `2F` fuel-level deltas as a floor. |
-| C | Payload shape | Phase 1 | **Lean: full snapshot per cycle** (complete rows) vs. sparse per-poll (null-heavy). |
-| D | Reader code home | Phase 1 | **Lean: `sensors/obd.py`** (platform consistency, "van as a sensor") vs. `vehicle/obd.py`. |
-| E | Drain hardware | Phase 0 gate / Phase 5 | OBDLink EX sleep vs. ignition-switched relay feed; depends on how long the van sits. |
+| # | Decision | Status | Notes |
+|---|----------|--------|-------|
+| A | PID set + cadence | **RESOLVED (0c)** | Full snapshot, ~1 Hz, no fast/slow split in Phase 1; mutable per-PID rate table seeds the Phase 3 scheduler. Throughput ~22 q/s. |
+| B | Fuel-rate source | **RESOLVED (0c)** | `015E` absent → derive (speed-density). Capture inputs as columns now; compute LPH in Phase 4 vs fill-ups. Nullable `fuel_rate_lph` placeholder. |
+| C | Payload shape | **RESOLVED** | Full snapshot per cycle (complete rows). |
+| D | Reader code home | **RESOLVED** | `sensors/obd.py`. |
+| H | `node`/`type` naming | **RESOLVED** | `van/obd`. |
+| O-ingest | Ingest writer | **RESOLVED** | Column-driven writer off a shared `{type→table,columns}` spec (option b), shared with the read route; guarded by a bme680 insert test. |
+| Arch | Bus access pattern | **RESOLVED** | Single serial owner + mutable per-PID rate table; **no centralized queue** (blocking ELM self-paces); saturation in the heartbeat. Demand overlay (control topic + TTL decay) deferred to Phase 3. |
+| E | Drain hardware | Phase 5 | OBDLink EX sleep vs. ignition-switched relay feed. Phase 1 engine-gating (close-when-parked) is the software mechanism. |
 | F | DTC storage | Phase 5+ | Dedicated `obd_dtc_events` table vs. reuse an events pattern; deferred. |
 | G | Presentation | Phase 2/3 | OBD on `/sensors` alongside env vs. a dedicated vehicle view. |
-| H | `node`/`type` naming | Phase 1 | `van/obd` vs. `engine/obd` (`engine` is a listed example node). |
 
 ---
 
