@@ -9,9 +9,17 @@ and the snapshot a full poll cycle publishes.
 from __future__ import annotations
 
 import json
+import logging
 
 from api.sensor_schema import READING_TABLES
-from sensors.obd_reader import PID_SPECS, FakeReader, engine_running, numeric, poll_loop
+from sensors.obd_reader import (
+    PID_SPECS,
+    FakeReader,
+    _EngineOffFilter,
+    engine_running,
+    numeric,
+    poll_loop,
+)
 
 
 class StubClient:
@@ -59,6 +67,19 @@ def test_engine_running_gate() -> None:
 def test_numeric_handles_none() -> None:
     """A None response coerces to None rather than raising."""
     assert numeric(None) is None
+
+
+def test_engine_off_filter_drops_benign_keeps_real() -> None:
+    """The log filter suppresses python-OBD's engine-off chatter, keeps real errors."""
+    noise_filter = _EngineOffFilter()
+
+    def record(message: str) -> logging.LogRecord:
+        return logging.LogRecord('obd.elm327', logging.ERROR, __file__, 0, message, None, None)
+
+    assert noise_filter.filter(record('Adapter connected, but the ignition is off')) is False
+    assert noise_filter.filter(record('Failed to query protocol 0100: unable to connect')) is False
+    assert noise_filter.filter(record('Cannot load commands: No connection to car')) is False
+    assert noise_filter.filter(record('Serial port /dev/ttyUSB0 disappeared')) is True
 
 
 def test_poll_loop_publishes_full_snapshot() -> None:

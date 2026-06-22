@@ -417,6 +417,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+class _EngineOffFilter(logging.Filter):
+    """Drop python-OBD's benign engine-off connect chatter.
+
+    The engine-gated reader deliberately polls the adapter while the engine may be
+    off, and python-OBD logs that expected condition at ERROR/WARNING on every parked
+    wake ("ignition is off", "unable to connect", "No connection to car"). Those
+    specific messages are normal here; any other python-OBD record passes through.
+    """
+
+    _BENIGN = ('ignition is off', 'unable to connect', 'No connection to car')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Return False for the known engine-off messages, True otherwise."""
+        message = record.getMessage()
+        return not any(snippet in message for snippet in self._BENIGN)
+
+
+def _quiet_obd_engine_off_logging() -> None:
+    """Attach :class:`_EngineOffFilter` to python-OBD's handler.
+
+    python-OBD adds its own stderr handler at import; the filter goes on the handler
+    (not the logger) so it catches records propagating up from ``obd.elm327`` /
+    ``obd.obd``. Parked observability comes from our own heartbeat (state + voltage).
+    """
+    obd_logger = logging.getLogger('obd')
+    noise_filter = _EngineOffFilter()
+    for handler in obd_logger.handlers:
+        handler.addFilter(noise_filter)
+
+
 def main() -> int:
     """Connect to the broker and run the engine-gated reader loop.
 
@@ -424,9 +454,7 @@ def main() -> int:
         Process exit code: 0 on graceful shutdown.
     """
     args = parse_args()
-    # Quiet python-OBD's INFO chatter (it logs "ignition is off" / "unable to connect"
-    # on every parked wake attempt); our own heartbeat reports parked state + voltage.
-    logging.getLogger('obd').setLevel(logging.WARNING)
+    _quiet_obd_engine_off_logging()
     node = args.node
     reading_topic = topics.reading_topic(node, SENSOR_TYPE)
     status_topic = topics.status_topic(node, SENSOR_TYPE)
