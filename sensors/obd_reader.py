@@ -37,6 +37,7 @@ Run::
 
 import argparse
 import json
+import logging
 import os
 import random
 import sys
@@ -423,6 +424,9 @@ def main() -> int:
         Process exit code: 0 on graceful shutdown.
     """
     args = parse_args()
+    # Quiet python-OBD's INFO chatter (it logs "ignition is off" / "unable to connect"
+    # on every parked wake attempt); our own heartbeat reports parked state + voltage.
+    logging.getLogger('obd').setLevel(logging.WARNING)
     node = args.node
     reading_topic = topics.reading_topic(node, SENSOR_TYPE)
     status_topic = topics.status_topic(node, SENSOR_TYPE)
