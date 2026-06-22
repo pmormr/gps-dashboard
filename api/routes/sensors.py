@@ -13,27 +13,9 @@ from flask import Blueprint, jsonify, render_template, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
 from api.params import parse_limit, parse_time
+from api.sensor_schema import READING_TABLES
 
 sensors_bp = Blueprint('sensors', __name__)
-
-# Per-type readings table + the metric columns to surface, in display order.
-# Adding a sensor type means adding a table and an entry here; the registry,
-# latest-reading, and history paths are all driven off this map.
-READING_TABLES = {
-    'bme680': {
-        'table': 'bme680_readings',
-        'metrics': [
-            'temp_c',
-            'humidity_pct',
-            'pressure_hpa',
-            'iaq',
-            'iaq_accuracy',
-            'co2_equivalent',
-            'breath_voc_equivalent',
-            'gas_ohms',
-        ],
-    },
-}
 
 DEFAULT_HISTORY_HOURS = 24
 MAX_READINGS = 20000

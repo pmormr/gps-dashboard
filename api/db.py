@@ -138,6 +138,40 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_bme680_time
             ON bme680_readings(timestamp);
 
+        -- OBD-II vehicle telemetry (the van as a sensor), ingested over MQTT like
+        -- bme680. Wide per-type readings table on the canonical ms grid so rows join
+        -- gps_points/track_points directly. fuel_rate_lph is a reserved placeholder:
+        -- the Pentastar has no 015E PID, so fuel rate is derived in Phase 4 (see the
+        -- OBD plan). Column set mirrors api/sensor_schema.py's 'obd' metrics.
+        CREATE TABLE IF NOT EXISTS obd_readings (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id             INTEGER NOT NULL,
+            timestamp             TEXT NOT NULL,
+            rpm                   REAL,
+            speed_kph             REAL,
+            engine_load_pct       REAL,
+            throttle_pct          REAL,
+            coolant_c             REAL,
+            intake_c              REAL,
+            ambient_air_c         REAL,
+            map_kpa               REAL,
+            barometric_kpa        REAL,
+            fuel_level_pct        REAL,
+            fuel_rate_lph         REAL,
+            voltage_v             REAL,
+            run_time_s            REAL,
+            short_fuel_trim_1_pct REAL,
+            long_fuel_trim_1_pct  REAL,
+            short_fuel_trim_2_pct REAL,
+            long_fuel_trim_2_pct  REAL,
+            absolute_load_pct     REAL,
+            commanded_equiv_ratio REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_obd_sensor_time
+            ON obd_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_obd_time
+            ON obd_readings(timestamp);
+
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id   INTEGER,

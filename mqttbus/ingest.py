@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from api.db import canonical_timestamp, get_connection, init_db, migrate
+from api.sensor_schema import READING_TABLES
 from mqttbus import topics
 from mqttbus.client import KEEPALIVE_SECONDS, broker_host, broker_port, make_client
 
@@ -36,10 +37,6 @@ HEARTBEAT_SECONDS = 60
 # receipt time. Readings that are *older* than receipt are kept as-is, so a node
 # buffering across a Pi reboot replays with correct per-reading times (Decision #5).
 FUTURE_SKEW_SECONDS = 60
-
-# Reading types the ingest knows how to store. A reading for an unknown type is
-# counted and dropped (forward-compat: a new type needs a schema migration first).
-KNOWN_TYPES = {'bme680'}
 
 CLIENT_ID = 'gps-ingest'
 
@@ -153,29 +150,22 @@ def record_reading(
         receipt_dt: UTC time the message was received.
         stats: Counters, mutated in place.
     """
-    if topic.type not in KNOWN_TYPES:
+    spec = READING_TABLES.get(topic.type)
+    if spec is None:
+        # Unknown type: counted and dropped. A new stream needs its table in
+        # api.db plus an entry in READING_TABLES before ingest will store it.
         stats.unknown_type += 1
         return
     receipt_iso = canonical_timestamp(receipt_dt.isoformat())
     sensor_id = ensure_sensor(conn, topic.node, topic.type, receipt_iso)
     ts = resolve_timestamp(payload, receipt_dt, stats)
+    metrics = spec['metrics']
+    columns = ', '.join(['sensor_id', 'timestamp', *metrics])
+    placeholders = ', '.join(['?'] * (len(metrics) + 2))
+    values = [sensor_id, ts, *(payload.get(metric) for metric in metrics)]
     conn.execute(
-        'INSERT INTO bme680_readings '
-        '(sensor_id, timestamp, temp_c, humidity_pct, pressure_hpa, gas_ohms, '
-        'iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        (
-            sensor_id,
-            ts,
-            payload.get('temp_c'),
-            payload.get('humidity_pct'),
-            payload.get('pressure_hpa'),
-            payload.get('gas_ohms'),
-            payload.get('iaq'),
-            payload.get('iaq_accuracy'),
-            payload.get('co2_equivalent'),
-            payload.get('breath_voc_equivalent'),
-        ),
+        f'INSERT INTO {spec["table"]} ({columns}) VALUES ({placeholders})',
+        values,
     )
     conn.execute('UPDATE sensors SET last_seen = ? WHERE id = ?', (receipt_iso, sensor_id))
     conn.commit()
