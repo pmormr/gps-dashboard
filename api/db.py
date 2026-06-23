@@ -172,6 +172,41 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_obd_time
             ON obd_readings(timestamp);
 
+        -- Victron house-power telemetry (the van's electrical system as a sensor),
+        -- ingested over MQTT like obd/bme680. Bridged from the Venus OS GX device's
+        -- own MQTT broker by sensors/victron_reader.py (one row per 30s snapshot) onto
+        -- the canonical ms grid, so rows join gps_points/track_points for per-trip
+        -- energy analysis. State/source columns are enums (INTEGER); the rest are
+        -- measurements. Column set mirrors api/sensor_schema.py's 'victron' metrics.
+        CREATE TABLE IF NOT EXISTS victron_readings (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id            INTEGER NOT NULL,
+            timestamp            TEXT NOT NULL,
+            battery_soc          REAL,
+            battery_voltage      REAL,
+            battery_current      REAL,
+            battery_power        REAL,
+            battery_temp_c       REAL,
+            consumed_ah          REAL,
+            time_to_go_s         REAL,
+            battery_state        INTEGER,
+            pv_power             REAL,
+            pv_voltage           REAL,
+            pv_yield_today_kwh   REAL,
+            solar_state          INTEGER,
+            dc_system_power      REAL,
+            ac_in_power          REAL,
+            ac_in_current        REAL,
+            ac_in_source         INTEGER,
+            ac_consumption_power REAL,
+            vebus_state          INTEGER,
+            vebus_mode           INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_victron_sensor_time
+            ON victron_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_victron_time
+            ON victron_readings(timestamp);
+
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id   INTEGER,

@@ -59,6 +59,22 @@ def test_records_obd_reading(conn: sqlite3.Connection) -> None:
     assert conn.execute("SELECT 1 FROM sensors WHERE node = 'van' AND type = 'obd'").fetchone()
 
 
+def test_records_victron_reading(conn: sqlite3.Connection) -> None:
+    """A victron payload lands in victron_readings; the wide column set maps correctly."""
+    topic = topics.SensorTopic(node='house', type='victron', kind='reading')
+    payload = {'ts': TS, 'battery_soc': 57.1, 'pv_power': 13.7, 'not_a_column': 1}
+    record_reading(conn, topic, payload, RECEIPT, IngestStats())
+
+    row = conn.execute('SELECT * FROM victron_readings').fetchone()
+    assert row['battery_soc'] == 57.1
+    assert row['pv_power'] == 13.7
+    assert row['vebus_state'] is None  # absent from payload → NULL
+    registered = conn.execute(
+        "SELECT 1 FROM sensors WHERE node = 'house' AND type = 'victron'"
+    ).fetchone()
+    assert registered
+
+
 def test_unknown_type_counted_not_written(conn: sqlite3.Connection) -> None:
     """A reading for an unregistered type increments unknown_type and writes nothing."""
     topic = topics.SensorTopic(node='x', type='mystery', kind='reading')

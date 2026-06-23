@@ -1,0 +1,33 @@
+# Victron reader (house power as a sensor): Venus OS GX MQTT → MQTT publisher.
+# Enabled-gated like sensor-obd/sensor-bme680 — stays disabled until a GX is on the
+# LAN, so a host without one never crash-loops. Unlike OBD it is NOT engine-gated: the
+# GX runs 24/7, so this reader runs continuously and self-reports the stream offline
+# when the GX goes silent (see the staleness watchdog in victron_reader.py).
+#
+# The GX MQTT password is the one secret and MUST stay out of git: put
+#   VICTRON_MQTT_PASSWORD=...      (and optionally VICTRON_MQTT_HOST=... if DHCP moves it)
+# in /etc/default/gps-victron on the Pi (root-owned, chmod 600). The leading '-' makes
+# the file optional so the unit still loads when it is absent — configure it before
+# enabling, or the GX rejects the unauthenticated connection.
+[Unit]
+Description=Victron reader (Venus GX → MQTT publisher)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+Environment=GPS_SENSOR_NODE=house
+Environment=VICTRON_MQTT_HOST=192.168.42.234
+EnvironmentFile=-/etc/default/gps-victron
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/victron_reader.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
