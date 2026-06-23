@@ -392,12 +392,32 @@ the bus. Consumers modulate the schedule via messages; the reader stays the sole
 
 ### Phase 4 — GPS correlation (the payoff)
 
-- [ ] **MPG (O8):** integrate fuel rate over time ÷ GPS-track distance, per trip /
-      annotation range.
-- [ ] **Track colored by an OBD metric** — engine load / speed-delta along the route
-      (generalizes the sensor-platform Phase 5 "track colored by sensor value" to OBD;
-      engine-load-vs-terrain-grade is the headline overlay).
-- [ ] OBD charts synced to the timeline scrubber; hover a fix → OBD values at that time.
+Design locked 2026-06-22 (derivation prototyped + validated on the grocery run;
+idle landed on textbook ~0.6 gal/h). **Run uncalibrated** — error is a single ~±10–15 %
+multiplier that cancels in any comparison, and since `fuel_rate_lph` stays NULL and is
+**derived at read time**, a future tank-to-tank fill-up re-scales all history by one
+constant. Order: 1+2 first (testable on the two grocery trips today), then 3.
+
+1. **Derivation foundation.**
+   - [ ] `common/obd.py` (mypy-strict): `derive_fuel_rate_lph(absolute_load_pct, rpm,
+         commanded_equiv_ratio)` = speed-density `(load/100)·rpm·K/λ`, `K` =
+         `1.184·3.6/120/14.7/745·3600` ≈ 0.01168 — the **single calibration lever**;
+         plus `summarize_drive(samples, max_gap_s)` integrating fuel (trapezoid) with a
+         **dt cap** so an engine-off gap isn't charged the pre-gap rate, and an
+         idle/moving split by speed.
+   - [ ] `processor/simplify.py`: `track_length_m(coords)` (equirectangular, reuses
+         `local_meters`) — the GPS distance leg from the denoised tier.
+2. **Per-trip fuel economy (O8).**
+   - [ ] `GET /api/obd/economy?start=&end=` (`api/routes/obd.py`): integrate derived fuel
+         over `obd_readings` ÷ `track_length_m` over `track_points` in the range → gallons,
+         MPG, L/100km, engine-on/moving/idle seconds. `calibrated: false`.
+   - [ ] Surface it in the annotations drawer — each **range** annotation shows its economy.
+3. **Track colored by an OBD metric** — engine load / OBD-vs-GPS speed-delta along the
+      route, joined on the ms timestamp (MapLibre line-gradient). Engine-load-vs-grade is
+      the headline overlay; generalizes the sensor-platform "track colored by value".
+
+**Deferred within Phase 4:** OBD charts synced to the timeline scrubber; hover a fix → OBD
+values at that time (more frontend plumbing, not needed for the first payoff).
 
 ### Phase 5 — Hardware finalize
 

@@ -58,6 +58,27 @@ def perp_distance_m(
     return abs(pe * bn - pn * be) / seg
 
 
+def track_length_m(coords: list[tuple[float, float]]) -> float:
+    """Total path length (m) of a (lat, lon) track, over consecutive points.
+
+    Sums the equirectangular :func:`local_meters` distance between each adjacent
+    pair — accurate to well under a metre at GPS-fix spacing. Fewer than two
+    points is zero length. Feeds the OBD fuel-economy distance leg (the denoised
+    ``track_points`` tier is the input, so parked jitter is already collapsed).
+
+    Args:
+        coords: The track as ``(lat, lon)`` pairs, in track order.
+
+    Returns:
+        Cumulative path length in metres.
+    """
+    total = 0.0
+    for (lat1, lon1), (lat2, lon2) in zip(coords, coords[1:], strict=False):
+        east, north = local_meters(lat2, lon2, lat1, lon1)
+        total += math.hypot(east, north)
+    return total
+
+
 def reumann_witkam(coords: list[tuple[float, float]], epsilon: float) -> list[tuple[int, float]]:
     """Batch Reumann–Witkam simplification of a (lat, lon) track.
 
