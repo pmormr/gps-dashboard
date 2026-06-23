@@ -269,7 +269,7 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
 #tl-mark-status { color: var(--muted); font-size: 12px; }
 
 #tl-selection-count { color: var(--muted); font-size: 11px; }
-.tl-bottom-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.tl-bottom-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 
 /* ── Annotations drawer ── */
 .ann-drawer {

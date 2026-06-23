@@ -123,6 +123,14 @@ not zero-width vertices.
   `timepicker.js`. Verified headless at desktop width — popover opens upward, top-left
   clear. Mobile is unchanged: `positionPopover` early-returns and the CSS bottom sheet
   handles it.)*
+- [x] **S7 — Zoom to Range.** A "Zoom to Range" button narrows the loaded window to the
+  slider's current selection (`TimePicker.setState` range mode), re-fetching at higher
+  granularity — the size-aware `/api/points` budget over a smaller window keeps more
+  vertices. Enabled only when the selection is narrower than the loaded window (zooming
+  to the full window would be a no-op). This is the "promote the brush to a fetch window"
+  behavior; full picker presets/custom widen back out. *(Landed: `timeline.js`
+  `zoomToRange` + enable-gating, `index.html`, `app.css`. Verified headless — brushing
+  then zooming narrowed a 24h window to the selected ~3h.)*
 - [ ] **S5 — (bigger, evaluate) Consolidate the strip.** Once the overlay outgrows the
   absolutely-positioned-`#tl-slider-overlay` sibling hack, fold handle + density +
   blocks + bands into one custom canvas/SVG timeline component, retiring noUiSlider.

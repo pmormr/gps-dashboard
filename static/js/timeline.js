@@ -83,6 +83,12 @@ const Timeline = (() => {
       ? { start_time: fromTs(lo), end_time: fromTs(hi) }
       : null;
     document.getElementById('tl-create-btn').disabled = !pendingAnnotation;
+
+    // "Zoom to Range" is meaningful only when the selection is narrower than the
+    // loaded window — zooming to the full window would be a no-op refetch.
+    const win = getWindow();
+    const isSub = !!win && (lo > Math.floor(win.startMs / 1000) || hi < Math.floor(win.endMs / 1000));
+    document.getElementById('tl-zoom-range-btn').disabled = !isSub;
   }
 
   async function loadRange(range) {
@@ -122,6 +128,7 @@ const Timeline = (() => {
       MapView.clearTrack();
       if (slider) { slider.destroy(); slider = null; }
       renderStopOverlay();
+      document.getElementById('tl-zoom-range-btn').disabled = true;
       return;
     }
 
@@ -273,9 +280,26 @@ const Timeline = (() => {
     });
   }
 
+  // Narrow the loaded window to the slider's current selection and re-fetch.
+  // /api/points is size-aware decimated, so the same vertex budget over a
+  // smaller window yields more detail — a quick "zoom in for granularity".
+  // Reads the live slider (cf. useMarks, which reads the persisted marks).
+  function zoomToRange() {
+    if (!slider) return;
+    const [lo, hi] = slider.get().map(Number);
+    if (hi <= lo) return;
+    TimePicker.setState({
+      mode: 'range',
+      from: new Date(lo * 1000),
+      to: new Date(hi * 1000),
+      live: false,
+    });
+  }
+
   function init() {
     document.getElementById('tl-create-btn').addEventListener('click', openAnnotationForm);
     document.getElementById('tl-drop-pin-btn').addEventListener('click', dropPin);
+    document.getElementById('tl-zoom-range-btn').addEventListener('click', zoomToRange);
     document.getElementById('annotation-form-cancel').addEventListener('click', closeAnnotationForm);
     document.getElementById('annotation-form-save').addEventListener('click', saveAnnotation);
     document.getElementById('annotation-form-overlay').addEventListener('click', e => {
