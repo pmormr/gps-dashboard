@@ -316,6 +316,8 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
 .annotation-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .annotation-meta { font-size: 12px; color: var(--muted); }
 .annotation-notes { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 2px; }
+.annotation-econ { font-size: 12px; color: #fbbf24; }
+.annotation-econ:empty { display: none; }
 
 .annotation-delete-btn {
   background: none;

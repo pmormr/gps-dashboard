@@ -32,6 +32,7 @@ const Annotations = (() => {
             <span class="annotation-name">${escHtml(a.name)}</span>
             <span class="annotation-meta">${escHtml(meta)}</span>
             ${a.notes ? `<span class="annotation-notes">${escHtml(a.notes)}</span>` : ''}
+            ${!isPoint ? `<span class="annotation-econ" data-id="${a.id}"></span>` : ''}
           </div>
           <button class="annotation-delete-btn" data-id="${a.id}" title="Delete">×</button>
         </div>
@@ -50,6 +51,24 @@ const Annotations = (() => {
         confirmDelete(parseInt(btn.dataset.id, 10));
       });
     });
+
+    loadEconomies();
+  }
+
+  // Lazy-fill each range annotation's fuel economy (derived OBD fuel ÷ GPS
+  // distance). Skips ranges with no OBD coverage (e.g. annotations predating the
+  // OBD reader, or no engine-on data in the window). Fire-and-forget per item so
+  // a slow/empty fetch never blocks the list render.
+  function loadEconomies() {
+    for (const a of annotations.filter(x => x.end_time)) {
+      const span = document.querySelector(`.annotation-econ[data-id="${a.id}"]`);
+      if (!span) continue;
+      API.getObdEconomy(a.start_time, a.end_time).then(e => {
+        if (!e || !e.n_obd_rows || e.mpg == null) return;
+        span.textContent =
+          `⛽ ${e.mpg.toFixed(1)} mpg · ${e.distance_mi.toFixed(1)} mi · ${e.fuel_gallons.toFixed(2)} gal`;
+      }).catch(() => { /* leave blank on error */ });
+    }
   }
 
   function updateDrawerCount() {

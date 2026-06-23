@@ -29,6 +29,12 @@ const API = {
     return this._fetch('/api/drone/flights' + (qs ? `?${qs}` : ''));
   },
 
+  // Fuel economy over a window (derived OBD fuel ÷ GPS-track distance, O8).
+  getObdEconomy(start, end) {
+    const params = new URLSearchParams({ start, end });
+    return this._fetch(`/api/obd/economy?${params}`);
+  },
+
   getAnnotations() {
     return this._fetch('/api/annotations');
   },
