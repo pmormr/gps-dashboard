@@ -93,6 +93,8 @@ const Timeline = (() => {
 
   async function loadRange(range) {
     const { from, to, live } = range;
+    // "Bookmark Here" only makes sense against a live current position.
+    document.getElementById('tl-bookmark-btn').classList.toggle('hidden', !live);
     if (!from || !to) return;
 
     // Treat live re-emits (anchor sliding forward) as continuations — don't
@@ -181,7 +183,7 @@ const Timeline = (() => {
     if (!pendingAnnotation) return;
     const isPoint = !pendingAnnotation.end_time;
     document.getElementById('annotation-form-title').textContent =
-      isPoint ? 'Drop Pin' : 'Create Range';
+      isPoint ? 'Bookmark' : 'Create Range';
     document.getElementById('annotation-name-input').value = '';
     document.getElementById('annotation-notes-input').value = '';
     const whenEl = document.getElementById('annotation-form-when');
@@ -218,18 +220,32 @@ const Timeline = (() => {
     }
   }
 
-  // Drop Pin: captures the slider's hi handle (or "now" if live + no slider).
-  // The form opens with end_time omitted so saveAnnotation creates a point.
-  function dropPin() {
+  // Bookmark the current spot: a one-tap point bookmark at the latest GPS fix's
+  // time, so it lands on the real current position. Live-only (loadRange shows
+  // the button only when the window is live), auto-named and form-less so it's
+  // usable while driving — rename later from the annotations drawer.
+  async function bookmarkCurrent() {
+    const btn = document.getElementById('tl-bookmark-btn');
     let ts;
-    if (slider) {
-      const hi = slider.get().map(Number)[1];
-      ts = fromTs(hi);
-    } else {
+    try {
+      const pt = await API.getPointsLatest();
+      ts = pt && pt.timestamp ? pt.timestamp : new Date().toISOString();
+    } catch (_) {
       ts = new Date().toISOString();
     }
-    pendingAnnotation = { start_time: ts };
-    openAnnotationForm();
+    const name = 'Bookmark · ' + new Date(ts).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    try {
+      await API.createAnnotation({ name, start_time: ts });
+      const orig = btn.textContent;
+      btn.textContent = '✓ Bookmarked';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
+      Annotations.reload();
+    } catch (e) {
+      alert(`Bookmark failed: ${e.message}`);
+    }
   }
 
   function fmtMarkTime(isoStr) {
@@ -298,7 +314,7 @@ const Timeline = (() => {
 
   function init() {
     document.getElementById('tl-create-btn').addEventListener('click', openAnnotationForm);
-    document.getElementById('tl-drop-pin-btn').addEventListener('click', dropPin);
+    document.getElementById('tl-bookmark-btn').addEventListener('click', bookmarkCurrent);
     document.getElementById('tl-zoom-range-btn').addEventListener('click', zoomToRange);
     document.getElementById('annotation-form-cancel').addEventListener('click', closeAnnotationForm);
     document.getElementById('annotation-form-save').addEventListener('click', saveAnnotation);

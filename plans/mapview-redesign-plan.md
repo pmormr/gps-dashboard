@@ -179,6 +179,15 @@ Slim "annotation" to its real job and split off the other two duties:
   promotable to annotations.)
 - Marks become a *curated layer*, not the navigation+analysis catch-all.
 
+**Landed early (2026-06-23):** the old "Drop Pin" button — which created a point
+bookmark from the slider's arbitrary right-handle time and wrongly implied map
+placement — is replaced by **"📍 Bookmark Here"**: a one-tap, form-less point bookmark at
+the *latest GPS fix* (current position), shown only when Live (a while-driving action).
+Auto-named `Bookmark · <time>`. *(`timeline.js` `bookmarkCurrent`, `index.html`.)*
+**Gap this exposes:** there's no annotation **rename/edit UI** yet (drawer only
+jumps/deletes), so auto-named bookmarks can't be renamed in-app — fold an edit affordance
+into this axis (the PATCH endpoint already exists).
+
 ---
 
 ## Constraints carried from the project
