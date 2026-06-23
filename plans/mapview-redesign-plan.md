@@ -40,6 +40,39 @@ sections of `CLAUDE.md`) and drop out of here.
 
 ---
 
+## Status — resume here (paused 2026-06-23, all below deployed to the Pi)
+
+**Done (Selection axis):** S1 axis = window · S2 stop-overlap select · S3 stop blocks +
+constant map dots · S6 picker docked above the slider (popover opens upward) · S7 Zoom to
+Range. The slider-extent and distinct-dwell-marker carry-ins are folded in.
+
+**Done (Marks axis, landed early):** 📍 Bookmark Here (one-tap, Live-only, latest fix) ·
+✎ edit/rename UI in the drawer (reuses the modal, `PATCH`).
+
+**Done (cleanup):** docs reconciled (`frontend.md` + `CLAUDE.md`) · dead point-form
+branch pruned · merged feature branches deleted.
+
+**Next session picks up — by axis:**
+- **Selection:** S4 (legible density track) → S5 (consolidate noUiSlider into a custom
+  strip, *evaluate*); S2 sub-item (bracketing narrow moving windows).
+- **Layers** (not started): layers panel, trail color-by, sensor/OBD/drone onto the map,
+  retire the divorced `/sensors` page.
+- **Marks** (continue the rework): mark *types*; analysis → an **"inspect this window"**
+  panel that retires `loadEconomies` (loose end #4); bounds-editing (point↔range);
+  stops→marks (denoise Phase 6, [[denoise-progress]]).
+
+**Open decisions (need the user):**
+- **Loose end #3 — Marks panel overlap.** Mark Start / Mark End / Use Marks now overlaps
+  brush + Zoom to Range + Create Range. Its one distinct value is *persisting* range
+  boundaries across reloads (the `marks` table). Decide: retire it, or keep as the
+  persisted-range tool and de-emphasize.
+- Surface dwell length on the map dot too? (user leaned **leave out** — timeline block
+  already carries it).
+
+**Deploy state:** through `65f503a` deployed; the docs/refactor commits ride the next push.
+
+---
+
 ## The three-axis model
 
 - **Selection** — a continuous wall-clock time window the user is browsing, plus the
