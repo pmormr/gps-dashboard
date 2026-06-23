@@ -95,6 +95,7 @@ const MapView = (() => {
   // Overlay state, the source of truth re-applied after every style load.
   let trackData = emptyFC();
   let rangeFeatures = [];
+  let stopFeatures = [];
   let lastTrackPoints = [];
   let endpointMarkers = [];
   let pinMarkers = [];
@@ -136,6 +137,23 @@ const MapView = (() => {
 
   function rangeFC() {
     return { type: 'FeatureCollection', features: rangeFeatures };
+  }
+
+  function stopsFC() {
+    return { type: 'FeatureCollection', features: stopFeatures };
+  }
+
+  // A stop → a Point feature carrying dwell minutes, used to scale the circle
+  // radius. lineFC already routes the trail polyline through the stop centroid;
+  // this just marks the pause node on top of it.
+  function stopPointToFeature(p) {
+    const dwellMin = (p.dwell_start && p.dwell_end)
+      ? (new Date(p.dwell_end) - new Date(p.dwell_start)) / 60000 : 0;
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { dwell_min: dwellMin, n_raw: p.n_raw || 0 },
+    };
   }
 
   function droneFC() {
@@ -295,6 +313,24 @@ const MapView = (() => {
         });
       }
 
+      // Stops as distinct dwell nodes above the track line: a hollow ring in the
+      // track color, radius scaled by dwell minutes — a pause on the trail, not an
+      // ordinary vertex (mapview-redesign S3).
+      if (!map.getSource('stops')) map.addSource('stops', { type: 'geojson', data: stopsFC() });
+      if (!map.getLayer('stop-circle')) {
+        map.addLayer({
+          id: 'stop-circle',
+          type: 'circle',
+          source: 'stops',
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['get', 'dwell_min'], 1, 5, 30, 8, 240, 12, 1440, 16],
+            'circle-color': 'rgba(255,255,255,0.85)',
+            'circle-stroke-color': TRACK_COLOR,
+            'circle-stroke-width': 2,
+          },
+        });
+      }
+
       // Drone tracks sit above the van track/ranges. One source, per-model color
       // via a match on model_code (default for any unknown FC#### code).
       if (!map.getSource('drone-tracks')) map.addSource('drone-tracks', { type: 'geojson', data: droneFC() });
@@ -321,6 +357,8 @@ const MapView = (() => {
       // Sources are fresh after a style swap — push the current data back in.
       const track = map.getSource('track');
       if (track) track.setData(trackData);
+      const stops = map.getSource('stops');
+      if (stops) stops.setData(stopsFC());
       const range = map.getSource('ann-range');
       if (range) range.setData(rangeFC());
       const drone = map.getSource('drone-tracks');
@@ -457,6 +495,8 @@ const MapView = (() => {
     lastTrackPoints = points;
     trackData = lineFC(points);
     if (map && map.getSource('track')) map.getSource('track').setData(trackData);
+    stopFeatures = points.filter(p => p.kind === 'stop').map(stopPointToFeature);
+    if (map && map.getSource('stops')) map.getSource('stops').setData(stopsFC());
     if (!points.length) return;
 
     if (showEndpoints) {
@@ -477,6 +517,8 @@ const MapView = (() => {
     lastTrackPoints = [];
     trackData = emptyFC();
     if (map && map.getSource('track')) map.getSource('track').setData(trackData);
+    stopFeatures = [];
+    if (map && map.getSource('stops')) map.getSource('stops').setData(stopsFC());
   }
 
   function clearAnnotations() {

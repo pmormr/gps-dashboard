@@ -14,8 +14,15 @@ const Timeline = (() => {
     });
   }
 
+  // A moving vertex is an instant (match its timestamp); a stop spans its dwell
+  // interval (match interval overlap), so brushing inside a long park selects
+  // "parked here" even though the stop's own timestamp sits at the dwell start
+  // and would otherwise fall outside a sub-window (mapview-redesign S2).
   function pointsInRange(lo, hi) {
     return allPoints.filter(p => {
+      if (p.kind === 'stop' && p.dwell_start && p.dwell_end) {
+        return toTs(p.dwell_end) >= lo && toTs(p.dwell_start) <= hi;
+      }
       const t = toTs(p.timestamp);
       return t >= lo && t <= hi;
     });
@@ -24,6 +31,44 @@ const Timeline = (() => {
   function updateSliderLabels(lo, hi) {
     document.getElementById('tl-start-label').textContent = sliderLabel(lo);
     document.getElementById('tl-end-label').textContent = sliderLabel(hi);
+  }
+
+  function fmtDuration(mins) {
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    if (h < 24) { const m = mins % 60; return m ? `${h}h ${m}m` : `${h}h`; }
+    const d = Math.floor(h / 24);
+    const rh = h % 24;
+    return rh ? `${d}d ${rh}h` : `${d}d`;
+  }
+
+  // Draw each in-window stop as a block spanning its dwell interval on the slider
+  // track, so a long park reads as a visible block instead of a dead zone where
+  // dragging the handle does nothing (mapview-redesign S3). Window-based (shares
+  // the slider's domain), so it changes only when the loaded window changes — not
+  // on every brush. Sits in its own overlay div under the annotation bands.
+  function renderStopOverlay() {
+    const overlay = document.getElementById('tl-stop-overlay');
+    if (!overlay) return;
+    overlay.innerHTML = '';
+    const win = getWindow();
+    if (!win) return;
+    const span = win.endMs - win.startMs;
+    if (span <= 0) return;
+    for (const p of allPoints) {
+      if (p.kind !== 'stop' || !p.dwell_start || !p.dwell_end) continue;
+      const sMs = new Date(p.dwell_start).getTime();
+      const eMs = new Date(p.dwell_end).getTime();
+      if (eMs < win.startMs || sMs > win.endMs) continue;
+      const lo = Math.max(sMs, win.startMs);
+      const hi = Math.min(eMs, win.endMs);
+      const block = document.createElement('div');
+      block.className = 'sl-stop-block';
+      block.style.left = ((lo - win.startMs) / span) * 100 + '%';
+      block.style.width = Math.max(0.4, ((hi - lo) / span) * 100) + '%';
+      block.title = `Parked ${fmtDuration(Math.round((eMs - sMs) / 60000))}`;
+      overlay.appendChild(block);
+    }
   }
 
   function renderRange(followMap = false) {
@@ -76,11 +121,16 @@ const Timeline = (() => {
       emptyEl.classList.remove('hidden');
       MapView.clearTrack();
       if (slider) { slider.destroy(); slider = null; }
+      renderStopOverlay();
       return;
     }
 
-    const lo = toTs(allPoints[0].timestamp);
-    const hi = toTs(allPoints.at(-1).timestamp);
+    // The axis is the requested window, not the data extent: empty leading/
+    // trailing time stays visible and selectable, and a lead-in dwell (whose
+    // dwell_start predates the window) can't stretch it. Data renders onto this
+    // axis; it never defines it (mapview-redesign S1).
+    const lo = Math.floor(from.getTime() / 1000);
+    const hi = Math.floor(to.getTime() / 1000);
     const step = Math.max(1, Math.floor((hi - lo) / 1000));
 
     if (slider) { slider.destroy(); slider = null; }
@@ -88,11 +138,12 @@ const Timeline = (() => {
     slider = noUiSlider.create(el, {
       start: [lo, hi],
       connect: true,
-      range: { min: lo, max: hi === lo ? lo + 1 : hi },
+      range: { min: lo, max: hi <= lo ? lo + 1 : hi },
       step,
     });
     slider.on('update', () => renderRange(false));
     document.getElementById('tl-slider-wrap').classList.remove('hidden');
+    renderStopOverlay();
 
     MapView.showTrack(allPoints, { fitBounds: !isLiveTick, showEndpoints: false });
     Annotations.renderOverlays(allPoints);
@@ -100,6 +151,14 @@ const Timeline = (() => {
 
   function getPoints() {
     return allPoints;
+  }
+
+  // The currently loaded time window in ms (the requested [from, to], i.e. the
+  // slider's domain), independent of where data actually exists. Overlays drawn
+  // on the slider track must share this basis or they drift off the handle.
+  function getWindow() {
+    if (!lastRange || !lastRange.from || !lastRange.to) return null;
+    return { startMs: lastRange.from.getTime(), endMs: lastRange.to.getTime() };
   }
 
   async function zoomToCurrentLocation() {
@@ -242,5 +301,5 @@ const Timeline = (() => {
     TimePicker.onChange(loadRange);
   }
 
-  return { init, getPoints };
+  return { init, getPoints, getWindow };
 })();

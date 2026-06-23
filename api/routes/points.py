@@ -7,9 +7,12 @@ points_bp = Blueprint('points', __name__)
 
 
 # Processed-tier columns the trail renderer reads. kind/n_raw/importance let the
-# client size dots and reason about how much raw data each point represents.
+# client size dots and reason about how much raw data each point represents;
+# dwell_start/dwell_end/radius let it render a stop as a dwell-interval block on
+# the timeline and select it by interval overlap (NULL on kind='track' rows).
 _TRACK_COLUMNS = (
-    'id, timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, accuracy'
+    'id, timestamp, lat, lon, speed, altitude, track, kind, n_raw, importance, accuracy, '
+    'dwell_start, dwell_end, radius'
 )
 
 

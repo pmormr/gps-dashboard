@@ -169,7 +169,13 @@ const Annotations = (() => {
       }
     }
 
-    renderSliderOverlay(winStartMs, winEndMs);
+    // Slider bands/ticks share the slider's domain (the requested window), not
+    // the data extent, or they'd drift off the handle now that the axis is
+    // window-based (mapview-redesign S1). Map overlays above still use points —
+    // they need real lat/lon.
+    const win = (typeof Timeline !== 'undefined' && Timeline.getWindow) ? Timeline.getWindow() : null;
+    if (win) renderSliderOverlay(win.startMs, win.endMs);
+    else renderSliderOverlay(winStartMs, winEndMs);
 
     // Pan to a point annotation that was just clicked, now that points have
     // landed for the new window.

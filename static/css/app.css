@@ -380,6 +380,18 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   transform: translateX(-1px);
 }
 
+/* Stop dwell blocks: a translucent band straddling the track, taller than the
+   annotation band so a long park reads as a visible block on the slider. */
+.sl-stop-block {
+  position: absolute;
+  top: -12px;
+  height: 8px;
+  min-width: 2px;
+  background: rgba(239, 68, 68, 0.3);
+  border-radius: 2px;
+  pointer-events: auto;
+}
+
 /* ── Drawer toggle in the tab bar ── */
 .tab-drawer-toggle {
   flex: 0 0 auto !important;
