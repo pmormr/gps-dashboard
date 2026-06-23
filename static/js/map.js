@@ -313,9 +313,10 @@ const MapView = (() => {
         });
       }
 
-      // Stops as distinct dwell nodes above the track line: a hollow ring in the
-      // track color, radius scaled by dwell minutes — a pause on the trail, not an
-      // ordinary vertex (mapview-redesign S3).
+      // Stops as a constant-size dot on the trail — a "you stopped here" node, not
+      // scaled by dwell. Dwell duration reads off the timeline block instead (its
+      // width + hover label), so the map only answers *where*. The white stroke
+      // separates the dot from the same-colored track line (mapview-redesign S3).
       if (!map.getSource('stops')) map.addSource('stops', { type: 'geojson', data: stopsFC() });
       if (!map.getLayer('stop-circle')) {
         map.addLayer({
@@ -323,10 +324,10 @@ const MapView = (() => {
           type: 'circle',
           source: 'stops',
           paint: {
-            'circle-radius': ['interpolate', ['linear'], ['get', 'dwell_min'], 1, 5, 30, 8, 240, 12, 1440, 16],
-            'circle-color': 'rgba(255,255,255,0.85)',
-            'circle-stroke-color': TRACK_COLOR,
-            'circle-stroke-width': 2,
+            'circle-radius': 5,
+            'circle-color': TRACK_COLOR,
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 1.5,
           },
         });
       }

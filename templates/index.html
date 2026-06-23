@@ -14,16 +14,6 @@
   <div id="view-main" class="view active">
     <div id="map" class="map-container">
 
-      <!-- Top-left: picker trigger + status text -->
-      <div class="map-overlay map-overlay-top">
-        <button id="timepicker-trigger" class="timepicker-trigger" type="button">
-          <span class="timepicker-trigger-icon">⏱</span>
-          <span id="timepicker-trigger-label">Live · Last 24h</span>
-          <span class="timepicker-trigger-caret">▾</span>
-        </button>
-        <span id="tl-status"></span>
-      </div>
-
       <!-- Right-side stack: FAB + collapsible panels -->
       <div class="right-panel-stack">
         <button id="tl-zoom-here-btn" class="map-fab" title="Zoom to current location">⊕</button>
@@ -83,8 +73,16 @@
         </div>
       </div>
 
-      <!-- Bottom: slider strip + actions -->
+      <!-- Bottom: time picker + slider strip + actions -->
       <div class="map-overlay map-overlay-bottom">
+        <div class="tl-time-row">
+          <button id="timepicker-trigger" class="timepicker-trigger" type="button">
+            <span class="timepicker-trigger-icon">⏱</span>
+            <span id="timepicker-trigger-label">Live · Last 24h</span>
+            <span class="timepicker-trigger-caret">▾</span>
+          </button>
+          <span id="tl-status"></span>
+        </div>
         <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
           <div id="tl-slider"></div>
           <div id="tl-stop-overlay" class="tl-slider-overlay"></div>

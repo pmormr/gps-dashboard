@@ -150,8 +150,11 @@ const TimePicker = (() => {
     const trigger = document.getElementById('timepicker-trigger');
     if (!pop || !trigger) return;
     const r = trigger.getBoundingClientRect();
-    pop.style.top = (r.bottom + 6) + 'px';
+    // The trigger now sits at the bottom of the screen, so the popover opens
+    // upward: anchor its bottom just above the trigger's top.
     pop.style.left = r.left + 'px';
+    pop.style.top = 'auto';
+    pop.style.bottom = (window.innerHeight - r.top + 6) + 'px';
   }
 
   // <input type="datetime-local"> wants a YYYY-MM-DDTHH:MM string in the

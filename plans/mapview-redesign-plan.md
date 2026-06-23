@@ -104,14 +104,25 @@ not zero-width vertices.
   vertices — lower-value, deferred to S4 when the density track lands.)*
 - [x] **S3 — Stop blocks, not gaps.** Stops render as blocks spanning
   `dwell_start → dwell_end` on the slider (`#tl-stop-overlay`, hover shows dwell), and as
-  dwell-sized hollow rings on the map (`stop-circle` layer). The backend now ships the
+  **constant-size red dots** on the map (`stop-circle` layer). The backend now ships the
   dwell interval (`points.py`). *(Landed: `points.py`, `timeline.js`, `map.js`,
   `index.html`, `app.css`. Verified headless — 3 blocks, the lead-in dwell spans 89% of a
-  24h window. Subsumes the deferred *distinct dwell markers* item.)*
+  24h window. Subsumes the deferred *distinct dwell markers* item. Division of labor
+  settled with the user 2026-06-23: the map dot answers **where**, the timeline block
+  answers **how long** — so the dot is not dwell-scaled. How/whether to surface dwell on
+  the map dot too is left open.)*
 - [ ] **S4 — Legible density track.** Draw point density + stop blocks + annotation
   bands on the strip so the axis shows where data is, where you're parked, where it's
   genuinely empty — instead of a bare handle over invisible terrain. Sensor density
   later renders onto this same track (the Layers handoff).
+- [x] **S6 — Couple the picker to the slider.** The time-window picker and the slider
+  were two widgets in opposite overlay corners (fetch-window vs. view-brush). User chose
+  the lighter "move trigger down" over a full merge: the `#timepicker-trigger` now docks
+  in the bottom panel directly above the slider (`.tl-time-row`); the popover opens
+  *upward*; `.map-overlay-top` is gone. *(Landed: `index.html`, `app.css`,
+  `timepicker.js`. Verified headless at desktop width — popover opens upward, top-left
+  clear. Mobile is unchanged: `positionPopover` early-returns and the CSS bottom sheet
+  handles it.)*
 - [ ] **S5 — (bigger, evaluate) Consolidate the strip.** Once the overlay outgrows the
   absolutely-positioned-`#tl-slider-overlay` sibling hack, fold handle + density +
   blocks + bands into one custom canvas/SVG timeline component, retiring noUiSlider.

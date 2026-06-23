@@ -86,11 +86,6 @@ html, body {
   align-items: center;
   gap: 10px;
 }
-.map-overlay-top {
-  top: 8px;
-  left: 8px;
-  max-width: calc(100% - 16px);
-}
 .map-overlay-bottom {
   flex-direction: column;
   align-items: stretch;
@@ -111,6 +106,9 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   color-scheme: dark;
   font-family: inherit;
 }
+
+/* Picker trigger + status, now docked above the slider in the bottom panel. */
+.tl-time-row { display: flex; align-items: center; gap: 10px; }
 
 /* ── Time picker trigger ── */
 .timepicker-trigger {
