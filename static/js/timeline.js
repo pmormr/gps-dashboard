@@ -190,12 +190,12 @@ const Timeline = (() => {
       : `At ${start.toLocaleString()}`;
   }
 
+  // Only reached for ranges now (the slider's Create Range); point bookmarks are
+  // created form-lessly by bookmarkCurrent, so there's no point branch here.
   function openAnnotationForm() {
     if (!pendingAnnotation) return;
     editId = null;
-    const isPoint = !pendingAnnotation.end_time;
-    document.getElementById('annotation-form-title').textContent =
-      isPoint ? 'Bookmark' : 'Create Range';
+    document.getElementById('annotation-form-title').textContent = 'Create Range';
     document.getElementById('annotation-name-input').value = '';
     document.getElementById('annotation-notes-input').value = '';
     const whenEl = document.getElementById('annotation-form-when');
@@ -232,11 +232,7 @@ const Timeline = (() => {
         await API.updateAnnotation(editId, { name, notes });
       } else {
         if (!pendingAnnotation) return;
-        const body = { ...pendingAnnotation, name, notes };
-        // Range form passes end_time; point form does not. Backend treats a
-        // missing or null end_time as a point bookmark.
-        if (!body.end_time) delete body.end_time;
-        await API.createAnnotation(body);
+        await API.createAnnotation({ ...pendingAnnotation, name, notes });
       }
       closeAnnotationForm();
       Annotations.reload();
