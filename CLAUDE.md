@@ -75,7 +75,7 @@ Drone telemetry tier — aerial GPS tracks batch-imported from DJI footage by `t
 - `drone_flights(id, model, model_code, first_fix_utc, last_fix_utc, media_path, source_name, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per clip. Natural key `(model_code, first_fix_utc)` (no DJI model exposes a serial); `media_path` is the canonical rex-nas path, NULL on an SD-card import for the NAS scan to backfill.
 - `drone_track_points(id, flight_id, timestamp, lat, lon, abs_alt, importance)` — the thinned track (Reumann–Witkam, shared via `processor/simplify.py`); canonical ms-UTC puts drone points on the same time axis as `gps_points`. `abs_alt` is MSL metres.
 
-The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
+The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
 
@@ -115,7 +115,7 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); reaching the van's bus needs an FCA Security Gateway bypass harness (`plans/obd-platform-plan.md`). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
+A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); reaching the van's bus needs an FCA Security Gateway bypass harness (`plans/obd-platform-plan.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
 
 ### Project Structure
 
@@ -147,7 +147,8 @@ gps-dashboard/
 │   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
 ├── sensors/                    # Pi-side sensor readers (publish to the MQTT bus)
 │   ├── bme680.py               # --fake pipeline harness (BME680 now lives on an ESP32 node)
-│   └── obd_reader.py           # engine-gated OBD-II reader → sensors/van/obd (NOT obd.py — shadows the obd lib)
+│   ├── obd_reader.py           # engine-gated OBD-II reader → sensors/van/obd (NOT obd.py — shadows the obd lib)
+│   └── victron_reader.py       # Victron Venus GX → sensors/house/victron (two brokers; keepalive + staleness watchdog)
 ├── mqttbus/                    # broker-side consumers + shared MQTT helpers
 │   ├── topics.py
 │   ├── client.py
@@ -194,6 +195,7 @@ gps-dashboard/
 │   ├── mqtt-ingest.service
 │   ├── sensor-bme680.service
 │   ├── sensor-obd.service       # enabled-gated OBD reader unit (node van, /dev/ttyUSB0)
+│   ├── sensor-victron.service   # enabled-gated Victron reader unit (node house; secret via /etc/default/gps-victron)
 │   ├── gps-drone-sync.service   # timer-driven DJI footage import (Pi → NAS container)
 │   ├── gps-drone-sync.timer
 │   ├── exiftool.Dockerfile      # pinned ExifTool ≥13.x image, built on the NAS
