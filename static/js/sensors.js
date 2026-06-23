@@ -17,6 +17,7 @@ const POLL_MS = 30000;
  * rendering (raw key as label, one decimal, charted).
  */
 const METRICS = {
+  // BME680 environmental node.
   temp_c: { label: 'Temp', unit: '°C', dec: 1, chart: true, color: '#f87171' },
   humidity_pct: { label: 'Humidity', unit: '%', dec: 1, chart: true, color: '#38bdf8' },
   pressure_hpa: { label: 'Pressure', unit: 'hPa', dec: 1, chart: true, color: '#a78bfa' },
@@ -25,7 +26,32 @@ const METRICS = {
   co2_equivalent: { label: 'CO₂-eq', unit: 'ppm', dec: 0, chart: true, color: '#fbbf24' },
   breath_voc_equivalent: { label: 'Breath VOC', unit: 'ppm', dec: 2, chart: true, color: '#fb923c' },
   gas_ohms: { label: 'Gas', unit: 'Ω', dec: 0, chart: true, color: '#22d3ee' },
+
+  // OBD-II van node. ~8 headline metrics chart; the rest (diagnostics + Phase-4
+  // fuel-rate placeholder) show as current-value cells only.
+  rpm: { label: 'RPM', unit: 'rpm', dec: 0, chart: true, color: '#f87171' },
+  speed_kph: { label: 'Speed', unit: 'km/h', dec: 0, chart: true, color: '#38bdf8' },
+  engine_load_pct: { label: 'Load', unit: '%', dec: 0, chart: true, color: '#34d399' },
+  throttle_pct: { label: 'Throttle', unit: '%', dec: 0, chart: true, color: '#a78bfa' },
+  coolant_c: { label: 'Coolant', unit: '°C', dec: 0, chart: true, color: '#fb923c' },
+  map_kpa: { label: 'MAP', unit: 'kPa', dec: 0, chart: true, color: '#fbbf24' },
+  fuel_level_pct: { label: 'Fuel', unit: '%', dec: 0, chart: true, color: '#22d3ee' },
+  voltage_v: { label: 'Battery', unit: 'V', dec: 1, chart: true, color: '#facc15' },
+  intake_c: { label: 'Intake', unit: '°C', dec: 0, chart: false, color: '#94a3b8' },
+  ambient_air_c: { label: 'Ambient', unit: '°C', dec: 0, chart: false, color: '#94a3b8' },
+  barometric_kpa: { label: 'Baro', unit: 'kPa', dec: 0, chart: false, color: '#94a3b8' },
+  absolute_load_pct: { label: 'Abs load', unit: '%', dec: 0, chart: false, color: '#94a3b8' },
+  fuel_rate_lph: { label: 'Fuel rate', unit: 'L/h', dec: 1, chart: false, color: '#94a3b8' },
+  run_time_s: { label: 'Run time', unit: 's', dec: 0, chart: false, color: '#94a3b8' },
+  commanded_equiv_ratio: { label: 'λ cmd', unit: '', dec: 3, chart: false, color: '#94a3b8' },
+  short_fuel_trim_1_pct: { label: 'STFT B1', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
+  long_fuel_trim_1_pct: { label: 'LTFT B1', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
+  short_fuel_trim_2_pct: { label: 'STFT B2', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
+  long_fuel_trim_2_pct: { label: 'LTFT B2', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
 };
+
+/** Metrics logged in °C that also show °F (US van). */
+const TEMP_C_KEYS = new Set(['temp_c', 'coolant_c', 'intake_c', 'ambient_air_c']);
 
 /** Per-metric display metadata, with a fallback for unknown columns. */
 function metricMeta(key) {
@@ -77,10 +103,14 @@ function formatValue(key, value) {
   const num = Number(value).toFixed(meta.dec);
   const unit = meta.unit ? `<span class="unit">${meta.unit}</span>` : '';
   const main = `<span class="metric-val">${num}${unit}</span>`;
-  // Temperature is logged in °C; surface °F alongside for the US van.
-  if (key === 'temp_c') {
-    const f = (Number(value) * 9 / 5 + 32).toFixed(1);
+  // °C is logged; surface °F alongside for the US van. Likewise km/h → mph.
+  if (TEMP_C_KEYS.has(key)) {
+    const f = (Number(value) * 9 / 5 + 32).toFixed(meta.dec);
     return `${main}<span class="metric-sub">${f} °F</span>`;
+  }
+  if (key === 'speed_kph') {
+    const mph = (Number(value) * 0.621371).toFixed(meta.dec);
+    return `${main}<span class="metric-sub">${mph} mph</span>`;
   }
   return main;
 }
