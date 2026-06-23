@@ -5,6 +5,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from api.db import get_connection, init_db, migrate, now_canonical
 
@@ -20,6 +21,13 @@ PARKED_SPEED_MPS = 0.5  # below this Doppler speed, treat as parked
 # SKY-sourced receiver telemetry throttle (C9/C22): DOP + sat counts to
 # receiver_metadata, off the position hot-path and at its own cadence.
 RECEIVER_METADATA_INTERVAL_SECONDS = 5
+
+# Per-satellite SKY observation throttle (GNSS Observatory): the receiver's
+# computed az/el/SNR for every positioned SV into sat_observations, at a far
+# coarser cadence than receiver_metadata (orbits move only degrees/minute, so
+# 60s is dense for both the obstruction map and orbit fitting). Same SKY message,
+# independent throttle gate. See plans/gnss-observatory-plan.md.
+SAT_OBSERVATION_INTERVAL_SECONDS = 60
 
 SOCKET_TIMEOUT_SECONDS = 30
 HEARTBEAT_SECONDS = 60
@@ -58,18 +66,21 @@ class LoggerStats:
     throttled: int = 0
     json_err: int = 0
     sky_written: int = 0
+    sat_obs_written: int = 0
     last_fix_mode: int = 0
     last_heartbeat: float = field(default_factory=time.monotonic)
     last_position: tuple[float, float] | None = None
     position_since: float = 0.0
     last_usable_fix: float = 0.0
     last_sky_write: float = 0.0
+    last_sat_obs_write: float = 0.0
 
     def reset_window(self) -> None:
         """Zero the per-window counters, preserving last-seen state."""
         self.written = self.no_fix = self.no_latlon = 0
         self.bad_range = self.null_island = self.stale_time = 0
         self.throttled = self.json_err = self.sky_written = 0
+        self.sat_obs_written = 0
 
     def note_fix(self, lat: float, lon: float, now: float) -> None:
         """Record a usable fix for freeze tracking.
@@ -137,13 +148,46 @@ class LoggerStats:
         frozen = 'yes' if self.is_frozen(now) else 'no'
         return (
             f'heartbeat: wrote={self.written} sky={self.sky_written} '
-            f'mode={self.last_fix_mode} '
+            f'satobs={self.sat_obs_written} mode={self.last_fix_mode} '
             f'last_write={age} pos_age={pos} frozen={frozen} | dropped '
             f'no_fix={self.no_fix} no_latlon={self.no_latlon} '
             f'bad_range={self.bad_range} null_island={self.null_island} '
             f'stale_time={self.stale_time} throttled={self.throttled} '
             f'json_err={self.json_err}'
         )
+
+
+def sky_observation_rows(sats: list[dict[str, Any]], ts: str) -> list[tuple[Any, ...]]:
+    """Build ``sat_observations`` rows from a gpsd SKY satellite array.
+
+    Keeps only positioned satellites — both ``az`` and ``el`` present — since an
+    unpositioned sat carries no angular information (same filter the live skyplot
+    applies). Every row shares ``ts`` so one SKY sample forms one identifiable
+    sweep. ``used`` is coerced to 0/1; missing optional fields stay None.
+
+    Args:
+        sats: The ``satellites`` array from a gpsd SKY report.
+        ts: Canonical ms-UTC timestamp stamped on the whole sweep.
+
+    Returns:
+        One tuple per positioned sat, column order matching the
+        ``sat_observations`` INSERT (timestamp, gnssid, svid, az, el, snr, used,
+        health).
+    """
+    return [
+        (
+            ts,
+            s.get('gnssid'),
+            s.get('svid'),
+            s.get('az'),
+            s.get('el'),
+            s.get('ss'),
+            1 if s.get('used') else 0,
+            s.get('health'),
+        )
+        for s in sats
+        if s.get('az') is not None and s.get('el') is not None
+    ]
 
 
 def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerStats) -> float:
@@ -208,11 +252,11 @@ def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerSta
                 continue
 
             if report.get('class') == 'SKY':
+                sats = report.get('satellites') or []
                 # Receiver telemetry on its own throttle (C9/C22), off the
                 # position path. nSat/uSat when gpsd supplies them, else counted
                 # from the satellite array.
                 if now - stats.last_sky_write >= RECEIVER_METADATA_INTERVAL_SECONDS:
-                    sats = report.get('satellites') or []
                     conn.execute(
                         'INSERT INTO receiver_metadata '
                         '(timestamp, hdop, vdop, pdop, nsat_used, nsat_seen) '
@@ -229,6 +273,22 @@ def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerSta
                     conn.commit()
                     stats.last_sky_write = now
                     stats.sky_written += 1
+                # Per-SV observations (GNSS Observatory) on a much coarser throttle.
+                # Only positioned sats (az+el present) — an unpositioned sat
+                # carries no angular info; same filter the live skyplot applies.
+                # All sats in one sample share a timestamp, marking the sweep.
+                if now - stats.last_sat_obs_write >= SAT_OBSERVATION_INTERVAL_SECONDS:
+                    rows = sky_observation_rows(sats, now_canonical())
+                    if rows:
+                        conn.executemany(
+                            'INSERT INTO sat_observations '
+                            '(timestamp, gnssid, svid, az, el, snr, used, health) '
+                            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                            rows,
+                        )
+                        conn.commit()
+                        stats.sat_obs_written += len(rows)
+                    stats.last_sat_obs_write = now
                 continue
 
             if report.get('class') != 'TPV':
