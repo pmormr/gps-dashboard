@@ -79,7 +79,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### API Endpoints
 
-- `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated (C17): every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`.
+- `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated (C17): every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`; stops also carry `dwell_start`/`dwell_end`/`radius` (the frontend renders them as dwell-interval blocks on the slider and selects them by interval overlap).
 - `GET /api/points/latest` — single most-recent **raw** fix (the live position dot reads raw `gps_points`, not the processed tier, so it tracks the true current fix — C13)
 - `GET /api/annotations` — list every annotation; `point_count` is NULL for point bookmarks, integer for ranges
 - `POST /api/annotations` — create annotation; omit (or pass null) `end_time` for a point bookmark

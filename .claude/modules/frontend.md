@@ -8,22 +8,31 @@ the ⚙ Labels panel, and the 🏔 3D/terrain panel are documented in
 
 ## Map view (`/`)
 
-A single MapLibre map (`MapView`, `static/js/map.js`) with time-range controls on top:
+A single MapLibre map (`MapView`, `static/js/map.js`) with a time panel docked at the
+bottom — picker + slider together (they were split top/bottom before the map-view
+redesign):
 
-- **Time picker** (`TimePicker`, `static/js/timepicker.js`) — Graylog-style. Modes
-  Last / Around / From→To with anchor + window state; preset chips
-  (15m/1h/6h/24h/7d/30d) collapse to Live + Last. A Live flag pins the anchor to
-  `now()` and re-fetches every 30s.
-- **Sub-range slider** (`noUiSlider`) — zooms inside the loaded window. The trail
-  polyline + map-fit follow the slider's selection; in live re-fetches `fitBounds`
-  is skipped so the view doesn't jerk.
+- **Time picker** (`TimePicker`, `static/js/timepicker.js`) — Graylog-style trigger
+  docked above the slider; its popover opens *upward*. Modes Last / Around / From→To
+  with anchor + window state; preset chips (15m/1h/6h/24h/7d/30d) collapse to Live +
+  Last. A Live flag pins the anchor to `now()` and re-fetches every 30s.
+- **Sub-range slider** (`noUiSlider`) — its axis is the **requested `[from, to]`
+  window**, not the loaded-data extent, so empty time stays selectable and a lead-in
+  dwell can't stretch it. Brushing zooms the trail/map within the window (local, no
+  fetch; `fitBounds` skipped on live ticks so the view doesn't jerk). Stops in the
+  window render as **dwell-interval blocks** on the track (`#tl-stop-overlay`, hover
+  shows dwell). **Zoom to Range** promotes the brushed selection to a tighter fetch
+  window — more detail, since `/api/points` is size-aware decimated.
 - **Annotations drawer** — right-edge drawer on desktop, bottom sheet on mobile,
   toggled from the tab bar. Lists points + ranges; click jumps the picker (range →
   `range` mode, point → `around` mode keeping the current window) and pans to the
-  nearest fix. Map overlays: cyan polylines for in-window ranges, amber pins for
-  in-window points; matching bands + ticks on the slider.
-- **Creation** — "Create Range" uses the slider's `[lo, hi]` (≥2 points); "Drop Pin"
-  captures the slider's `hi` handle (or `now` in live).
+  nearest fix. Each item has **✎ edit / × delete** (revealed on hover; always shown on
+  touch via `@media (hover: none)`); edit reuses the create modal in "Edit" mode
+  (`PATCH`). Map overlays: cyan polylines for in-window ranges, amber pins for in-window
+  points, **constant-size red dots for stops**; matching bands + ticks on the slider.
+- **Creation / bookmarks** — "Create Range" makes a range annotation from the slider's
+  `[lo, hi]` (≥2 points); **"📍 Bookmark Here"** (Live only) one-taps a point bookmark at
+  the latest GPS fix, auto-named `Bookmark · <time>`.
 - **⊕ FAB** — zooms to the most recent GPS fix.
 - **🚁 Drone panel** (`static/js/drone.js`) — toggles the drone-track overlay. On
   first enable it fetches *all* flights once from `GET /api/drone/flights` (tiny
