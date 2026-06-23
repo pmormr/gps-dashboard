@@ -23,6 +23,14 @@ redesign):
   window render as **dwell-interval blocks** on the track (`#tl-stop-overlay`, hover
   shows dwell). **Zoom to Range** promotes the brushed selection to a tighter fetch
   window — more detail, since `/api/points` is size-aware decimated.
+- **Density lane** (`#tl-density`, canvas, `renderDensity`) — a recessed strip above the
+  slider that draws a per-pixel-column coverage fill over the window: stops fill their
+  dwell interval, moving vertices raise the column's density and bridge gaps under
+  `DENSITY_GAP_CAP_MS` (15 min). Bar height/alpha scale `sqrt(count)`, so a drive reads
+  bright, a park a low floor (its red stop block sits below), van-off the bare track. It
+  answers *where data is / where you're parked / where it's genuinely empty* so the
+  handle isn't sliding over invisible terrain. Window-based (redraws on load + resize, not
+  brush), DPR-aware. The Layers axis will render sensor density onto this same lane.
 - **Annotations drawer** — right-edge drawer on desktop, bottom sheet on mobile,
   toggled from the tab bar. Lists points + ranges; click jumps the picker (range →
   `range` mode, point → `around` mode keeping the current window) and pans to the

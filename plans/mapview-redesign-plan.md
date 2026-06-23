@@ -40,11 +40,13 @@ sections of `CLAUDE.md`) and drop out of here.
 
 ---
 
-## Status — resume here (paused 2026-06-23, all below deployed to the Pi)
+## Status — resume here (paused 2026-06-23)
 
 **Done (Selection axis):** S1 axis = window · S2 stop-overlap select · S3 stop blocks +
-constant map dots · S6 picker docked above the slider (popover opens upward) · S7 Zoom to
-Range. The slider-extent and distinct-dwell-marker carry-ins are folded in.
+constant map dots · S4 legible density track (canvas coverage lane above the slider) ·
+S6 picker docked above the slider (popover opens upward) · S7 Zoom to Range. The
+slider-extent and distinct-dwell-marker carry-ins are folded in. **Only S5 (consolidate
+the strip into one canvas, retiring noUiSlider) is left on this axis — flagged "evaluate."**
 
 **Done (Marks axis, landed early):** 📍 Bookmark Here (one-tap, Live-only, latest fix) ·
 ✎ edit/rename UI in the drawer (reuses the modal, `PATCH`).
@@ -53,10 +55,11 @@ Range. The slider-extent and distinct-dwell-marker carry-ins are folded in.
 branch pruned · merged feature branches deleted.
 
 **Next session picks up — by axis:**
-- **Selection:** S4 (legible density track) → S5 (consolidate noUiSlider into a custom
-  strip, *evaluate*); S2 sub-item (bracketing narrow moving windows).
+- **Selection:** S5 (consolidate noUiSlider into a custom canvas strip, *evaluate* — the
+  density canvas from S4 is the seed it grows into); S2 sub-item (bracketing narrow
+  moving windows, deferred to whenever the strip gets richer).
 - **Layers** (not started): layers panel, trail color-by, sensor/OBD/drone onto the map,
-  retire the divorced `/sensors` page.
+  retire the divorced `/sensors` page. **Sensor density renders onto the S4 lane.**
 - **Marks** (continue the rework): mark *types*; analysis → an **"inspect this window"**
   panel that retires `loadEconomies` (loose end #4); bounds-editing (point↔range);
   stops→marks (denoise Phase 6, [[denoise-progress]]).
@@ -69,7 +72,8 @@ branch pruned · merged feature branches deleted.
 - Surface dwell length on the map dot too? (user leaned **leave out** — timeline block
   already carries it).
 
-**Deploy state:** through `65f503a` deployed; the docs/refactor commits ride the next push.
+**Deploy state:** through `65f503a` deployed; the docs/refactor commits (`3e79a80` …) and
+S4 are committed-locally/unpushed — they ride the next `git push all main`.
 
 ---
 
@@ -144,10 +148,21 @@ not zero-width vertices.
   settled with the user 2026-06-23: the map dot answers **where**, the timeline block
   answers **how long** — so the dot is not dwell-scaled. How/whether to surface dwell on
   the map dot too is left open.)*
-- [ ] **S4 — Legible density track.** Draw point density + stop blocks + annotation
-  bands on the strip so the axis shows where data is, where you're parked, where it's
-  genuinely empty — instead of a bare handle over invisible terrain. Sensor density
-  later renders onto this same track (the Layers handoff).
+- [x] **S4 — Legible density track.** A canvas lane (`#tl-density`) above the slider
+  shows a per-pixel-column **coverage fill, density-modulated**, over the window domain:
+  stops fill their dwell interval, moving vertices raise the column's density *and*
+  bridge the gap to the previous vertex within `DENSITY_GAP_CAP_MS` (15 min) — so a drive
+  reads solid (decimation thins straightaways) while a real outage stays an empty gap.
+  Bar height/alpha = floor + `sqrt(count)` boost, so maneuvering reads bright, a park
+  reads as a low floor (with its red stop block below), and van-off reads as the bare
+  recessed track. Window-based (redraws on load + resize, not on brush), DPR-aware,
+  `pointer-events: none`. *(Landed: `timeline.js` `renderDensity`, `index.html`,
+  `app.css`. Verified headless via CDP at desktop + mobile(dpr 2) widths against
+  `gps_drive.db`: a 3.25h window rendered floor→dense-drive→floor→empty-gap, 80% covered
+  with a 20% trailing gap.)* **Limitation noted:** the gap-cap heuristic can't perfectly
+  tell a sparse straightaway (>15 min between retained vertices) from a real outage; the
+  proper fix is a backend coverage summary, deferred. **The Layers handoff:** sensor
+  density renders onto this same lane (multi-channel) later.
 - [x] **S6 — Couple the picker to the slider.** The time-window picker and the slider
   were two widgets in opposite overlay corners (fetch-window vs. view-brush). User chose
   the lighter "move trigger down" over a full merge: the `#timepicker-trigger` now docks

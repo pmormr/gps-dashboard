@@ -72,6 +72,84 @@ const Timeline = (() => {
     }
   }
 
+  // Consecutive moving vertices closer than this read as one continuous run and
+  // fill the columns between them, so a drive shows solid coverage instead of a
+  // stipple — the processor's importance-thinning drops collinear points, so a
+  // long straightaway can leave a multi-minute gap between retained vertices
+  // that is *not* a data outage. A larger gap stays empty. Heuristic: it can't
+  // perfectly tell a sparse straightaway from a real outage; a backend coverage
+  // summary is the eventual refinement (mapview-redesign S4 touchpoints note).
+  const DENSITY_GAP_CAP_MS = 15 * 60 * 1000;
+
+  // Draw the density lane: a per-pixel-column coverage fill over the window
+  // domain so the strip shows where data is, where you're parked, and where time
+  // is genuinely empty — instead of a bare handle over invisible terrain
+  // (mapview-redesign S4). Window-based (shares getWindow), so it changes only
+  // on a window load/resize, not on every brush. Stops fill their dwell interval;
+  // moving vertices both raise the column's density and bridge the gap to the
+  // previous vertex when it's within DENSITY_GAP_CAP_MS. Bar height = a baseline
+  // floor for any covered column plus a sqrt-scaled boost by vertex count, so
+  // detailed maneuvering reads brighter while sparse-but-present track stays
+  // visible.
+  function renderDensity() {
+    const canvas = document.getElementById('tl-density');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const win = getWindow();
+    if (!win || cssW < 1) return;
+    const span = win.endMs - win.startMs;
+    if (span <= 0 || !allPoints.length) return;
+
+    const cols = Math.max(1, Math.floor(cssW));
+    const counts = new Float64Array(cols);
+    const covered = new Uint8Array(cols);
+    const colOf = (ms) =>
+      Math.min(cols - 1, Math.max(0, Math.floor(((ms - win.startMs) / span) * cols)));
+    const fill = (loMs, hiMs) => {
+      const a = colOf(Math.max(loMs, win.startMs));
+      const b = colOf(Math.min(hiMs, win.endMs));
+      for (let c = a; c <= b; c++) covered[c] = 1;
+    };
+
+    let prevMovingMs = null;
+    for (const p of allPoints) {
+      if (p.kind === 'stop' && p.dwell_start && p.dwell_end) {
+        fill(new Date(p.dwell_start).getTime(), new Date(p.dwell_end).getTime());
+        prevMovingMs = null;   // a stop breaks the moving run
+        continue;
+      }
+      const ms = new Date(p.timestamp).getTime();
+      if (ms < win.startMs || ms > win.endMs) { prevMovingMs = null; continue; }
+      counts[colOf(ms)] += 1;
+      covered[colOf(ms)] = 1;
+      if (prevMovingMs != null && ms - prevMovingMs <= DENSITY_GAP_CAP_MS) {
+        fill(prevMovingMs, ms);
+      }
+      prevMovingMs = ms;
+    }
+
+    let maxCount = 0;
+    for (let c = 0; c < cols; c++) if (counts[c] > maxCount) maxCount = counts[c];
+
+    const floor = 0.45;   // covered-but-sparse columns still read as filled
+    for (let c = 0; c < cols; c++) {
+      if (!covered[c]) continue;
+      const dens = maxCount > 0 ? Math.sqrt(counts[c] / maxCount) : 0;
+      const frac = floor + (1 - floor) * dens;
+      const h = Math.max(2, frac * cssH);
+      ctx.fillStyle = `rgba(148, 163, 184, ${0.5 + 0.45 * dens})`;
+      ctx.fillRect(c, cssH - h, 1, h);
+    }
+  }
+
   function renderRange(followMap = false) {
     if (!slider) return;
     const [lo, hi] = slider.get().map(Number);
@@ -131,6 +209,7 @@ const Timeline = (() => {
       MapView.clearTrack();
       if (slider) { slider.destroy(); slider = null; }
       renderStopOverlay();
+      renderDensity();
       document.getElementById('tl-zoom-range-btn').disabled = true;
       return;
     }
@@ -154,6 +233,7 @@ const Timeline = (() => {
     slider.on('update', () => renderRange(false));
     document.getElementById('tl-slider-wrap').classList.remove('hidden');
     renderStopOverlay();
+    renderDensity();
 
     MapView.showTrack(allPoints, { fitBounds: !isLiveTick, showEndpoints: false });
     Annotations.renderOverlays(allPoints);
@@ -357,6 +437,11 @@ const Timeline = (() => {
       marksPanel.classList.toggle('collapsed');
     });
     document.getElementById('tl-zoom-here-btn').addEventListener('click', zoomToCurrentLocation);
+
+    // The canvas density lane is pixel-binned, so it must redraw on resize (the
+    // %-positioned slider overlays reflow on their own). renderStopOverlay is
+    // %-based but harmless to refresh alongside.
+    window.addEventListener('resize', () => { renderStopOverlay(); renderDensity(); });
 
     loadMarks();
     TimePicker.onChange(loadRange);
