@@ -34,15 +34,25 @@ const Annotations = (() => {
             ${a.notes ? `<span class="annotation-notes">${escHtml(a.notes)}</span>` : ''}
             ${!isPoint ? `<span class="annotation-econ" data-id="${a.id}"></span>` : ''}
           </div>
-          <button class="annotation-delete-btn" data-id="${a.id}" title="Delete">×</button>
+          <div class="annotation-actions">
+            <button class="annotation-edit-btn" data-id="${a.id}" title="Edit">✎</button>
+            <button class="annotation-delete-btn" data-id="${a.id}" title="Delete">×</button>
+          </div>
         </div>
       `;
     }).join('');
 
     el.querySelectorAll('.annotation-item').forEach(item => {
       item.addEventListener('click', e => {
-        if (e.target.classList.contains('annotation-delete-btn')) return;
+        if (e.target.closest('.annotation-actions')) return;
         jumpTo(parseInt(item.dataset.id, 10));
+      });
+    });
+    el.querySelectorAll('.annotation-edit-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const a = annotations.find(x => x.id === parseInt(btn.dataset.id, 10));
+        if (a) Timeline.openEditAnnotation(a);
       });
     });
     el.querySelectorAll('.annotation-delete-btn').forEach(btn => {

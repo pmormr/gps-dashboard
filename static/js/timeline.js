@@ -2,6 +2,7 @@ const Timeline = (() => {
   let allPoints = [];
   let slider = null;
   let pendingAnnotation = null;
+  let editId = null;          // annotation id being edited (null = create mode)
   let currentMarks = {};
   let lastRange = null;
 
@@ -179,40 +180,64 @@ const Timeline = (() => {
     } catch (_) {}
   }
 
+  // Shared annotation modal: shows a "when" line (read-only) + name/notes. Used
+  // for both create (from the slider selection) and edit (from the drawer); the
+  // `editId` state routes saveAnnotation between POST and PATCH.
+  function fmtAnnotationWhen(startTime, endTime) {
+    const start = new Date(startTime);
+    return endTime
+      ? `${start.toLocaleString()} → ${new Date(endTime).toLocaleString()}`
+      : `At ${start.toLocaleString()}`;
+  }
+
   function openAnnotationForm() {
     if (!pendingAnnotation) return;
+    editId = null;
     const isPoint = !pendingAnnotation.end_time;
     document.getElementById('annotation-form-title').textContent =
       isPoint ? 'Bookmark' : 'Create Range';
     document.getElementById('annotation-name-input').value = '';
     document.getElementById('annotation-notes-input').value = '';
     const whenEl = document.getElementById('annotation-form-when');
-    if (whenEl) {
-      const start = new Date(pendingAnnotation.start_time);
-      whenEl.textContent = isPoint
-        ? `At ${start.toLocaleString()}`
-        : `${start.toLocaleString()} → ${new Date(pendingAnnotation.end_time).toLocaleString()}`;
-    }
+    if (whenEl) whenEl.textContent = fmtAnnotationWhen(pendingAnnotation.start_time, pendingAnnotation.end_time);
+    document.getElementById('annotation-form-overlay').classList.remove('hidden');
+    document.getElementById('annotation-name-input').focus();
+  }
+
+  // Edit an existing annotation's name + notes (its bounds stay put). Called from
+  // the annotations drawer's ✎ button.
+  function openEditAnnotation(ann) {
+    pendingAnnotation = null;
+    editId = ann.id;
+    document.getElementById('annotation-form-title').textContent = 'Edit Annotation';
+    document.getElementById('annotation-name-input').value = ann.name || '';
+    document.getElementById('annotation-notes-input').value = ann.notes || '';
+    const whenEl = document.getElementById('annotation-form-when');
+    if (whenEl) whenEl.textContent = fmtAnnotationWhen(ann.start_time, ann.end_time);
     document.getElementById('annotation-form-overlay').classList.remove('hidden');
     document.getElementById('annotation-name-input').focus();
   }
 
   function closeAnnotationForm() {
     document.getElementById('annotation-form-overlay').classList.add('hidden');
+    editId = null;
   }
 
   async function saveAnnotation() {
     const name = document.getElementById('annotation-name-input').value.trim();
     if (!name) { document.getElementById('annotation-name-input').focus(); return; }
-    if (!pendingAnnotation) return;
-
     const notes = document.getElementById('annotation-notes-input').value.trim();
-    const body = { ...pendingAnnotation, name, notes };
-    // Range form passes end_time; point form does not. Backend treats a
-    // missing or null end_time as a point bookmark.
-    if (!body.end_time) delete body.end_time;
     try {
-      await API.createAnnotation(body);
+      if (editId != null) {
+        await API.updateAnnotation(editId, { name, notes });
+      } else {
+        if (!pendingAnnotation) return;
+        const body = { ...pendingAnnotation, name, notes };
+        // Range form passes end_time; point form does not. Backend treats a
+        // missing or null end_time as a point bookmark.
+        if (!body.end_time) delete body.end_time;
+        await API.createAnnotation(body);
+      }
       closeAnnotationForm();
       Annotations.reload();
     } catch (e) {
@@ -341,5 +366,5 @@ const Timeline = (() => {
     TimePicker.onChange(loadRange);
   }
 
-  return { init, getPoints, getWindow };
+  return { init, getPoints, getWindow, openEditAnnotation };
 })();

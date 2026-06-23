@@ -184,9 +184,14 @@ bookmark from the slider's arbitrary right-handle time and wrongly implied map
 placement — is replaced by **"📍 Bookmark Here"**: a one-tap, form-less point bookmark at
 the *latest GPS fix* (current position), shown only when Live (a while-driving action).
 Auto-named `Bookmark · <time>`. *(`timeline.js` `bookmarkCurrent`, `index.html`.)*
-**Gap this exposes:** there's no annotation **rename/edit UI** yet (drawer only
-jumps/deletes), so auto-named bookmarks can't be renamed in-app — fold an edit affordance
-into this axis (the PATCH endpoint already exists).
+
+**Edit/rename UI landed (2026-06-23):** each drawer item now has an **✎ edit** button
+beside **×** that opens the shared annotation modal in "Edit" mode (name + notes;
+`editId` routes `saveAnnotation` to `PATCH`). This closes the rename gap the auto-named
+bookmarks exposed. The row actions reveal on hover (desktop) and stay visible on touch
+(`@media (hover: none)` — also fixes delete being unreachable on the phone). *(Landed:
+`timeline.js` `openEditAnnotation`, `annotations.js`, `app.css`.)* Bounds-editing
+(point↔range) is still out of scope.
 
 ---
 

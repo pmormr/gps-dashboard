@@ -317,21 +317,27 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
 .annotation-econ { font-size: 12px; color: #fbbf24; }
 .annotation-econ:empty { display: none; }
 
-.annotation-delete-btn {
+.annotation-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.annotation-edit-btn, .annotation-delete-btn {
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 4px;
-  flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.1s, color 0.1s;
 }
+.annotation-item:hover .annotation-edit-btn,
 .annotation-item:hover .annotation-delete-btn { opacity: 1; }
+.annotation-edit-btn:hover { color: var(--text); }
 .annotation-delete-btn:hover { color: var(--danger); }
+/* Touch devices have no hover state — keep the row actions visible. */
+@media (hover: none) {
+  .annotation-edit-btn, .annotation-delete-btn { opacity: 1; }
+}
 
 /* Desktop: right-side drawer below the top tab bar, above the bottom tab bar */
 @media (min-width: 768px) {
