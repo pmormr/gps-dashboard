@@ -13,32 +13,35 @@ bottom — picker + slider together (they were split top/bottom before the map-v
 redesign):
 
 - **Time picker** (`TimePicker`, `static/js/timepicker.js`) — Graylog-style trigger
-  docked above the slider; its popover opens *upward*. Modes Last / Around / From→To
+  docked above the strip; its popover opens *upward*. Modes Last / Around / From→To
   with anchor + window state; preset chips (15m/1h/6h/24h/7d/30d) collapse to Live +
   Last. A Live flag pins the anchor to `now()` and re-fetches every 30s.
-- **Sub-range slider** (`noUiSlider`) — its axis is the **requested `[from, to]`
-  window**, not the loaded-data extent, so empty time stays selectable and a lead-in
-  dwell can't stretch it. Brushing zooms the trail/map within the window (local, no
-  fetch; `fitBounds` skipped on live ticks so the view doesn't jerk). Stops in the
-  window render as **dwell-interval blocks** on the track (`#tl-stop-overlay`, hover
-  shows dwell). **Zoom to Range** promotes the brushed selection to a tighter fetch
-  window — more detail, since `/api/points` is size-aware decimated.
-- **Density lane** (`#tl-density`, canvas, `renderDensity`) — a recessed strip above the
-  slider that draws a per-pixel-column coverage fill over the window: stops fill their
-  dwell interval, moving vertices raise the column's density and bridge gaps under
-  `DENSITY_GAP_CAP_MS` (15 min). Bar height/alpha scale `sqrt(count)`, so a drive reads
-  bright, a park a low floor (its red stop block sits below), van-off the bare track. It
-  answers *where data is / where you're parked / where it's genuinely empty* so the
-  handle isn't sliding over invisible terrain. Window-based (redraws on load + resize, not
-  brush), DPR-aware. The Layers axis will render sensor density onto this same lane.
+- **Timeline strip** (`TimeStrip`, `static/js/timestrip.js`) — the whole sub-range
+  timeline drawn in **one canvas** (it replaced noUiSlider + the DOM overlay hacks in the
+  redesign's S5). Its axis is the **requested `[from, to]` window**, not the loaded-data
+  extent, so empty time stays selectable and a lead-in dwell can't stretch it. One draw
+  pass layers: a **density coverage fill** (stops fill their dwell interval; moving
+  vertices raise the column's density and bridge gaps under `DENSITY_GAP_CAP_MS`/15 min;
+  `sqrt(count)` height/alpha — a drive reads bright, a park a low floor, van-off the bare
+  track — answering *where data is / parked / genuinely empty*), **red stop-dwell blocks**
+  (bottom lane), **annotation range bands + point ticks** (top lane, fed by
+  `setAnnotations`), a **dimmed mask** over the unselected time, and the **two brush
+  handles**. Pointer Events drive the brush (drag a handle to resize, drag the middle to
+  pan, tap empty track to jump the nearest handle); arrow keys nudge it; hover shows a
+  stop/annotation tooltip. The plot area is inset (`EDGE`) so full-extent handles stay
+  grabbable; `touch-action:none` keeps a finger drag from scrolling. Brushing re-renders
+  the trail/map locally (no fetch; `fitBounds` skipped on live ticks). **Zoom to Range**
+  promotes the brushed selection to a tighter fetch window — more detail, since
+  `/api/points` is size-aware decimated. The Layers axis will render sensor density onto
+  this same canvas.
 - **Annotations drawer** — right-edge drawer on desktop, bottom sheet on mobile,
   toggled from the tab bar. Lists points + ranges; click jumps the picker (range →
   `range` mode, point → `around` mode keeping the current window) and pans to the
   nearest fix. Each item has **✎ edit / × delete** (revealed on hover; always shown on
   touch via `@media (hover: none)`); edit reuses the create modal in "Edit" mode
   (`PATCH`). Map overlays: cyan polylines for in-window ranges, amber pins for in-window
-  points, **constant-size red dots for stops**; matching bands + ticks on the slider.
-- **Creation / bookmarks** — "Create Range" makes a range annotation from the slider's
+  points, **constant-size red dots for stops**; matching bands + ticks on the strip.
+- **Creation / bookmarks** — "Create Range" makes a range annotation from the brush's
   `[lo, hi]` (≥2 points); **"📍 Bookmark Here"** (Live only) one-taps a point bookmark at
   the latest GPS fix, auto-named `Bookmark · <time>`.
 - **⊕ FAB** — zooms to the most recent GPS fix.

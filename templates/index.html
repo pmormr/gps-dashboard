@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>GPS Dashboard</title>
   <link rel="stylesheet" href="/static/vendor/maplibre/maplibre-gl.css">
-  <link rel="stylesheet" href="/static/vendor/nouislider/nouislider.min.css">
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
@@ -83,11 +82,11 @@
           </button>
           <span id="tl-status"></span>
         </div>
-        <div id="tl-slider-wrap" class="tl-slider-wrap hidden">
-          <canvas id="tl-density" class="tl-density"></canvas>
-          <div id="tl-slider"></div>
-          <div id="tl-stop-overlay" class="tl-slider-overlay"></div>
-          <div id="tl-slider-overlay" class="tl-slider-overlay"></div>
+        <div id="tl-strip-wrap" class="tl-strip-wrap hidden">
+          <div class="tl-strip-canvas-wrap">
+            <canvas id="tl-strip" class="tl-strip"></canvas>
+            <div id="tl-strip-tooltip" class="tl-strip-tooltip hidden"></div>
+          </div>
           <div class="tl-slider-labels">
             <span id="tl-start-label"></span>
             <span id="tl-selection-count" class="muted"></span>
@@ -225,12 +224,12 @@
 
 <script src="/static/vendor/maplibre/maplibre-gl.js"></script>
 <script src="/static/vendor/pmtiles/pmtiles.js"></script>
-<script src="/static/vendor/nouislider/nouislider.min.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/geo.js"></script>
 <script src="/static/js/map.js"></script>
 <script src="/static/js/labels.js"></script>
 <script src="/static/js/timepicker.js"></script>
+<script src="/static/js/timestrip.js"></script>
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/annotations.js"></script>
 <script src="/static/js/drone.js"></script>

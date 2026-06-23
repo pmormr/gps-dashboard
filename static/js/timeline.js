@@ -1,172 +1,55 @@
 const Timeline = (() => {
   let allPoints = [];
-  let slider = null;
   let pendingAnnotation = null;
   let editId = null;          // annotation id being edited (null = create mode)
   let currentMarks = {};
   let lastRange = null;
 
-  function toTs(isoString) { return Math.floor(new Date(isoString).getTime() / 1000); }
-  function fromTs(sec) { return new Date(sec * 1000).toISOString(); }
-
-  function sliderLabel(sec) {
-    return new Date(sec * 1000).toLocaleString([], {
+  function windowLabel(ms) {
+    return new Date(ms).toLocaleString([], {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
+  }
+
+  function updateSliderLabels(loMs, hiMs) {
+    document.getElementById('tl-start-label').textContent = windowLabel(loMs);
+    document.getElementById('tl-end-label').textContent = windowLabel(hiMs);
   }
 
   // A moving vertex is an instant (match its timestamp); a stop spans its dwell
   // interval (match interval overlap), so brushing inside a long park selects
   // "parked here" even though the stop's own timestamp sits at the dwell start
-  // and would otherwise fall outside a sub-window (mapview-redesign S2).
-  function pointsInRange(lo, hi) {
+  // and would otherwise fall outside a sub-window (mapview-redesign S2). All ms.
+  function pointsInRange(loMs, hiMs) {
     return allPoints.filter(p => {
       if (p.kind === 'stop' && p.dwell_start && p.dwell_end) {
-        return toTs(p.dwell_end) >= lo && toTs(p.dwell_start) <= hi;
+        return new Date(p.dwell_end).getTime() >= loMs &&
+               new Date(p.dwell_start).getTime() <= hiMs;
       }
-      const t = toTs(p.timestamp);
-      return t >= lo && t <= hi;
+      const t = new Date(p.timestamp).getTime();
+      return t >= loMs && t <= hiMs;
     });
   }
 
-  function updateSliderLabels(lo, hi) {
-    document.getElementById('tl-start-label').textContent = sliderLabel(lo);
-    document.getElementById('tl-end-label').textContent = sliderLabel(hi);
-  }
-
-  function fmtDuration(mins) {
-    if (mins < 60) return `${mins}m`;
-    const h = Math.floor(mins / 60);
-    if (h < 24) { const m = mins % 60; return m ? `${h}h ${m}m` : `${h}h`; }
-    const d = Math.floor(h / 24);
-    const rh = h % 24;
-    return rh ? `${d}d ${rh}h` : `${d}d`;
-  }
-
-  // Draw each in-window stop as a block spanning its dwell interval on the slider
-  // track, so a long park reads as a visible block instead of a dead zone where
-  // dragging the handle does nothing (mapview-redesign S3). Window-based (shares
-  // the slider's domain), so it changes only when the loaded window changes — not
-  // on every brush. Sits in its own overlay div under the annotation bands.
-  function renderStopOverlay() {
-    const overlay = document.getElementById('tl-stop-overlay');
-    if (!overlay) return;
-    overlay.innerHTML = '';
-    const win = getWindow();
-    if (!win) return;
-    const span = win.endMs - win.startMs;
-    if (span <= 0) return;
-    for (const p of allPoints) {
-      if (p.kind !== 'stop' || !p.dwell_start || !p.dwell_end) continue;
-      const sMs = new Date(p.dwell_start).getTime();
-      const eMs = new Date(p.dwell_end).getTime();
-      if (eMs < win.startMs || sMs > win.endMs) continue;
-      const lo = Math.max(sMs, win.startMs);
-      const hi = Math.min(eMs, win.endMs);
-      const block = document.createElement('div');
-      block.className = 'sl-stop-block';
-      block.style.left = ((lo - win.startMs) / span) * 100 + '%';
-      block.style.width = Math.max(0.4, ((hi - lo) / span) * 100) + '%';
-      block.title = `Parked ${fmtDuration(Math.round((eMs - sMs) / 60000))}`;
-      overlay.appendChild(block);
-    }
-  }
-
-  // Consecutive moving vertices closer than this read as one continuous run and
-  // fill the columns between them, so a drive shows solid coverage instead of a
-  // stipple — the processor's importance-thinning drops collinear points, so a
-  // long straightaway can leave a multi-minute gap between retained vertices
-  // that is *not* a data outage. A larger gap stays empty. Heuristic: it can't
-  // perfectly tell a sparse straightaway from a real outage; a backend coverage
-  // summary is the eventual refinement (mapview-redesign S4 touchpoints note).
-  const DENSITY_GAP_CAP_MS = 15 * 60 * 1000;
-
-  // Draw the density lane: a per-pixel-column coverage fill over the window
-  // domain so the strip shows where data is, where you're parked, and where time
-  // is genuinely empty — instead of a bare handle over invisible terrain
-  // (mapview-redesign S4). Window-based (shares getWindow), so it changes only
-  // on a window load/resize, not on every brush. Stops fill their dwell interval;
-  // moving vertices both raise the column's density and bridge the gap to the
-  // previous vertex when it's within DENSITY_GAP_CAP_MS. Bar height = a baseline
-  // floor for any covered column plus a sqrt-scaled boost by vertex count, so
-  // detailed maneuvering reads brighter while sparse-but-present track stays
-  // visible.
-  function renderDensity() {
-    const canvas = document.getElementById('tl-density');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const cssW = canvas.clientWidth;
-    const cssH = canvas.clientHeight;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(cssW * dpr);
-    canvas.height = Math.round(cssH * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
-
-    const win = getWindow();
-    if (!win || cssW < 1) return;
-    const span = win.endMs - win.startMs;
-    if (span <= 0 || !allPoints.length) return;
-
-    const cols = Math.max(1, Math.floor(cssW));
-    const counts = new Float64Array(cols);
-    const covered = new Uint8Array(cols);
-    const colOf = (ms) =>
-      Math.min(cols - 1, Math.max(0, Math.floor(((ms - win.startMs) / span) * cols)));
-    const fill = (loMs, hiMs) => {
-      const a = colOf(Math.max(loMs, win.startMs));
-      const b = colOf(Math.min(hiMs, win.endMs));
-      for (let c = a; c <= b; c++) covered[c] = 1;
-    };
-
-    let prevMovingMs = null;
-    for (const p of allPoints) {
-      if (p.kind === 'stop' && p.dwell_start && p.dwell_end) {
-        fill(new Date(p.dwell_start).getTime(), new Date(p.dwell_end).getTime());
-        prevMovingMs = null;   // a stop breaks the moving run
-        continue;
-      }
-      const ms = new Date(p.timestamp).getTime();
-      if (ms < win.startMs || ms > win.endMs) { prevMovingMs = null; continue; }
-      counts[colOf(ms)] += 1;
-      covered[colOf(ms)] = 1;
-      if (prevMovingMs != null && ms - prevMovingMs <= DENSITY_GAP_CAP_MS) {
-        fill(prevMovingMs, ms);
-      }
-      prevMovingMs = ms;
-    }
-
-    let maxCount = 0;
-    for (let c = 0; c < cols; c++) if (counts[c] > maxCount) maxCount = counts[c];
-
-    const floor = 0.45;   // covered-but-sparse columns still read as filled
-    for (let c = 0; c < cols; c++) {
-      if (!covered[c]) continue;
-      const dens = maxCount > 0 ? Math.sqrt(counts[c] / maxCount) : 0;
-      const frac = floor + (1 - floor) * dens;
-      const h = Math.max(2, frac * cssH);
-      ctx.fillStyle = `rgba(148, 163, 184, ${0.5 + 0.45 * dens})`;
-      ctx.fillRect(c, cssH - h, 1, h);
-    }
-  }
-
+  // Render the current brush selection: trail/map, the points-selected count, and
+  // the Create Range / Zoom to Range enable-gating. Runs on the initial window
+  // load (followMap = fit, unless a live tick) and on every TimeStrip brush
+  // (followMap = false). Endpoint markers and Zoom to Range appear only when the
+  // selection is a strict sub-range of the loaded window.
   function renderRange(followMap = false) {
-    if (!slider) return;
-    const [lo, hi] = slider.get().map(Number);
-    updateSliderLabels(lo, hi);
-    const pts = pointsInRange(lo, hi);
-    MapView.showTrack(pts, { fitBounds: followMap, showEndpoints: pts.length > 1 });
+    const sel = TimeStrip.getSelection();
+    if (!sel) return;
+    const { loMs, hiMs } = sel;
+    updateSliderLabels(loMs, hiMs);
+    const pts = pointsInRange(loMs, hiMs);
+    const isSub = !!lastRange && (loMs > lastRange.from.getTime() || hiMs < lastRange.to.getTime());
+    MapView.showTrack(pts, { fitBounds: followMap, showEndpoints: isSub && pts.length > 1 });
     document.getElementById('tl-selection-count').textContent = `${pts.length} points selected`;
 
     pendingAnnotation = pts.length >= 2
-      ? { start_time: fromTs(lo), end_time: fromTs(hi) }
+      ? { start_time: new Date(loMs).toISOString(), end_time: new Date(hiMs).toISOString() }
       : null;
     document.getElementById('tl-create-btn').disabled = !pendingAnnotation;
-
-    // "Zoom to Range" is meaningful only when the selection is narrower than the
-    // loaded window — zooming to the full window would be a no-op refetch.
-    const win = getWindow();
-    const isSub = !!win && (lo > Math.floor(win.startMs / 1000) || hi < Math.floor(win.endMs / 1000));
     document.getElementById('tl-zoom-range-btn').disabled = !isSub;
   }
 
@@ -202,14 +85,11 @@ const Timeline = (() => {
       `${allPoints.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}`;
 
     if (!allPoints.length) {
-      document.getElementById('tl-slider-wrap').classList.add('hidden');
+      document.getElementById('tl-strip-wrap').classList.add('hidden');
       const emptyEl = document.getElementById('tl-empty');
       emptyEl.textContent = 'No GPS points for this range';
       emptyEl.classList.remove('hidden');
       MapView.clearTrack();
-      if (slider) { slider.destroy(); slider = null; }
-      renderStopOverlay();
-      renderDensity();
       document.getElementById('tl-zoom-range-btn').disabled = true;
       return;
     }
@@ -217,38 +97,18 @@ const Timeline = (() => {
     // The axis is the requested window, not the data extent: empty leading/
     // trailing time stays visible and selectable, and a lead-in dwell (whose
     // dwell_start predates the window) can't stretch it. Data renders onto this
-    // axis; it never defines it (mapview-redesign S1).
-    const lo = Math.floor(from.getTime() / 1000);
-    const hi = Math.floor(to.getTime() / 1000);
-    const step = Math.max(1, Math.floor((hi - lo) / 1000));
+    // axis via the TimeStrip canvas; it never defines it (mapview-redesign S1).
+    document.getElementById('tl-strip-wrap').classList.remove('hidden');
+    TimeStrip.setData({ startMs: from.getTime(), endMs: to.getTime(), points: allPoints });
 
-    if (slider) { slider.destroy(); slider = null; }
-    const el = document.getElementById('tl-slider');
-    slider = noUiSlider.create(el, {
-      start: [lo, hi],
-      connect: true,
-      range: { min: lo, max: hi <= lo ? lo + 1 : hi },
-      step,
-    });
-    slider.on('update', () => renderRange(false));
-    document.getElementById('tl-slider-wrap').classList.remove('hidden');
-    renderStopOverlay();
-    renderDensity();
-
-    MapView.showTrack(allPoints, { fitBounds: !isLiveTick, showEndpoints: false });
+    // Initial render of the full-window selection (fit the map unless this is a
+    // live tick). Subsequent brushes re-enter via TimeStrip.onBrush below.
+    renderRange(!isLiveTick);
     Annotations.renderOverlays(allPoints);
   }
 
   function getPoints() {
     return allPoints;
-  }
-
-  // The currently loaded time window in ms (the requested [from, to], i.e. the
-  // slider's domain), independent of where data actually exists. Overlays drawn
-  // on the slider track must share this basis or they drift off the handle.
-  function getWindow() {
-    if (!lastRange || !lastRange.from || !lastRange.to) return null;
-    return { startMs: lastRange.from.getTime(), endMs: lastRange.to.getTime() };
   }
 
   async function zoomToCurrentLocation() {
@@ -270,7 +130,7 @@ const Timeline = (() => {
       : `At ${start.toLocaleString()}`;
   }
 
-  // Only reached for ranges now (the slider's Create Range); point bookmarks are
+  // Only reached for ranges now (the strip's Create Range); point bookmarks are
   // created form-lessly by bookmarkCurrent, so there's no point branch here.
   function openAnnotationForm() {
     if (!pendingAnnotation) return;
@@ -397,23 +257,25 @@ const Timeline = (() => {
     });
   }
 
-  // Narrow the loaded window to the slider's current selection and re-fetch.
-  // /api/points is size-aware decimated, so the same vertex budget over a
-  // smaller window yields more detail — a quick "zoom in for granularity".
-  // Reads the live slider (cf. useMarks, which reads the persisted marks).
+  // Narrow the loaded window to the strip's current brush selection and re-fetch.
+  // /api/points is size-aware decimated, so the same vertex budget over a smaller
+  // window yields more detail — a quick "zoom in for granularity". Reads the live
+  // brush (cf. useMarks, which reads the persisted marks).
   function zoomToRange() {
-    if (!slider) return;
-    const [lo, hi] = slider.get().map(Number);
-    if (hi <= lo) return;
+    const sel = TimeStrip.getSelection();
+    if (!sel || sel.hiMs <= sel.loMs) return;
     TimePicker.setState({
       mode: 'range',
-      from: new Date(lo * 1000),
-      to: new Date(hi * 1000),
+      from: new Date(sel.loMs),
+      to: new Date(sel.hiMs),
       live: false,
     });
   }
 
   function init() {
+    TimeStrip.init('tl-strip', 'tl-strip-tooltip');
+    TimeStrip.onBrush(() => renderRange(false));
+
     document.getElementById('tl-create-btn').addEventListener('click', openAnnotationForm);
     document.getElementById('tl-bookmark-btn').addEventListener('click', bookmarkCurrent);
     document.getElementById('tl-zoom-range-btn').addEventListener('click', zoomToRange);
@@ -438,14 +300,9 @@ const Timeline = (() => {
     });
     document.getElementById('tl-zoom-here-btn').addEventListener('click', zoomToCurrentLocation);
 
-    // The canvas density lane is pixel-binned, so it must redraw on resize (the
-    // %-positioned slider overlays reflow on their own). renderStopOverlay is
-    // %-based but harmless to refresh alongside.
-    window.addEventListener('resize', () => { renderStopOverlay(); renderDensity(); });
-
     loadMarks();
     TimePicker.onChange(loadRange);
   }
 
-  return { init, getPoints, getWindow, openEditAnnotation };
+  return { init, getPoints, openEditAnnotation };
 })();

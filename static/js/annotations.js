@@ -151,19 +151,16 @@ const Annotations = (() => {
     }
   }
 
-  // Called by Timeline after each loadRange completes. Renders annotations
-  // on the map (pins for points, highlighted segments for ranges) and on
-  // the slider (bands + ticks), constrained to the currently loaded window.
-  // Filled in by item 3.2.
+  // Called by Timeline after each loadRange completes. Draws annotations on the
+  // map (pins for points, highlighted segments for ranges) and hands the list to
+  // the timeline strip for its bands/ticks (mapview-redesign S5).
   function renderOverlays(loadedPoints) {
     MapView.clearAnnotations();
-    renderSliderOverlay(null, null);
+    if (typeof TimeStrip !== 'undefined') TimeStrip.setAnnotations(annotations);
     if (!loadedPoints || !loadedPoints.length) return;
 
     const winStart = loadedPoints[0].timestamp;
     const winEnd = loadedPoints.at(-1).timestamp;
-    const winStartMs = new Date(winStart).getTime();
-    const winEndMs = new Date(winEnd).getTime();
 
     for (const a of annotations) {
       if (a.end_time) {
@@ -179,57 +176,12 @@ const Annotations = (() => {
       }
     }
 
-    // Slider bands/ticks share the slider's domain (the requested window), not
-    // the data extent, or they'd drift off the handle now that the axis is
-    // window-based (mapview-redesign S1). Map overlays above still use points —
-    // they need real lat/lon.
-    const win = (typeof Timeline !== 'undefined' && Timeline.getWindow) ? Timeline.getWindow() : null;
-    if (win) renderSliderOverlay(win.startMs, win.endMs);
-    else renderSliderOverlay(winStartMs, winEndMs);
-
     // Pan to a point annotation that was just clicked, now that points have
     // landed for the new window.
     if (pendingPanTimestamp) {
       const nearest = findNearestByTime(loadedPoints, pendingPanTimestamp);
       pendingPanTimestamp = null;
       if (nearest) MapView.zoomTo(nearest.lat, nearest.lon, 14);
-    }
-  }
-
-  // Slider overlay: shaded bands for ranges in window, ticks for points.
-  // The slider's noUiSlider track is `display: block`; we draw inside an
-  // absolutely-positioned sibling div (#tl-slider-overlay) over the track.
-  function renderSliderOverlay(winStartMs, winEndMs) {
-    const overlay = document.getElementById('tl-slider-overlay');
-    if (!overlay) return;
-    overlay.innerHTML = '';
-    if (winStartMs == null || winEndMs == null || winEndMs <= winStartMs) return;
-    const span = winEndMs - winStartMs;
-
-    for (const a of annotations) {
-      const startMs = new Date(a.start_time).getTime();
-      if (a.end_time) {
-        const endMs = new Date(a.end_time).getTime();
-        if (endMs < winStartMs || startMs > winEndMs) continue;
-        const lo = Math.max(startMs, winStartMs);
-        const hi = Math.min(endMs, winEndMs);
-        const left = ((lo - winStartMs) / span) * 100;
-        const width = ((hi - lo) / span) * 100;
-        const band = document.createElement('div');
-        band.className = 'sl-ann-band';
-        band.style.left = left + '%';
-        band.style.width = width + '%';
-        band.title = a.name;
-        overlay.appendChild(band);
-      } else {
-        if (startMs < winStartMs || startMs > winEndMs) continue;
-        const left = ((startMs - winStartMs) / span) * 100;
-        const tick = document.createElement('div');
-        tick.className = 'sl-ann-tick';
-        tick.style.left = left + '%';
-        tick.title = a.name;
-        overlay.appendChild(tick);
-      }
     }
   }
 

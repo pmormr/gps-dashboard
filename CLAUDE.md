@@ -160,11 +160,12 @@ gps-dashboard/
 │   ├── css/app.css
 │   ├── img/tile-error.png
 │   ├── js/
-│   │   ├── api.js, app.js, geo.js, map.js, labels.js, timeline.js, annotations.js
+│   │   ├── api.js, app.js, geo.js, map.js, labels.js, timepicker.js, annotations.js
+│   │   ├── timestrip.js    # canvas sub-range timeline (density + stops + brush)
+│   │   ├── timeline.js     # window load + selection wiring around TimeStrip
 │   │   ├── sensors.js      # /sensors viewer (current values + uPlot charts)
 │   │   └── skyplot.js      # /skyplot 3D satellite hemisphere (plain canvas)
 │   └── vendor/
-│       ├── nouislider/
 │       ├── maplibre/       # maplibre-gl
 │       ├── pmtiles/        # pmtiles.js range reader
 │       ├── uplot/          # uPlot time-series charts (sensor trends)

@@ -42,11 +42,13 @@ sections of `CLAUDE.md`) and drop out of here.
 
 ## Status — resume here (paused 2026-06-23)
 
-**Done (Selection axis):** S1 axis = window · S2 stop-overlap select · S3 stop blocks +
-constant map dots · S4 legible density track (canvas coverage lane above the slider) ·
-S6 picker docked above the slider (popover opens upward) · S7 Zoom to Range. The
-slider-extent and distinct-dwell-marker carry-ins are folded in. **Only S5 (consolidate
-the strip into one canvas, retiring noUiSlider) is left on this axis — flagged "evaluate."**
+**Selection axis — DONE.** S1 axis = window · S2 stop-overlap select · S3 stop blocks +
+constant map dots · S4 legible density track · S5 **full canvas strip** (`TimeStrip`,
+retired noUiSlider + the DOM overlay hacks; one canvas draws density + stops + annotation
+bands/ticks + dim-mask + the two-handle brush, with pointer/touch drag·pan·tap·keyboard
+and hover tooltips) · S6 picker docked above the strip · S7 Zoom to Range. The
+slider-extent and distinct-dwell-marker carry-ins are folded in. (S2 sub-item — bracketing
+narrow moving windows — remains the only deferred Selection nicety.)
 
 **Done (Marks axis, landed early):** 📍 Bookmark Here (one-tap, Live-only, latest fix) ·
 ✎ edit/rename UI in the drawer (reuses the modal, `PATCH`).
@@ -55,14 +57,14 @@ the strip into one canvas, retiring noUiSlider) is left on this axis — flagged
 branch pruned · merged feature branches deleted.
 
 **Next session picks up — by axis:**
-- **Selection:** S5 (consolidate noUiSlider into a custom canvas strip, *evaluate* — the
-  density canvas from S4 is the seed it grows into); S2 sub-item (bracketing narrow
-  moving windows, deferred to whenever the strip gets richer).
-- **Layers** (not started): layers panel, trail color-by, sensor/OBD/drone onto the map,
-  retire the divorced `/sensors` page. **Sensor density renders onto the S4 lane.**
+- **Layers** (not started — the next big axis): layers panel, trail color-by,
+  sensor/OBD/drone onto the map, retire the divorced `/sensors` page. **Sensor density
+  renders onto the `TimeStrip` canvas (add a lane / second channel in `drawDensity`).**
 - **Marks** (continue the rework): mark *types*; analysis → an **"inspect this window"**
   panel that retires `loadEconomies` (loose end #4); bounds-editing (point↔range);
   stops→marks (denoise Phase 6, [[denoise-progress]]).
+- **Selection:** only the S2 sub-item (bracketing narrow moving windows) remains — low
+  value, do it if the strip gets richer.
 
 **Open decisions (need the user):**
 - **Loose end #3 — Marks panel overlap.** Mark Start / Mark End / Use Marks now overlaps
@@ -72,8 +74,8 @@ branch pruned · merged feature branches deleted.
 - Surface dwell length on the map dot too? (user leaned **leave out** — timeline block
   already carries it).
 
-**Deploy state:** through `65f503a` deployed; the docs/refactor commits (`3e79a80` …) and
-S4 are committed-locally/unpushed — they ride the next `git push all main`.
+**Deploy state:** S4 (`8501d0a`) deployed to the Pi (`pi` remote; GitHub still behind).
+S5 is committed-locally/unpushed — rides the next push.
 
 ---
 
@@ -179,10 +181,20 @@ not zero-width vertices.
   behavior; full picker presets/custom widen back out. *(Landed: `timeline.js`
   `zoomToRange` + enable-gating, `index.html`, `app.css`. Verified headless — brushing
   then zooming narrowed a 24h window to the selected ~3h.)*
-- [ ] **S5 — (bigger, evaluate) Consolidate the strip.** Once the overlay outgrows the
-  absolutely-positioned-`#tl-slider-overlay` sibling hack, fold handle + density +
-  blocks + bands into one custom canvas/SVG timeline component, retiring noUiSlider.
-  Evolve-in-place may keep noUiSlider through S1–S4 and only do this if warranted.
+- [x] **S5 — Consolidate the strip into one canvas.** New `TimeStrip`
+  (`static/js/timestrip.js`) folds handle + density + stop blocks + annotation bands/ticks
+  into a single DPR-aware canvas, retiring noUiSlider and the absolutely-positioned
+  `#tl-slider-overlay`/`#tl-stop-overlay`/`#tl-density` DOM hacks (vendored `nouislider/`
+  removed). Pointer Events drive the two-handle brush (resize / drag-to-pan / tap-to-jump),
+  arrow keys nudge it, hover shows a stop/annotation tooltip; the plot area is inset
+  (`EDGE`) so full-extent handles stay grabbable and `touch-action:none` stops a finger
+  drag from scrolling. `timeline.js` switched to ms and drives it via
+  `setData`/`getSelection`/`onBrush`; `annotations.js` feeds bands via `setAnnotations`.
+  *(Verified headless via CDP: all layers render desktop + narrow real-width; left/right
+  handle drag, connect-pan (width preserved), tap-to-jump, keyboard pan, empty-window
+  branch + recovery — all pass. Note: `setDeviceMetricsOverride` mobile emulation makes the
+  headless MapLibre container overflow the viewport — an emulation artifact, not a layout
+  bug; a real narrow window has `#map` = viewport and the strip fits.)*
 
 ### Touchpoints
 

@@ -245,23 +245,43 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
 
 #tl-status { color: var(--muted); font-size: 12px; }
 
-.tl-slider-wrap { display: flex; flex-direction: column; gap: 4px; }
+.tl-strip-wrap { display: flex; flex-direction: column; gap: 4px; }
+.tl-strip-canvas-wrap { position: relative; }
 
-/* Density lane: the "terrain" the brush handle moves over — shows where data
-   exists (parked or moving), how dense it is, and where time is genuinely empty
-   (mapview-redesign S4). Recessed track look so bars read as fill, leaving the
-   semantic overlays (cyan ranges / red stops / amber points) on the slider
-   below. Drawn in canvas, DPR-aware; pointer-events off so the slider beneath
-   stays grabbable. */
-.tl-density {
+/* The whole sub-range timeline, drawn in one canvas (mapview-redesign S5):
+   density coverage + stop blocks + annotation bands/ticks + the dimmed mask and
+   the two brush handles. touch-action:none so a finger drag brushes a handle
+   instead of scrolling the page. */
+.tl-strip {
   display: block;
   width: 100%;
-  height: 18px;
-  border-radius: 3px;
+  height: 40px;
+  border-radius: 4px;
   background: var(--surface2);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-  pointer-events: none;
+  touch-action: none;
+  cursor: crosshair;
 }
+.tl-strip:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* Hover readout for the stop/annotation under the cursor; JS positions it at the
+   cursor x, anchored above the strip. */
+.tl-strip-tooltip {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 4px;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+.tl-strip-tooltip.hidden { display: none; }
+
 .tl-slider-labels {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -375,41 +395,6 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
     box-shadow: 0 -4px 12px rgba(0,0,0,.4);
     border-radius: var(--radius) var(--radius) 0 0;
   }
-}
-
-/* ── Slider annotation overlay (bands + ticks) ── */
-.tl-slider-overlay {
-  position: relative;
-  height: 0;
-  pointer-events: none;
-}
-.sl-ann-band, .sl-ann-tick {
-  position: absolute;
-  top: -10px;        /* sits on top of the slider's 4px track */
-  pointer-events: auto;
-}
-.sl-ann-band {
-  height: 4px;
-  background: rgba(34, 211, 238, 0.5);
-  border-radius: 2px;
-}
-.sl-ann-tick {
-  width: 2px;
-  height: 12px;
-  background: #f59e0b;
-  transform: translateX(-1px);
-}
-
-/* Stop dwell blocks: a translucent band straddling the track, taller than the
-   annotation band so a long park reads as a visible block on the slider. */
-.sl-stop-block {
-  position: absolute;
-  top: -12px;
-  height: 8px;
-  min-width: 2px;
-  background: rgba(239, 68, 68, 0.3);
-  border-radius: 2px;
-  pointer-events: auto;
 }
 
 /* ── Drawer toggle in the tab bar ── */
@@ -676,23 +661,6 @@ input[type="date"], input[type="datetime-local"], input[type="number"], select {
   z-index: 2000;
   border-top: 1px solid #b45309;
 }
-
-/* ── noUiSlider overrides ── */
-.noUi-target { background: var(--surface2); border: none; box-shadow: none; height: 4px; }
-.noUi-connects { border-radius: 2px; }
-.noUi-connect { background: var(--primary); }
-.noUi-handle {
-  background: var(--primary);
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,.4);
-  border-radius: 50%;
-  width: 18px !important;
-  height: 18px !important;
-  right: -9px !important;
-  top: -7px !important;
-  cursor: grab;
-}
-.noUi-handle::before, .noUi-handle::after { display: none; }
 
 /* ── Drone overlay: legend + click popup ── */
 .drone-legend {
