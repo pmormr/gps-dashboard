@@ -12,6 +12,8 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `drone-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
+`reference/` holds vendored equipment docs (vendor manuals, datasheets) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
+
 ## Deployment
 
 Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dashboard` (serves the web app). Both are managed via a bare git repo with a post-receive hook.
@@ -224,6 +226,7 @@ gps-dashboard/
 │   ├── chrony-gps-pps.conf
 │   └── 99-gps-dongle.rules
 ├── plans/                      # active/in-flight plans (landed ones fold into .claude/modules/)
+├── reference/                  # vendored equipment manuals/datasheets (PDF + grep-able .txt) for off-grid lookup
 └── pyproject.toml
 ```
 
