@@ -234,6 +234,11 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
     unreliable against the synthetic matrix-injected camera. `map.js` calls it on
     map-level click/mousemove; each line carries a `meta` payload pick returns for the
     popup.
+  - *Terrain-exaggeration registration* — tracks float at `abs_alt × exaggeration` (sea
+    level is the fixed point), so they stay registered with the DEM as it's stretched
+    (they only lined up at exaggeration 1.0 before). Applied as a per-line vertical
+    transform (`scale.z=k`, `position.z=originZ*k`) updated live by `setExaggeration`, and
+    mirrored in `pick`. The terrain-exaggeration slider max is raised 3 → 8.
 
   **Items:** (1) module bridge — add the `/globe` importmap to `index.html`,
   `overlay3d.js` as `type="module"` exposing `Overlay3D`. (2) the custom 3D layer
