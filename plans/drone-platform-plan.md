@@ -201,6 +201,46 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
   track to true flight height (upgrade for `line-z-offset`, or fill-extrusion
   pillars, or a three.js custom layer) is the deferred follow-up — pairs with the
   RW horizontal-thinning altitude-loss limitation.
+- **Phase 5 — Float tracks at flight altitude (three.js overlay). BUILT 2026-06-24**
+  (local headless smoke green; pending Pi deploy + on-device visual check on real
+  flights/terrain). Resolves the Phase-4 flat-drape limitation. `line-z-offset` is confirmed absent from
+  the vendored MapLibre v5.24.0 (not exposed under any name) — so elevation goes through
+  a **three.js custom layer**, reusing the vendored three.js r160 that `/globe` already
+  ships. **Not** a rewrite of the map in three.js: MapLibre stays the
+  basemap/terrain/label/PMTiles engine; the custom layer (`type:'custom'`,
+  `renderingMode:'3d'`) composites a three.js scene into MapLibre's own camera/GL context,
+  positioning each vertex via `MercatorCoordinate.fromLngLat([lon,lat], altMeters)`.
+  Because `abs_alt` is MSL and the terrain DEM is MSL, points float at the correct height
+  above the rendered terrain for free.
+
+  **Built generic, not drone-specific** (user intent: float van tracks / other data
+  later). The layer is a reusable elevated-data overlay (`static/js/overlay3d.js`, global
+  `Overlay3D`) keyed by *group* — `setLines(groupId, lines, {color,width})` /
+  `clear(groupId)`. Drones are the first consumer (`'drone'`); van tracks
+  (`gps_points.altitude`), sensor columns, etc. drop in later as `setLines('van', …)`.
+  Build only the polyline primitive now; no speculative point/column/extrusion types until
+  a consumer needs them.
+
+  **Sub-decisions (confirmed 2026-06-24):**
+  - *Picking + ground shadow* — keep the existing flat `drone-line` layer, dimmed, as
+    BOTH the click/popup target (three.js geometry isn't `queryRenderedFeatures`-able) and
+    a ground-shadow depth cue beneath the floating line. Generalized: a group may register
+    a flat MapLibre companion line for picking.
+  - *Line width* — thin GL lines for v1 (plain-GL `linewidth` is a no-op on most
+    platforms; matching the current 2.5px needs three's `Line2` fat-line helpers, 4 more
+    vendored files). Upgrade to `Line2` only if thin reads too weak.
+
+  **Items:** (1) module bridge — add the `/globe` importmap to `index.html`,
+  `overlay3d.js` as `type="module"` exposing `Overlay3D`. (2) the custom 3D layer
+  (scene/camera/renderer sharing `gl`; matrix from MapLibre), re-added on style swap
+  alongside the existing sources. (3) feed per-point `lon/lat/abs_alt` into
+  `Overlay3D.setLines('drone', …)` (today's `droneFlightToFeature` drops per-point alt —
+  keep raw points). (4) flat `drone-line` → dimmed shadow/pick target. (5) 🚁 toggle
+  drives both. (6) verify offline against the Colorado DEM, pitched view.
+
+  **Carries forward:** the RW horizontal-only thinning altitude-loss limitation (Phase 1)
+  — a near-vertical climb collapses; revisit 3D thinning once altitude is actually
+  rendered and the loss is visible.
 
 ---
 
