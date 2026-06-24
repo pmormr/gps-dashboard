@@ -15,6 +15,7 @@ from common.orbits import (
     GM_M3_S2,
     Orbit,
     azel_at,
+    find_passes,
     fit_orbit,
     plane_basis,
     position_ecef,
@@ -124,3 +125,77 @@ def test_fit_round_trips_each_constellation(gnssid: int) -> None:
     fit = fit_orbit(_samples(truth, _pass_times(_EPOCH, span_s=5400.0)), gnssid=gnssid)
     assert fit is not None
     _close_positions(truth, fit, _EPOCH + 3 * 3600.0)
+
+
+_LAT, _LON, _ALT = 39.32, -77.84, 200.0  # the van's real observer (W. Maryland)
+
+
+def _brute_passes(orbit: Orbit, obs, start: float, end: float, mask: float, step: float = 10.0):
+    """Reference pass detector: a dense linear scan of elevation."""
+    out = []
+    above = False
+    peak_el = peak_t = 0.0
+    rise = 0.0
+    t = start
+    while t <= end:
+        _, el, _ = azel_at(orbit, t, _LAT, _LON, obs)
+        if el >= mask and not above:
+            above, rise, peak_el, peak_t = True, t, el, t
+        elif el >= mask and above and el > peak_el:
+            peak_el, peak_t = el, t
+        elif el < mask and above:
+            out.append((rise, t, peak_t, peak_el))
+            above = False
+        t += step
+    if above:
+        out.append((rise, end, peak_t, peak_el))
+    return out
+
+
+def test_find_passes_matches_brute_force() -> None:
+    """Refined passes match a dense linear scan in count, peak, and timing."""
+    truth = _make_orbit(0, 55.0, 120.0, 30.0)
+    fit = fit_orbit(_samples(truth, _pass_times(_EPOCH, span_s=5400.0)), gnssid=0)
+    assert fit is not None
+    obs = observer_ecef(_LAT, _LON, _ALT)
+    start, end, mask = _EPOCH, _EPOCH + 24 * 3600.0, 5.0
+
+    passes = find_passes(fit, _LAT, _LON, obs, start, end, mask_deg=mask)
+    brute = _brute_passes(fit, obs, start, end, mask)
+    assert len(passes) == len(brute) >= 1
+    for p, (b_rise, b_set, _b_peak_t, b_peak_el) in zip(passes, brute, strict=True):
+        assert math.isclose(p.peak_el_deg, b_peak_el, abs_tol=0.2)
+        assert abs(p.rise_unix - b_rise) < 10.0
+        assert abs(p.set_unix - b_set) < 10.0
+        assert p.rise_unix <= p.peak_unix <= p.set_unix
+
+
+def test_pass_geometry_is_self_consistent() -> None:
+    """Reported rise/set sit on the mask and the peak is the elevation maximum."""
+    truth = _make_orbit(6, 64.8, 200.0, 10.0)
+    fit = fit_orbit(_samples(truth, _pass_times(_EPOCH, span_s=5400.0)), gnssid=6)
+    assert fit is not None
+    obs = observer_ecef(_LAT, _LON, _ALT)
+    mask = 10.0
+    passes = find_passes(fit, _LAT, _LON, obs, _EPOCH, _EPOCH + 36 * 3600.0, mask_deg=mask)
+    assert passes
+    for p in passes:
+        _, el_peak, _ = azel_at(fit, p.peak_unix, _LAT, _LON, obs)
+        assert math.isclose(el_peak, p.peak_el_deg, abs_tol=1e-6)
+        assert el_peak >= mask
+        # rise/set land on the mask unless clamped to the window edge.
+        if _EPOCH < p.rise_unix:
+            _, el_rise, _ = azel_at(fit, p.rise_unix, _LAT, _LON, obs)
+            assert math.isclose(el_rise, mask, abs_tol=1e-3)
+        if p.set_unix < _EPOCH + 36 * 3600.0:
+            _, el_set, _ = azel_at(fit, p.set_unix, _LAT, _LON, obs)
+            assert math.isclose(el_set, mask, abs_tol=1e-3)
+
+
+def test_no_passes_when_always_below_mask() -> None:
+    """A very high mask the SV never reaches yields no passes."""
+    truth = _make_orbit(0, 55.0, 120.0, 30.0)
+    fit = fit_orbit(_samples(truth, _pass_times(_EPOCH, span_s=5400.0)), gnssid=0)
+    assert fit is not None
+    obs = observer_ecef(_LAT, _LON, _ALT)
+    assert find_passes(fit, _LAT, _LON, obs, _EPOCH, _EPOCH + 6 * 3600.0, mask_deg=89.9) == []

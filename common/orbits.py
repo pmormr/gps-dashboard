@@ -211,3 +211,115 @@ def azel_at(
         ``(az_deg, el_deg, range_m)`` as in :func:`common.satgeo.ecef_to_azel`.
     """
     return ecef_to_azel(lat_deg, lon_deg, observer_m, position_ecef(orbit, unix_s))
+
+
+@dataclass(frozen=True)
+class Pass:
+    """One above-horizon pass of a satellite for a fixed observer.
+
+    Times are Unix seconds; ``rise``/``set`` are clamped to the scan window when
+    a pass straddles an edge (already up at the start, or still up at the end).
+    """
+
+    rise_unix: float
+    set_unix: float
+    peak_unix: float
+    peak_el_deg: float
+    peak_az_deg: float
+    rise_az_deg: float
+    set_az_deg: float
+
+    @property
+    def duration_s(self) -> float:
+        """Length of the pass in seconds."""
+        return self.set_unix - self.rise_unix
+
+
+def find_passes(
+    orbit: Orbit,
+    lat_deg: float,
+    lon_deg: float,
+    observer_m: Vec3,
+    start_unix: float,
+    end_unix: float,
+    mask_deg: float = 5.0,
+    coarse_step_s: float = 120.0,
+) -> list[Pass]:
+    """Find above-mask passes of a satellite over a time window.
+
+    Coarse-scans elevation, brackets each mask crossing, then refines rise/set by
+    bisection and the peak by a ternary search. The coarse step only has to be
+    shorter than the briefest pass (MEO passes last hours), so 2 min is ample.
+
+    Args:
+        orbit: The fitted orbit.
+        lat_deg: Observer latitude, degrees.
+        lon_deg: Observer longitude, degrees east.
+        observer_m: Observer ECEF position, metres (cached across the scan).
+        start_unix: Window start, Unix seconds.
+        end_unix: Window end, Unix seconds.
+        mask_deg: Horizon mask elevation; rise/set are where elevation crosses it.
+        coarse_step_s: Coarse scan step.
+
+    Returns:
+        Passes ordered by rise time. Edge-straddling passes are clamped to the
+        window.
+    """
+
+    def el(t: float) -> float:
+        return azel_at(orbit, t, lat_deg, lon_deg, observer_m)[1]
+
+    def az(t: float) -> float:
+        return azel_at(orbit, t, lat_deg, lon_deg, observer_m)[0]
+
+    def bisect(a: float, b: float) -> float:
+        """Time in [a, b] where elevation crosses the mask (signs straddle)."""
+        fa = el(a) - mask_deg
+        for _ in range(50):
+            m = 0.5 * (a + b)
+            if (el(m) - mask_deg >= 0.0) == (fa >= 0.0):
+                a = m
+            else:
+                b = m
+        return 0.5 * (a + b)
+
+    def peak_time(a: float, b: float) -> float:
+        """Time of maximum elevation in [a, b] (elevation is unimodal per pass)."""
+        for _ in range(60):
+            m1 = a + (b - a) / 3.0
+            m2 = b - (b - a) / 3.0
+            if el(m1) < el(m2):
+                a = m1
+            else:
+                b = m2
+        return 0.5 * (a + b)
+
+    def build(rise_t: float, set_t: float) -> Pass:
+        peak_t = peak_time(rise_t, set_t)
+        return Pass(
+            rise_unix=rise_t,
+            set_unix=set_t,
+            peak_unix=peak_t,
+            peak_el_deg=el(peak_t),
+            peak_az_deg=az(peak_t),
+            rise_az_deg=az(rise_t),
+            set_az_deg=az(set_t),
+        )
+
+    passes: list[Pass] = []
+    n_steps = max(1, math.ceil((end_unix - start_unix) / coarse_step_s))
+    prev_t = start_unix
+    prev_above = el(start_unix) >= mask_deg
+    rise_t: float | None = start_unix if prev_above else None
+    for i in range(1, n_steps + 1):
+        t = min(start_unix + i * coarse_step_s, end_unix)
+        above = el(t) >= mask_deg
+        if above and not prev_above:
+            rise_t = bisect(prev_t, t)
+        elif not above and prev_above and rise_t is not None:
+            passes.append(build(rise_t, bisect(prev_t, t)))
+            rise_t = None
+        prev_t, prev_above = t, above
+    if rise_t is not None:  # still above the mask at the window end
+        passes.append(build(rise_t, end_unix))
+    return passes
