@@ -7,6 +7,7 @@ from api.routes.globe import globe_bp
 from api.routes.obd import obd_bp
 from api.routes.passes import passes_bp
 from api.routes.points import points_bp
+from api.routes.radio import radio_bp
 from api.routes.sensors import sensors_bp
 from api.routes.status_gpsd import status_gpsd_bp
 from api.routes.status_ntp import status_ntp_bp
@@ -27,6 +28,7 @@ def create_app():
     app.register_blueprint(globe_bp)
     app.register_blueprint(passes_bp)
     app.register_blueprint(obd_bp)
+    app.register_blueprint(radio_bp)
     app.register_blueprint(tiles_bp)
     app.register_blueprint(status_gpsd_bp)
     app.register_blueprint(status_ntp_bp)

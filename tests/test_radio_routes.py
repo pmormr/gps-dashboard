@@ -1,0 +1,161 @@
+"""Tests for the radio control routes (``api/routes/radio.py``).
+
+The routes are exercised through the real Flask app, with :class:`api.rigctld.Rigctld`
+replaced by an in-memory fake — so no rigctld daemon or serial port is needed. The
+fake reproduces the context-manager shape and the getter/setter surface the routes use.
+"""
+
+from __future__ import annotations
+
+import api.routes.radio as radio
+from api.rigctld import RigctldError
+
+
+class FakeRig:
+    """In-memory stand-in for :class:`api.rigctld.Rigctld`."""
+
+    def __init__(self, *, fail_enter: bool = False, set_rprt: int | None = None) -> None:
+        self._fail_enter = fail_enter
+        self._set_rprt = set_rprt
+        self.calls: list[tuple] = []
+
+    def __enter__(self) -> FakeRig:
+        if self._fail_enter:
+            raise RigctldError('cannot reach rigctld at 127.0.0.1:4532')
+        return self
+
+    def __exit__(self, *exc: object) -> None: ...
+
+    def get_freq(self) -> int:
+        return 146520000
+
+    def get_mode(self) -> tuple[str, int]:
+        return 'FM', 15000
+
+    def get_level(self, name: str) -> float | None:
+        return 142.0 if name == 'RAWSTR' else None
+
+    def get_func(self, name: str) -> bool | None:
+        return False
+
+    def get_ctcss_tone(self) -> int | None:
+        return 1000
+
+    def get_rptr_shift(self) -> str | None:
+        return '+'
+
+    def get_rptr_offs(self) -> int | None:
+        return 600000
+
+    def get_dcd(self) -> bool | None:
+        return False
+
+    def get_ptt(self) -> bool | None:
+        return False
+
+    def _write(self, name: str, *args: object) -> None:
+        self.calls.append((name, *args))
+        if self._set_rprt is not None:
+            raise RigctldError('rig refused', rprt=self._set_rprt)
+
+    def set_freq(self, hz: int) -> None:
+        self._write('set_freq', hz)
+
+    def set_mode(self, mode: str, passband: int = 0) -> None:
+        self._write('set_mode', mode, passband)
+
+    def set_ctcss_tone(self, tenths: int) -> None:
+        self._write('set_ctcss_tone', tenths)
+
+    def set_func(self, name: str, on: bool) -> None:
+        self._write('set_func', name, on)
+
+    def set_rptr_shift(self, shift: str) -> None:
+        self._write('set_rptr_shift', shift)
+
+    def set_rptr_offs(self, hz: int) -> None:
+        self._write('set_rptr_offs', hz)
+
+
+def _patch_rig(monkeypatch, **kwargs) -> None:
+    monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: FakeRig(**kwargs))
+
+
+def test_status_online(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.get('/api/radio/status')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['online'] is True
+    assert data['freq_hz'] == 146520000
+    assert data['mode'] == 'FM'
+    assert data['rawstr'] == 142.0
+    assert data['strength_db'] is None  # not exposed by the ID-5100 backend
+    assert data['ctcss_tone_hz'] == 100.0  # 1000 tenths → 100.0 Hz
+    assert data['rptr_shift'] == 'plus'
+
+
+def test_status_offline_when_daemon_unreachable(client, monkeypatch):
+    _patch_rig(monkeypatch, fail_enter=True)
+    monkeypatch.setattr(radio.proc, 'service_state', lambda _name: 'inactive')
+    resp = client.get('/api/radio/status')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['online'] is False
+    assert data['service'] == 'inactive'
+
+
+def test_set_freq_ok(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/freq', json={'hz': 146520000})
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+
+
+def test_set_freq_rejects_non_positive(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/freq', json={'hz': 0})
+    assert resp.status_code == 400
+
+
+def test_set_freq_rejects_bool(client, monkeypatch):
+    # bool is an int subclass; the route must not accept True as a frequency.
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/freq', json={'hz': True})
+    assert resp.status_code == 400
+
+
+def test_set_mode_rejects_unknown(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/mode', json={'mode': 'SSB'})
+    assert resp.status_code == 400
+
+
+def test_set_freq_daemon_unreachable_is_503(client, monkeypatch):
+    _patch_rig(monkeypatch, fail_enter=True)
+    resp = client.post('/api/radio/freq', json={'hz': 146520000})
+    assert resp.status_code == 503
+
+
+def test_set_freq_rig_refusal_is_502(client, monkeypatch):
+    _patch_rig(monkeypatch, set_rprt=-1)
+    resp = client.post('/api/radio/freq', json={'hz': 146520000})
+    assert resp.status_code == 502
+
+
+def test_set_tone_requires_hz_when_enabling(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/tone', json={'mode': 'tone'})
+    assert resp.status_code == 400
+
+
+def test_set_tone_off_needs_no_hz(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/tone', json={'mode': 'off'})
+    assert resp.status_code == 200
+
+
+def test_set_repeater_requires_offset_for_shift(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/repeater', json={'shift': 'plus'})
+    assert resp.status_code == 400
