@@ -104,9 +104,6 @@ const MapView = (() => {
   let rangePopup = null;
   let dronePopup = null;
 
-  // Drone overlay state, re-applied after every style load like the track/range.
-  let droneFeatures = [];
-
   const TRACK_COLOR = '#ef4444';
   const RANGE_COLOR = '#22d3ee';
 
@@ -156,48 +153,27 @@ const MapView = (() => {
     };
   }
 
-  function droneFC() {
-    return { type: 'FeatureCollection', features: droneFeatures };
-  }
-
   function droneColor(modelCode) {
     return DRONE_COLORS[modelCode] || DRONE_DEFAULT_COLOR;
   }
 
   // One floating 3D polyline per flight for Overlay3D: [lon, lat, abs_alt] vertices
   // (abs_alt is MSL, the same datum as the terrain DEM, so the line floats at the
-  // right height above terrain), colored by model. Points missing abs_alt are
-  // dropped so a gap doesn't snap a vertex to z=0.
+  // right height above terrain), colored by model, with the popup payload as `meta`
+  // (Overlay3D.pick returns it on click/hover). Points missing abs_alt are dropped
+  // so a gap doesn't snap a vertex to z=0.
   function droneToLine(flight) {
-    const coords = (flight.points || [])
-      .filter(p => p.abs_alt != null)
-      .map(p => [p.lon, p.lat, p.abs_alt]);
-    return { coords, color: droneColor(flight.model_code) };
-  }
-
-  function escapeHtml(str) {
-    return String(str ?? '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  // One LineString feature per flight; abs_alt min/max are folded into properties
-  // here (popup-only — the line itself drapes flat onto the terrain in v1). The
-  // model_code property drives the per-model line color via a match expression.
-  function droneFlightToFeature(flight) {
-    const pts = flight.points || [];
+    const pts = (flight.points || []).filter(p => p.abs_alt != null);
     let altMin = null;
     let altMax = null;
     for (const p of pts) {
-      if (p.abs_alt == null) continue;
       if (altMin == null || p.abs_alt < altMin) altMin = p.abs_alt;
       if (altMax == null || p.abs_alt > altMax) altMax = p.abs_alt;
     }
     return {
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: pts.map(p => [p.lon, p.lat]) },
-      properties: {
-        flight_id: flight.id,
+      coords: pts.map(p => [p.lon, p.lat, p.abs_alt]),
+      color: droneColor(flight.model_code),
+      meta: {
         model: flight.model,
         model_code: flight.model_code,
         media_path: flight.media_path || '',
@@ -209,6 +185,12 @@ const MapView = (() => {
         alt_max: altMax,
       },
     };
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   // ── DOM markers (terrain-aware; clamp to ground automatically) ──
@@ -343,35 +325,11 @@ const MapView = (() => {
         });
       }
 
-      // The flat drone-line is now the ground *shadow* beneath the floating 3D
-      // track (Overlay3D, drawn at abs_alt): dimmed + thin, per-model color via a
-      // match on model_code. It also stays the click/popup target, since three.js
-      // geometry isn't queryRenderedFeatures-able. The 3D layer is installed just
-      // after, so it composites on top.
-      if (!map.getSource('drone-tracks')) map.addSource('drone-tracks', { type: 'geojson', data: droneFC() });
-      if (!map.getLayer('drone-line')) {
-        map.addLayer({
-          id: 'drone-line',
-          type: 'line',
-          source: 'drone-tracks',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': [
-              'match', ['get', 'model_code'],
-              'FC9313', DRONE_COLORS.FC9313,
-              'FC8485', DRONE_COLORS.FC8485,
-              'FC8671', DRONE_COLORS.FC8671,
-              DRONE_DEFAULT_COLOR,
-            ],
-            'line-width': 1.5,
-            'line-opacity': 0.35,
-          },
-        });
-      }
-      // The three.js elevated-track layer (floats each flight at its abs_alt).
-      // Dropped by setStyle like every other layer, so re-add it here; onAdd
-      // rebuilds its scene from the retained group data. Guarded — the module is
-      // ESM and may not have executed yet on the very first styledata.
+      // Drone tracks float at abs_alt as a three.js elevated-track layer (Overlay3D),
+      // not a flat MapLibre line — no ground shadow (it read as a confusing duplicate
+      // track). Dropped by setStyle like every other layer, so re-add it here; onAdd
+      // rebuilds its scene from the retained group data. Guarded — the module is ESM
+      // and may not have executed yet on the very first styledata.
       if (window.Overlay3D) window.Overlay3D.installLayer(map);
 
       // Sources are fresh after a style swap — push the current data back in.
@@ -381,8 +339,6 @@ const MapView = (() => {
       if (stops) stops.setData(stopsFC());
       const range = map.getSource('ann-range');
       if (range) range.setData(rangeFC());
-      const drone = map.getSource('drone-tracks');
-      if (drone) drone.setData(droneFC());
 
       applyTerrain();
     } catch (e) {
@@ -423,8 +379,8 @@ const MapView = (() => {
   }
 
   // Click a drone track → a popup with model, time span, altitude range, and the
-  // canonical media path. Registered once; the layer-scoped handlers no-op until
-  // the drone-line layer exists.
+  // canonical media path. The 3D tracks live in Overlay3D (not a MapLibre layer),
+  // so picking goes through Overlay3D.pick on map-level click/mousemove.
   function dronePopupHtml(p) {
     const durMs = new Date(p.last_fix_utc) - new Date(p.first_fix_utc);
     const alt = (p.alt_min != null && p.alt_max != null)
@@ -447,12 +403,19 @@ const MapView = (() => {
 
   function wireDronePopup() {
     dronePopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' });
-    map.on('mouseenter', 'drone-line', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'drone-line', () => { map.getCanvas().style.cursor = ''; });
-    map.on('click', 'drone-line', (e) => {
-      const f = e.features && e.features[0];
-      if (!f) return;
-      dronePopup.setLngLat(e.lngLat).setHTML(dronePopupHtml(f.properties)).addTo(map);
+    // Light hover affordance: only touch the cursor on hit-state transitions, so a
+    // no-hit move never clobbers another layer's pointer cursor (e.g. range tooltip).
+    let droneHover = false;
+    map.on('mousemove', (e) => {
+      if (!window.Overlay3D) return;
+      const hit = !!window.Overlay3D.pick(e.point.x, e.point.y);
+      if (hit && !droneHover) { map.getCanvas().style.cursor = 'pointer'; droneHover = true; }
+      else if (!hit && droneHover) { map.getCanvas().style.cursor = ''; droneHover = false; }
+    });
+    map.on('click', (e) => {
+      if (!window.Overlay3D) return;
+      const hit = window.Overlay3D.pick(e.point.x, e.point.y);
+      if (hit && hit.meta) dronePopup.setLngLat(hit.lngLat).setHTML(dronePopupHtml(hit.meta)).addTo(map);
     });
   }
 
@@ -562,22 +525,16 @@ const MapView = (() => {
     addMarker(pinMarkers, pinElement(), lat, lon, 'bottom', name || '');
   }
 
-  // Replace the drone overlay with the given flights (≥2-point tracks only — a
-  // LineString needs two coords; degenerate single-fix flights are dropped). Drives
-  // both renderings: the flat ground shadow/pick line (GeoJSON) and the floating 3D
-  // track (Overlay3D). The flat features are retained so reinstallOverlays can
-  // re-push them after a style swap; Overlay3D retains its own group data.
+  // Replace the drone overlay with the given flights, as floating 3D tracks
+  // (Overlay3D). Overlay3D retains its own group data, so nothing to re-push after a
+  // style swap — onAdd rebuilds the scene. Lines with <2 abs_alt points are dropped
+  // inside the builder.
   function showDroneTracks(flights) {
-    const valid = (flights || []).filter(f => (f.points || []).length >= 2);
-    droneFeatures = valid.map(droneFlightToFeature);
-    if (map && map.getSource('drone-tracks')) map.getSource('drone-tracks').setData(droneFC());
-    if (window.Overlay3D) window.Overlay3D.setLines('drone', valid.map(droneToLine));
+    if (window.Overlay3D) window.Overlay3D.setLines('drone', (flights || []).map(droneToLine));
   }
 
   function clearDroneTracks() {
-    droneFeatures = [];
     if (dronePopup) dronePopup.remove();
-    if (map && map.getSource('drone-tracks')) map.getSource('drone-tracks').setData(droneFC());
     if (window.Overlay3D) window.Overlay3D.clear('drone');
   }
 

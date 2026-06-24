@@ -5,7 +5,8 @@
  * the terrain at a true altitude is drawn by three.js instead. This module is a
  * single MapLibre custom 3D layer hosting one three.js scene, composited into
  * MapLibre's own camera/GL context — the map stays MapLibre; this only adds a 3D
- * data plane on top of it. Reuses the vendored three.js that /globe ships.
+ * data plane on top of it. Reuses the vendored three.js that /globe ships, plus the
+ * Line2 fat-line addons (screen-space line width; plain GL lines ignore linewidth).
  *
  * Geometry is keyed by *group* so the layer is not tied to any one dataset: drones
  * are the first consumer (`setLines('drone', …)`); van tracks, sensor columns, etc.
@@ -14,23 +15,31 @@
  * here are MSL and the terrain DEM is MSL, points float at the correct height above
  * the rendered terrain for free.
  *
- * Only a polyline primitive exists today; add point/column/extrusion types when a
- * consumer needs one. Picking is left to MapLibre — three.js geometry isn't
- * queryable — so a consumer that needs clicks keeps a flat companion line layer.
+ * Picking is done here too: three.js geometry isn't queryRenderedFeatures-able and
+ * raycasting is unreliable against our synthetic (matrix-injected) camera, so
+ * `pick(x, y)` projects each line's vertices through the last render matrix and runs
+ * a nearest-segment test in screen space. A line may carry a `meta` payload that
+ * `pick` returns to the caller (e.g. for a popup).
  */
 import * as THREE from 'three';
+import { Line2 } from '/static/vendor/three/lines/Line2.js';
+import { LineGeometry } from '/static/vendor/three/lines/LineGeometry.js';
+import { LineMaterial } from '/static/vendor/three/lines/LineMaterial.js';
 
 const Overlay3D = (() => {
   const LAYER_ID = 'overlay-3d';
+  const LINE_WIDTH = 3.5; // CSS px (LineMaterial screen-space width)
+  const PICK_THRESHOLD = 8; // CSS px
 
   let map = null;
   let scene = null;
   let camera = null;
   let renderer = null;
+  let lastMatrix = null; // mercator→clip, cached each render for picking
 
-  // groupId → { lines: Array<{coords:[lon,lat,alt][], color?}>, color?, opacity?,
-  //             object: THREE.Group|null }. Data is retained across style swaps;
-  //            `object` is the live scene node, rebuilt on each onAdd.
+  // groupId → { lines: input data, color?, opacity?, object: THREE.Group|null,
+  //             pick: Array<{absMerc:[x,y,z][], coords:[lon,lat,alt][], meta}> }.
+  // Data is retained across style swaps; `object`/`pick` are rebuilt on each onAdd.
   const groups = new Map();
 
   /** [lon, lat, altMeters] → a MapLibre mercator-world coordinate (x,y in [0,1], z up). */
@@ -47,39 +56,45 @@ const Overlay3D = (() => {
   }
 
   /**
-   * Build a THREE.Group of polylines for one data group. Each line sits at its own
-   * first-vertex mercator origin with vertices stored *relative* to it, so the tiny
-   * float32 deltas keep precision instead of riding on a ~0.25 absolute coordinate.
+   * Build a group's scene node + pick index from its line data. Each line sits at
+   * its own first-vertex mercator origin with vertices stored *relative* to it, so
+   * the tiny float32 deltas keep precision instead of riding on a ~0.25 absolute.
    */
   function buildGroup(g) {
     const root = new THREE.Group();
+    const pick = [];
     for (const line of g.lines) {
       const pts = line.coords;
       if (!pts || pts.length < 2) continue;
-      const o = merc(pts[0][0], pts[0][1], pts[0][2]);
-      const pos = new Float32Array(pts.length * 3);
+      const absMerc = pts.map((p) => {
+        const m = merc(p[0], p[1], p[2]);
+        return [m.x, m.y, m.z];
+      });
+      const o = absMerc[0];
+      const rel = new Array(pts.length * 3);
       for (let i = 0; i < pts.length; i++) {
-        const m = merc(pts[i][0], pts[i][1], pts[i][2]);
-        pos[i * 3] = m.x - o.x;
-        pos[i * 3 + 1] = m.y - o.y;
-        pos[i * 3 + 2] = m.z - o.z;
+        rel[i * 3] = absMerc[i][0] - o[0];
+        rel[i * 3 + 1] = absMerc[i][1] - o[1];
+        rel[i * 3 + 2] = absMerc[i][2] - o[2];
       }
-      const geom = new THREE.BufferGeometry();
-      geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      const obj = new THREE.Line(geom, new THREE.LineBasicMaterial({
+      const geom = new LineGeometry();
+      geom.setPositions(rel);
+      const obj = new Line2(geom, new LineMaterial({
         color: line.color || g.color || '#ffffff',
+        linewidth: line.width || g.width || LINE_WIDTH,
         transparent: true,
         opacity: line.opacity ?? g.opacity ?? 0.95,
       }));
-      obj.position.set(o.x, o.y, o.z);
+      obj.position.set(o[0], o[1], o[2]);
       // Mercator-space coords defeat three's frustum test; never cull.
       obj.frustumCulled = false;
       root.add(obj);
+      pick.push({ absMerc, coords: pts, meta: line.meta });
     }
-    return root;
+    return { root, pick };
   }
 
-  /** Rebuild one group's scene node from its retained line data. */
+  /** Rebuild one group's scene node + pick index from its retained line data. */
   function refresh(groupId) {
     const g = groups.get(groupId);
     if (!g || !scene) return;
@@ -88,8 +103,11 @@ const Overlay3D = (() => {
       dispose(g.object);
       g.object = null;
     }
+    g.pick = [];
     if (g.lines.length) {
-      g.object = buildGroup(g);
+      const built = buildGroup(g);
+      g.object = built.root;
+      g.pick = built.pick;
       scene.add(g.object);
     }
     if (map) map.triggerRepaint();
@@ -109,12 +127,19 @@ const Overlay3D = (() => {
       renderer.autoClear = false;
       for (const id of groups.keys()) refresh(id);
     },
-    render(_gl, args) {
+    render(gl, args) {
       if (!renderer) return;
       // v5 globe-era custom-layer API: the mercator→clip matrix is
       // args.defaultProjectionData.mainMatrix (older builds passed a bare array).
       const m = args?.defaultProjectionData?.mainMatrix ?? args;
+      lastMatrix = m;
       camera.projectionMatrix.fromArray(m);
+      // Fat lines need the drawing-buffer size each frame to size px width.
+      const w = gl.drawingBufferWidth;
+      const h = gl.drawingBufferHeight;
+      scene.traverse((o) => {
+        if (o.material && o.material.resolution) o.material.resolution.set(w, h);
+      });
       renderer.resetState();
       renderer.render(scene, camera);
     },
@@ -124,6 +149,7 @@ const Overlay3D = (() => {
           dispose(g.object);
           g.object = null;
         }
+        g.pick = [];
       }
       renderer = null;
       scene = null;
@@ -137,14 +163,16 @@ const Overlay3D = (() => {
   }
 
   /**
-   * Replace a group's polylines. `lines` is [{coords:[[lon,lat,altMeters],…], color?}].
-   * `opts.color` / `opts.opacity` are group-wide fallbacks a line can override.
+   * Replace a group's polylines. `lines` is
+   * [{coords:[[lon,lat,altMeters],…], color?, meta?}]; `meta` is returned by pick().
+   * `opts.color` / `opts.opacity` / `opts.width` are group-wide fallbacks.
    */
   function setLines(groupId, lines, opts = {}) {
-    const g = groups.get(groupId) || { lines: [], object: null };
+    const g = groups.get(groupId) || { lines: [], object: null, pick: [] };
     g.lines = lines || [];
     if (opts.color != null) g.color = opts.color;
     if (opts.opacity != null) g.opacity = opts.opacity;
+    if (opts.width != null) g.width = opts.width;
     groups.set(groupId, g);
     refresh(groupId);
   }
@@ -154,7 +182,62 @@ const Overlay3D = (() => {
     setLines(groupId, []);
   }
 
-  return { installLayer, setLines, clear };
+  /** [x,y,z,1]·mainMatrix (column-major) → clip-space {x,y,z,w}. */
+  function project(m, x, y, z) {
+    return {
+      x: m[0] * x + m[4] * y + m[8] * z + m[12],
+      y: m[1] * x + m[5] * y + m[9] * z + m[13],
+      w: m[3] * x + m[7] * y + m[11] * z + m[15],
+    };
+  }
+
+  /** Squared distance from point p to segment ab, all in 2D screen px. */
+  function distSqToSeg(px, py, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+    return (px - cx) ** 2 + (py - cy) ** 2;
+  }
+
+  /**
+   * Nearest line to a screen point (CSS px, matching map event `point`). Returns
+   * `{ meta, lngLat }` for the closest line within PICK_THRESHOLD, else null.
+   */
+  function pick(px, py) {
+    if (!lastMatrix || !map) return null;
+    const canvas = map.getCanvas();
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    const thresh2 = PICK_THRESHOLD ** 2;
+    let best = null;
+    let bestD = thresh2;
+    for (const g of groups.values()) {
+      for (const ln of g.pick || []) {
+        let prev = null;
+        for (let i = 0; i < ln.absMerc.length; i++) {
+          const a = ln.absMerc[i];
+          const c = project(lastMatrix, a[0], a[1], a[2]);
+          const cur = c.w > 0 ? { x: (c.x / c.w * 0.5 + 0.5) * W, y: (1 - (c.y / c.w * 0.5 + 0.5)) * H, i } : null;
+          if (prev && cur) {
+            const d = distSqToSeg(px, py, prev.x, prev.y, cur.x, cur.y);
+            if (d < bestD) {
+              bestD = d;
+              const v = ln.coords[i];
+              best = { meta: ln.meta, lngLat: [v[0], v[1]] };
+            }
+          }
+          prev = cur;
+        }
+      }
+    }
+    return best;
+  }
+
+  return { installLayer, setLines, clear, pick };
 })();
 
 window.Overlay3D = Overlay3D;
