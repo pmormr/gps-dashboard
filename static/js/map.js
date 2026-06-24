@@ -572,6 +572,9 @@ const MapView = (() => {
     if (!map) return;
     setRotationEnabled(enabled);
     applyTerrain();
+    // Sync the floating overlay to the current exaggeration (the map default differs
+    // from Overlay3D's), so drone tracks match the DEM the moment 3D turns on.
+    if (window.Overlay3D) window.Overlay3D.setExaggeration(exaggeration);
     // Turning 3D off re-flattens to the north-up 2D view.
     map.easeTo({ pitch: enabled ? 60 : 0, bearing: enabled ? map.getBearing() : 0, duration: 600 });
   }
@@ -579,6 +582,7 @@ const MapView = (() => {
   function setExaggeration(value) {
     exaggeration = value;
     if (map && terrainEnabled) applyTerrain();
+    if (window.Overlay3D) window.Overlay3D.setExaggeration(value);
   }
 
   function getTerrainEnabled() {

@@ -36,6 +36,7 @@ const Overlay3D = (() => {
   let camera = null;
   let renderer = null;
   let lastMatrix = null; // mercator→clip, cached each render for picking
+  let exaggeration = 1; // mirror of the map's terrain exaggeration (see setExaggeration)
 
   // groupId → { lines: input data, color?, opacity?, object: THREE.Group|null,
   //             pick: Array<{absMerc:[x,y,z][], coords:[lon,lat,alt][], meta}> }.
@@ -85,7 +86,13 @@ const Overlay3D = (() => {
         transparent: true,
         opacity: line.opacity ?? g.opacity ?? 0.95,
       }));
-      obj.position.set(o[0], o[1], o[2]);
+      // Float at altitude × terrain exaggeration so tracks track the DEM as it's
+      // stretched (sea level is the fixed point: z*=k). scale.z=k stretches the
+      // relative geometry; position.z=originZ*k lifts the origin to match. originZ
+      // keeps the unscaled origin for live re-scaling in setExaggeration.
+      obj.userData.originZ = o[2];
+      obj.position.set(o[0], o[1], o[2] * exaggeration);
+      obj.scale.set(1, 1, exaggeration);
       // Mercator-space coords defeat three's frustum test; never cull.
       obj.frustumCulled = false;
       root.add(obj);
@@ -182,6 +189,23 @@ const Overlay3D = (() => {
     setLines(groupId, []);
   }
 
+  /**
+   * Mirror the map's terrain exaggeration so floating lines stay registered with the
+   * (stretched) DEM. Rescales existing lines in place — no geometry rebuild — and is
+   * also picked up by buildGroup for lines added later.
+   */
+  function setExaggeration(k) {
+    exaggeration = k;
+    for (const g of groups.values()) {
+      if (!g.object) continue;
+      for (const obj of g.object.children) {
+        obj.position.z = obj.userData.originZ * k;
+        obj.scale.z = k;
+      }
+    }
+    if (map) map.triggerRepaint();
+  }
+
   /** [x,y,z,1]·mainMatrix (column-major) → clip-space {x,y,z,w}. */
   function project(m, x, y, z) {
     return {
@@ -220,7 +244,7 @@ const Overlay3D = (() => {
         let prev = null;
         for (let i = 0; i < ln.absMerc.length; i++) {
           const a = ln.absMerc[i];
-          const c = project(lastMatrix, a[0], a[1], a[2]);
+          const c = project(lastMatrix, a[0], a[1], a[2] * exaggeration);
           const cur = c.w > 0 ? { x: (c.x / c.w * 0.5 + 0.5) * W, y: (1 - (c.y / c.w * 0.5 + 0.5)) * H, i } : null;
           if (prev && cur) {
             const d = distSqToSeg(px, py, prev.x, prev.y, cur.x, cur.y);
@@ -237,7 +261,7 @@ const Overlay3D = (() => {
     return best;
   }
 
-  return { installLayer, setLines, clear, pick };
+  return { installLayer, setLines, clear, pick, setExaggeration };
 })();
 
 window.Overlay3D = Overlay3D;
