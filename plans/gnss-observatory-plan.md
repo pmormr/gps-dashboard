@@ -128,12 +128,23 @@ Work items (pure-math core first — high coverage, zero deploy risk):
    *held-out real* obs az/el; report error distribution (offline confidence with
    no TLE/internet to check against). Plus synthetic unit tests for 2–4.
 
-### Phase 4 — prediction UI
-- Predicted arcs overlaid on the skyplot hemisphere; a "passes coming up" schedule.
+### Phase 4 — prediction UI — BUILT (awaiting Pi deploy)
+- The "passes coming up" schedule shipped with Phase 3 (`/passes`).
+- Predicted-arc overlay on `/skyplot`: a **Predicted** toggle draws each upcoming
+  pass as a dashed, constellation-coloured az/el arc on the dome (each visible
+  sat's forward path to set; soon-to-rise sats get a hollow rise marker + name).
+  Honours the legend toggles, refreshes on a slow timer, deep-linkable `?passes`.
+  Backed by a new `track=1` option on `/api/passes` (32-pt `[az,el]` polyline per
+  pass). `_parse_float` now allows `mask=0` (horizon-level arcs). Built + tested
+  (344 pass), not yet deployed.
 
 ## Architecture fit
 
 Mirrors the existing capture→derive→serve→render split: the **logger** captures
-(already reads SKY), a **processor-like analyzer** does the orbital math, the
-**API** serves it, the **skyplot page** renders it. When this lands, fold the
-durable bits into a `.claude/modules/` doc and drop this plan.
+(already reads SKY), the **orbit math** lives in `common/orbits.py` (computed
+on-demand in `/api/passes`, no separate analyzer service yet), the **API** serves
+it, and `/passes` + the `/skyplot` overlay render it. All four phases are now
+built. **Closing step (after Phase 4 deploys + the user is happy):** fold the
+durable architecture into a `.claude/modules/` doc (observatory: capture →
+reconstruct → ECI fit → propagate → passes), add the `/api/passes` + `/passes` +
+`/globe` + `/api/constellation` surfaces to CLAUDE.md, and drop this plan.
