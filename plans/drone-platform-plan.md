@@ -221,14 +221,19 @@ tiered instinct as the denoise work. Phase 1 alone gets real tracks into the DB.
   Build only the polyline primitive now; no speculative point/column/extrusion types until
   a consumer needs them.
 
-  **Sub-decisions (confirmed 2026-06-24):**
-  - *Picking + ground shadow* — keep the existing flat `drone-line` layer, dimmed, as
-    BOTH the click/popup target (three.js geometry isn't `queryRenderedFeatures`-able) and
-    a ground-shadow depth cue beneath the floating line. Generalized: a group may register
-    a flat MapLibre companion line for picking.
-  - *Line width* — thin GL lines for v1 (plain-GL `linewidth` is a no-op on most
-    platforms; matching the current 2.5px needs three's `Line2` fat-line helpers, 4 more
-    vendored files). Upgrade to `Line2` only if thin reads too weak.
+  **Sub-decisions (revised 2026-06-24 after on-device review — thin lines read too
+  weak and the flat shadow read as a confusing duplicate track):**
+  - *Line width* — **upgraded to vendored three `Line2` fat-lines**
+    (`static/vendor/three/lines/`, r160: LineSegmentsGeometry / LineGeometry /
+    LineMaterial / LineSegments2 / Line2). `LineMaterial.linewidth` is screen-space px;
+    `resolution` is set each render from the drawing-buffer size. (Plain-GL `linewidth`
+    is a platform no-op, which is why v1's thin lines were faint.)
+  - *Picking + ground shadow* — **ground shadow dropped**; picking moved **into
+    Overlay3D**. `pick(x,y)` projects each line's vertices through the cached render
+    matrix and runs a nearest-segment screen-space test — three.js raycasting is
+    unreliable against the synthetic matrix-injected camera. `map.js` calls it on
+    map-level click/mousemove; each line carries a `meta` payload pick returns for the
+    popup.
 
   **Items:** (1) module bridge — add the `/globe` importmap to `index.html`,
   `overlay3d.js` as `type="module"` exposing `Overlay3D`. (2) the custom 3D layer
