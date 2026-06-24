@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `drone-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `drone-platform`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -102,7 +102,10 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
 - `GET /api/constellation?start=&end=` — logged `sat_observations` reconstructed to 3D ECEF positions (grouped by SV, with each SV's fitted orbit-plane normal); feeds `/globe`. See `.claude/modules/observatory.md`
 - `GET /api/passes?hours=&mask=&track=1` — predicted upcoming satellite passes (orbit fit from logged az/el → propagate): rise/peak/set + az/el, duration, in-progress, sorted by rise. `mask` is the rise/set elevation (`0` = horizon, valid); `track=1` adds a per-pass `[az,el]` polyline for the skyplot overlay
+- `GET /api/radio/status` — live ID-5100A main-band state via rigctld (freq/mode/`rawstr` S-meter/tone/repeater/DCD/PTT); `online:false` + service state when rigctld is unreachable (cable unplugged or service disabled)
+- `POST /api/radio/freq` · `POST /api/radio/mode` · `POST /api/radio/tone` · `POST /api/radio/repeater` — main-band control writes; 502 on a rig refusal, 503 when rigctld is unreachable
 - `GET /gpsd` — read-only gpsd status page
+- `GET /radio` — Icom ID-5100A control head (main-band freq/mode/S-meter + tone + repeater)
 - `GET /skyplot` — live 3D satellite skyplot page (optional **Predicted** pass-arc overlay, `?passes`)
 - `GET /globe` — 3D constellation globe (three.js, PC-only)
 - `GET /passes` — upcoming satellite-passes schedule
@@ -111,7 +114,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### Frontend
 
-Plain files in `static/` + `templates/`, all JS/CSS vendored in `static/vendor/` (no CDN at runtime), mobile-first. One map-centric MapLibre view at `/` (time picker, sub-range slider, annotations drawer, server-side size-aware decimation) plus standalone pages — `/gpsd`, `/skyplot`, `/ntp`, `/sensors`, and the GNSS-observatory pair `/globe` (three.js, PC-only) + `/passes`. See **`.claude/modules/frontend.md`** for the view controls and per-page detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot-overlay subsystem.
+Plain files in `static/` + `templates/`, all JS/CSS vendored in `static/vendor/` (no CDN at runtime), mobile-first. One map-centric MapLibre view at `/` (time picker, sub-range slider, annotations drawer, server-side size-aware decimation) plus standalone pages — `/gpsd`, `/skyplot`, `/ntp`, `/sensors`, `/radio` (Icom ID-5100A control), and the GNSS-observatory pair `/globe` (three.js, PC-only) + `/passes`. See **`.claude/modules/frontend.md`** for the view controls and per-page detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot-overlay subsystem.
 
 ### Basemaps & Terrain
 
@@ -127,6 +130,10 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); reaching the van's bus needs an FCA Security Gateway bypass harness (`plans/obd-platform-plan.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
 
+### Radio Control (CI-V)
+
+Control the van's **Icom ID-5100A** transceiver from the Pi over its CI-V serial bus. A long-lived **`rigctld`** (Hamlib model **3071**) owns the serial port (cable = OPC-478UC clone / WCH CH343 on a udev-pinned `/dev/icom-civ`, 19200 baud, address 0x8C) and exposes Hamlib's TCP text protocol on `127.0.0.1:4532`; the Flask routes (`api/routes/radio.py`) speak that protocol through a stdlib-socket client (`api/rigctld.py`) — **no** Python Hamlib binding, and the daemon-owns-the-port model solves serial contention. The `/radio` page controls the **active main band only** (the backend can't read which VFO is active): freq/mode/S-meter readout + set, CTCSS/DCS tone, and repeater shift/offset (the backend exposes no memory recall). The `radio-control` service is **enabled-gated** (disabled until the cable is wired). Transmission **recording** (audio plane) and **announcements** (TX, Part-97) are later phases — see **`plans/radio-platform-plan.md`** for the capability map and roadmap.
+
 ### Project Structure
 
 ```
@@ -137,6 +144,7 @@ gps-dashboard/
 │   ├── params.py               # shared request-param validation (bbox/time/limit)
 │   ├── sensor_schema.py        # shared {type→table,columns} reading spec (ingest + read route)
 │   ├── observatory.py          # shared anchor-fix + az/el→ECEF reconstruct (constellation + passes)
+│   ├── rigctld.py              # stdlib-socket Hamlib rigctld client (radio CI-V control)
 │   ├── tile_layers.py
 │   └── routes/
 │       ├── points.py
@@ -147,6 +155,7 @@ gps-dashboard/
 │       ├── globe.py            # /globe + /api/constellation (3D reconstruction)
 │       ├── passes.py           # /passes + /api/passes (pass prediction)
 │       ├── obd.py              # /api/obd* (OBD-II telemetry read)
+│       ├── radio.py            # /radio + /api/radio/* (Icom ID-5100A CI-V control via rigctld)
 │       ├── status_gpsd.py
 │       └── status_ntp.py
 ├── common/                     # shared core library (imported across api/tools/processor)
@@ -184,7 +193,8 @@ gps-dashboard/
 │   │   ├── sensors.js      # /sensors viewer (current values + uPlot charts)
 │   │   ├── skyplot.js      # /skyplot 3D satellite hemisphere + predicted-arc overlay
 │   │   ├── globe.js        # /globe 3D constellation globe (three.js)
-│   │   └── passes.js       # /passes schedule
+│   │   ├── passes.js       # /passes schedule
+│   │   └── radio.js        # /radio Icom ID-5100A control head
 │   └── vendor/
 │       ├── maplibre/       # maplibre-gl
 │       ├── pmtiles/        # pmtiles.js range reader
@@ -198,7 +208,8 @@ gps-dashboard/
 │   ├── globe.html
 │   ├── passes.html
 │   ├── ntp.html
-│   └── sensors.html
+│   ├── sensors.html
+│   └── radio.html
 ├── tools/
 │   ├── precache.py
 │   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)
@@ -221,10 +232,12 @@ gps-dashboard/
 │   ├── sensor-victron.service   # enabled-gated Victron reader unit (node house; secret via /etc/default/gps-victron)
 │   ├── gps-drone-sync.service   # timer-driven DJI footage import (Pi → NAS container)
 │   ├── gps-drone-sync.timer
+│   ├── radio-control.service    # enabled-gated rigctld (Icom ID-5100A CI-V; /dev/icom-civ)
 │   ├── exiftool.Dockerfile      # pinned ExifTool ≥13.x image, built on the NAS
 │   ├── chrony-gps-only.conf
 │   ├── chrony-gps-pps.conf
-│   └── 99-gps-dongle.rules
+│   ├── 99-gps-dongle.rules
+│   └── 99-icom-civ.rules        # pins the CI-V cable (WCH CH343 1a86:55d3) → /dev/icom-civ
 ├── plans/                      # active/in-flight plans (landed ones fold into .claude/modules/)
 ├── reference/                  # vendored equipment manuals/datasheets (PDF + grep-able .txt) for off-grid lookup
 └── pyproject.toml
@@ -315,5 +328,7 @@ uv run mypy .                  # type check (must be clean)
 ## Offline Constraint
 
 All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (vendored MapLibre/pmtiles libs + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
+
+A few runtime deps are **system packages** that work offline once installed but aren't carried by `uv sync` — install them on the Pi while online (one-time): `libhamlib-utils` for the radio `rigctld` service, and the udev rules (`99-gps-dongle.rules`, `99-icom-civ.rules`), which the deploy hook does **not** copy (it installs only `deploy/*.service`/`*.timer`). This matches the project's reading of the offline constraint: it governs *runtime* off-grid correctness, not avoiding cacheable dev-time/system installs.
 
 Development happens with internet available. Building the vector PMTiles archive, pre-caching USGS tiles, and vendoring assets are intentional prep steps before going off-grid.

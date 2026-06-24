@@ -46,8 +46,14 @@ The clone cable touches only the control plane.
   module built on `civ_probe.py`.)
 - **R3 — udev-pinned, enabled-gated daemon.** A udev rule pins the cable
   (VID:PID `1a86:55d3`) to a stable `/dev/icom-civ` symlink (the GPS dongle does the
-  same). The `gps-radio` service stays **disabled** until the cable is wired, like
+  same). The `radio-control` service stays **disabled** until the cable is wired, like
   `sensor-obd`/`sensor-victron`, so a host without the radio never crash-loops.
+- **R6 — Phase 1 scope (decided 2026-06-24, post-1a).** **Main band only** (get-VFO
+  unsupported makes a live dual-band readout flip the radio's active VFO each poll).
+  **Core + tone/repeater:** freq/mode/S-meter readout + set-freq/set-mode, plus
+  CTCSS/DCS tone set and repeater duplex/offset set (all backend-confirmed in 1a).
+  **No** memory recall (backend exposes none). Service named **`radio-control`** (not
+  the gps- family; it's a transceiver, not GPS).
 - **R4 — recording data model (Phase 2 sketch).** `radio_transmissions(id, started_utc,
   ended_utc, freq_hz, mode, duration_s, audio_path, lat, lon, ...)` — lat/lon snapped
   from the live GPS stream at capture time, fully GPS-joinable; map pins reuse the 🚁
@@ -71,31 +77,66 @@ The clone cable touches only the control plane.
 
 The buildable phase. Order roughly top-to-bottom.
 
-- [ ] **1a — Pi one-time:** `apt install libhamlib-utils` (while online; the deploy
-      hook only `uv sync`s, so this is a documented manual step). Verify
-      `rigctl --version` + `rigctl -m 3071 ... dump_caps` to **enumerate what the
-      ID-5100 backend actually supports** (S-meter `l STRENGTH`, mode, memory recall,
-      PTT) — this shapes 1d/1e scope. Confirm the CI-V-address flag (Hamlib likely
-      defaults civaddr to 0x8C for this backend; else `--set-conf=civaddr=0x8C`).
-- [ ] **1b — udev rule** `deploy/99-icom-civ.rules`: `1a86:55d3 → SYMLINK+="icom-civ"`,
-      `GROUP="dialout"`. Mirrors `99-gps-dongle.rules`.
-- [ ] **1c — service** `deploy/gps-radio.service`: `rigctld -m 3071 -r /dev/icom-civ
-      -s 19200 -t 4532` bound to localhost, enabled-gated (disabled by default). Wire
-      it into the post-receive hook's unit list — **the hook's unit-cp list is
-      hardcoded, not a glob** (Victron lesson), so this needs a manual hook edit.
-- [ ] **1d — routes** `api/routes/radio.py`: a small rigctld TCP client (stdlib
-      socket) + `/api/radio/status` (freq/mode/S-meter), `POST /api/radio/freq`,
-      `POST /api/radio/mode`, memory recall (scope per 1a). `/radio` page route.
-- [ ] **1e — frontend** `templates/radio.html` + `static/js/radio.js`: current
-      freq/mode/S-meter readout + set controls + memory list. Mobile-first, matches the
-      `/gpsd` / `/sensors` standalone-page style.
-- [ ] **1f — tests:** the rigctld response parsing is pure logic — unit-test it against
-      canned protocol replies (mock socket), per the `tests/` "load-bearing pure logic"
-      rule.
-- [ ] **1g — docs:** CLAUDE.md — new Radio subsystem section, the `/api/radio/*` +
-      `/radio` entries, structure-tree additions (`radio.py`, `radio.html`, `radio.js`,
-      the two deploy units), and an **Offline Constraint** note that runtime apt deps
-      (Hamlib) are installed during dev and aren't handled by the deploy hook.
+- [x] **1a — Pi one-time — DONE (2026-06-24).** `apt install libhamlib-utils` →
+      **Hamlib 4.5.4**. `rigctl -m 3071 dump_caps` enumerated the backend (cable not on
+      the Pi yet; dumped via a pty so `rig_open` succeeds without the rig). Results below
+      resolve **Q2** and reshape Q1.
+
+  **ID-5100 backend (model 3071) capabilities — what the UI can use:**
+  - **Frequency** get/set ✅ · **Mode** get/set ✅ (`AM FM FMN D-STAR AMN`).
+  - **S-meter** = `RAWSTR` (0..255), get-only ✅. (No calibrated `STRENGTH` in the
+    get-level set — read RAWSTR and render a relative bar.) Other levels: AF, SQL,
+    RFPOWER, MICGAIN, VOXGAIN (get/set).
+  - **PTT** get/set ✅ — **CI-V PTT keying works**, so Phase 3 TX needs no hardware PTT
+    line. **DCD** (squelch open/closed) get ✅ — a clean **Phase 2 recording gate**.
+  - **CTCSS/DCS** get/set ✅ · **Repeater duplex + offset** get/set ✅ · **VFO set** ✅
+    (Main/Sub) · **Power on/off set** ✅ (get N).
+  - **NOT supported:** memory channels (`set/get Mem`, `Bank`, `Channel`,
+    `ctl Mem/VFO` all N; "Memories: None") — **memory recall is impossible via this
+    backend.** `get VFO` N + `targetable VFO` N → no non-disruptive dual-band readout
+    (reading the sub band means flipping the radio's active VFO each poll). Also N:
+    Get Info, Scan, Split, Tuning-step get/set.
+  - Serial: `4800..19200` 8N1 (matches the confirmed 19200/0x8C). Confirm the civaddr
+    flag against the real rig in 1d (Hamlib defaults the ID-5100 civaddr; else
+    `--set-conf=civaddr=0x8C`).
+- [x] **1b — udev rule** `deploy/99-icom-civ.rules` (`1a86:55d3 → /dev/icom-civ`,
+      `GROUP="dialout"`). Manual install (the hook copies only `*.service`/`*.timer`).
+- [x] **1c — service** `deploy/radio-control.service`: `rigctld -m 3071 -r /dev/icom-civ
+      -s 19200 -T 127.0.0.1 -t 4532 -C civaddr=0x8C`, enabled-gated (disabled by default).
+      **Correction to the old note:** the hook's unit-cp is now a `deploy/*.service` glob,
+      so the unit installs automatically — no manual cp needed. The enabled-gated restart
+      stanza for the Pi hook is **still pending** (see 1h); until then a `radio-control`
+      change won't auto-restart, which is fine while the service is disabled.
+- [x] **1d — routes** `api/routes/radio.py` + the client `api/rigctld.py` (split out of
+      the route for unit-testing): `/api/radio/status` + `POST /api/radio/{freq,mode,tone,
+      repeater}`, `/radio` page. 502 on rig refusal, 503 when rigctld unreachable.
+- [x] **1e — frontend** `templates/radio.html` + `static/js/radio.js`: main-band
+      freq/mode/S-meter readout + set, CTCSS tone (off/tone/tsql + 50-tone dropdown),
+      repeater shift/offset. Mobile-first; Radio added to every standalone-page nav.
+- [x] **1f — tests:** `tests/test_rigctld.py` (parser + getters/setters via a fake socket,
+      replies = real captured wire format) + `tests/test_radio_routes.py` (route JSON,
+      offline path, 400/502/503 mapping). 28 tests; full suite 372 green, ruff+mypy clean.
+- [x] **1g — docs:** CLAUDE.md — Radio Control section, `/api/radio/*` + `/radio` entries,
+      structure-tree additions, Offline-Constraint note (Hamlib + udev rules are manual
+      online installs the deploy hook skips).
+
+**REMAINING before Phase 1 is fully closed (needs the cable physically on the Pi):**
+- [ ] **1h — live on-Pi validation.** Move the CI-V cable to the Pi, install the udev rule
+      (`sudo cp deploy/99-icom-civ.rules /etc/udev/rules.d/ && sudo udevadm control --reload`),
+      `sudo systemctl enable --now radio-control`, then confirm the exact ExecStart talks to
+      the rig (validate `-C civaddr=0x8C` — drop it if the backend default already matches).
+      Verify `/api/radio/status` reads live freq/mode/RAWSTR and a set round-trips.
+- [ ] **1i — deploy-hook stanza.** Add the enabled-gated restart block to the Pi's
+      `post-receive` hook (before the `# Drone home-sync timer:` block) so a future
+      `radio-control` unit change redeploys when enabled:
+      ```bash
+      if echo "$CHANGED" | grep -qE "^deploy/radio-control"; then
+        if systemctl is-enabled --quiet radio-control 2>/dev/null; then
+          sudo systemctl restart radio-control && echo "Radio control restarted" \
+            || echo "WARNING: radio-control restart failed"
+        fi
+      fi
+      ```
 
 ## Phase 2 — Transmission recording (needs a USB audio dongle)
 
@@ -111,10 +152,10 @@ The buildable phase. Order roughly top-to-bottom.
 
 ## Open questions (resolve in walk-through)
 
-- **Q1 — Phase 1 UI scope.** Minimum useful: freq/mode/S-meter + memory recall? The
-  ID-5100 is dual-band (A/B sub-bands) — control both, or just the main band to start?
-- **Q2 — Hamlib backend reality.** Pending 1a `dump_caps`: does the ID-5100 backend
-  expose S-meter and memory-channel recall over CI-V? Scope 1d/1e to what's real.
-- **Q3 — service name.** `gps-radio` (gps- family) vs `radio-control`. Minor.
+- **Q1 — Phase 1 UI scope. RESOLVED (R6).** Main band only; core + tone/repeater; no
+  memory recall.
+- **Q2 — Hamlib backend reality. RESOLVED (1a).** Freq/mode/S-meter(RAWSTR)/PTT/DCD/
+  tones/duplex available; memory + get-VFO + scan + split + info unavailable. See 1a.
+- **Q3 — service name. RESOLVED (R6).** `radio-control`.
 - **Q4 — Phase 2 audio hardware** (cheap CM108 dongle vs a proper interface) and **Q5 —
   Phase 3 PTT method** — defer to those phases.
