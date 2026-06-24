@@ -10,20 +10,15 @@ plans/gnss-observatory-plan.md.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, jsonify, render_template, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
+from api.observatory import anchor_observer, reconstruct_tracks
 from api.params import parse_time
-from common.satgeo import (
-    EARTH_RADIUS_M,
-    fit_orbit_normal,
-    look_direction_ecef,
-    observer_ecef,
-    orbital_radius_m,
-    ray_sphere_far,
-)
+from common.satgeo import EARTH_RADIUS_M, fit_orbit_normal, observer_ecef
 
 globe_bp = Blueprint('globe', __name__)
 
@@ -67,15 +62,7 @@ def constellation():
         )
 
     conn = get_connection()
-    obs = conn.execute(
-        'SELECT lat, lon, altitude, timestamp FROM gps_points '
-        'WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1',
-        [end],
-    ).fetchone()
-    if obs is None:
-        obs = conn.execute(
-            'SELECT lat, lon, altitude, timestamp FROM gps_points ORDER BY timestamp DESC LIMIT 1'
-        ).fetchone()
+    obs = anchor_observer(conn, end)
     if obs is None:
         return jsonify({'error': 'No GPS fix available to anchor the observer'}), 404
 
@@ -90,43 +77,27 @@ def constellation():
         'ORDER BY gnssid, svid, timestamp',
         [start, end],
     ).fetchall()
-
-    radii: dict[int, float | None] = {}
-    sats: dict[tuple[int, int], list[dict]] = {}
-    for r in rows:
-        gid = r['gnssid']
-        if gid not in radii:
-            radii[gid] = orbital_radius_m(gid)
-        radius = radii[gid]
-        if radius is None:
-            continue
-        d = look_direction_ecef(lat, lon, r['az'], r['el'])
-        pos = ray_sphere_far(origin, d, radius)
-        if pos is None:
-            continue
-        sats.setdefault((gid, r['svid']), []).append(
-            {
-                't': r['timestamp'],
-                'x': pos[0] / 1000.0,
-                'y': pos[1] / 1000.0,
-                'z': pos[2] / 1000.0,
-                'snr': r['snr'],
-                'used': bool(r['used']),
-            }
-        )
+    tracks = reconstruct_tracks(rows, lat, lon, origin)
 
     sat_list = []
-    for (gid, svid), samples in sats.items():
-        normal = fit_orbit_normal([(s['x'], s['y'], s['z']) for s in samples])
+    for (gid, svid), samples in tracks.items():
+        pts_km = [
+            (s.ecef_m[0] / 1000.0, s.ecef_m[1] / 1000.0, s.ecef_m[2] / 1000.0) for s in samples
+        ]
+        normal = fit_orbit_normal(pts_km)
         orbit = None
         if normal is not None:
             orbit = {
                 'nx': normal[0],
                 'ny': normal[1],
                 'nz': normal[2],
-                'radius_km': radii[gid] / 1000.0,
+                'radius_km': math.sqrt(sum(c * c for c in pts_km[0])),
             }
-        sat_list.append({'gnssid': gid, 'svid': svid, 'samples': samples, 'orbit': orbit})
+        samples_json = [
+            {'t': s.t, 'x': p[0], 'y': p[1], 'z': p[2], 'snr': s.snr, 'used': s.used}
+            for s, p in zip(samples, pts_km, strict=True)
+        ]
+        sat_list.append({'gnssid': gid, 'svid': svid, 'samples': samples_json, 'orbit': orbit})
 
     return jsonify(
         {
