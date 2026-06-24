@@ -67,18 +67,24 @@ call): far easier to read scale, and it folds the signal data in as colour.
   adds a per-SV `orbit` field; `/globe` draws the ring (toggle). Obstruction/SNR
   heatmap, if still wanted, becomes a separate later view.
 
-### Phase 3 — orbit + prediction — BUILT (awaiting Pi deploy/validation)
+### Phase 3 — orbit + prediction — DEPLOYED + VALIDATED on Pi (2026-06-24)
 
-All seven items below are implemented, unit/integration tested, and committed
-locally. `common/satgeo.py` gained GMST + ECEF↔ECI + `ecef_to_azel`;
-`common/orbits.py` is the new fit/propagate/pass-find core; `api/observatory.py`
-holds the anchor+reconstruct shared with `/api/constellation`;
-`api/routes/passes.py` serves `/api/passes` + `/passes`; `static/js/passes.js` +
-`templates/passes.html` render the schedule; `tools/passes_validate.py`
-backtests. Remaining: deploy to the Pi and run `passes_validate.py` against real
-logged data to confirm the on-sky error is acceptable (synthetic backtest is
-0.00°; real data carries eccentricity + nominal-radius + two-body + any
-observer-movement error).
+All seven items implemented, tested, deployed (commits `70b8de7`..`598a905`,
+pushed to both remotes). `common/satgeo.py` gained GMST + ECEF↔ECI +
+`ecef_to_azel`; `common/orbits.py` is the new fit/propagate/pass-find core;
+`api/observatory.py` holds the anchor+reconstruct shared with
+`/api/constellation`; `api/routes/passes.py` serves `/api/passes` + `/passes`;
+`static/js/passes.js` + `templates/passes.html` render the schedule;
+`tools/passes_validate.py` backtests.
+
+**Real-data backtest (Pi, 168h window, 30% holdout, 69 SVs / 3466 held-out
+sightings):** overall on-sky error **median 0.50°, p90 1.10°, max 3.31°**. By
+system: SBAS 0.04° (geostationary, trivial), Galileo/BeiDou/GLONASS ~0.45–0.49°,
+GPS 0.75° (weakest — nominal-radius approximation; still <1°). Worst SV C13
+(BeiDou IGSO, 2.82°) — the expected mixed-orbit-class weak spot. Confirms
+display-grade prediction with no ephemeris. `passes_validate.py` needs
+`--db /mnt/nvme/data/gps_history.db` from a shell (the unit sets GPS_DB_PATH; an
+interactive ssh doesn't).
 
 **Key insight:** "sidereal-repeat baseline" and "Keplerian fit" aren't separate
 methods. Fit and propagate the orbit in an **inertial (ECI) frame** and
