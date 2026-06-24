@@ -67,12 +67,60 @@ call): far easier to read scale, and it folds the signal data in as colour.
   adds a per-SV `orbit` field; `/globe` draws the ring (toggle). Obstruction/SNR
   heatmap, if still wanted, becomes a separate later view.
 
-### Phase 3 — orbit + prediction
-- Per-SV orbit model from accumulated az/el: start with the sidereal-repeat
-  baseline, upgrade to a Keplerian fit (strong priors — near-circular, known
-  semi-major axis / period per constellation).
-- Propagator → az/el(t); rise/set + pass windows. Processor-like analyzer
-  component (mirrors `gps-processor`), API serves the predictions.
+### Phase 3 — orbit + prediction — BUILT (awaiting Pi deploy/validation)
+
+All seven items below are implemented, unit/integration tested, and committed
+locally. `common/satgeo.py` gained GMST + ECEF↔ECI + `ecef_to_azel`;
+`common/orbits.py` is the new fit/propagate/pass-find core; `api/observatory.py`
+holds the anchor+reconstruct shared with `/api/constellation`;
+`api/routes/passes.py` serves `/api/passes` + `/passes`; `static/js/passes.js` +
+`templates/passes.html` render the schedule; `tools/passes_validate.py`
+backtests. Remaining: deploy to the Pi and run `passes_validate.py` against real
+logged data to confirm the on-sky error is acceptable (synthetic backtest is
+0.00°; real data carries eccentricity + nominal-radius + two-body + any
+observer-movement error).
+
+**Key insight:** "sidereal-repeat baseline" and "Keplerian fit" aren't separate
+methods. Fit and propagate the orbit in an **inertial (ECI) frame** and
+sidereal-repeat falls out for free — the orbit is fixed in ECI, the parked
+observer rotates with Earth (GMST), so they re-align every sidereal day
+automatically, *and* it generalizes to GLONASS/Galileo/BeiDou (whose ground
+tracks don't repeat daily) and to arbitrary horizons. So we go straight to ECI.
+
+Cheap because the priors are strong and most geometry already exists:
+- **Plane** (inc + RAAN): `fit_orbit_normal` already gives the angular-momentum
+  direction — fit it in ECI, not the Earth-rotation-smeared ECEF the rings use.
+- **Size** (a → mean motion `n`): fixed per constellation (`orbital_radius_m`);
+  not independently observable since reconstruction *assumes* that radius.
+- **Phase**: the only real unknown — project the ECI track into the orbital
+  plane, fit one epoch phase `θ₀` against the known `n`. 1-DOF per SV.
+
+Side benefit: fitting in ECI also de-smears the Phase-2 orbit rings.
+
+Scope (first cut): two-body propagation, no J2 nodal precession (accurate to
+minutes over a 1–2 day horizon; J2 left as a hook). Defaults: trailing fit
+window a few days, horizon next 12h, mask elevation 5°. Parked-observer
+assumption (anchor to current fix, like `/api/constellation`).
+
+Work items (pure-math core first — high coverage, zero deploy risk):
+1. **Frame geometry** — GMST (IAU 1982 polynomial) + ECEF↔ECI Z-rotation in
+   `common/satgeo.py`. Unit-tested (known epochs, round-trip).
+2. **Orbit fit** — `common/orbits.py`: ECEF samples → ECI → fit plane normal +
+   epoch phase vs nominal `n`; reject SVs whose *observed* rate is far off
+   nominal (catches BeiDou-GEO/QZSS misclassification). Emit a compact `Orbit`.
+3. **Propagator + topocentric az/el** — `Orbit` + t + observer → ECI → ECEF →
+   az/el + range (ports `globe.js` `skyAngles` to Python).
+4. **Pass finder** — sample el(t) over the horizon, bracket rise/set at the
+   mask, bisection-refine, find peak el + az/time.
+5. **API** `GET /api/passes?hours=&mask=` — fit all SVs from the trailing
+   window, propagate, return the schedule (RINEX name, system, rise/peak/set,
+   peak el+az, duration, max SNR). Share the observer-anchor/reconstruct helper
+   with `/api/constellation`.
+6. **UI** — standalone `/passes` page (phone-friendly "passes coming up"); the
+   predicted-arc overlay on `/skyplot` stays Phase 4.
+7. **Validation** — backtest tool/test: fit on obs up to T, predict, compare to
+   *held-out real* obs az/el; report error distribution (offline confidence with
+   no TLE/internet to check against). Plus synthetic unit tests for 2–4.
 
 ### Phase 4 — prediction UI
 - Predicted arcs overlaid on the skyplot hemisphere; a "passes coming up" schedule.
