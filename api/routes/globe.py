@@ -18,6 +18,7 @@ from api.db import canonical_timestamp, get_connection, now_canonical
 from api.params import parse_time
 from common.satgeo import (
     EARTH_RADIUS_M,
+    fit_orbit_normal,
     look_direction_ecef,
     observer_ecef,
     orbital_radius_m,
@@ -114,6 +115,19 @@ def constellation():
             }
         )
 
+    sat_list = []
+    for (gid, svid), samples in sats.items():
+        normal = fit_orbit_normal([(s['x'], s['y'], s['z']) for s in samples])
+        orbit = None
+        if normal is not None:
+            orbit = {
+                'nx': normal[0],
+                'ny': normal[1],
+                'nz': normal[2],
+                'radius_km': radii[gid] / 1000.0,
+            }
+        sat_list.append({'gnssid': gid, 'svid': svid, 'samples': samples, 'orbit': orbit})
+
     return jsonify(
         {
             'observer': {
@@ -127,9 +141,6 @@ def constellation():
             },
             'earth_radius_km': EARTH_RADIUS_M / 1000.0,
             'window': {'start': start, 'end': end},
-            'sats': [
-                {'gnssid': gid, 'svid': svid, 'samples': samples}
-                for (gid, svid), samples in sats.items()
-            ],
+            'sats': sat_list,
         }
     )

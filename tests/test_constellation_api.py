@@ -58,6 +58,7 @@ def test_reconstructs_and_groups_by_sv(client):
     sats = {(s['gnssid'], s['svid']): s for s in body['sats']}
     assert set(sats) == {(0, 1), (2, 5)}
     assert len(sats[(0, 1)]['samples']) == 2
+    assert all('orbit' in s for s in body['sats'])  # null until enough arc is traced
 
     s0 = sats[(0, 1)]['samples'][0]
     r_km = math.sqrt(s0['x'] ** 2 + s0['y'] ** 2 + s0['z'] ** 2)

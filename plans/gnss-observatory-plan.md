@@ -58,9 +58,14 @@ call): far easier to read scale, and it folds the signal data in as colour.
 - Manual time-window scoping (van moves, so the sky is location-relative; the
   user reads the window knowing when parked). Location/dwell auto-scoping deferred.
 - On-the-fly reconstruction, no rollup table yet (revisit when scan time bites).
-- **v2 (Phase 3 bridge):** fit full orbit *rings* from the reconstructed arcs
-  (we only observe the visible top of each pass). Obstruction/SNR heatmap, if
-  still wanted, becomes a separate later view or surface overlay.
+- **v2 (Phase 3 bridge) — DONE:** full orbit *rings*. `common/satgeo.fit_orbit_normal`
+  estimates each SV's orbital-plane normal from its reconstructed arc (sum of
+  in-pass consecutive cross products = angular-momentum direction; between-pass
+  gaps skipped; None below a min traced arc). The plane passes through Earth's
+  centre, so the ring is the great circle at the orbital radius — drawn even
+  where we never observed the sat (far side / below horizon). `/api/constellation`
+  adds a per-SV `orbit` field; `/globe` draws the ring (toggle). Obstruction/SNR
+  heatmap, if still wanted, becomes a separate later view.
 
 ### Phase 3 — orbit + prediction
 - Per-SV orbit model from accumulated az/el: start with the sidereal-repeat

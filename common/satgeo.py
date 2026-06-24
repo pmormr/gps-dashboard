@@ -163,3 +163,52 @@ def reconstruct(
     origin = observer_ecef(lat_deg, lon_deg, alt_m)
     direction = look_direction_ecef(lat_deg, lon_deg, az_deg, el_deg)
     return ray_sphere_far(origin, direction, radius)
+
+
+def fit_orbit_normal(
+    points: list[Vec3], min_arc_deg: float = 12.0, max_step_deg: float = 60.0
+) -> Vec3 | None:
+    """Estimate the orbital-plane normal from time-ordered ECEF positions.
+
+    A Keplerian orbit lies in a plane through Earth's centre, so its normal is the
+    angular-momentum direction. Summing the cross products of consecutive in-pass
+    points accumulates that direction, weighted by angular spacing. Steps larger
+    than ``max_step_deg`` are treated as between-pass gaps (the satellite was
+    below the horizon for most of an orbit) and skipped, so a multi-pass window
+    stays sign-consistent. Returns None when too few points or too short a traced
+    arc leave the plane underdetermined.
+
+    Args:
+        points: Time-ordered ECEF positions on the orbit (any consistent unit;
+            the result is a unit vector regardless of scale).
+        min_arc_deg: Minimum total in-pass arc that must be traced to trust the
+            fit, in degrees.
+        max_step_deg: Consecutive steps wider than this are skipped as gaps.
+
+    Returns:
+        A unit normal ``(x, y, z)`` to the orbital plane, or None when the fit is
+        underdetermined.
+    """
+    if len(points) < 3:
+        return None
+    sx = sy = sz = 0.0
+    arc = 0.0
+    max_step = math.radians(max_step_deg)
+    for a, b in zip(points, points[1:], strict=False):
+        cx = a[1] * b[2] - a[2] * b[1]
+        cy = a[2] * b[0] - a[0] * b[2]
+        cz = a[0] * b[1] - a[1] * b[0]
+        cmag = math.sqrt(cx * cx + cy * cy + cz * cz)
+        dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        if math.atan2(cmag, dot) > max_step:
+            continue
+        arc += math.atan2(cmag, dot)
+        sx += cx
+        sy += cy
+        sz += cz
+    if arc < math.radians(min_arc_deg):
+        return None
+    mag = math.sqrt(sx * sx + sy * sy + sz * sz)
+    if mag < 1e-9:
+        return None
+    return (sx / mag, sy / mag, sz / mag)

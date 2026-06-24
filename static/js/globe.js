@@ -81,6 +81,7 @@ const state = {
   hours: 24,
   arcs: true,
   rays: true,
+  orbits: true,
   spin: true,
   hidden: new Set(),
 };
@@ -165,10 +166,14 @@ function render(data) {
     obj.userData.gnssid = sat.gnssid;
     obj.visible = !state.hidden.has(sat.gnssid);
 
+    if (state.orbits && sat.orbit) {
+      obj.add(orbitRing(sat.orbit, meta.color));
+    }
+
     if (state.arcs && pts.length >= 2) {
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
       obj.add(new THREE.Line(geo, new THREE.LineBasicMaterial({
-        color: meta.color, transparent: true, opacity: 0.55,
+        color: meta.color, transparent: true, opacity: 0.7,
       })));
     }
 
@@ -201,6 +206,34 @@ function buildEarthIfNeeded(radiusKm) {
     earthRadiusKm = radiusKm;
     buildEarth(radiusKm);
   }
+}
+
+/**
+ * Build the full great-circle orbit ring from a fitted plane normal.
+ *
+ * The orbital plane passes through Earth's centre, so the complete orbit is the
+ * circle of the constellation's orbital radius lying in that plane — drawn even
+ * where we never observed the satellite (the far side, below the horizon).
+ *
+ * @param {Object} orbit `{nx, ny, nz, radius_km}` from the API.
+ * @param {number} color Constellation colour.
+ * @returns {THREE.LineLoop} The ring loop.
+ */
+function orbitRing(orbit, color) {
+  const n = new THREE.Vector3(orbit.nx, orbit.ny, orbit.nz).normalize();
+  const ref = Math.abs(n.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+  const u = new THREE.Vector3().crossVectors(ref, n).normalize();
+  const v = new THREE.Vector3().crossVectors(n, u);
+  const pts = [];
+  const segments = 160;
+  for (let i = 0; i < segments; i++) {
+    const t = (i / segments) * 2 * Math.PI;
+    pts.push(new THREE.Vector3()
+      .addScaledVector(u, orbit.radius_km * Math.cos(t))
+      .addScaledVector(v, orbit.radius_km * Math.sin(t)));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  return new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 }));
 }
 
 /**
@@ -324,7 +357,8 @@ function demoData() {
         const p = orbitPoint(radius, inc, raan, nu);
         samples.push({ t: null, x: p.x, y: p.y, z: p.z, snr: 18 + Math.random() * 28, used: Math.random() > 0.4 });
       }
-      sats.push({ gnssid, svid: svid++, samples });
+      const nrm = orbitNormal(inc, raan);
+      sats.push({ gnssid, svid: svid++, samples, orbit: { nx: nrm.x, ny: nrm.y, nz: nrm.z, radius_km: radius } });
     }
   }
   return {
@@ -343,6 +377,15 @@ function sphericalEcef(latDeg, lonDeg, r) {
     r * Math.cos(lat) * Math.cos(lon),
     r * Math.cos(lat) * Math.sin(lon),
     r * Math.sin(lat),
+  );
+}
+
+/** Orbit-plane normal for a demo orbit (matches orbitPoint's plane). */
+function orbitNormal(inc, raan) {
+  return new THREE.Vector3(
+    Math.sin(raan) * Math.sin(inc),
+    -Math.cos(raan) * Math.sin(inc),
+    Math.cos(inc),
   );
 }
 
@@ -371,6 +414,7 @@ function bindControls() {
       load();
     });
   });
+  bindToggle('t-orbits', 'orbits', () => load());
   bindToggle('t-arcs', 'arcs', () => load());
   bindToggle('t-rays', 'rays', () => load());
   bindToggle('t-spin', 'spin', () => { controls.autoRotate = state.spin; });

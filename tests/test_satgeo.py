@@ -6,11 +6,28 @@ import pytest
 
 from common.satgeo import (
     WGS84_A,
+    fit_orbit_normal,
     observer_ecef,
     orbital_radius_m,
     ray_sphere_far,
     reconstruct,
 )
+
+
+def _arc(angles_deg, radius=26560.0):
+    """Points on a circle of ``radius`` in the equatorial (XY) plane."""
+    return [
+        (radius * math.cos(math.radians(a)), radius * math.sin(math.radians(a)), 0.0)
+        for a in angles_deg
+    ]
+
+
+def _rotx(p, deg):
+    """Rotate a point about the X axis by ``deg`` degrees."""
+    i = math.radians(deg)
+    c, s = math.cos(i), math.sin(i)
+    x, y, z = p
+    return (x, y * c - z * s, y * s + z * c)
 
 
 def _norm(v: tuple[float, float, float]) -> float:
@@ -94,3 +111,41 @@ def test_ray_that_misses_sphere_returns_none() -> None:
     # Origin far out on +X, aimed along +Y: closest approach is the origin's
     # |X|, well outside a small sphere.
     assert ray_sphere_far((1.0e8, 0.0, 0.0), (0.0, 1.0, 0.0), 1.0e6) is None
+
+
+def test_orbit_normal_equatorial_is_polar_axis() -> None:
+    """An arc in the equatorial plane yields a normal along ±Z."""
+    n = fit_orbit_normal(_arc([0, 5, 10, 15, 20, 25, 30]))
+    assert n is not None
+    assert abs(n[0]) < 1e-9 and abs(n[1]) < 1e-9
+    assert math.isclose(abs(n[2]), 1.0, rel_tol=1e-9)
+
+
+def test_orbit_normal_recovers_inclination() -> None:
+    """An arc tilted by a known inclination yields the rotated normal."""
+    inc = 55.0
+    pts = [_rotx(p, inc) for p in _arc([0, 5, 10, 15, 20, 25, 30])]
+    n = fit_orbit_normal(pts)
+    assert n is not None
+    expected = (0.0, -math.sin(math.radians(inc)), math.cos(math.radians(inc)))
+    sign = 1.0 if sum(n[k] * expected[k] for k in range(3)) > 0 else -1.0
+    for k in range(3):
+        assert math.isclose(sign * n[k], expected[k], abs_tol=1e-6)
+
+
+def test_orbit_normal_too_few_points() -> None:
+    """Fewer than three points cannot define a plane."""
+    assert fit_orbit_normal([(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]) is None
+
+
+def test_orbit_normal_too_short_arc() -> None:
+    """A barely-traced arc (below the minimum) is rejected as underdetermined."""
+    assert fit_orbit_normal(_arc([0, 1, 2, 3])) is None
+
+
+def test_orbit_normal_skips_between_pass_gap() -> None:
+    """A wide gap between two same-plane sub-arcs is skipped, not summed wrong."""
+    pts = _arc([0, 5, 10, 15]) + _arc([190, 195, 200, 205])
+    n = fit_orbit_normal(pts)
+    assert n is not None
+    assert math.isclose(abs(n[2]), 1.0, rel_tol=1e-6)
