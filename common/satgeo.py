@@ -186,6 +186,38 @@ def look_direction_ecef(lat_deg: float, lon_deg: float, az_deg: float, el_deg: f
     return (dx, dy, dz)
 
 
+def ecef_to_azel(lat_deg: float, lon_deg: float, observer: Vec3, sat: Vec3) -> tuple[float, float, float]:
+    """Topocentric azimuth/elevation/range of a satellite from an observer.
+
+    The inverse of :func:`look_direction_ecef`: projects the observer→satellite
+    line of sight onto the geodetic East-North-Up basis at ``(lat, lon)``.
+
+    Args:
+        lat_deg: Observer latitude, degrees.
+        lon_deg: Observer longitude, degrees east.
+        observer: Observer ECEF position, metres.
+        sat: Satellite ECEF position, metres.
+
+    Returns:
+        ``(az_deg, el_deg, range_m)`` — azimuth clockwise from north in
+        ``[0, 360)``, elevation above the horizon, and slant range in metres.
+    """
+    lat = math.radians(lat_deg)
+    lon = math.radians(lon_deg)
+    sl, cl = math.sin(lat), math.cos(lat)
+    so, co = math.sin(lon), math.cos(lon)
+    dx = sat[0] - observer[0]
+    dy = sat[1] - observer[1]
+    dz = sat[2] - observer[2]
+    rng = math.sqrt(dx * dx + dy * dy + dz * dz)
+    e = -dx * so + dy * co
+    n = -dx * sl * co - dy * sl * so + dz * cl
+    u = dx * cl * co + dy * cl * so + dz * sl
+    el = math.degrees(math.atan2(u, math.hypot(e, n)))
+    az = math.degrees(math.atan2(e, n)) % 360.0
+    return (az, el, rng)
+
+
 def ray_sphere_far(origin: Vec3, direction: Vec3, radius_m: float) -> Vec3 | None:
     """Far intersection of a ray with an origin-centred sphere.
 

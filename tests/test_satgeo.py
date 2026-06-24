@@ -6,6 +6,7 @@ import pytest
 
 from common.satgeo import (
     WGS84_A,
+    ecef_to_azel,
     ecef_to_eci,
     eci_to_ecef,
     fit_orbit_normal,
@@ -207,3 +208,27 @@ def test_eci_ecef_round_trip() -> None:
     rt = eci_to_ecef(ecef_to_eci(v, g), g)
     for k in range(3):
         assert math.isclose(rt[k], v[k], rel_tol=1e-12, abs_tol=1e-9)
+
+
+@pytest.mark.parametrize('lat', [-45.0, 0.0, 39.7, 70.0])
+@pytest.mark.parametrize('lon', [-105.0, 0.0, 120.0])
+@pytest.mark.parametrize('az,el', [(0.0, 5.0), (90.0, 45.0), (215.0, 80.0), (300.0, 25.0)])
+def test_ecef_to_azel_inverts_reconstruct(lat: float, lon: float, az: float, el: float) -> None:
+    """ecef_to_azel recovers the az/el that reconstruct placed the sat at."""
+    sat = reconstruct(lat, lon, 0.0, az, el, gnssid=0)
+    assert sat is not None
+    obs = observer_ecef(lat, lon, 0.0)
+    got_az, got_el, rng = ecef_to_azel(lat, lon, obs, sat)
+    az_err = abs((got_az - az + 180.0) % 360.0 - 180.0)  # circular, handles 0/360 wrap
+    assert az_err < 1e-6
+    assert math.isclose(got_el, el, abs_tol=1e-6)
+    assert rng > 0.0
+
+
+def test_ecef_to_azel_zenith() -> None:
+    """A satellite at the geodetic zenith reads el=90."""
+    sat = reconstruct(40.0, -100.0, 0.0, az_deg=137.0, el_deg=90.0, gnssid=0)
+    assert sat is not None
+    obs = observer_ecef(40.0, -100.0, 0.0)
+    _, el, _ = ecef_to_azel(40.0, -100.0, obs, sat)
+    assert math.isclose(el, 90.0, abs_tol=1e-6)
