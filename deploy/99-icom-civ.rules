@@ -1,0 +1,6 @@
+# Pin the Icom CI-V cable (OPC-478UC clone = WCH CH343, enumerates as CDC-ACM) to a
+# stable /dev/icom-civ symlink so rigctld's -r path never depends on ttyACM ordering.
+# Mirrors 99-gps-dongle.rules. NOT installed by the deploy hook (which only copies
+# *.service/*.timer) — install manually once:
+#   sudo cp deploy/99-icom-civ.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+SUBSYSTEM=="tty", ACTION=="add", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", SYMLINK+="icom-civ", GROUP="dialout", MODE="0664"

@@ -1,0 +1,27 @@
+# rigctld owning the Icom ID-5100A CI-V serial port (model 3071), exposing Hamlib's
+# TCP text protocol on 127.0.0.1:4532 for the Flask radio routes. The daemon-owns-the
+# -port model also solves serial contention (R2/R3 in plans/radio-platform-plan.md).
+#
+# Enabled-gated like sensor-obd/sensor-victron: stays DISABLED until the CI-V cable is
+# wired, so a host without the radio never crash-loops. To bring up:
+#   sudo cp deploy/99-icom-civ.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+#   (plug the cable into the radio's [SP2] jack)
+#   sudo systemctl enable --now radio-control
+#
+# The on-radio probe confirmed 19200 baud / CI-V address 0x8C. Phase-1 task 1d must
+# validate this exact ExecStart live (run it by hand once) before relying on the unit.
+[Unit]
+Description=rigctld (Icom ID-5100A CI-V control)
+After=network.target
+
+[Service]
+Type=simple
+User=pmorgan
+ExecStart=/usr/bin/rigctld -m 3071 -r /dev/icom-civ -s 19200 -T 127.0.0.1 -t 4532 -C civaddr=0x8C
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
