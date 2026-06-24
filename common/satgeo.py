@@ -59,6 +59,81 @@ def orbital_radius_m(gnssid: int) -> float | None:
     return ORBITAL_RADIUS_M.get(gnssid)
 
 
+def julian_date(unix_s: float) -> float:
+    """Julian Date for a Unix timestamp.
+
+    Args:
+        unix_s: Seconds since the Unix epoch (UTC).
+
+    Returns:
+        The Julian Date (days). The Unix epoch 1970-01-01T00:00:00Z is JD
+        2440587.5.
+    """
+    return unix_s / 86400.0 + 2440587.5
+
+
+def gmst_rad(unix_s: float) -> float:
+    """Greenwich Mean Sidereal Time, radians in ``[0, 2π)``.
+
+    Uses the IAU 1982 GMST polynomial in the UT1≈UTC approximation (the sub-arcsec
+    DUT1 offset is far below display grade). GMST is the angle from the inertial
+    +X axis (vernal equinox) to the Earth-fixed +X axis (Greenwich meridian), so
+    it is exactly the rotation that carries ECEF into ECI.
+
+    Args:
+        unix_s: Seconds since the Unix epoch (UTC).
+
+    Returns:
+        GMST in radians, wrapped to ``[0, 2π)``.
+    """
+    t = (julian_date(unix_s) - 2451545.0) / 36525.0  # Julian centuries from J2000
+    gmst_sec = (
+        67310.54841
+        + (876600.0 * 3600.0 + 8640184.812866) * t
+        + 0.093104 * t * t
+        - 6.2e-6 * t * t * t
+    )
+    return (gmst_sec % 86400.0) * (2.0 * math.pi / 86400.0)
+
+
+def _rotate_z(v: Vec3, angle_rad: float) -> Vec3:
+    """Rotate a vector about the +Z axis by ``angle_rad`` (right-handed)."""
+    c, s = math.cos(angle_rad), math.sin(angle_rad)
+    x, y, z = v
+    return (x * c - y * s, x * s + y * c, z)
+
+
+def ecef_to_eci(v: Vec3, gmst: float) -> Vec3:
+    """Rotate an Earth-fixed (ECEF) vector into the inertial (ECI) frame.
+
+    The Greenwich meridian sits at angle ``gmst`` east of the vernal equinox, so
+    ECEF maps to ECI by a +``gmst`` rotation about Z.
+
+    Args:
+        v: ECEF vector (any length unit).
+        gmst: Greenwich Mean Sidereal Time, radians (see :func:`gmst_rad`).
+
+    Returns:
+        The same point expressed in the ECI frame.
+    """
+    return _rotate_z(v, gmst)
+
+
+def eci_to_ecef(v: Vec3, gmst: float) -> Vec3:
+    """Rotate an inertial (ECI) vector into the Earth-fixed (ECEF) frame.
+
+    The inverse of :func:`ecef_to_eci`: a -``gmst`` rotation about Z.
+
+    Args:
+        v: ECI vector (any length unit).
+        gmst: Greenwich Mean Sidereal Time, radians (see :func:`gmst_rad`).
+
+    Returns:
+        The same point expressed in the ECEF frame.
+    """
+    return _rotate_z(v, -gmst)
+
+
 def observer_ecef(lat_deg: float, lon_deg: float, alt_m: float = 0.0) -> Vec3:
     """Convert a WGS84 geodetic position to ECEF metres.
 

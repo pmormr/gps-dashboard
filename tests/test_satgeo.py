@@ -6,12 +6,19 @@ import pytest
 
 from common.satgeo import (
     WGS84_A,
+    ecef_to_eci,
+    eci_to_ecef,
     fit_orbit_normal,
+    gmst_rad,
+    julian_date,
     observer_ecef,
     orbital_radius_m,
     ray_sphere_far,
     reconstruct,
 )
+
+# Unix seconds for J2000.0 (2000-01-01T12:00:00Z), the GMST reference epoch.
+_J2000_UNIX = 946728000.0
 
 
 def _arc(angles_deg, radius=26560.0):
@@ -149,3 +156,54 @@ def test_orbit_normal_skips_between_pass_gap() -> None:
     n = fit_orbit_normal(pts)
     assert n is not None
     assert math.isclose(abs(n[2]), 1.0, rel_tol=1e-6)
+
+
+def test_julian_date_unix_epoch() -> None:
+    """The Unix epoch is JD 2440587.5; J2000 noon is JD 2451545.0."""
+    assert math.isclose(julian_date(0.0), 2440587.5, rel_tol=0, abs_tol=1e-9)
+    assert math.isclose(julian_date(_J2000_UNIX), 2451545.0, rel_tol=0, abs_tol=1e-9)
+
+
+def test_gmst_at_j2000() -> None:
+    """GMST at J2000.0 is the textbook 280.46061838° (18h 41m 50.5s)."""
+    deg = math.degrees(gmst_rad(_J2000_UNIX))
+    assert math.isclose(deg, 280.46061838, abs_tol=1e-6)
+
+
+def test_gmst_advances_a_sidereal_rate() -> None:
+    """One solar day advances GMST by ~360.9856° (the ~3m56s sidereal lead)."""
+    g0 = math.degrees(gmst_rad(_J2000_UNIX))
+    g1 = math.degrees(gmst_rad(_J2000_UNIX + 86400.0))
+    advance = (g1 - g0) % 360.0
+    assert math.isclose(advance, 360.985647 % 360.0, abs_tol=1e-3)
+
+
+def test_gmst_wrapped_to_circle() -> None:
+    """GMST stays within [0, 2π) across a span of epochs."""
+    for unix in (0.0, _J2000_UNIX, 1_700_000_000.0, 2_000_000_000.0):
+        g = gmst_rad(unix)
+        assert 0.0 <= g < 2.0 * math.pi
+
+
+def test_ecef_eci_aligned_at_gmst_zero() -> None:
+    """At GMST=0 the Greenwich meridian coincides with the vernal equinox."""
+    v = (1.0, 0.0, 0.0)
+    assert ecef_to_eci(v, 0.0) == v
+
+
+def test_ecef_to_eci_rotates_by_plus_gmst() -> None:
+    """ECEF +X maps to ECI at angle +GMST about Z; Z is untouched."""
+    g = math.radians(90.0)
+    x, y, z = ecef_to_eci((1.0, 0.0, 5.0), g)
+    assert abs(x) < 1e-9
+    assert math.isclose(y, 1.0, abs_tol=1e-9)
+    assert math.isclose(z, 5.0, abs_tol=1e-12)
+
+
+def test_eci_ecef_round_trip() -> None:
+    """eci_to_ecef undoes ecef_to_eci for an arbitrary vector and GMST."""
+    v = (26560.0, -1234.0, 9876.0)
+    g = math.radians(123.456)
+    rt = eci_to_ecef(ecef_to_eci(v, g), g)
+    for k in range(3):
+        assert math.isclose(rt[k], v[k], rel_tol=1e-12, abs_tol=1e-9)
