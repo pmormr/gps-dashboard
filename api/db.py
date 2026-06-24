@@ -286,7 +286,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- logger on its own ~60s throttle. The receiver's own computed az/el per
         -- SV — the long-term record behind the live /skyplot. Only positioned
         -- sats (az+el present) are stored. Foundation for the sky/obstruction map
-        -- and observed-orbit prediction. See plans/gnss-observatory-plan.md.
+        -- and observed-orbit prediction. See .claude/modules/observatory.md.
         CREATE TABLE IF NOT EXISTS sat_observations (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp   TEXT NOT NULL,

@@ -10,7 +10,7 @@ That intersection is the satellite's ECEF position.
 The only approximation is the *nominal circular* radius — real orbits are mildly
 eccentric and BeiDou/QZSS mix orbit classes — so reconstructed positions are
 display-grade (sub-pixel error at whole-Earth zoom), not metrology. This is the
-geometry behind the /globe constellation view; see plans/gnss-observatory-plan.md.
+geometry behind the /globe constellation view; see .claude/modules/observatory.md.
 
 All lengths are metres in an Earth-centred, Earth-fixed (ECEF) frame: +X through
 (lat 0, lon 0), +Y through (lat 0, lon 90°E), +Z through the north pole.
@@ -186,7 +186,9 @@ def look_direction_ecef(lat_deg: float, lon_deg: float, az_deg: float, el_deg: f
     return (dx, dy, dz)
 
 
-def ecef_to_azel(lat_deg: float, lon_deg: float, observer: Vec3, sat: Vec3) -> tuple[float, float, float]:
+def ecef_to_azel(
+    lat_deg: float, lon_deg: float, observer: Vec3, sat: Vec3
+) -> tuple[float, float, float]:
     """Topocentric azimuth/elevation/range of a satellite from an observer.
 
     The inverse of :func:`look_direction_ecef`: projects the observer→satellite

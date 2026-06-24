@@ -4,7 +4,7 @@ Both ``/api/constellation`` (the 3D globe) and ``/api/passes`` (prediction) star
 the same way: pick one observer fix to anchor on, then invert each logged az/el
 into an ECEF position on the constellation's nominal orbital sphere, grouped by
 satellite. This module holds that shared anchor + reconstruction so the two
-routes can't drift apart. See plans/gnss-observatory-plan.md.
+routes can't drift apart. See .claude/modules/observatory.md.
 """
 
 from __future__ import annotations

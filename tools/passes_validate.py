@@ -12,7 +12,7 @@ Run on the Pi against real data::
     uv run tools/passes_validate.py
     uv run tools/passes_validate.py --hours 72 --hold-frac 0.3
 
-See plans/gnss-observatory-plan.md.
+See .claude/modules/observatory.md.
 """
 
 from __future__ import annotations

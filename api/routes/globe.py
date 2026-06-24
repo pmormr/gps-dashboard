@@ -5,7 +5,7 @@
 ``sat_observations`` row in a time window to an ECEF position via
 :mod:`common.satgeo`, anchored to a representative observer fix, and groups them
 by satellite so the client draws one arc per SV. See
-plans/gnss-observatory-plan.md.
+.claude/modules/observatory.md.
 """
 
 from __future__ import annotations

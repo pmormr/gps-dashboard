@@ -22,7 +22,7 @@ Propagating in ECI and rotating back to ECEF reproduces the sidereal-day repeat
 of each ground track for free, and generalises to constellations whose tracks do
 *not* repeat daily. First cut is two-body only (no J2 nodal precession) — good to
 minutes over a 1-2 day horizon, which is the prediction window we care about. See
-plans/gnss-observatory-plan.md.
+.claude/modules/observatory.md.
 """
 
 from __future__ import annotations

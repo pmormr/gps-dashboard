@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `drone-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `drone-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 ## Deployment
 
@@ -75,6 +75,10 @@ Drone telemetry tier — aerial GPS tracks batch-imported from DJI footage by `t
 - `drone_flights(id, model, model_code, first_fix_utc, last_fix_utc, media_path, source_name, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per clip. Natural key `(model_code, first_fix_utc)` (no DJI model exposes a serial); `media_path` is the canonical rex-nas path, NULL on an SD-card import for the NAS scan to backfill.
 - `drone_track_points(id, flight_id, timestamp, lat, lon, abs_alt, importance)` — the thinned track (Reumann–Witkam, shared via `processor/simplify.py`); canonical ms-UTC puts drone points on the same time axis as `gps_points`. `abs_alt` is MSL metres.
 
+GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
+
+- `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
+
 The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
@@ -94,14 +98,18 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
 - `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
+- `GET /api/constellation?start=&end=` — logged `sat_observations` reconstructed to 3D ECEF positions (grouped by SV, with each SV's fitted orbit-plane normal); feeds `/globe`. See `.claude/modules/observatory.md`
+- `GET /api/passes?hours=&mask=&track=1` — predicted upcoming satellite passes (orbit fit from logged az/el → propagate): rise/peak/set + az/el, duration, in-progress, sorted by rise. `mask` is the rise/set elevation (`0` = horizon, valid); `track=1` adds a per-pass `[az,el]` polyline for the skyplot overlay
 - `GET /gpsd` — read-only gpsd status page
-- `GET /skyplot` — live 3D satellite skyplot page
+- `GET /skyplot` — live 3D satellite skyplot page (optional **Predicted** pass-arc overlay, `?passes`)
+- `GET /globe` — 3D constellation globe (three.js, PC-only)
+- `GET /passes` — upcoming satellite-passes schedule
 - `GET /ntp` — read-only NTP/chrony status page
 - `GET /sensors` — sensor viewer (current values + trend charts)
 
 ### Frontend
 
-Plain files in `static/` + `templates/`, all JS/CSS vendored in `static/vendor/` (no CDN at runtime), mobile-first. One map-centric MapLibre view at `/` (time picker, sub-range slider, annotations drawer, server-side size-aware decimation) plus four standalone pages — `/gpsd`, `/skyplot`, `/ntp`, `/sensors`. See **`.claude/modules/frontend.md`** for the view controls and per-page detail.
+Plain files in `static/` + `templates/`, all JS/CSS vendored in `static/vendor/` (no CDN at runtime), mobile-first. One map-centric MapLibre view at `/` (time picker, sub-range slider, annotations drawer, server-side size-aware decimation) plus standalone pages — `/gpsd`, `/skyplot`, `/ntp`, `/sensors`, and the GNSS-observatory pair `/globe` (three.js, PC-only) + `/passes`. See **`.claude/modules/frontend.md`** for the view controls and per-page detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot-overlay subsystem.
 
 ### Basemaps & Terrain
 
@@ -126,6 +134,7 @@ gps-dashboard/
 │   ├── db.py
 │   ├── params.py               # shared request-param validation (bbox/time/limit)
 │   ├── sensor_schema.py        # shared {type→table,columns} reading spec (ingest + read route)
+│   ├── observatory.py          # shared anchor-fix + az/el→ECEF reconstruct (constellation + passes)
 │   ├── tile_layers.py
 │   └── routes/
 │       ├── points.py
@@ -133,10 +142,15 @@ gps-dashboard/
 │       ├── tiles.py
 │       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
+│       ├── globe.py            # /globe + /api/constellation (3D reconstruction)
+│       ├── passes.py           # /passes + /api/passes (pass prediction)
+│       ├── obd.py              # /api/obd* (OBD-II telemetry read)
 │       ├── status_gpsd.py
 │       └── status_ntp.py
 ├── common/                     # shared core library (imported across api/tools/processor)
 │   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
+│   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry
+│   ├── orbits.py               # inertial-frame orbit fit + propagation + pass finder
 │   ├── proc.py                 # subprocess + systemctl (is-active) helpers
 │   ├── checks.py               # PASS/FAIL check-runner for the validate tools
 │   └── cli.py                  # run_cli/run_click — tools' Ctrl+C → "Interrupted." exit 130
@@ -164,17 +178,23 @@ gps-dashboard/
 │   │   ├── api.js, app.js, geo.js, map.js, labels.js, timepicker.js, annotations.js
 │   │   ├── timestrip.js    # canvas sub-range timeline (density + stops + brush)
 │   │   ├── timeline.js     # window load + selection wiring around TimeStrip
+│   │   ├── drone.js        # 🚁 drone-flight map overlay
 │   │   ├── sensors.js      # /sensors viewer (current values + uPlot charts)
-│   │   └── skyplot.js      # /skyplot 3D satellite hemisphere (plain canvas)
+│   │   ├── skyplot.js      # /skyplot 3D satellite hemisphere + predicted-arc overlay
+│   │   ├── globe.js        # /globe 3D constellation globe (three.js)
+│   │   └── passes.js       # /passes schedule
 │   └── vendor/
 │       ├── maplibre/       # maplibre-gl
 │       ├── pmtiles/        # pmtiles.js range reader
 │       ├── uplot/          # uPlot time-series charts (sensor trends)
+│       ├── three/          # three.js r160 (the /globe 3D view)
 │       └── basemap/        # Protomaps style.json + glyphs + sprite
 ├── templates/
 │   ├── index.html
 │   ├── gpsd.html
 │   ├── skyplot.html
+│   ├── globe.html
+│   ├── passes.html
 │   ├── ntp.html
 │   └── sensors.html
 ├── tools/
@@ -186,7 +206,8 @@ gps-dashboard/
 │   ├── ntp_setup.py
 │   ├── ntp_validate.py
 │   ├── obd_probe.py            # OBD-II Phase-0 connectivity probe (plans/obd-platform-plan.md)
-│   └── import_drone.py         # DJI drone telemetry importer (plans/drone-platform-plan.md)
+│   ├── import_drone.py         # DJI drone telemetry importer (plans/drone-platform-plan.md)
+│   └── passes_validate.py      # backtest pass prediction vs held-out observations
 ├── deploy/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service
@@ -247,6 +268,9 @@ uv run tools/gpsd_validate.py
 # NTP setup and validation (run on Pi)
 uv run tools/ntp_setup.py
 uv run tools/ntp_validate.py
+
+# Backtest satellite-pass prediction against held-out observations (run on Pi)
+uv run tools/passes_validate.py --db /mnt/nvme/data/gps_history.db -v
 
 # Sensor pipeline (MQTT — needs a broker; PYTHONPATH set so scripts find the packages)
 PYTHONPATH=. uv run mqttbus/ingest.py                       # ingest subscriber

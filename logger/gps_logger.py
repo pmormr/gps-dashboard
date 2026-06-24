@@ -26,7 +26,7 @@ RECEIVER_METADATA_INTERVAL_SECONDS = 5
 # computed az/el/SNR for every positioned SV into sat_observations, at a far
 # coarser cadence than receiver_metadata (orbits move only degrees/minute, so
 # 60s is dense for both the obstruction map and orbit fitting). Same SKY message,
-# independent throttle gate. See plans/gnss-observatory-plan.md.
+# independent throttle gate. See .claude/modules/observatory.md.
 SAT_OBSERVATION_INTERVAL_SECONDS = 60
 
 SOCKET_TIMEOUT_SECONDS = 30

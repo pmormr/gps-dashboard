@@ -3,7 +3,7 @@
 ``/api/passes`` fits each recently observed satellite's orbit from the
 accumulated az/el (see :mod:`common.orbits`) and propagates it forward to list
 the upcoming above-horizon passes — rise, peak, and set for the parked observer.
-``/passes`` renders that schedule. See plans/gnss-observatory-plan.md.
+``/passes`` renders that schedule. See .claude/modules/observatory.md.
 """
 
 from __future__ import annotations
