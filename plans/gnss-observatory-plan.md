@@ -31,7 +31,7 @@ same filter `/api/gpsd/sky` already applies.
 
 ## Phases
 
-### Phase 1 — capture (foundation, shared by both goals) — IN PROGRESS
+### Phase 1 — capture (foundation, shared by both goals) — DONE/DEPLOYED
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` table,
   indexed `(gnssid, svid, timestamp)` + `timestamp`. `timestamp` is canonical
   ms-UTC text like every other tier.
@@ -40,11 +40,27 @@ same filter `/api/gpsd/sky` already applies.
   message, off the position hot-path). Heartbeat gains a `satobs=` counter.
 - Cadence 60s (~50k rows/day, ~18M/yr). One constant; tunable.
 
-### Phase 2 — sky / signal map (no orbital math)
-- Roll raw observations into an az/el grid (≈1°×1° bins: count + SNR stats);
-  let raw rows age out once binned. Decide retention here, with real growth seen.
-- API endpoint + view: obstruction map (where the van loses sky) + SNR-vs-az/el
-  heatmap. Likely an extension of `/skyplot` or a sibling page.
+### Phase 2 — 3D constellation globe (PC-only) — v1 BUILT
+Pivoted from a flat obstruction heatmap to a 3D Earth+constellation viewer (user
+call): far easier to read scale, and it folds the signal data in as colour.
+- **az/el → 3D**: az/el is a *direction*, not a position, but GNSS sats orbit at
+  known nominal altitudes, so the position is recoverable — intersect the
+  observer→sat ray with the constellation's orbital sphere. `common/satgeo.py`
+  (WGS84 observer ECEF + ray-sphere reconstruction, per-gnssid radii). Approx:
+  nominal circular radius only (sub-pixel at whole-Earth zoom; BeiDou/QZSS mix
+  orbit classes so those dots are coarse). Reuses no subframes — works offline.
+- `GET /api/constellation?start=&end=` reconstructs each `sat_observations` row
+  in the window against one representative observer fix, grouped by SV.
+- `/globe` page: three.js (vendored, offline), textured Earth in the ECEF frame
+  (texture verified aligned — marker lands on the right continent), observer
+  marker, per-SV arcs + current dots coloured by constellation, sight-lines,
+  window presets, legend toggles. `?demo` synthesises a constellation offline.
+- Manual time-window scoping (van moves, so the sky is location-relative; the
+  user reads the window knowing when parked). Location/dwell auto-scoping deferred.
+- On-the-fly reconstruction, no rollup table yet (revisit when scan time bites).
+- **v2 (Phase 3 bridge):** fit full orbit *rings* from the reconstructed arcs
+  (we only observe the visible top of each pass). Obstruction/SNR heatmap, if
+  still wanted, becomes a separate later view or surface overlay.
 
 ### Phase 3 — orbit + prediction
 - Per-SV orbit model from accumulated az/el: start with the sidereal-repeat
