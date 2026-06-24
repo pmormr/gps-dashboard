@@ -16,8 +16,8 @@ from api.db import canonical_timestamp, get_connection, now_canonical
 from api.observatory import anchor_observer, reconstruct_tracks, sat_name
 from api.params import ErrorResponse
 from common.gpsd import GNSS_NAMES
-from common.orbits import Pass, find_passes, fit_orbit
-from common.satgeo import observer_ecef
+from common.orbits import Orbit, Pass, azel_at, find_passes, fit_orbit
+from common.satgeo import Vec3, observer_ecef
 
 passes_bp = Blueprint('passes', __name__)
 
@@ -29,6 +29,8 @@ _DEFAULT_HORIZON_HOURS = 12.0
 _MAX_HORIZON_HOURS = 48.0
 _DEFAULT_MASK_DEG = 5.0
 _MAX_MASK_DEG = 30.0
+# Evenly spaced az/el samples per pass when track=1 (the skyplot arc overlay).
+_TRACK_POINTS = 32
 
 
 @passes_bp.get('/passes')
@@ -40,7 +42,11 @@ def passes_page() -> str:
 def _parse_float(
     name: str, default: float, maximum: float
 ) -> tuple[float | None, ErrorResponse | None]:
-    """Parse an optional positive float query param, clamped to ``maximum``."""
+    """Parse an optional non-negative float query param, clamped to ``maximum``.
+
+    Zero is allowed (a 0° mask means draw arcs down to the horizon); only
+    negatives and non-numbers are rejected.
+    """
     raw = request.args.get(name)
     if raw is None:
         return default, None
@@ -48,8 +54,8 @@ def _parse_float(
         value = float(raw)
     except ValueError:
         return None, (jsonify({'error': f"'{name}' must be a number"}), 400)
-    if value <= 0.0:
-        return None, (jsonify({'error': f"'{name}' must be > 0"}), 400)
+    if value < 0.0:
+        return None, (jsonify({'error': f"'{name}' must be >= 0"}), 400)
     return min(value, maximum), None
 
 
@@ -58,8 +64,30 @@ def _iso(unix_s: float) -> str:
     return datetime.fromtimestamp(unix_s, UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def _sample_track(
+    orbit: Orbit, p: Pass, lat: float, lon: float, observer_m: Vec3
+) -> list[list[float]]:
+    """Evenly spaced ``[az, el]`` samples along a pass, rise to set.
+
+    Used by the skyplot overlay to draw the predicted arc across the dome.
+    """
+    span = p.set_unix - p.rise_unix
+    out: list[list[float]] = []
+    for i in range(_TRACK_POINTS):
+        t = p.rise_unix + span * i / (_TRACK_POINTS - 1)
+        az, el, _ = azel_at(orbit, t, lat, lon, observer_m)
+        out.append([round(az, 1), round(el, 1)])
+    return out
+
+
 def _pass_json(
-    gnssid: int, svid: int, p: Pass, now_unix: float, snr: float | None, used: bool
+    gnssid: int,
+    svid: int,
+    p: Pass,
+    now_unix: float,
+    snr: float | None,
+    used: bool,
+    track: list[list[float]] | None,
 ) -> dict:
     """Serialise a Pass with display-rounded angles and ISO times."""
     return {
@@ -81,6 +109,7 @@ def _pass_json(
         'in_progress': p.rise_unix <= now_unix + 1.0,
         'max_snr': round(snr, 1) if snr is not None else None,
         'used': used,
+        'track': track,
     }
 
 
@@ -102,6 +131,8 @@ def passes():
     if err:
         return err
     assert horizon_hours is not None and mask_deg is not None
+
+    want_track = request.args.get('track') in ('1', 'true', 'yes')
 
     now = datetime.now(UTC)
     end_ts = now_canonical()
@@ -137,7 +168,8 @@ def passes():
         max_snr = max(snrs) if snrs else None
         used = any(s.used for s in samples)
         for p in find_passes(orbit, lat, lon, origin, now_unix, horizon_end, mask_deg):
-            out.append(_pass_json(gnssid, svid, p, now_unix, max_snr, used))
+            track = _sample_track(orbit, p, lat, lon, origin) if want_track else None
+            out.append(_pass_json(gnssid, svid, p, now_unix, max_snr, used, track))
 
     out.sort(key=lambda d: d['rise_unix'])
     return jsonify(

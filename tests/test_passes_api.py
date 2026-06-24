@@ -88,6 +88,20 @@ def test_predicts_in_progress_pass(client):
     assert p['rise_unix'] <= p['peak_unix'] <= p['set_unix']
     assert p['peak_el'] > 60.0  # the sat is overhead now
     assert p['max_snr'] == 44.0 and p['used'] is True
+    assert p['track'] is None  # not requested
+
+
+def test_track_param_adds_azel_samples(client):
+    """track=1 attaches an evenly spaced az/el polyline above the mask."""
+    _seed_track(gnssid=0, svid=7)
+    resp = client.get('/api/passes', query_string={'hours': 24, 'mask': 5, 'track': 1})
+    assert resp.status_code == 200
+    p = resp.get_json()['passes'][0]
+    track = p['track']
+    assert isinstance(track, list) and len(track) == 32
+    for az, el in track:
+        assert 0.0 <= az <= 360.0
+        assert el >= 4.5  # samples span rise→set, so they sit on/above the 5° mask
 
 
 def test_404_without_any_fix(client):
@@ -97,9 +111,16 @@ def test_404_without_any_fix(client):
 
 
 def test_rejects_bad_params(client):
-    """Non-numeric horizon is a 400."""
-    resp = client.get('/api/passes', query_string={'hours': 'soon'})
-    assert resp.status_code == 400
+    """Non-numeric horizon and a negative mask are 400s."""
+    assert client.get('/api/passes', query_string={'hours': 'soon'}).status_code == 400
+    assert client.get('/api/passes', query_string={'mask': -1}).status_code == 400
+
+
+def test_accepts_zero_mask(client):
+    """mask=0 (horizon level) is valid — the skyplot arc overlay relies on it."""
+    _seed_track(gnssid=0, svid=7)
+    resp = client.get('/api/passes', query_string={'hours': 6, 'mask': 0})
+    assert resp.status_code == 200
 
 
 def test_unfittable_track_is_counted_not_failed(client):

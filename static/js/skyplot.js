@@ -22,6 +22,8 @@
 'use strict';
 
 const POLL_MS = 4000;
+const PASSES_HOURS = 3;          // predicted-arc overlay window
+const PASSES_REFRESH_MS = 120000; // predictions change slowly
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 /** Constellation → marker color. */
@@ -53,6 +55,8 @@ const legendEl = document.getElementById('legend');
 
 /** Persisted prefs: which constellations are hidden + overlay toggles. */
 const prefs = loadPrefs();
+// Deep-link the predicted-arc overlay on with ?passes (handy for sharing/links).
+if (new URLSearchParams(location.search).has('passes')) prefs.passes = true;
 
 const view = {
   size: 0,
@@ -67,11 +71,13 @@ const view = {
   seen: new Set(),
   /** gnss-prn → [{az, el, t}] sample history for trails/vectors. @type {Map<string, Array>} */
   history: new Map(),
+  /** Predicted upcoming passes (az/el arcs) from /api/passes. @type {Array} */
+  passes: [],
 };
 
 /** @returns {{hidden:string[], trails:boolean, vectors:boolean}} Stored prefs. */
 function loadPrefs() {
-  const base = { hidden: [], trails: false, vectors: false, footprint: false, geometry: false };
+  const base = { hidden: [], trails: false, vectors: false, footprint: false, geometry: false, passes: false };
   try {
     return Object.assign(base, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'));
   } catch (e) {
@@ -245,6 +251,50 @@ function drawTrails(cx, cy, r, sats) {
       ctx.stroke();
     }
   }
+}
+
+/**
+ * Draw predicted pass arcs: each upcoming pass's az/el track as a dashed
+ * polyline on the dome, coloured by constellation and honouring the legend
+ * toggles. In-progress passes (the satellite is up now) show only the arc — its
+ * live marker already labels it; passes that haven't risen yet get a hollow rise
+ * marker and the satellite name, since those are the "coming up" cue.
+ *
+ * @param {number} cx Canvas center x.
+ * @param {number} cy Canvas center y.
+ * @param {number} r Dome radius in pixels.
+ */
+function drawPasses(cx, cy, r) {
+  const hidden = new Set(prefs.hidden);
+  ctx.save();
+  ctx.lineWidth = 1.4;
+  ctx.font = '9px -apple-system, sans-serif';
+  for (const p of view.passes) {
+    if (hidden.has(p.system) || !p.track || p.track.length < 2) continue;
+    const color = GNSS[p.system] || GNSS.Other;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = rgba(color, p.in_progress ? 0.6 : 0.38);
+    ctx.beginPath();
+    for (let i = 0; i < p.track.length; i++) {
+      const [x, y] = px(project(p.track[i][0], p.track[i][1]), cx, cy, r);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    if (!p.in_progress) {
+      const [rx, ry] = px(project(p.track[0][0], p.track[0][1]), cx, cy, r);
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = rgba(color, 0.85);
+      ctx.beginPath();
+      ctx.arc(rx, ry, 2.6, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.fillStyle = rgba(color, 0.7);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.name, rx + 5, ry);
+    }
+  }
+  ctx.restore();
 }
 
 /**
@@ -519,6 +569,7 @@ function draw() {
   const sats = visibleSats();
   if (prefs.geometry) drawHull(cx, cy, r, sats);
   if (prefs.footprint) drawFootprint(cx, cy, r);
+  if (prefs.passes) drawPasses(cx, cy, r);
   if (prefs.trails) drawTrails(cx, cy, r, sats);
 
   const ordered = sats
@@ -699,6 +750,52 @@ async function poll() {
   draw();
 }
 
+/**
+ * Fetch upcoming passes (next few hours, with full az/el tracks) for the arc
+ * overlay and repaint. Independent of the live sky poll — predictions change
+ * slowly, so this runs on its own slower timer.
+ */
+async function loadPasses() {
+  try {
+    const resp = await fetch(`/api/passes?hours=${PASSES_HOURS}&mask=0&track=1`);
+    if (!resp.ok) {
+      view.passes = [];
+      draw();
+      return;
+    }
+    const data = await resp.json();
+    view.passes = (data.passes || []).filter((p) => Array.isArray(p.track));
+    let added = false;
+    for (const p of view.passes) {
+      if (!view.seen.has(p.system)) {
+        view.seen.add(p.system);
+        added = true;
+      }
+    }
+    if (added) renderLegend();
+    draw();
+  } catch (e) {
+    view.passes = [];
+  }
+}
+
+/** Wire the Predicted-passes toggle: fetch on enable, clear on disable. */
+function bindPasses() {
+  const btn = document.getElementById('btn-passes');
+  if (prefs.passes) btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    prefs.passes = !prefs.passes;
+    btn.classList.toggle('active', prefs.passes);
+    savePrefs();
+    if (prefs.passes) loadPasses();
+    else {
+      view.passes = [];
+      draw();
+    }
+  });
+  if (prefs.passes) loadPasses();
+}
+
 /** Pointer drag → yaw (horizontal) + tilt (vertical), clamped. */
 function bindDrag() {
   let dragging = false;
@@ -750,6 +847,7 @@ bindToggle('btn-trails', 'trails');
 bindToggle('btn-vectors', 'vectors');
 bindToggle('btn-footprint', 'footprint');
 bindToggle('btn-geometry', 'geometry');
+bindPasses();
 
 window.addEventListener('resize', resize);
 bindDrag();
@@ -757,3 +855,4 @@ resize();
 poll();
 setInterval(poll, POLL_MS);
 setInterval(renderStats, 1000);
+setInterval(() => { if (prefs.passes) loadPasses(); }, PASSES_REFRESH_MS);
