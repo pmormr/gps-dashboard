@@ -38,10 +38,17 @@ const GNSS = {
  */
 const TEXTURE_OFFSET = 0.0;
 
+const GM_KM3_S2 = 398600.4418; // Earth's gravitational parameter, km^3/s^2
+const PICK_PX = 18; // click pick tolerance, screen pixels
+
+/** gnssid → RINEX constellation letter, for satellite names (G01, E11, …). */
+const GNSS_LETTER = { 0: 'G', 1: 'S', 2: 'E', 3: 'C', 5: 'J', 6: 'R' };
+
 const container = document.getElementById('globe-container');
 const statusEl = document.getElementById('status');
 const infoEl = document.getElementById('info');
 const legendEl = document.getElementById('legend');
+const popupEl = document.getElementById('sat-popup');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -73,8 +80,15 @@ scene.add(makeStars());
 let earth = null;
 const satGroup = new THREE.Group();
 const markerGroup = new THREE.Group();
+const highlightGroup = new THREE.Group();
 scene.add(satGroup);
 scene.add(markerGroup);
+scene.add(highlightGroup);
+
+/** Per-satellite pick targets {sat, pos}, rebuilt each render for click picking. */
+const picks = [];
+/** Observer ECEF (km), kept for the popup's sky-angle math. */
+let observerVec = null;
 
 /** UI state: window hours, layer toggles, and per-constellation visibility. */
 const state = {
@@ -148,9 +162,12 @@ function render(data) {
   buildEarthIfNeeded(data.earth_radius_km);
   clearGroup(satGroup);
   clearGroup(markerGroup);
+  picks.length = 0;
+  hidePopup();
 
   const obs = data.observer;
   const obsVec = new THREE.Vector3(obs.x, obs.y, obs.z);
+  observerVec = obsVec;
   addMarker(obsVec);
 
   const seen = new Set();
@@ -161,6 +178,8 @@ function render(data) {
     sampleCount += sat.samples.length;
     const pts = sat.samples.map((s) => new THREE.Vector3(s.x, s.y, s.z));
     const last = pts[pts.length - 1];
+
+    picks.push({ sat, pos: last });
 
     const obj = new THREE.Group();
     obj.userData.gnssid = sat.gnssid;
@@ -296,6 +315,138 @@ function renderInfo(data, sampleCount) {
 function setStatus(msg) {
   statusEl.textContent = msg;
   statusEl.classList.toggle('hide', !msg);
+}
+
+/**
+ * Find the front-most satellite within the pick tolerance of a screen point.
+ *
+ * @param {number} px Click X in CSS pixels.
+ * @param {number} py Click Y in CSS pixels.
+ * @returns {{sat:Object, pos:THREE.Vector3, sx:number, sy:number}|null} Hit or null.
+ */
+function pickAt(px, py) {
+  let best = null;
+  let bestCamDist = Infinity;
+  for (const p of picks) {
+    if (state.hidden.has(p.sat.gnssid)) continue;
+    const ndc = p.pos.clone().project(camera);
+    if (ndc.z > 1) continue; // behind the camera
+    const sx = (ndc.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-ndc.y * 0.5 + 0.5) * window.innerHeight;
+    if (Math.hypot(sx - px, sy - py) > PICK_PX) continue;
+    const camDist = p.pos.distanceTo(camera.position);
+    if (camDist < bestCamDist) {
+      bestCamDist = camDist;
+      best = { sat: p.sat, pos: p.pos, sx, sy };
+    }
+  }
+  return best;
+}
+
+/** RINEX-style satellite name, e.g. G01 / E11. */
+function satName(gnssid, svid) {
+  return (GNSS_LETTER[gnssid] || '?') + String(svid).padStart(2, '0');
+}
+
+/** Circular-orbit speed (km/s) at a geocentric radius (km). */
+function orbitalSpeedKms(radiusKm) {
+  return Math.sqrt(GM_KM3_S2 / radiusKm);
+}
+
+/**
+ * Elevation/azimuth of a satellite as seen from the observer.
+ *
+ * @param {THREE.Vector3} pos Satellite ECEF position (km).
+ * @returns {{el:number, az:number}|null} Degrees, or null without an observer.
+ */
+function skyAngles(pos) {
+  if (!observerVec) return null;
+  const up = observerVec.clone().normalize();
+  const los = pos.clone().sub(observerVec).normalize();
+  const el = Math.asin(THREE.MathUtils.clamp(up.dot(los), -1, 1)) / DEG;
+  const east = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 0, 1), up);
+  if (east.lengthSq() < 1e-9) east.set(1, 0, 0);
+  east.normalize();
+  const north = new THREE.Vector3().crossVectors(up, east);
+  let az = Math.atan2(los.dot(east), los.dot(north)) / DEG;
+  if (az < 0) az += 360;
+  return { el, az };
+}
+
+/**
+ * Show the info popup for a satellite and halo its current position.
+ *
+ * @param {Object} sat The API satellite object.
+ * @param {THREE.Vector3} pos Its latest ECEF position (km).
+ * @param {number} sx Screen X to anchor the popup.
+ * @param {number} sy Screen Y to anchor the popup.
+ */
+function showPopup(sat, pos, sx, sy) {
+  clearGroup(highlightGroup);
+  const meta = GNSS[sat.gnssid] || { name: 'Other', color: 0x64748b };
+  const hex = '#' + meta.color.toString(16).padStart(6, '0');
+  const radiusKm = pos.length();
+  const altKm = radiusKm - earthRadiusKm;
+  const latest = sat.samples[sat.samples.length - 1];
+  const sky = skyAngles(pos);
+  const lastSeen = latest.t ? new Date(latest.t).toLocaleTimeString() : '—';
+  const signal = (typeof latest.snr === 'number' && latest.snr > 0)
+    ? `${latest.snr.toFixed(0)} dB-Hz${latest.used ? ' · used' : ''}`
+    : '—';
+  popupEl.innerHTML =
+    '<div class="pop-head">' +
+      `<div class="pop-name"><span class="sw" style="background:${hex}"></span>${satName(sat.gnssid, sat.svid)}</div>` +
+      '<button class="pop-close" aria-label="Close">×</button>' +
+    '</div>' +
+    `<div class="pop-row"><span>System</span><b>${meta.name}</b></div>` +
+    `<div class="pop-row"><span>Altitude</span><b>${Math.round(altKm).toLocaleString()} km</b></div>` +
+    `<div class="pop-row"><span>Speed</span><b>${orbitalSpeedKms(radiusKm).toFixed(2)} km/s</b></div>` +
+    (sky
+      ? `<div class="pop-row"><span>Elevation</span><b>${sky.el.toFixed(0)}°</b></div>` +
+        `<div class="pop-row"><span>Azimuth</span><b>${sky.az.toFixed(0)}°</b></div>`
+      : '') +
+    `<div class="pop-row"><span>Signal</span><b>${signal}</b></div>` +
+    `<div class="pop-row"><span>Observed</span><b>${sat.samples.length} · ${lastSeen}</b></div>`;
+  popupEl.querySelector('.pop-close').addEventListener('click', hidePopup);
+  popupEl.style.left = Math.min(window.innerWidth - 246, Math.max(8, sx + 14)) + 'px';
+  popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
+  popupEl.classList.remove('hidden');
+
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(620, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.55 }),
+  );
+  halo.position.copy(pos);
+  highlightGroup.add(halo);
+}
+
+/** Hide the popup and clear the selection halo. */
+function hidePopup() {
+  popupEl.classList.add('hidden');
+  clearGroup(highlightGroup);
+}
+
+/** Bind click-to-select (distinguished from a drag) and Escape-to-close. */
+function bindPicking() {
+  let downX = 0;
+  let downY = 0;
+  let downT = 0;
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    downX = e.clientX;
+    downY = e.clientY;
+    downT = performance.now();
+  });
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6 || performance.now() - downT > 500) {
+      return; // a drag-rotate, not a click
+    }
+    const hit = pickAt(e.clientX, e.clientY);
+    if (hit) showPopup(hit.sat, hit.pos, hit.sx, hit.sy);
+    else hidePopup();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hidePopup();
+  });
 }
 
 /** Fetch the constellation for the current window (or demo data) and render. */
@@ -446,6 +597,7 @@ function animate() {
 
 window.addEventListener('resize', onResize);
 bindControls();
+bindPicking();
 buildEarth(6371);
 load();
 animate();

@@ -53,6 +53,18 @@
       color: var(--muted); font-size: 12px; background: rgba(15, 23, 42, .7);
       padding: 5px 12px; border-radius: 999px;
     }
+
+    .popup {
+      position: fixed; width: 232px; z-index: 10; font-size: 12px;
+      background: rgba(15, 23, 42, .92); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(6px);
+    }
+    .popup.hidden { display: none; }
+    .pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .pop-name { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; }
+    .pop-close { background: none; border: none; color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; padding: 0 2px; }
+    .pop-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; color: var(--muted); }
+    .pop-row b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
   </style>
   <script type="importmap">
   { "imports": { "three": "/static/vendor/three/three.module.js" } }
@@ -83,7 +95,8 @@
     <div class="info" id="info">—</div>
   </div>
 
-  <div class="hint">PC view · drag to orbit · scroll to zoom</div>
+  <div class="hint">PC view · drag to orbit · scroll to zoom · click a satellite</div>
+  <div id="sat-popup" class="popup hidden"></div>
 
   <script type="module" src="/static/js/globe.js"></script>
 </body>
