@@ -18,7 +18,6 @@ See .claude/modules/observatory.md.
 from __future__ import annotations
 
 import argparse
-import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -29,34 +28,7 @@ from api.observatory import Sample, anchor_observer, reconstruct_tracks, sat_nam
 from common.cli import run_cli
 from common.gpsd import GNSS_NAMES
 from common.orbits import azel_at, fit_orbit
-from common.satgeo import ecef_to_azel, observer_ecef
-
-
-def angular_separation_deg(az1: float, el1: float, az2: float, el2: float) -> float:
-    """Angle between two az/el pointing directions, in degrees.
-
-    Builds the local East-North-Up unit vector for each direction and returns the
-    angle between them — the on-sky miss distance, which folds azimuth and
-    elevation error into one honest number (and stays well-behaved near zenith,
-    where azimuth alone blows up).
-
-    Args:
-        az1: First azimuth, degrees.
-        el1: First elevation, degrees.
-        az2: Second azimuth, degrees.
-        el2: Second elevation, degrees.
-
-    Returns:
-        The separation angle in degrees, in ``[0, 180]``.
-    """
-
-    def enu(az: float, el: float) -> tuple[float, float, float]:
-        a, e = math.radians(az), math.radians(el)
-        return (math.cos(e) * math.sin(a), math.cos(e) * math.cos(a), math.sin(e))
-
-    v1, v2 = enu(az1, el1), enu(az2, el2)
-    dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(v1, v2, strict=True))))
-    return math.degrees(math.acos(dot))
+from common.satgeo import angular_separation_deg, ecef_to_azel, observer_ecef
 
 
 def _percentile(values: list[float], frac: float) -> float:
