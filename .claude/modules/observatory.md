@@ -53,7 +53,11 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
 
 - `GET /api/constellation?start=&end=` (`api/routes/globe.py`) — reconstructed 3D
   positions over a window, grouped by SV, with each SV's fitted orbit-plane
-  `normal` for the display ring. Feeds `/globe`.
+  `normal` for the display ring. Where the orbit fits, each SV also carries a
+  `predicted` current position (propagated to the window end) + a trailing
+  `trail` of predicted positions, so a set satellite continues around the far
+  side instead of freezing at the horizon (null/empty without a fit). Feeds
+  `/globe`.
 - `GET /api/passes?hours=&mask=&track=1` (`api/routes/passes.py`) — fits each SV
   seen in the trailing 72h, propagates over the horizon (≤48h), returns upcoming
   passes (RINEX name, rise/peak/set times+az, peak el, duration, in-progress, max
@@ -65,9 +69,13 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
 
 - `/globe` (`static/js/globe.js`, `templates/globe.html`) — three.js textured
   Earth in ECEF (vendored r160, `static/vendor/three/` + Earth textures in
-  `static/img/`, offline). Per-SV arcs + dots + full orbit rings, observer
-  marker, sight-lines, click-popup. **PC-only** (WebGL). `?demo` synthesises a
-  constellation offline.
+  `static/img/`, offline). Per-SV predicted-position dots + faint orbit rings;
+  click-to-focus brightens that SV's ring and draws its predicted trail.
+  **Trails are focus-only by default** (the Trails toggle shows all at once):
+  each trail is the true ground-relative path, which bends away from the static
+  great-circle ring as Earth rotates, so many at once is unreadable. Observer
+  marker, sight-lines (above-horizon only), click-popup. **PC-only** (WebGL).
+  `?demo` synthesises a constellation offline.
 - `/passes` (`static/js/passes.js`, `templates/passes.html`) — phone-friendly
   schedule, one card per pass (rise/peak/set + compass azimuths, peak el, live
   countdown), constellation-coloured. Horizon/mask chips, 60s auto-refresh.

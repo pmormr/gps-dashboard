@@ -8,11 +8,19 @@
  * observer marker and every satellite physically consistent — only the Earth
  * texture has to be aligned to that frame.
  *
- * Per satellite: a polyline arc through its samples (the observed track) plus a
- * dot at its latest position, coloured by constellation. A marker pins the van's
- * location, with optional sight-lines to the satellites currently in view. PC
- * browsers only (WebGL, mouse orbit/zoom). `?demo` synthesises a constellation
- * for offline development.
+ * Per satellite: a dot at its current predicted position — propagated from the
+ * fitted orbit, so a satellite that has set sits on the far side of the Earth
+ * instead of frozen at the horizon — plus a faint full orbit ring, coloured by
+ * constellation. Clicking a satellite focuses it: its orbit ring brightens and
+ * its predicted trail (the true ground-relative path up to the dot) is drawn.
+ * Trails are per-focus by default because each bends away from its great-circle
+ * ring as Earth rotates and many at once is unreadable; the Trails toggle shows
+ * them all. (Without an orbit fit a dot falls back to the last observed sample,
+ * and the all-trails view to the observed track split at between-pass gaps so it
+ * never chords across the planet.) A marker pins the van's location, with
+ * sight-lines to the satellites currently above the horizon. PC browsers only
+ * (WebGL, mouse orbit/zoom). `?demo` synthesises a constellation for offline
+ * development.
  */
 
 import * as THREE from 'three';
@@ -93,7 +101,7 @@ let observerVec = null;
 /** UI state: window hours, layer toggles, and per-constellation visibility. */
 const state = {
   hours: 24,
-  arcs: true,
+  trails: false,
   rays: true,
   orbits: true,
   spin: true,
@@ -154,6 +162,60 @@ function clearGroup(group) {
 }
 
 /**
+ * A constellation-coloured arc line through ECEF points (km).
+ *
+ * @param {THREE.Vector3[]} points Ordered positions.
+ * @param {number} color Constellation colour.
+ * @returns {THREE.Line} The arc line.
+ */
+function arcLine(points, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 }));
+}
+
+/**
+ * Split an observed track at between-pass gaps.
+ *
+ * Consecutive observations within a pass are ~60 s apart (a tiny angular step);
+ * a multi-hour below-horizon gap shows up as a large jump between the set point
+ * and the next rise. Breaking the polyline there stops the renderer drawing a
+ * straight chord across the planet between two passes. Used only as the no-fit
+ * fallback (a fitted satellite gets a smooth predicted trail instead).
+ *
+ * @param {THREE.Vector3[]} pts Time-ordered ECEF positions (km).
+ * @param {number} maxStepDeg Angular jump (deg) that starts a new segment.
+ * @returns {THREE.Vector3[][]} Contiguous segments.
+ */
+function splitAtGaps(pts, maxStepDeg = 30) {
+  const minCos = Math.cos(maxStepDeg * DEG);
+  const segs = [];
+  let seg = [];
+  for (const p of pts) {
+    if (seg.length) {
+      const cos = seg[seg.length - 1].clone().normalize().dot(p.clone().normalize());
+      if (cos < minCos) {
+        segs.push(seg);
+        seg = [];
+      }
+    }
+    seg.push(p);
+  }
+  if (seg.length) segs.push(seg);
+  return segs;
+}
+
+/**
+ * Whether a position is above the observer's local horizon.
+ *
+ * @param {THREE.Vector3} obsVec Observer ECEF (km).
+ * @param {THREE.Vector3} pos Target ECEF (km).
+ * @returns {boolean} True when the line of sight points above the horizon.
+ */
+function aboveHorizon(obsVec, pos) {
+  return pos.clone().sub(obsVec).dot(obsVec.clone().normalize()) > 0;
+}
+
+/**
  * Rebuild the satellite arcs, dots, and sight-lines from a constellation payload.
  *
  * @param {Object} data `/api/constellation` response (observer + per-SV samples).
@@ -177,7 +239,12 @@ function render(data) {
     seen.add(sat.gnssid);
     sampleCount += sat.samples.length;
     const pts = sat.samples.map((s) => new THREE.Vector3(s.x, s.y, s.z));
-    const last = pts[pts.length - 1];
+    const trail = (sat.trail || []).map((p) => new THREE.Vector3(p.x, p.y, p.z));
+    // Dot at the current predicted position (a set SV is on the far side); fall
+    // back to the last observed sample when the orbit could not be fit.
+    const last = sat.predicted
+      ? new THREE.Vector3(sat.predicted.x, sat.predicted.y, sat.predicted.z)
+      : pts[pts.length - 1];
 
     picks.push({ sat, pos: last });
 
@@ -189,11 +256,21 @@ function render(data) {
       obj.add(orbitRing(sat.orbit, meta.color));
     }
 
-    if (state.arcs && pts.length >= 2) {
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      obj.add(new THREE.Line(geo, new THREE.LineBasicMaterial({
-        color: meta.color, transparent: true, opacity: 0.7,
-      })));
+    // The focused satellite always gets its trail (in showPopup); the Trails
+    // toggle additionally draws every satellite's trail at once — informative but
+    // busy (each is the true ground-relative path, which bends away from the
+    // great-circle ring as Earth rotates), so it defaults off.
+    if (state.trails) {
+      // Prefer the predicted trail (wraps around the back to the dot); without a
+      // fit, draw the observed track split at between-pass gaps so the line never
+      // chords across the planet.
+      if (trail.length >= 2) {
+        obj.add(arcLine(trail, meta.color));
+      } else {
+        for (const seg of splitAtGaps(pts)) {
+          if (seg.length >= 2) obj.add(arcLine(seg, meta.color));
+        }
+      }
     }
 
     const snr = sat.samples[sat.samples.length - 1].snr || 0;
@@ -204,7 +281,9 @@ function render(data) {
     dot.position.copy(last);
     obj.add(dot);
 
-    if (state.rays) {
+    // Sight-line only when the satellite is actually above the horizon now; a
+    // set SV's predicted dot is behind the Earth, so no ray is drawn to it.
+    if (state.rays && aboveHorizon(obsVec, last)) {
       const geo = new THREE.BufferGeometry().setFromPoints([obsVec, last]);
       obj.add(new THREE.Line(geo, new THREE.LineBasicMaterial({
         color: meta.color, transparent: true, opacity: 0.18,
@@ -236,9 +315,10 @@ function buildEarthIfNeeded(radiusKm) {
  *
  * @param {Object} orbit `{nx, ny, nz, radius_km}` from the API.
  * @param {number} color Constellation colour.
+ * @param {number} opacity Line opacity (faint for the overview, bright on focus).
  * @returns {THREE.LineLoop} The ring loop.
  */
-function orbitRing(orbit, color) {
+function orbitRing(orbit, color, opacity = 0.22) {
   const n = new THREE.Vector3(orbit.nx, orbit.ny, orbit.nz).normalize();
   const ref = Math.abs(n.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(ref, n).normalize();
@@ -252,7 +332,7 @@ function orbitRing(orbit, color) {
       .addScaledVector(v, orbit.radius_km * Math.sin(t)));
   }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  return new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 }));
+  return new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
 }
 
 /**
@@ -374,10 +454,16 @@ function skyAngles(pos) {
 }
 
 /**
- * Show the info popup for a satellite and halo its current position.
+ * Show the info popup for a satellite, and highlight its orbit + recent trail.
+ *
+ * Focusing a satellite reveals detail the cluttered overview hides: its full
+ * orbit ring brightened so the plane stands out, and its predicted trail (the
+ * true ground-relative path up to the current dot, drawn one at a time so the
+ * Earth-rotation bend reads in context rather than as noise) — both in the
+ * highlight group, cleared on unfocus.
  *
  * @param {Object} sat The API satellite object.
- * @param {THREE.Vector3} pos Its latest ECEF position (km).
+ * @param {THREE.Vector3} pos Its current ECEF position (km).
  * @param {number} sx Screen X to anchor the popup.
  * @param {number} sy Screen Y to anchor the popup.
  */
@@ -411,6 +497,13 @@ function showPopup(sat, pos, sx, sy) {
   popupEl.style.left = Math.min(window.innerWidth - 246, Math.max(8, sx + 14)) + 'px';
   popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
   popupEl.classList.remove('hidden');
+
+  if (sat.orbit) {
+    highlightGroup.add(orbitRing(sat.orbit, meta.color, 0.85));
+  }
+  if (sat.trail && sat.trail.length >= 2) {
+    highlightGroup.add(arcLine(sat.trail.map((p) => new THREE.Vector3(p.x, p.y, p.z)), meta.color));
+  }
 
   const halo = new THREE.Mesh(
     new THREE.SphereGeometry(620, 16, 12),
@@ -566,7 +659,7 @@ function bindControls() {
     });
   });
   bindToggle('t-orbits', 'orbits', () => load());
-  bindToggle('t-arcs', 'arcs', () => load());
+  bindToggle('t-trails', 'trails', () => load());
   bindToggle('t-rays', 'rays', () => load());
   bindToggle('t-spin', 'spin', () => { controls.autoRotate = state.spin; });
   controls.autoRotate = state.spin;
