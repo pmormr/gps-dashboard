@@ -8,19 +8,20 @@
  * observer marker and every satellite physically consistent — only the Earth
  * texture has to be aligned to that frame.
  *
- * Per satellite: a dot at its current predicted position — propagated from the
- * fitted orbit, so a satellite that has set sits on the far side of the Earth
- * instead of frozen at the horizon — plus a faint full orbit ring, coloured by
- * constellation. Clicking a satellite focuses it: its orbit ring brightens and
- * its predicted trail (the true ground-relative path up to the dot) is drawn.
- * Trails are per-focus by default because each bends away from its great-circle
- * ring as Earth rotates and many at once is unreadable; the Trails toggle shows
- * them all. (Without an orbit fit a dot falls back to the last observed sample,
- * and the all-trails view to the observed track split at between-pass gaps so it
- * never chords across the planet.) A marker pins the van's location, with
- * sight-lines to the satellites currently above the horizon. PC browsers only
- * (WebGL, mouse orbit/zoom). `?demo` synthesises a constellation for offline
- * development.
+ * The server sends each satellite's inertial-frame orbit fit and the client
+ * propagates it here (one fit, one model), so the dot, trail, ring, and focused
+ * orbit can't disagree. Per satellite: a dot at its current position — a set
+ * satellite sits on the far side instead of frozen at the horizon — plus a faint
+ * instantaneous orbit ring (the inertial plane rotated into ECEF at the window
+ * end, so the dot sits on its ring). Clicking a satellite focuses it and draws
+ * its full orbit as the propagated ECEF path — not a great-circle ring, because
+ * over a period the true path precesses off any static plane; the dot and the
+ * brighter recent trail are sub-segments of that same path. Trails are per-focus
+ * by default (the Trails toggle shows them all). Without an orbit fit a dot falls
+ * back to the last observed sample, and the all-trails view to the observed track
+ * split at between-pass gaps so it never chords across the planet. A marker pins
+ * the van's location, with sight-lines to the satellites above the horizon. PC
+ * browsers only (WebGL). `?demo` synthesises a constellation for offline dev.
  */
 
 import * as THREE from 'three';
@@ -97,6 +98,8 @@ scene.add(highlightGroup);
 const picks = [];
 /** Observer ECEF (km), kept for the popup's sky-angle math. */
 let observerVec = null;
+/** Window-end Unix seconds (the snapshot instant the orbits propagate to). */
+let windowEndUnix = 0;
 
 /** UI state: window hours, layer toggles, and per-constellation visibility. */
 const state = {
@@ -166,11 +169,17 @@ function clearGroup(group) {
  *
  * @param {THREE.Vector3[]} points Ordered positions.
  * @param {number} color Constellation colour.
+ * @param {number} opacity Line opacity.
  * @returns {THREE.Line} The arc line.
  */
-function arcLine(points, color) {
+function arcLine(points, color, opacity = 0.7) {
   const geo = new THREE.BufferGeometry().setFromPoints(points);
-  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 }));
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+}
+
+/** Unix seconds for a sample's canonical timestamp. */
+function sampleUnix(sample) {
+  return Date.parse(sample.t) / 1000;
 }
 
 /**
@@ -230,6 +239,7 @@ function render(data) {
   const obs = data.observer;
   const obsVec = new THREE.Vector3(obs.x, obs.y, obs.z);
   observerVec = obsVec;
+  windowEndUnix = data.window && data.window.end ? Date.parse(data.window.end) / 1000 : Date.now() / 1000;
   addMarker(obsVec);
 
   const seen = new Set();
@@ -238,13 +248,14 @@ function render(data) {
     const meta = GNSS[sat.gnssid] || { name: 'Other', color: 0x64748b };
     seen.add(sat.gnssid);
     sampleCount += sat.samples.length;
-    const pts = sat.samples.map((s) => new THREE.Vector3(s.x, s.y, s.z));
-    const trail = (sat.trail || []).map((p) => new THREE.Vector3(p.x, p.y, p.z));
-    // Dot at the current predicted position (a set SV is on the far side); fall
-    // back to the last observed sample when the orbit could not be fit.
-    const last = sat.predicted
-      ? new THREE.Vector3(sat.predicted.x, sat.predicted.y, sat.predicted.z)
-      : pts[pts.length - 1];
+
+    const orbit = sat.orbit;
+    const lastSample = sat.samples[sat.samples.length - 1];
+    // Live position propagated from the fitted orbit (a set SV is on the far
+    // side); fall back to the last observed sample when the orbit can't be fit.
+    const last = orbit
+      ? orbitAt(orbit, windowEndUnix)
+      : new THREE.Vector3(lastSample.x, lastSample.y, lastSample.z);
 
     picks.push({ sat, pos: last });
 
@@ -252,28 +263,28 @@ function render(data) {
     obj.userData.gnssid = sat.gnssid;
     obj.visible = !state.hidden.has(sat.gnssid);
 
-    if (state.orbits && sat.orbit) {
-      obj.add(orbitRing(sat.orbit, meta.color));
+    // Instantaneous orbit ring — its plane is rotated into ECEF at the window
+    // end, so the dot sits on the ring.
+    if (state.orbits && orbit) {
+      obj.add(instantRing(orbit, windowEndUnix, meta.color, 0.22));
     }
 
     // The focused satellite always gets its trail (in showPopup); the Trails
     // toggle additionally draws every satellite's trail at once — informative but
-    // busy (each is the true ground-relative path, which bends away from the
-    // great-circle ring as Earth rotates), so it defaults off.
+    // busy (each is the true ground-relative path, which bends away from the ring
+    // as Earth rotates), so it defaults off.
     if (state.trails) {
-      // Prefer the predicted trail (wraps around the back to the dot); without a
-      // fit, draw the observed track split at between-pass gaps so the line never
-      // chords across the planet.
-      if (trail.length >= 2) {
-        obj.add(arcLine(trail, meta.color));
+      if (orbit) {
+        obj.add(arcLine(orbitTrail(orbit, windowEndUnix, sampleUnix(lastSample)), meta.color));
       } else {
+        const pts = sat.samples.map((s) => new THREE.Vector3(s.x, s.y, s.z));
         for (const seg of splitAtGaps(pts)) {
           if (seg.length >= 2) obj.add(arcLine(seg, meta.color));
         }
       }
     }
 
-    const snr = sat.samples[sat.samples.length - 1].snr || 0;
+    const snr = lastSample.snr || 0;
     const dot = new THREE.Mesh(
       new THREE.SphereGeometry(180 + Math.min(50, snr) * 9, 12, 10),
       new THREE.MeshBasicMaterial({ color: meta.color }),
@@ -281,8 +292,8 @@ function render(data) {
     dot.position.copy(last);
     obj.add(dot);
 
-    // Sight-line only when the satellite is actually above the horizon now; a
-    // set SV's predicted dot is behind the Earth, so no ray is drawn to it.
+    // Sight-line only when the satellite is above the horizon now; a set SV's dot
+    // is behind the Earth, so no ray is drawn to it.
     if (state.rays && aboveHorizon(obsVec, last)) {
       const geo = new THREE.BufferGeometry().setFromPoints([obsVec, last]);
       obj.add(new THREE.Line(geo, new THREE.LineBasicMaterial({
@@ -306,33 +317,131 @@ function buildEarthIfNeeded(radiusKm) {
   }
 }
 
+// --- Orbit propagation (ported from common/orbits.py + common/satgeo.py) ---
+// The server sends each satellite's inertial-frame fit; the client propagates it
+// so the live dot, trail, instantaneous ring, and focused full orbit all derive
+// from one fit through one model and cannot disagree. θ(t) = phase0 + n·(t−epoch);
+// the position is on the ECI circle of radius r in plane (u, v), rotated into
+// ECEF by −GMST(t).
+
+const TRAIL_MIN_S = 1200; // shortest trail behind a just-seen satellite
+const TRAIL_STEP_S = 120; // trail/path sample cadence (s)
+const TRAIL_MAX_PTS = 128; // cap on trail samples
+
+/** Julian Date for a Unix timestamp. */
+function julianDate(unixS) {
+  return unixS / 86400 + 2440587.5;
+}
+
+/** Greenwich Mean Sidereal Time (radians), IAU 1982 — matches common.satgeo. */
+function gmstRad(unixS) {
+  const t = (julianDate(unixS) - 2451545.0) / 36525.0;
+  const sec = 67310.54841 + (876600.0 * 3600.0 + 8640184.812866) * t + 0.093104 * t * t - 6.2e-6 * t * t * t;
+  return (((sec % 86400) + 86400) % 86400) * (2 * Math.PI / 86400);
+}
+
+/** Rotate (x, y, z) about +Z by `ang` (right-handed); ECI→ECEF uses −GMST. */
+function rotateZ(x, y, z, ang) {
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  return new THREE.Vector3(x * c - y * s, x * s + y * c, z);
+}
+
+/** Orbital period (s) of a fitted orbit. */
+function orbitPeriod(o) {
+  return (2 * Math.PI) / o.n;
+}
+
 /**
- * Build the full great-circle orbit ring from a fitted plane normal.
+ * ECEF position (km) of a fitted orbit at a Unix time.
  *
- * The orbital plane passes through Earth's centre, so the complete orbit is the
- * circle of the constellation's orbital radius lying in that plane — drawn even
- * where we never observed the satellite (the far side, below the horizon).
- *
- * @param {Object} orbit `{nx, ny, nz, radius_km}` from the API.
- * @param {number} color Constellation colour.
- * @param {number} opacity Line opacity (faint for the overview, bright on focus).
- * @returns {THREE.LineLoop} The ring loop.
+ * @param {Object} o Orbit params `{epoch, radius_km, n, phase0, u, v, normal}`.
+ * @param {number} t Unix seconds.
+ * @returns {THREE.Vector3} ECEF position (km).
  */
-function orbitRing(orbit, color, opacity = 0.22) {
-  const n = new THREE.Vector3(orbit.nx, orbit.ny, orbit.nz).normalize();
+function orbitAt(o, t) {
+  const th = o.phase0 + o.n * (t - o.epoch);
+  const c = Math.cos(th);
+  const s = Math.sin(th);
+  const r = o.radius_km;
+  return rotateZ(
+    r * (c * o.u[0] + s * o.v[0]),
+    r * (c * o.u[1] + s * o.v[1]),
+    r * (c * o.u[2] + s * o.v[2]),
+    -gmstRad(t),
+  );
+}
+
+/** Sample a fitted orbit's ECEF path over `[t0, t1]` into `nPts+1` points (km). */
+function orbitPath(o, t0, t1, nPts) {
+  const pts = [];
+  for (let i = 0; i <= nPts; i++) pts.push(orbitAt(o, t0 + ((t1 - t0) * i) / nPts));
+  return pts;
+}
+
+/**
+ * Recent predicted trail behind the dot: from where the SV was last seen up to
+ * the window end, clamped to `[TRAIL_MIN_S, one period]` so a just-seen SV still
+ * shows motion and a long-gone one traces at most one loop.
+ *
+ * @param {Object} o Orbit params.
+ * @param {number} endUnix Window-end (dot) time.
+ * @param {number} lastSeenUnix Latest observation time.
+ * @returns {THREE.Vector3[]} Trail points (km), oldest first.
+ */
+function orbitTrail(o, endUnix, lastSeenUnix) {
+  const span = Math.min(Math.max(endUnix - lastSeenUnix, TRAIL_MIN_S), orbitPeriod(o));
+  const nPts = Math.min(TRAIL_MAX_PTS, Math.max(2, Math.ceil(span / TRAIL_STEP_S)));
+  return orbitPath(o, endUnix - span, endUnix, nPts);
+}
+
+/** Right-handed in-plane basis (u, v) for a plane normal. */
+function planeBasis(normal) {
+  const n = normal.clone().normalize();
   const ref = Math.abs(n.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(ref, n).normalize();
   const v = new THREE.Vector3().crossVectors(n, u);
+  return { u, v };
+}
+
+/**
+ * A great-circle ring of the given radius in the plane with the given ECEF normal.
+ *
+ * @param {THREE.Vector3} normal Plane normal (ECEF).
+ * @param {number} radiusKm Ring radius (km).
+ * @param {number} color Constellation colour.
+ * @param {number} opacity Line opacity.
+ * @returns {THREE.LineLoop} The ring loop.
+ */
+function greatCircle(normal, radiusKm, color, opacity) {
+  const { u, v } = planeBasis(normal);
   const pts = [];
   const segments = 160;
   for (let i = 0; i < segments; i++) {
     const t = (i / segments) * 2 * Math.PI;
     pts.push(new THREE.Vector3()
-      .addScaledVector(u, orbit.radius_km * Math.cos(t))
-      .addScaledVector(v, orbit.radius_km * Math.sin(t)));
+      .addScaledVector(u, radiusKm * Math.cos(t))
+      .addScaledVector(v, radiusKm * Math.sin(t)));
   }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   return new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+}
+
+/**
+ * The satellite's instantaneous orbit ring: its inertial plane rotated into ECEF
+ * at time `t`, so the great circle passes through the dot at `t`. A static ring
+ * only matches the orbit at one instant — over time the true ECEF path precesses
+ * off it (that drift is what the focused full-period path shows).
+ *
+ * @param {Object} orbit Orbit params.
+ * @param {number} t Window-end time.
+ * @param {number} color Constellation colour.
+ * @param {number} opacity Line opacity.
+ * @returns {THREE.LineLoop} The ring loop.
+ */
+function instantRing(orbit, t, color, opacity) {
+  const nEcef = rotateZ(orbit.normal[0], orbit.normal[1], orbit.normal[2], -gmstRad(t));
+  return greatCircle(nEcef, orbit.radius_km, color, opacity);
 }
 
 /**
@@ -456,11 +565,11 @@ function skyAngles(pos) {
 /**
  * Show the info popup for a satellite, and highlight its orbit + recent trail.
  *
- * Focusing a satellite reveals detail the cluttered overview hides: its full
- * orbit ring brightened so the plane stands out, and its predicted trail (the
- * true ground-relative path up to the current dot, drawn one at a time so the
- * Earth-rotation bend reads in context rather than as noise) — both in the
- * highlight group, cleared on unfocus.
+ * Focusing a satellite reveals detail the cluttered overview hides: its
+ * full-period orbit drawn as the propagated ECEF path (not a great-circle ring —
+ * the dot and the brighter recent trail are sub-segments of this same curve, so
+ * all three line up exactly, and its precession off the instantaneous ring is
+ * the true Earth-rotation drift). All in the highlight group, cleared on unfocus.
  *
  * @param {Object} sat The API satellite object.
  * @param {THREE.Vector3} pos Its current ECEF position (km).
@@ -498,11 +607,13 @@ function showPopup(sat, pos, sx, sy) {
   popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
   popupEl.classList.remove('hidden');
 
+  // Focused orbit: the full-period propagated path, with the brighter recent
+  // trail on top. A static great-circle ring can't contain the time-varying ECEF
+  // path, so the path is the only thing that lines up with both dot and trail.
   if (sat.orbit) {
-    highlightGroup.add(orbitRing(sat.orbit, meta.color, 0.85));
-  }
-  if (sat.trail && sat.trail.length >= 2) {
-    highlightGroup.add(arcLine(sat.trail.map((p) => new THREE.Vector3(p.x, p.y, p.z)), meta.color));
+    const period = orbitPeriod(sat.orbit);
+    highlightGroup.add(arcLine(orbitPath(sat.orbit, windowEndUnix - period, windowEndUnix, 256), meta.color, 0.5));
+    highlightGroup.add(arcLine(orbitTrail(sat.orbit, windowEndUnix, sampleUnix(latest)), meta.color, 0.9));
   }
 
   const halo = new THREE.Mesh(
@@ -579,36 +690,45 @@ async function fetchWindow(hours) {
 
 /**
  * Synthesise a constellation for offline development (`?demo`): a Colorado
- * observer plus satellites on inclined circular orbits, each sampled along a
- * visible arc.
+ * observer plus satellites on inclined circular orbits, emitted as the same
+ * inertial orbit params the API returns so the client propagates them identically.
  *
  * @returns {Object} A payload matching the `/api/constellation` shape.
  */
 function demoData() {
   const R_EARTH = 6371;
   const obs = sphericalEcef(39.74, -104.99, R_EARTH);
+  const now = Date.now() / 1000;
   const defs = [[0, 26560, 8], [6, 25510, 6], [2, 29600, 6], [3, 27910, 5]];
   const sats = [];
   let svid = 1;
-  for (const [gnssid, radius, n] of defs) {
-    for (let i = 0; i < n; i++) {
-      const inc = (50 + Math.random() * 12) * DEG;
-      const raan = Math.random() * 2 * Math.PI;
-      const phase0 = Math.random() * 2 * Math.PI;
+  for (const [gnssid, radius, count] of defs) {
+    const n = Math.sqrt(GM_KM3_S2 / radius ** 3);
+    for (let i = 0; i < count; i++) {
+      const nrm = orbitNormal((50 + Math.random() * 12) * DEG, Math.random() * 2 * Math.PI);
+      const { u, v } = planeBasis(nrm);
+      const orbit = {
+        epoch: now,
+        radius_km: radius,
+        n,
+        phase0: Math.random() * 2 * Math.PI,
+        u: [u.x, u.y, u.z],
+        v: [v.x, v.y, v.z],
+        normal: [nrm.x, nrm.y, nrm.z],
+      };
       const samples = [];
-      for (let k = 0; k < 24; k++) {
-        const nu = phase0 + k * 0.04;
-        const p = orbitPoint(radius, inc, raan, nu);
-        samples.push({ t: null, x: p.x, y: p.y, z: p.z, snr: 18 + Math.random() * 28, used: Math.random() > 0.4 });
+      for (let k = 0; k < 8; k++) {
+        const t = now - 3600 + k * 450;
+        const p = orbitAt(orbit, t);
+        samples.push({ t: new Date(t * 1000).toISOString(), x: p.x, y: p.y, z: p.z, snr: 18 + Math.random() * 28, used: Math.random() > 0.4 });
       }
-      const nrm = orbitNormal(inc, raan);
-      sats.push({ gnssid, svid: svid++, samples, orbit: { nx: nrm.x, ny: nrm.y, nz: nrm.z, radius_km: radius } });
+      sats.push({ gnssid, svid: svid++, samples, orbit });
     }
   }
   return {
     observer: { lat: 39.74, lon: -104.99, alt: 1600, x: obs.x, y: obs.y, z: obs.z, timestamp: new Date().toISOString() },
     earth_radius_km: R_EARTH,
-    window: {},
+    window: { end: new Date(now * 1000).toISOString() },
     sats,
   };
 }
@@ -624,27 +744,12 @@ function sphericalEcef(latDeg, lonDeg, r) {
   );
 }
 
-/** Orbit-plane normal for a demo orbit (matches orbitPoint's plane). */
+/** Orbit-plane normal for a demo orbit at the given inclination/RAAN. */
 function orbitNormal(inc, raan) {
   return new THREE.Vector3(
     Math.sin(raan) * Math.sin(inc),
     -Math.cos(raan) * Math.sin(inc),
     Math.cos(inc),
-  );
-}
-
-/** A point on an inclined circular orbit (demo only). */
-function orbitPoint(radius, inc, raan, nu) {
-  const xo = radius * Math.cos(nu);
-  const yo = radius * Math.sin(nu);
-  const ci = Math.cos(inc);
-  const si = Math.sin(inc);
-  const cr = Math.cos(raan);
-  const sr = Math.sin(raan);
-  return new THREE.Vector3(
-    xo * cr - yo * ci * sr,
-    xo * sr + yo * ci * cr,
-    yo * si,
   );
 }
 

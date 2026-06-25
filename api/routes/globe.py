@@ -3,70 +3,28 @@
 ``/globe`` renders the satellites we've logged in true 3D scale around the Earth
 (three.js, PC browsers). ``/api/constellation`` reconstructs each
 ``sat_observations`` row in a time window to an ECEF position via
-:mod:`common.satgeo`, anchored to a representative observer fix, and groups them
-by satellite so the client draws one arc per SV. See
+:mod:`common.satgeo`, anchored to a representative observer fix, fits each
+satellite's inertial orbit, and groups both by satellite — the client propagates
+the fit to draw the live position, trail, and orbit. See
 .claude/modules/observatory.md.
 """
 
 from __future__ import annotations
 
-import math
 from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, jsonify, render_template, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
-from api.observatory import anchor_observer, reconstruct_tracks, unix_seconds
+from api.observatory import anchor_observer, reconstruct_tracks
 from api.params import parse_time
-from common.orbits import Orbit, fit_orbit, position_ecef
-from common.satgeo import EARTH_RADIUS_M, fit_orbit_normal, observer_ecef
+from common.orbits import fit_orbit
+from common.satgeo import EARTH_RADIUS_M, observer_ecef
 
 globe_bp = Blueprint('globe', __name__)
 
 # Default trailing window when the client omits start/end.
 _DEFAULT_WINDOW_HOURS = 24
-
-# Predicted-tail shape. A satellite that has set keeps moving along its fitted
-# orbit, so the globe draws a trailing predicted path from where it was last seen
-# up to the window end (the dot). The span is clamped to at least _TRAIL_MIN_S (so
-# a just-seen SV still shows recent motion) and at most one orbital period (so a
-# long-gone SV traces at most one full loop, not an overlapping retrace), sampled
-# at _TRAIL_STEP_S up to _TRAIL_MAX_PTS points.
-_TRAIL_MIN_S = 1200.0
-_TRAIL_STEP_S = 120.0
-_TRAIL_MAX_PTS = 128
-
-
-def _predicted_path(
-    orbit: Orbit, end_unix: float, last_seen_unix: float
-) -> tuple[dict[str, float], list[dict[str, float]]]:
-    """Propagate a fitted orbit to a current-position dot plus a trailing path.
-
-    The dot is the satellite's position at ``end_unix`` (``now`` for a live
-    window); the trail runs from where the SV was last observed up to that dot, so
-    a set satellite continues around the far side of the Earth instead of freezing
-    at the horizon. The trail span is clamped to ``[_TRAIL_MIN_S, period]``.
-
-    Args:
-        orbit: The fitted orbit.
-        end_unix: Window-end (dot) time, Unix seconds.
-        last_seen_unix: Time of the latest observation, Unix seconds.
-
-    Returns:
-        ``(predicted, trail)`` — the dot ``{x, y, z}`` and the oldest-first trail
-        point list, both in kilometres.
-    """
-    px, py, pz = position_ecef(orbit, end_unix)
-    predicted = {'x': px / 1000.0, 'y': py / 1000.0, 'z': pz / 1000.0}
-
-    period_s = 2.0 * math.pi / orbit.n_rad_s
-    span = min(max(end_unix - last_seen_unix, _TRAIL_MIN_S), period_s)
-    n_pts = min(_TRAIL_MAX_PTS, max(2, math.ceil(span / _TRAIL_STEP_S)))
-    trail: list[dict[str, float]] = []
-    for i in range(n_pts + 1):
-        tx, ty, tz = position_ecef(orbit, end_unix - span + span * i / n_pts)
-        trail.append({'x': tx / 1000.0, 'y': ty / 1000.0, 'z': tz / 1000.0})
-    return predicted, trail
 
 
 @globe_bp.get('/globe')
@@ -82,16 +40,17 @@ def constellation():
     Anchors to a single representative observer fix (the latest at/just before
     the window end) — over a parked session the van barely moves relative to the
     ~26,000 km orbital baseline, so one origin is ample. Each logged az/el is
-    inverted to an ECEF position against its constellation's orbital sphere;
-    unmodelled constellations (e.g. IMES) are skipped. Positions are returned in
-    kilometres, grouped by ``(gnssid, svid)`` so the client renders one arc per
-    satellite. Window defaults to the trailing 24h.
+    inverted to an ECEF position against its constellation's orbital sphere
+    (``samples``, kilometres); unmodelled constellations (e.g. IMES) are skipped.
+    Window defaults to the trailing 24h.
 
     Where the orbit fits (:func:`common.orbits.fit_orbit`), each satellite also
-    carries a ``predicted`` current position (propagated to the window end) and a
-    trailing ``trail`` of predicted positions, so a satellite that has set is
-    drawn continuing around the far side of the Earth rather than frozen at the
-    horizon. Both are null/empty when the orbit cannot be fit.
+    carries its inertial-frame ``orbit`` parameters (epoch, radius, mean motion,
+    epoch phase, and the in-plane ``u``/``v`` + ``normal`` unit basis). The client
+    propagates these with the same two-body model to place the live dot, its
+    trailing path, the instantaneous orbit ring, and the focused full-period
+    orbit — one fit, one propagator, so all four agree. ``orbit`` is null when the
+    fit fails (the client then falls back to the last observed sample).
     """
     end = request.args.get('end')
     if end:
@@ -127,41 +86,33 @@ def constellation():
         [start, end],
     ).fetchall()
     tracks = reconstruct_tracks(rows, lat, lon, origin)
-    end_unix = unix_seconds(end)
 
     sat_list = []
     for (gid, svid), samples in tracks.items():
-        pts_km = [
-            (s.ecef_m[0] / 1000.0, s.ecef_m[1] / 1000.0, s.ecef_m[2] / 1000.0) for s in samples
-        ]
-        normal = fit_orbit_normal(pts_km)
-        orbit = None
-        if normal is not None:
-            orbit = {
-                'nx': normal[0],
-                'ny': normal[1],
-                'nz': normal[2],
-                'radius_km': math.sqrt(sum(c * c for c in pts_km[0])),
-            }
         samples_json = [
-            {'t': s.t, 'x': p[0], 'y': p[1], 'z': p[2], 'snr': s.snr, 'used': s.used}
-            for s, p in zip(samples, pts_km, strict=True)
-        ]
-        predicted = None
-        trail: list[dict[str, float]] = []
-        fit = fit_orbit([(s.unix, s.ecef_m) for s in samples], gid)
-        if fit is not None:
-            predicted, trail = _predicted_path(fit, end_unix, samples[-1].unix)
-        sat_list.append(
             {
-                'gnssid': gid,
-                'svid': svid,
-                'samples': samples_json,
-                'orbit': orbit,
-                'predicted': predicted,
-                'trail': trail,
+                't': s.t,
+                'x': s.ecef_m[0] / 1000.0,
+                'y': s.ecef_m[1] / 1000.0,
+                'z': s.ecef_m[2] / 1000.0,
+                'snr': s.snr,
+                'used': s.used,
             }
-        )
+            for s in samples
+        ]
+        fit = fit_orbit([(s.unix, s.ecef_m) for s in samples], gid)
+        orbit = None
+        if fit is not None:
+            orbit = {
+                'epoch': fit.epoch_unix,
+                'radius_km': fit.radius_m / 1000.0,
+                'n': fit.n_rad_s,
+                'phase0': fit.phase0_rad,
+                'u': list(fit.u),
+                'v': list(fit.v),
+                'normal': list(fit.normal),
+            }
+        sat_list.append({'gnssid': gid, 'svid': svid, 'samples': samples_json, 'orbit': orbit})
 
     return jsonify(
         {

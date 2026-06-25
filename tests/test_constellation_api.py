@@ -146,8 +146,8 @@ def test_window_excludes_out_of_range_samples(client):
     assert resp.get_json()['sats'] == []
 
 
-def test_fittable_sv_carries_predicted_position_and_trail(client):
-    """A fittable track yields a propagated current position plus a trailing path."""
+def test_fittable_sv_carries_inertial_orbit_params(client):
+    """A fittable track returns ECI orbit params that propagate to the truth orbit."""
     now = datetime.now(UTC)
     truth = _seed_fittable_track(now, gnssid=0, svid=7)
     end = db.canonical_timestamp(now.isoformat())
@@ -157,27 +157,35 @@ def test_fittable_sv_carries_predicted_position_and_trail(client):
     assert resp.status_code == 200
     sat = next(s for s in resp.get_json()['sats'] if (s['gnssid'], s['svid']) == (0, 7))
 
-    assert sat['predicted'] is not None
-    assert len(sat['trail']) >= 2
+    o = sat['orbit']
+    assert o is not None
+    assert math.isclose(o['radius_km'], orbital_radius_m(0) / 1000.0, rel_tol=1e-9)
 
-    # Propagated dot matches the truth orbit at the window end (km), within the
-    # reconstruction round-trip error.
-    expected = position_ecef(truth, unix_seconds(end))
-    for axis, e in zip(('x', 'y', 'z'), expected, strict=True):
-        assert math.isclose(sat['predicted'][axis], e / 1000.0, abs_tol=5.0)
+    # Rebuild the Orbit from the returned params; it must propagate to the truth
+    # orbit (this is exactly what the client does, so it pins the wire contract).
+    fit = Orbit(
+        epoch_unix=o['epoch'],
+        radius_m=o['radius_km'] * 1000.0,
+        n_rad_s=o['n'],
+        phase0_rad=o['phase0'],
+        u=tuple(o['u']),
+        v=tuple(o['v']),
+        normal=tuple(o['normal']),
+    )
+    for axis_truth, axis_fit in zip(
+        position_ecef(truth, unix_seconds(end)),
+        position_ecef(fit, unix_seconds(end)),
+        strict=True,
+    ):
+        assert math.isclose(axis_truth, axis_fit, abs_tol=5000.0)  # metres
 
-    # Trail points lie on the constellation's orbital sphere.
-    r0 = math.sqrt(sum(sat['trail'][0][a] ** 2 for a in ('x', 'y', 'z')))
-    assert math.isclose(r0, orbital_radius_m(0) / 1000.0, rel_tol=1e-3)
 
-
-def test_unfittable_sv_has_null_prediction(client):
-    """Too short a track to fit an orbit leaves predicted/trail empty, not failed."""
+def test_unfittable_sv_has_null_orbit(client):
+    """Too short a track to fit an orbit leaves orbit null (not failed)."""
     _seed_fix()
     _seed_obs('2026-06-20T00:10:00.000Z', 0, 1, 100.0, 40.0)
     _seed_obs('2026-06-20T00:20:00.000Z', 0, 1, 110.0, 45.0)
     resp = client.get('/api/constellation', query_string=WINDOW)
     assert resp.status_code == 200
     sat = resp.get_json()['sats'][0]
-    assert sat['predicted'] is None
-    assert sat['trail'] == []
+    assert sat['orbit'] is None

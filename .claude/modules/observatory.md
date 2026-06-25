@@ -52,12 +52,12 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
 26,000 km baseline).
 
 - `GET /api/constellation?start=&end=` (`api/routes/globe.py`) — reconstructed 3D
-  positions over a window, grouped by SV, with each SV's fitted orbit-plane
-  `normal` for the display ring. Where the orbit fits, each SV also carries a
-  `predicted` current position (propagated to the window end) + a trailing
-  `trail` of predicted positions, so a set satellite continues around the far
-  side instead of freezing at the horizon (null/empty without a fit). Feeds
-  `/globe`.
+  `samples` over a window, grouped by SV, **plus each SV's inertial `orbit` fit
+  params** (`epoch, radius_km, n, phase0, u, v, normal`; null when unfittable).
+  The client propagates those params itself (the ECI/GMST propagator is ported to
+  `globe.js`) so the dot, trail, ring, and focused full-period orbit all come from
+  **one fit through one model** — there is no second, ECEF-smeared `fit_orbit_normal`
+  ring anymore, which is what used to leave dots off their rings. Feeds `/globe`.
 - `GET /api/passes?hours=&mask=&track=1` (`api/routes/passes.py`) — fits each SV
   seen in the trailing 72h, propagates over the horizon (≤48h), returns upcoming
   passes (RINEX name, rise/peak/set times+az, peak el, duration, in-progress, max
@@ -69,12 +69,15 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
 
 - `/globe` (`static/js/globe.js`, `templates/globe.html`) — three.js textured
   Earth in ECEF (vendored r160, `static/vendor/three/` + Earth textures in
-  `static/img/`, offline). Per-SV predicted-position dots + faint orbit rings;
-  click-to-focus brightens that SV's ring and draws its predicted trail.
-  **Trails are focus-only by default** (the Trails toggle shows all at once):
-  each trail is the true ground-relative path, which bends away from the static
-  great-circle ring as Earth rotates, so many at once is unreadable. Observer
-  marker, sight-lines (above-horizon only), click-popup. **PC-only** (WebGL).
+  `static/img/`, offline). The client propagates the server's `orbit` params for
+  each SV: a dot at the current position (set SVs on the far side) on a faint
+  **instantaneous ring** (the inertial plane rotated into ECEF at the window end,
+  so the dot sits exactly on its ring). Click-to-focus draws that SV's **full
+  orbit as the propagated ECEF path** (not a great circle — over a period the true
+  path precesses off any static plane; the dot + recent trail are sub-segments of
+  it). **Trails are focus-only by default** (the Trails toggle shows all at once),
+  since each precessing path is unreadable in bulk. Observer marker, sight-lines
+  (above-horizon only), click-popup. **PC-only** (WebGL).
   `?demo` synthesises a constellation offline.
 - `/passes` (`static/js/passes.js`, `templates/passes.html`) — phone-friendly
   schedule, one card per pass (rise/peak/set + compass azimuths, peak el, live
