@@ -359,6 +359,7 @@ const TRAIL_MIN_S = 1200; // shortest trail behind a just-seen satellite
 const TRAIL_STEP_S = 120; // trail/path sample cadence (s)
 const TRAIL_MAX_PTS = 128; // cap on trail samples
 
+const FOCUS_RING_W = 4.0; // focused instantaneous great-circle ring width (CSS px); pulses
 const FOCUS_ORBIT_W = 5.0; // focused full-orbit fat-line width (CSS px); pulses
 const FOCUS_TRAIL_W = 8.0; // focused recent-trail fat-line width (CSS px); pulses
 
@@ -439,15 +440,8 @@ function planeBasis(normal) {
 }
 
 /**
- * A great-circle ring of the given radius in the plane with the given ECEF normal.
- *
- * @param {THREE.Vector3} normal Plane normal (ECEF).
- * @param {number} radiusKm Ring radius (km).
- * @param {number} color Constellation colour.
- * @param {number} opacity Line opacity.
- * @returns {THREE.LineLoop} The ring loop.
- */
-function greatCircle(normal, radiusKm, color, opacity) {
+/** Points of a great-circle ring of the given radius in the plane normal to `normal`. */
+function greatCirclePoints(normal, radiusKm) {
   const { u, v } = planeBasis(normal);
   const pts = [];
   const segments = 160;
@@ -457,7 +451,20 @@ function greatCircle(normal, radiusKm, color, opacity) {
       .addScaledVector(u, radiusKm * Math.cos(t))
       .addScaledVector(v, radiusKm * Math.sin(t)));
   }
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  return pts;
+}
+
+/**
+ * A great-circle ring of the given radius in the plane with the given ECEF normal.
+ *
+ * @param {THREE.Vector3} normal Plane normal (ECEF).
+ * @param {number} radiusKm Ring radius (km).
+ * @param {number} color Constellation colour.
+ * @param {number} opacity Line opacity.
+ * @returns {THREE.LineLoop} The ring loop.
+ */
+function greatCircle(normal, radiusKm, color, opacity) {
+  const geo = new THREE.BufferGeometry().setFromPoints(greatCirclePoints(normal, radiusKm));
   return new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
 }
 
@@ -476,6 +483,14 @@ function greatCircle(normal, radiusKm, color, opacity) {
 function instantRing(orbit, t, color, opacity) {
   const nEcef = rotateZ(orbit.normal[0], orbit.normal[1], orbit.normal[2], -gmstRad(t));
   return greatCircle(nEcef, orbit.radius_km, color, opacity);
+}
+
+/** Closed point list of a satellite's instantaneous ring at time `t` (for fat lines). */
+function instantRingPoints(orbit, t) {
+  const nEcef = rotateZ(orbit.normal[0], orbit.normal[1], orbit.normal[2], -gmstRad(t));
+  const pts = greatCirclePoints(nEcef, orbit.radius_km);
+  pts.push(pts[0].clone()); // close the loop for the fat line
+  return pts;
 }
 
 /**
@@ -603,9 +618,9 @@ function skyAngles(pos) {
  * full-period orbit drawn as the propagated ECEF path (not a great-circle ring —
  * the dot and the brighter recent trail are sub-segments of this same curve, so
  * all three line up exactly, and its precession off the instantaneous ring is
- * the true Earth-rotation drift). The orbit and the thicker recent trail are both
- * bold fat lines that pulse together (`updateHighlight`). All in the highlight
- * group, cleared on unfocus.
+ * the true Earth-rotation drift). The clean instantaneous ring, the full-period
+ * path, and the thicker recent trail are all bold fat lines that pulse together
+ * (`updateHighlight`). All in the highlight group, cleared on unfocus.
  *
  * @param {Object} sat The API satellite object.
  * @param {THREE.Vector3} pos Its current ECEF position (km).
@@ -643,11 +658,17 @@ function showPopup(sat, pos, sx, sy) {
   popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
   popupEl.classList.remove('hidden');
 
-  // Focused orbit: the full-period propagated path and the thicker recent trail,
-  // both bold fat lines that pulse together (a static great-circle ring can't
-  // contain the time-varying ECEF path, so the path is the only thing that lines
-  // up with both the dot and the trail).
+  // Focused highlight: the clean instantaneous great-circle ring, the full-period
+  // propagated path, and the thicker recent trail — all bold fat lines that pulse
+  // together. The ring is the tidy orbit circle; the path/trail are the true ECEF
+  // motion, which precesses off the ring as Earth rotates.
   if (sat.orbit) {
+    const ringLine = fatLine(
+      instantRingPoints(sat.orbit, windowEndUnix), meta.color, FOCUS_RING_W, 0.5,
+    );
+    ringLine.userData.pulse = { widthBase: FOCUS_RING_W, opacityBase: 0.5 };
+    highlightGroup.add(ringLine);
+
     const period = orbitPeriod(sat.orbit);
     const orbitLine = fatLine(
       orbitPath(sat.orbit, windowEndUnix - period, windowEndUnix, 256),
