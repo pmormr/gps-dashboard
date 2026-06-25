@@ -26,6 +26,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from '/static/vendor/three/OrbitControls.js';
+import { Line2 } from '/static/vendor/three/lines/Line2.js';
+import { LineGeometry } from '/static/vendor/three/lines/LineGeometry.js';
+import { LineMaterial } from '/static/vendor/three/lines/LineMaterial.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const DEG = Math.PI / 180;
@@ -175,6 +178,34 @@ function clearGroup(group) {
 function arcLine(points, color, opacity = 0.7) {
   const geo = new THREE.BufferGeometry().setFromPoints(points);
   return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+}
+
+/** Renderer drawing-buffer size (px) — the resolution fat lines size their width against. */
+function drawingBufferSize() {
+  return renderer.getDrawingBufferSize(new THREE.Vector2());
+}
+
+/**
+ * A screen-space fat line through ECEF points (km). Plain GL lines ignore
+ * `linewidth`, so the focus highlight uses Line2 (its width is in CSS px and
+ * needs the renderer resolution, refreshed per frame in `updateHighlight`).
+ *
+ * @param {THREE.Vector3[]} points Ordered positions.
+ * @param {number} color Constellation colour.
+ * @param {number} widthPx Line width (CSS px).
+ * @param {number} opacity Line opacity.
+ * @returns {Line2} The fat line.
+ */
+function fatLine(points, color, widthPx, opacity) {
+  const flat = [];
+  for (const p of points) flat.push(p.x, p.y, p.z);
+  const geo = new LineGeometry().setPositions(flat);
+  const res = drawingBufferSize();
+  const mat = new LineMaterial({ color, linewidth: widthPx, transparent: true, opacity });
+  mat.resolution.set(res.x, res.y);
+  const line = new Line2(geo, mat);
+  line.frustumCulled = false;
+  return line;
 }
 
 /** Unix seconds for a sample's canonical timestamp. */
@@ -327,6 +358,9 @@ function buildEarthIfNeeded(radiusKm) {
 const TRAIL_MIN_S = 1200; // shortest trail behind a just-seen satellite
 const TRAIL_STEP_S = 120; // trail/path sample cadence (s)
 const TRAIL_MAX_PTS = 128; // cap on trail samples
+
+const FOCUS_ORBIT_W = 3.5; // focused full-orbit fat-line width (CSS px); pulses
+const FOCUS_TRAIL_W = 7.0; // focused recent-trail fat-line width (CSS px)
 
 /** Julian Date for a Unix timestamp. */
 function julianDate(unixS) {
@@ -569,7 +603,9 @@ function skyAngles(pos) {
  * full-period orbit drawn as the propagated ECEF path (not a great-circle ring —
  * the dot and the brighter recent trail are sub-segments of this same curve, so
  * all three line up exactly, and its precession off the instantaneous ring is
- * the true Earth-rotation drift). All in the highlight group, cleared on unfocus.
+ * the true Earth-rotation drift). The orbit is a thick fat line that pulses
+ * (`updateHighlight`) and the recent trail is thicker and brighter on top. All in
+ * the highlight group, cleared on unfocus.
  *
  * @param {Object} sat The API satellite object.
  * @param {THREE.Vector3} pos Its current ECEF position (km).
@@ -607,13 +643,22 @@ function showPopup(sat, pos, sx, sy) {
   popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
   popupEl.classList.remove('hidden');
 
-  // Focused orbit: the full-period propagated path, with the brighter recent
-  // trail on top. A static great-circle ring can't contain the time-varying ECEF
-  // path, so the path is the only thing that lines up with both dot and trail.
+  // Focused orbit: the full-period propagated path as a thick pulsing fat line,
+  // with the brighter, thicker recent trail on top. A static great-circle ring
+  // can't contain the time-varying ECEF path, so the path is the only thing that
+  // lines up with both the dot and the trail.
   if (sat.orbit) {
     const period = orbitPeriod(sat.orbit);
-    highlightGroup.add(arcLine(orbitPath(sat.orbit, windowEndUnix - period, windowEndUnix, 256), meta.color, 0.5));
-    highlightGroup.add(arcLine(orbitTrail(sat.orbit, windowEndUnix, sampleUnix(latest)), meta.color, 0.9));
+    const orbitLine = fatLine(
+      orbitPath(sat.orbit, windowEndUnix - period, windowEndUnix, 256),
+      meta.color, FOCUS_ORBIT_W, 0.55,
+    );
+    orbitLine.userData.pulse = { widthBase: FOCUS_ORBIT_W, opacityBase: 0.55 };
+    highlightGroup.add(orbitLine);
+    highlightGroup.add(fatLine(
+      orbitTrail(sat.orbit, windowEndUnix, sampleUnix(latest)),
+      meta.color, FOCUS_TRAIL_W, 0.98,
+    ));
   }
 
   const halo = new THREE.Mesh(
@@ -787,9 +832,33 @@ function onResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+/**
+ * Per-frame upkeep of the focus highlight: keep fat-line widths sized to the
+ * current drawing buffer, and pulse the focused orbit's width/opacity so the
+ * selection breathes.
+ *
+ * @param {number} tSec Animation clock, seconds.
+ */
+function updateHighlight(tSec) {
+  if (!highlightGroup.children.length) return;
+  const res = drawingBufferSize();
+  const pulse = 0.5 + 0.5 * Math.sin(tSec * 2.4); // 0..1
+  for (const o of highlightGroup.children) {
+    const mat = o.material;
+    if (!mat || !mat.resolution) continue; // the halo mesh has no fat-line material
+    mat.resolution.set(res.x, res.y);
+    const p = o.userData.pulse;
+    if (p) {
+      mat.linewidth = p.widthBase * (1 + 0.5 * pulse);
+      mat.opacity = p.opacityBase + 0.35 * pulse;
+    }
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  updateHighlight(performance.now() / 1000);
   renderer.render(scene, camera);
 }
 
