@@ -360,6 +360,7 @@ const TRAIL_STEP_S = 120; // trail/path sample cadence (s)
 const TRAIL_MAX_PTS = 128; // cap on trail samples
 
 const FOCUS_RING_W = 4.0; // focused instantaneous great-circle ring width (CSS px); pulses
+const FOCUS_RING_COLOR = 0xffffff; // ring is white to stand apart from the coloured path/trail
 const FOCUS_ORBIT_W = 5.0; // focused full-orbit fat-line width (CSS px); pulses
 const FOCUS_TRAIL_W = 8.0; // focused recent-trail fat-line width (CSS px); pulses
 
@@ -658,13 +659,14 @@ function showPopup(sat, pos, sx, sy) {
   popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
   popupEl.classList.remove('hidden');
 
-  // Focused highlight: the clean instantaneous great-circle ring, the full-period
-  // propagated path, and the thicker recent trail — all bold fat lines that pulse
-  // together. The ring is the tidy orbit circle; the path/trail are the true ECEF
-  // motion, which precesses off the ring as Earth rotates.
+  // Focused highlight: the clean instantaneous great-circle ring (white, so it
+  // reads as the idealized orbit), the full-period propagated path, and the
+  // thicker recent trail (both constellation-coloured) — all bold fat lines that
+  // pulse together. The white ring is the tidy orbit circle; the coloured
+  // path/trail are the true ECEF motion, which precesses off it as Earth rotates.
   if (sat.orbit) {
     const ringLine = fatLine(
-      instantRingPoints(sat.orbit, windowEndUnix), meta.color, FOCUS_RING_W, 0.5,
+      instantRingPoints(sat.orbit, windowEndUnix), FOCUS_RING_COLOR, FOCUS_RING_W, 0.5,
     );
     ringLine.userData.pulse = { widthBase: FOCUS_RING_W, opacityBase: 0.5 };
     highlightGroup.add(ringLine);
