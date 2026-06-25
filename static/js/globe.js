@@ -79,7 +79,7 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 8000;
 controls.maxDistance = 600000;
-controls.autoRotateSpeed = 0.35;
+controls.autoRotateSpeed = 0.175;
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.35));
 const sun = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -359,8 +359,8 @@ const TRAIL_MIN_S = 1200; // shortest trail behind a just-seen satellite
 const TRAIL_STEP_S = 120; // trail/path sample cadence (s)
 const TRAIL_MAX_PTS = 128; // cap on trail samples
 
-const FOCUS_ORBIT_W = 3.5; // focused full-orbit fat-line width (CSS px); pulses
-const FOCUS_TRAIL_W = 7.0; // focused recent-trail fat-line width (CSS px)
+const FOCUS_ORBIT_W = 5.0; // focused full-orbit fat-line width (CSS px); pulses
+const FOCUS_TRAIL_W = 8.0; // focused recent-trail fat-line width (CSS px); pulses
 
 /** Julian Date for a Unix timestamp. */
 function julianDate(unixS) {
@@ -603,9 +603,9 @@ function skyAngles(pos) {
  * full-period orbit drawn as the propagated ECEF path (not a great-circle ring —
  * the dot and the brighter recent trail are sub-segments of this same curve, so
  * all three line up exactly, and its precession off the instantaneous ring is
- * the true Earth-rotation drift). The orbit is a thick fat line that pulses
- * (`updateHighlight`) and the recent trail is thicker and brighter on top. All in
- * the highlight group, cleared on unfocus.
+ * the true Earth-rotation drift). The orbit and the thicker recent trail are both
+ * bold fat lines that pulse together (`updateHighlight`). All in the highlight
+ * group, cleared on unfocus.
  *
  * @param {Object} sat The API satellite object.
  * @param {THREE.Vector3} pos Its current ECEF position (km).
@@ -643,10 +643,10 @@ function showPopup(sat, pos, sx, sy) {
   popupEl.style.top = Math.min(window.innerHeight - 210, Math.max(8, sy + 14)) + 'px';
   popupEl.classList.remove('hidden');
 
-  // Focused orbit: the full-period propagated path as a thick pulsing fat line,
-  // with the brighter, thicker recent trail on top. A static great-circle ring
-  // can't contain the time-varying ECEF path, so the path is the only thing that
-  // lines up with both the dot and the trail.
+  // Focused orbit: the full-period propagated path and the thicker recent trail,
+  // both bold fat lines that pulse together (a static great-circle ring can't
+  // contain the time-varying ECEF path, so the path is the only thing that lines
+  // up with both the dot and the trail).
   if (sat.orbit) {
     const period = orbitPeriod(sat.orbit);
     const orbitLine = fatLine(
@@ -655,10 +655,12 @@ function showPopup(sat, pos, sx, sy) {
     );
     orbitLine.userData.pulse = { widthBase: FOCUS_ORBIT_W, opacityBase: 0.55 };
     highlightGroup.add(orbitLine);
-    highlightGroup.add(fatLine(
+    const trailLine = fatLine(
       orbitTrail(sat.orbit, windowEndUnix, sampleUnix(latest)),
-      meta.color, FOCUS_TRAIL_W, 0.98,
-    ));
+      meta.color, FOCUS_TRAIL_W, 0.7,
+    );
+    trailLine.userData.pulse = { widthBase: FOCUS_TRAIL_W, opacityBase: 0.7 };
+    highlightGroup.add(trailLine);
   }
 
   const halo = new THREE.Mesh(
