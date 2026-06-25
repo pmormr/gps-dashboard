@@ -160,8 +160,9 @@ gps-dashboard/
 │       └── status_ntp.py
 ├── common/                     # shared core library (imported across api/tools/processor)
 │   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
-│   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry
+│   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry + on-sky angular sep
 │   ├── orbits.py               # inertial-frame orbit fit + propagation + pass finder
+│   ├── satcat.py               # CelesTrak SATCAT metadata fetch/cache (NORAD-keyed) for sat identity
 │   ├── proc.py                 # subprocess + systemctl (is-active) helpers
 │   ├── checks.py               # PASS/FAIL check-runner for the validate tools
 │   └── cli.py                  # run_cli/run_click — tools' Ctrl+C → "Interrupted." exit 130
@@ -220,7 +221,9 @@ gps-dashboard/
 │   ├── ntp_validate.py
 │   ├── obd_probe.py            # OBD-II Phase-0 connectivity probe (plans/obd-platform-plan.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (plans/drone-platform-plan.md)
-│   └── passes_validate.py      # backtest pass prediction vs held-out observations
+│   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
+│   ├── tle_validate.py         # backtest derived orbits vs CelesTrak TLEs+SGP4 (absolute, dev-time)
+│   └── fetch_satcat.py         # fetch/cache CelesTrak SATCAT satellite metadata
 ├── deploy/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service
@@ -285,8 +288,12 @@ uv run tools/gpsd_validate.py
 uv run tools/ntp_setup.py
 uv run tools/ntp_validate.py
 
-# Backtest satellite-pass prediction against held-out observations (run on Pi)
+# Backtest satellite-pass prediction against held-out observations (self-consistency, on Pi)
 uv run tools/passes_validate.py --db /mnt/nvme/data/gps_history.db -v
+
+# Backtest derived orbits against CelesTrak TLEs + SGP4 (absolute; needs internet + a DB snapshot)
+uv run tools/fetch_satcat.py                                    # cache satellite metadata (one-time/weekly)
+uv run tools/tle_validate.py --db ./gps_snap.db --hours 48 -v   # snapshot: ssh Pi '.backup' then scp
 
 # Sensor pipeline (MQTT — needs a broker; PYTHONPATH set so scripts find the packages)
 PYTHONPATH=. uv run mqttbus/ingest.py                       # ingest subscriber

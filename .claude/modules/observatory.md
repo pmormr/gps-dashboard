@@ -89,15 +89,39 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
   set; future = hollow rise marker + name). Honours legend toggles, slow refresh,
   deep-link `?passes`. Fetches `/api/passes?...&track=1`.
 
-## Validation — `tools/passes_validate.py`
+## Validation — two backtests
 
-With no TLE/internet reference, the receiver's own later sightings are the only
-offline ground truth. The backtest fits each SV on the earlier part of its log
-and predicts az/el at every held-out later observation, reporting the on-sky
-angular error. **Real Pi data: overall median 0.50°, p90 1.10°** (69 SVs, 3466
-sightings) — SBAS 0.04° (geostationary), Galileo/BeiDou/GLONASS ~0.45–0.49°, GPS
-0.75° (weakest, nominal-radius approx). Run with
-`--db /mnt/nvme/data/gps_history.db` from a shell (the unit sets `GPS_DB_PATH`).
+**Self-consistency — `tools/passes_validate.py`** (offline). The receiver's own
+later sightings are the only *offline* ground truth: fit each SV on the earlier
+part of its log and predict az/el at every held-out later observation. **Real Pi
+data: median 0.50°, p90 1.10°** (69 SVs, 3466 sightings) — SBAS 0.04°
+(geostationary), Galileo/BeiDou/GLONASS ~0.45–0.49°, GPS 0.75° (weakest,
+nominal-radius approx). Run with `--db /mnt/nvme/data/gps_history.db`.
+
+**Absolute — `tools/tle_validate.py`** (dev-time, needs internet). Cross-checks
+against CelesTrak GNSS TLEs propagated by **SGP4** (the upstream Spacebook
+re-serves; `sgp4` is a dev dep). SGP4 emits TEME, the same GMST-rotated frame our
+own propagation uses, so the truth path reuses `gmst_rad`/`eci_to_ecef`/
+`ecef_to_azel`. Satellites are matched **geometrically** — nearest-in-sky per
+constellation, modal vote locks the NORAD id — so no PRN/slot table to rot. Three
+numbers vs TLE truth: **input geometry** (logged az/el, the receiver's own
+accuracy) **1.2° median**; **orbit-model prediction** (our fit → held-out)
+**1.5° median**; **reconstruction 3D** (nominal-radius vs truth) ~500 km MEO, with
+SBAS/BeiDou-GEO/IGSO tails from the radius approximation. This catches what
+self-consistency structurally can't — a GMST-sign error cancels in the round-trip
+but not against TLEs, and a synthetic/demo DB reads a perfect 0.00°
+self-consistent yet explodes here. **The 1.5° floor is not data-starved:** it
+plateaus after ~2 h of arc, and a >16 h fit *worsens* (two-body can't track J2
+nodal precession); the floor is gpsd's ~1.2° az/el + the nominal radius + no-J2.
+Needs internet but caches a TLE snapshot for offline reuse; run against a DB
+snapshot (`.backup` the live WAL DB, pull, `--db`). Tested offline in
+`tests/test_tle_validate.py` (vendored TLEs → synthesized track → recovery).
+
+**Metadata — `tools/fetch_satcat.py` + `common/satcat.py`.** Caches CelesTrak
+SATCAT (owner-country, launch, orbit geometry, RCS size, object type, status;
+block/generation is in the object name) keyed by NORAD id, joined to each fit via
+`Satrec.satnum`. No bus manufacturer ("make") — not in SATCAT. Surfaced in
+`tle_validate -v` (e.g. `G13 … GPS BIII-10 [US 2026]`).
 
 ## Decisions / traps
 
