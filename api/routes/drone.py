@@ -1,6 +1,6 @@
-"""Drone telemetry tier API — ingest + map-overlay reads (Phase 3).
+"""Drone telemetry tier API — ingest + map-overlay reads.
 
-The fourth data stream's HTTP surface (``plans/drone-platform-plan.md``):
+The fourth data stream's HTTP surface (``.claude/modules/drone.md``):
 
 * ``POST /api/drone/flights`` — the remote ingest path. ``import_drone.py --api``
   (the laptop manual path over the van LAN) extracts + thins a clip and POSTs the

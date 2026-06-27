@@ -1,14 +1,14 @@
 """Import DJI drone telemetry into the drone tier of ``gps_history.db``.
 
-Offline batch importer (Phase 1 of ``plans/drone-platform-plan.md``) — the fourth
+Offline batch importer (see ``.claude/modules/drone.md``) — the fourth
 data stream beyond GPS / sensors / OBD. Each DJI clip embeds a protobuf telemetry
 track (``dvtm_*``) that ExifTool ≥13.x decodes to per-frame UTC time + full-precision
 lat/lon + absolute altitude. This tool discovers telemetry-bearing clips, extracts
 and thins their tracks, and loads one ``drone_flights`` row + its
 ``drone_track_points`` per clip, idempotent on the ``(model_code, first_fix_utc)``
-natural key (decision 3).
+natural key.
 
-Two extraction backends (decisions 4–6):
+Two extraction backends:
 
 * ``--source DIR`` runs the host's own ``exiftool`` over a local directory — the
   laptop manual path (attached SD/drive), or any host with ExifTool ≥13.x.
@@ -72,7 +72,7 @@ MODEL_BY_CODE = {
 # ExifTool format strings. The delimiter is a literal '|' (never in a DJI path or a
 # numeric field). Discovery is a cheap whole-tree pass (no -ee); telemetry is the
 # per-frame -ee extraction. -f emits '-' for absent tags so a per-model field gap
-# yields a placeholder rather than dropping the row (decision 9).
+# yields a placeholder rather than dropping the row.
 _DISCOVER_FMT = '$Directory|$FileName|$Encoder|$Category'
 _TELEMETRY_FMT = '$GPSDateTime|$GPSLatitude|$GPSLongitude|$AbsoluteAltitude'
 _DISCOVER_ARGS = ['-r', '-q', '-f', '-s3']
@@ -469,7 +469,7 @@ def load_flight(conn: sqlite3.Connection, flight: Flight) -> str:
 
     On a natural-key hit the points are not re-inserted; a known canonical
     ``media_path`` backfills a previously NULL one (the SD-now / NAS-later
-    convergence of decision 3). Writes in one transaction.
+    convergence). Writes in one transaction.
 
     Args:
         conn: Open SQLite connection (the single writer).

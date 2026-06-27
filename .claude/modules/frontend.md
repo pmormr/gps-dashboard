@@ -45,12 +45,10 @@ redesign):
   `[lo, hi]` (≥2 points); **"📍 Bookmark Here"** (Live only) one-taps a point bookmark at
   the latest GPS fix, auto-named `Bookmark · <time>`.
 - **⊕ FAB** — zooms to the most recent GPS fix.
-- **🚁 Drone panel** (`static/js/drone.js`) — toggles the drone-track overlay. On
-  first enable it fetches *all* flights once from `GET /api/drone/flights` (tiny
-  dataset; independent of the time picker) and renders them as the `drone-line`
-  layer, colored per model (Mini 5 Pro / Avata 2 / Neo). Click a track → a popup
-  with model, time span, `abs_alt` range, and media path. v1 drapes the tracks flat
-  on the terrain (no elevated-line support in the vendored MapLibre).
+- **🚁 Drone panel** (`static/js/drone.js`) — toggles the drone-track overlay,
+  rendered floating at flight altitude via the three.js `Overlay3D` layer. The
+  subsystem (source, importer, tier, overlay) is documented in
+  `.claude/modules/drone.md`.
 
 **View behavior.** Default view is Live, last 24h, centered on the most recent fix. The
 map re-centers **only** when Live is on or an annotation is clicked — otherwise the user
