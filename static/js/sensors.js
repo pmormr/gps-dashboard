@@ -13,49 +13,55 @@
 const POLL_MS = 30000;
 
 /**
- * Display metadata per metric column. Unknown columns fall back to a generic
- * rendering (raw key as label, one decimal, charted).
+ * Per-metric display metadata, served by `/api/sensors` (`api/sensor_schema.py`
+ * METRIC_META) so labels/units/scale live in one place server-side. Populated into
+ * `META` each poll; unknown columns fall back to a generic rendering.
  */
-const METRICS = {
-  // BME680 environmental node.
-  temp_c: { label: 'Temp', unit: '°C', dec: 1, chart: true, color: '#f87171' },
-  humidity_pct: { label: 'Humidity', unit: '%', dec: 1, chart: true, color: '#38bdf8' },
-  pressure_hpa: { label: 'Pressure', unit: 'hPa', dec: 1, chart: true, color: '#a78bfa' },
-  iaq: { label: 'IAQ', unit: '', dec: 0, chart: true, color: '#34d399' },
-  iaq_accuracy: { label: 'IAQ acc', unit: '/3', dec: 0, chart: false, color: '#94a3b8' },
-  co2_equivalent: { label: 'CO₂-eq', unit: 'ppm', dec: 0, chart: true, color: '#fbbf24' },
-  breath_voc_equivalent: { label: 'Breath VOC', unit: 'ppm', dec: 2, chart: true, color: '#fb923c' },
-  gas_ohms: { label: 'Gas', unit: 'Ω', dec: 0, chart: true, color: '#22d3ee' },
+let META = {};
 
-  // OBD-II van node. ~8 headline metrics chart; the rest (diagnostics + Phase-4
-  // fuel-rate placeholder) show as current-value cells only.
-  rpm: { label: 'RPM', unit: 'rpm', dec: 0, chart: true, color: '#f87171' },
-  speed_kph: { label: 'Speed', unit: 'km/h', dec: 0, chart: true, color: '#38bdf8' },
-  engine_load_pct: { label: 'Load', unit: '%', dec: 0, chart: true, color: '#34d399' },
-  throttle_pct: { label: 'Throttle', unit: '%', dec: 0, chart: true, color: '#a78bfa' },
-  coolant_c: { label: 'Coolant', unit: '°C', dec: 0, chart: true, color: '#fb923c' },
-  map_kpa: { label: 'MAP', unit: 'kPa', dec: 0, chart: true, color: '#fbbf24' },
-  fuel_level_pct: { label: 'Fuel', unit: '%', dec: 0, chart: true, color: '#22d3ee' },
-  voltage_v: { label: 'Battery', unit: 'V', dec: 1, chart: true, color: '#facc15' },
-  intake_c: { label: 'Intake', unit: '°C', dec: 0, chart: false, color: '#94a3b8' },
-  ambient_air_c: { label: 'Ambient', unit: '°C', dec: 0, chart: false, color: '#94a3b8' },
-  barometric_kpa: { label: 'Baro', unit: 'kPa', dec: 0, chart: false, color: '#94a3b8' },
-  absolute_load_pct: { label: 'Abs load', unit: '%', dec: 0, chart: false, color: '#94a3b8' },
-  fuel_rate_lph: { label: 'Fuel rate', unit: 'L/h', dec: 1, chart: false, color: '#94a3b8' },
-  run_time_s: { label: 'Run time', unit: 's', dec: 0, chart: false, color: '#94a3b8' },
-  commanded_equiv_ratio: { label: 'λ cmd', unit: '', dec: 3, chart: false, color: '#94a3b8' },
-  short_fuel_trim_1_pct: { label: 'STFT B1', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
-  long_fuel_trim_1_pct: { label: 'LTFT B1', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
-  short_fuel_trim_2_pct: { label: 'STFT B2', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
-  long_fuel_trim_2_pct: { label: 'LTFT B2', unit: '%', dec: 1, chart: false, color: '#94a3b8' },
+/** Fallback meta for a column with no server entry (forward-compat). */
+const FALLBACK_META = {
+  label: '', unit: '', dec: 1, chart: true, color: '#94a3b8',
+  convert: null, y_range: null, group: '',
 };
 
-/** Metrics logged in °C that also show °F (US van). */
-const TEMP_C_KEYS = new Set(['temp_c', 'coolant_c', 'intake_c', 'ambient_air_c']);
-
-/** Per-metric display metadata, with a fallback for unknown columns. */
+/** Display metadata for a metric column, falling back for unknown columns. */
 function metricMeta(key) {
-  return METRICS[key] || { label: key, unit: '', dec: 1, chart: true, color: '#94a3b8' };
+  return META[key] || { ...FALLBACK_META, label: key };
+}
+
+/** Alt-unit conversions for the secondary readout (keyed by `meta.convert`). */
+const CONVERTERS = {
+  c_to_f: (v) => ({ value: v * 9 / 5 + 32, unit: '°F' }),
+  kph_to_mph: (v) => ({ value: v * 0.621371, unit: 'mph' }),
+  s_to_h: (v) => ({ value: v / 3600, unit: 'h' }),
+};
+
+/** Human labels for metric-group keys (current-values section headers). */
+const GROUP_LABELS = {
+  engine: 'Engine', temps: 'Temperatures', fuel: 'Fuel', electrical: 'Electrical',
+  environment: 'Environment', battery: 'Battery', solar: 'Solar', dc: 'DC', ac: 'AC',
+};
+
+/** Display label for a group key, capitalized as a fallback. */
+function groupLabel(group) {
+  return GROUP_LABELS[group] || (group.charAt(0).toUpperCase() + group.slice(1));
+}
+
+/**
+ * Ordered `[group, keys[]]` pairs for `keys` — first-seen group order and
+ * within-group order preserved — so the current-values grid sections cleanly even
+ * though storage order interleaves groups (e.g. OBD temps between engine metrics).
+ */
+function groupedKeys(keys) {
+  const order = [];
+  const byGroup = new Map();
+  for (const key of keys) {
+    const group = metricMeta(key).group || '';
+    if (!byGroup.has(group)) { byGroup.set(group, []); order.push(group); }
+    byGroup.get(group).push(key);
+  }
+  return order.map((group) => [group, byGroup.get(group)]);
 }
 
 const state = {
@@ -96,21 +102,17 @@ function dotClass(sensor) {
   return 'unknown';
 }
 
-/** Format one metric value with its unit, or an em dash when null. */
+/** Format one metric value with its unit (+ optional alt-unit), or an em dash. */
 function formatValue(key, value) {
   if (value == null) return '<span class="metric-val">—</span>';
   const meta = metricMeta(key);
   const num = Number(value).toFixed(meta.dec);
   const unit = meta.unit ? `<span class="unit">${meta.unit}</span>` : '';
   const main = `<span class="metric-val">${num}${unit}</span>`;
-  // °C is logged; surface °F alongside for the US van. Likewise km/h → mph.
-  if (TEMP_C_KEYS.has(key)) {
-    const f = (Number(value) * 9 / 5 + 32).toFixed(meta.dec);
-    return `${main}<span class="metric-sub">${f} °F</span>`;
-  }
-  if (key === 'speed_kph') {
-    const mph = (Number(value) * 0.621371).toFixed(meta.dec);
-    return `${main}<span class="metric-sub">${mph} mph</span>`;
+  const convert = meta.convert && CONVERTERS[meta.convert];
+  if (convert) {
+    const alt = convert(Number(value));
+    return `${main}<span class="metric-sub">${alt.value.toFixed(meta.dec)} ${alt.unit}</span>`;
   }
   return main;
 }
@@ -128,7 +130,7 @@ function makeChart(el, meta) {
     height: 110,
     cursor: { y: false },
     legend: { show: false },
-    scales: { x: { time: true } },
+    scales: { x: { time: true }, y: meta.y_range ? { range: meta.y_range } : {} },
     axes: [
       { stroke: '#94a3b8', grid: { stroke: '#1e293b' }, ticks: { stroke: '#334155' },
         font: '11px sans-serif' },
@@ -160,37 +162,49 @@ function buildSensorModel(sensor, keys) {
   head.append(dot, name, age);
   card.append(head);
 
+  const pairs = groupedKeys(keys);
+  const showHeads = pairs.length > 1;
   const grid = document.createElement('div');
   grid.className = 'metric-grid';
   const cells = {};
-  for (const key of keys) {
-    const cell = document.createElement('div');
-    cell.className = 'metric-cell';
-    const label = document.createElement('div');
-    label.className = 'metric-label';
-    label.textContent = metricMeta(key).label;
-    const val = document.createElement('div');
-    cell.append(label, val);
-    grid.append(cell);
-    cells[key] = val;
+  for (const [group, groupKeys] of pairs) {
+    if (showHeads && group) {
+      const head = document.createElement('div');
+      head.className = 'metric-group-head';
+      head.textContent = groupLabel(group);
+      grid.append(head);
+    }
+    for (const key of groupKeys) {
+      const cell = document.createElement('div');
+      cell.className = 'metric-cell';
+      const label = document.createElement('div');
+      label.className = 'metric-label';
+      label.textContent = metricMeta(key).label;
+      const val = document.createElement('div');
+      cell.append(label, val);
+      grid.append(cell);
+      cells[key] = val;
+    }
   }
   card.append(grid);
 
   const charts = document.createElement('div');
   charts.className = 'charts';
   const chartEls = {};
-  for (const key of keys) {
-    if (!metricMeta(key).chart) continue;
-    const block = document.createElement('div');
-    block.className = 'chart-block';
-    const label = document.createElement('div');
-    label.className = 'chart-label';
-    const meta = metricMeta(key);
-    label.textContent = meta.unit ? `${meta.label} (${meta.unit})` : meta.label;
-    const plot = document.createElement('div');
-    block.append(label, plot);
-    charts.append(block);
-    chartEls[key] = plot;
+  for (const [, groupKeys] of pairs) {
+    for (const key of groupKeys) {
+      if (!metricMeta(key).chart) continue;
+      const block = document.createElement('div');
+      block.className = 'chart-block';
+      const label = document.createElement('div');
+      label.className = 'chart-label';
+      const meta = metricMeta(key);
+      label.textContent = meta.unit ? `${meta.label} (${meta.unit})` : meta.label;
+      const plot = document.createElement('div');
+      block.append(label, plot);
+      charts.append(block);
+      chartEls[key] = plot;
+    }
   }
   card.append(charts);
 
@@ -250,6 +264,7 @@ async function poll() {
     note.textContent = 'Failed to reach the server';
     return;
   }
+  if (data.meta) META = data.meta;
 
   const sensors = data.sensors || [];
   if (sensors.length === 0) {

@@ -91,7 +91,13 @@ and the `alarm_rules` / `alarm_events` tables (created now, exercised in Phase 4
 timestamps go through `api.db.canonical_timestamp` so they join cleanly against
 `gps_points`. FKs are logical/unenforced, matching the trips↔points style. Each
 per-type table's columns are declared once in `api/sensor_schema.py` `READING_TABLES`,
-which drives both the ingest INSERT and the read route.
+which drives both the ingest INSERT and the read route. Its presentation companion
+`METRIC_META` (same module, keyed by column) is the single source of truth for how a
+metric is *shown* — label, unit, decimals, chart-or-cell, color, alt-unit conversion,
+fixed y-axis range, and group — served by `/api/sensors` so the viewer renders from
+data instead of a parallel hardcoded map (a test pins every column to a meta entry, so
+a new stream can't ship unlabelled the way Victron once did). `READING_TABLES` stays
+storage-only; `mqttbus` ingest imports it alone, keeping the two concerns apart.
 
 `bme680_readings` carries the BSEC2 outputs alongside the raw channels: `temp_c`,
 `humidity_pct`, `pressure_hpa`, `gas_ohms` (raw resistance) plus `iaq`, `iaq_accuracy`

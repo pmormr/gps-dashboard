@@ -13,7 +13,7 @@ from flask import Blueprint, jsonify, render_template, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
 from api.params import parse_limit, parse_time
-from api.sensor_schema import READING_TABLES
+from api.sensor_schema import METRIC_META, READING_TABLES
 
 sensors_bp = Blueprint('sensors', __name__)
 
@@ -61,7 +61,7 @@ def list_sensors():
         sensor = dict(row)
         sensor['latest'] = _latest_reading(conn, row['id'], row['type'])
         sensors.append(sensor)
-    return jsonify({'sensors': sensors, 'metrics': READING_TABLES})
+    return jsonify({'sensors': sensors, 'metrics': READING_TABLES, 'meta': METRIC_META})
 
 
 @sensors_bp.get('/api/sensors/<int:sensor_id>/readings')

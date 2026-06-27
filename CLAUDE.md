@@ -143,7 +143,7 @@ gps-dashboard/
 │   ├── app.py
 │   ├── db.py
 │   ├── params.py               # shared request-param validation (bbox/time/limit)
-│   ├── sensor_schema.py        # shared {type→table,columns} reading spec (ingest + read route)
+│   ├── sensor_schema.py        # reading spec: READING_TABLES (storage; ingest+read) + METRIC_META (presentation; served to viewer)
 │   ├── observatory.py          # shared anchor-fix + az/el→ECEF reconstruct (constellation + passes)
 │   ├── rigctld.py              # stdlib-socket Hamlib rigctld client (radio CI-V control)
 │   ├── tile_layers.py
