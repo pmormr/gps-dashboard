@@ -1,4 +1,4 @@
-"""Tests for the OBD reader's pure logic (``sensors/obd.py``).
+"""Tests for the OBD reader's pure logic (``sensors/obd_reader.py``).
 
 The load-bearing contract is that the reader's poll columns stay in lockstep with
 the shared ``obd`` schema (minus the derived ``fuel_rate_lph``), so a snapshot maps

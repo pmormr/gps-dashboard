@@ -97,6 +97,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /api/sensors` — sensor registry, each row with its latest reading embedded
 - `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
+- `GET /api/obd/economy?start=&end=` — per-window fuel economy: speed-density fuel (derived at read time via `common/obd.py`, since `fuel_rate_lph` is stored NULL) integrated over `obd_readings`, divided by the `track_points` path length over the same window. Pass an annotation's bounds for per-trip MPG; `calibrated` stays false until a fill-up calibration lands
 - `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
 - `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
@@ -163,6 +164,7 @@ gps-dashboard/
 │   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry + on-sky angular sep
 │   ├── orbits.py               # inertial-frame orbit fit + propagation + pass finder
 │   ├── satcat.py               # CelesTrak SATCAT metadata fetch/cache (NORAD-keyed) for sat identity
+│   ├── obd.py                  # speed-density fuel-rate derivation + drive integration (read-time, pure)
 │   ├── proc.py                 # subprocess + systemctl (is-active) helpers
 │   ├── checks.py               # PASS/FAIL check-runner for the validate tools
 │   └── cli.py                  # run_cli/run_click — tools' Ctrl+C → "Interrupted." exit 130
@@ -220,6 +222,7 @@ gps-dashboard/
 │   ├── ntp_setup.py
 │   ├── ntp_validate.py
 │   ├── obd_probe.py            # OBD-II Phase-0 connectivity probe (plans/obd-platform-plan.md)
+│   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
 │   ├── tle_validate.py         # backtest derived orbits vs CelesTrak TLEs+SGP4 (absolute, dev-time)
@@ -312,7 +315,11 @@ uv run pytest                          # full suite
 uv run pytest tests/test_simplify.py   # one module
 ```
 
-`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. Tests in `tests/` cover the load-bearing pure logic — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner — plus the `/api/points` size-aware decimation read path (real Flask client against a temp SQLite DB; see `tests/conftest.py`).
+`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers the load-bearing pure logic and the API read paths:
+
+- **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
+- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation (C17), `/api/constellation`, `/api/passes`, `/api/obd/economy`, and the radio routes.
+- **Backtest tools** — the pure helpers in `passes_validate` and `tle_validate`.
 
 ### Linting & formatting
 
