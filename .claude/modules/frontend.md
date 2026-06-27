@@ -2,8 +2,9 @@
 
 Plain files in `static/` and `templates/`, all JS/CSS vendored in `static/vendor/`
 (no CDN at runtime), mobile-first (the primary client is a phone browser). One
-map-centric view at `/` plus four standalone status/viewer pages. The MapLibre map,
-the ⚙ Labels panel, and the 🏔 3D/terrain panel are documented in
+map-centric view at `/` plus standalone status/viewer pages (`/gpsd`, `/skyplot`,
+`/ntp`, `/sensors`, `/radio`, and the observatory pair `/globe` + `/passes`). The
+MapLibre map, the ⚙ Labels panel, and the 🏔 3D/terrain panel are documented in
 `.claude/modules/basemaps.md`.
 
 ## Map view (`/`)
@@ -83,9 +84,17 @@ client-side `?bucket=` time-bucketing is gone — the processed tier is already 
   vendored uPlot), polling `/api/sensors` and `/api/sensors/:id/readings` every 30s.
   Reads the logged DB — no live broker — so it works regardless of broker websockets.
   Range buttons (1h/6h/24h/7d) and a per-sensor liveness dot (online/stale/offline).
+- `/radio` — Icom ID-5100A control head (`static/js/radio.js`): active-main-band
+  freq/mode + S-meter readout, CTCSS/DCS tone, repeater shift/offset. Polls
+  `/api/radio/status`; control writes POST `/api/radio/*`. See the Radio Control
+  section in CLAUDE.md.
+- `/globe`, `/passes` — the GNSS-observatory pair (3D constellation globe, PC-only;
+  upcoming-passes schedule). Documented in `.claude/modules/observatory.md`, which also
+  owns the `/skyplot` **Predicted** pass-arc overlay.
 
-`/gpsd` and `/ntp` auto-refresh every 30s via `<meta refresh>`; `/skyplot` and
-`/sensors` poll in place (a full reload would drop canvas/chart state).
+`/gpsd` and `/ntp` auto-refresh every 30s via `<meta refresh>`; `/skyplot`,
+`/sensors`, and `/radio` poll in place (a full reload would drop canvas/chart/live
+state).
 
 ## Deferred
 

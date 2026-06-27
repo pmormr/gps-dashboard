@@ -70,10 +70,11 @@ The starting values below were validated against a real drive — no changes nee
   and needs no index, but `/api/points/latest`, `/gpsd`, `precache`, and
   `annotations.point_count` still range/order raw *by timestamp* — dropping it
   full-scans a multi-million-row table.
-- **Deploy: the processor unit is a manual hook edit (C24):** the Pi-side post-receive
-  hook hardcodes its unit list; `gps-processor.service` is enabled-gated (like
-  `mqtt-ingest`) and resumes from its cursor so restart is safe, but teaching the hook a
-  new unit is a one-time Pi-side step.
+- **Deploy: the processor is enabled-gated (C24):** the post-receive hook installs all
+  `deploy/*.service` units on a `deploy/` change and restarts `gps-processor` when
+  enabled — no manual hook edit (the unit list is no longer hardcoded). The one-time
+  Pi-side step is `systemctl enable gps-processor` (like `mqtt-ingest`); until then it
+  stays dormant. It resumes from its cursor, so restart is always safe.
 - **Timestamps are wall-clock `now()` at ms precision (C23):** the Pi clock is chrony
   PPS-disciplined stratum-1, so `now()` *is* GPS-quality time and stays monotonic with
   `id` (the determinism anchor). The processor still clamps negative dwell/`dt` to 0 as
