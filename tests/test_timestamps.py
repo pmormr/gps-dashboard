@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from api.db import _canonical, canonical_timestamp, now_canonical
+from common.timefmt import _canonical, canonical_timestamp, now_canonical
 
 _CANONICAL_LEN = len('2026-06-09T14:55:55.200Z')
 

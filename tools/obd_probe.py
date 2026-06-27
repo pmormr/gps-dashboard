@@ -21,7 +21,6 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
 import logging
 import sys
@@ -31,6 +30,7 @@ from typing import TextIO
 import obd
 
 from common.cli import run_cli
+from common.timefmt import now_canonical
 
 # Probe column name -> OBD command. Names mirror the planned obd_readings
 # columns so the JSONL log doubles as a preview of the eventual MQTT payload.
@@ -187,12 +187,6 @@ def poll_columns(connection: obd.OBD) -> list[str]:
     return [col for col, cmd in PROBE_COMMANDS.items() if cmd in connection.supported_commands]
 
 
-def utc_now_ms() -> str:
-    """Return the current UTC time as a fixed-width millisecond ISO string."""
-    now = dt.datetime.now(dt.UTC)
-    return now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{now.microsecond // 1000:03d}Z'
-
-
 def format_row(row: dict[str, object]) -> str:
     """Render a reading row as a compact ``key=value`` line, skipping nulls."""
     fields = ' '.join(f'{k}={v}' for k, v in row.items() if k != 'ts' and v is not None)
@@ -222,7 +216,7 @@ def poll_loop(
     start = time.monotonic()
     while True:
         cycle_start = time.monotonic()
-        row: dict[str, object] = {'ts': utc_now_ms()}
+        row: dict[str, object] = {'ts': now_canonical()}
         row[ELM_VOLTAGE_COLUMN] = numeric(connection.query(obd.commands.ELM_VOLTAGE))
         for col in columns:
             row[col] = numeric(connection.query(PROBE_COMMANDS[col]))
