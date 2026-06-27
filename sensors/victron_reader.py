@@ -35,24 +35,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
 import ssl
 import sys
 import time
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 
-from mqttbus import topics
-from mqttbus.client import KEEPALIVE_SECONDS, broker_host, broker_port, make_client
+from common.timefmt import now_canonical
+from mqttbus.client import KEEPALIVE_SECONDS, make_client
+from sensors.runner import Heartbeat, add_publisher_args, bounded_walk, publisher_session
 
 SENSOR_TYPE = 'victron'
 
 # Snapshot cadence (matches the BME680 node). Power data is slow-moving, and it must
 # stay under Venus's ~60 s keepalive window since each tick re-sends the keepalive.
 PUBLISH_INTERVAL_S = 30.0
-HEARTBEAT_SECONDS = 60
 # Treat the source as dead if no GX message has arrived within this window. Larger
 # than the publish cadence so a single missed change doesn't flap the stream offline.
 SOURCE_STALE_S = 90.0
@@ -113,11 +110,6 @@ VICTRON_COLUMNS: list[str] = [
 Number = float | int
 
 
-def default_node() -> str:
-    """Return the node name from ``GPS_SENSOR_NODE`` (default ``house``)."""
-    return os.environ.get('GPS_SENSOR_NODE', 'house')
-
-
 def victron_host() -> str:
     """Return the GX broker host from ``VICTRON_MQTT_HOST`` (default the GX IP)."""
     return os.environ.get('VICTRON_MQTT_HOST', '192.168.42.234')
@@ -131,12 +123,6 @@ def victron_port() -> int:
 def victron_password() -> str | None:
     """Return the GX MQTT password from ``VICTRON_MQTT_PASSWORD`` (None if unset)."""
     return os.environ.get('VICTRON_MQTT_PASSWORD') or None
-
-
-def now_iso_ms() -> str:
-    """Return the current time as a fixed-width millisecond UTC ISO string."""
-    now = datetime.now(UTC)
-    return now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{now.microsecond // 1000:03d}Z'
 
 
 def column_for_topic(rel: str) -> str | None:
@@ -191,7 +177,7 @@ def build_snapshot(cache: dict[str, Number | None]) -> dict[str, object]:
     Returns:
         ``{'ts': <ms-UTC>, <column>: <value-or-None>, …}`` over all columns.
     """
-    return {'ts': now_iso_ms(), **{col: cache.get(col) for col in VICTRON_COLUMNS}}
+    return {'ts': now_canonical(), **{col: cache.get(col) for col in VICTRON_COLUMNS}}
 
 
 class VictronSource:
@@ -318,10 +304,8 @@ class FakeSource:
     def snapshot(self) -> dict[str, Number | None]:
         """Return a drifted plausible value for every column."""
         out: dict[str, Number | None] = {}
-        for col, base in self._BASELINES.items():
-            drift = self._values[col] + random.uniform(-0.02, 0.02) * (abs(base) + 1.0)
-            self._values[col] = drift
-            out[col] = round(drift, 2)
+        for column, value in bounded_walk(self._values, self._BASELINES, scale=0.02).items():
+            out[column] = value
         return out
 
     def fresh(self) -> bool:
@@ -330,28 +314,6 @@ class FakeSource:
 
     def stop(self) -> None:
         """No-op; the fake source holds no resources."""
-
-
-@dataclass
-class VictronStats:
-    """Rolling per-heartbeat counters (a silent stall names its own cause)."""
-
-    published: int = 0
-    stale: int = 0
-    last_heartbeat: float = field(default_factory=time.monotonic)
-
-    def maybe_heartbeat(self, online: bool, portal: str | None) -> None:
-        """Emit and reset the window if a heartbeat is due."""
-        now = time.monotonic()
-        if now - self.last_heartbeat < HEARTBEAT_SECONDS:
-            return
-        print(
-            f'heartbeat: online={online} published={self.published} stale={self.stale} '
-            f'portal={portal}',
-            flush=True,
-        )
-        self.published = self.stale = 0
-        self.last_heartbeat = now
 
 
 def publish_loop(
@@ -374,7 +336,7 @@ def publish_loop(
         status_topic: ``sensors/<node>/victron/status`` for the retained online flag.
         once: Publish a single snapshot (while fresh) and return — for testing.
     """
-    stats = VictronStats()
+    hb = Heartbeat()
     online = False
     client.publish(status_topic, 'offline', qos=1, retain=True)  # type: ignore[attr-defined]
 
@@ -389,11 +351,11 @@ def publish_loop(
         if fresh:
             snapshot = json.dumps(build_snapshot(source.snapshot()))
             client.publish(reading_topic, snapshot, qos=1, retain=True)  # type: ignore[attr-defined]
-            stats.published += 1
+            hb.bump('published')
         else:
-            stats.stale += 1
+            hb.bump('stale')
 
-        stats.maybe_heartbeat(online, source.portal)
+        hb.maybe_emit(online=online, portal=source.portal)
         if once:
             return
         time.sleep(PUBLISH_INTERVAL_S)
@@ -409,20 +371,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         The parsed argument namespace.
     """
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument(
-        '--node',
-        default=default_node(),
-        help='Node name (topic <node> segment). Default $GPS_SENSOR_NODE or "house".',
-    )
-    parser.add_argument(
-        '--fake',
-        action='store_true',
-        help='Publish synthetic readings instead of reading a real GX device.',
-    )
-    parser.add_argument(
-        '--once',
-        action='store_true',
-        help='Publish a single snapshot (while fresh) and exit (for testing).',
+    add_publisher_args(
+        parser,
+        node_default='house',
+        fake_help='Publish synthetic readings instead of reading a real GX device.',
+        once_help='Publish a single snapshot (while fresh) and exit (for testing).',
     )
     return parser.parse_args(argv)
 
@@ -430,48 +383,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main() -> int:
     """Connect both brokers and run the publish loop.
 
+    The sink lifecycle is :func:`sensors.runner.publisher_session` with
+    ``announce_online=False`` — unlike the other readers, the publish loop owns the
+    retained ``status`` flag, flipping it on GX-source freshness transitions rather
+    than declaring ``online`` the moment the sink connects.
+
     Returns:
         Process exit code: 0 on graceful shutdown.
     """
     args = parse_args()
-    node = args.node
-    reading_topic = topics.reading_topic(node, SENSOR_TYPE)
-    status_topic = topics.status_topic(node, SENSOR_TYPE)
     source: VictronSource | FakeSource = (
         FakeSource()
         if args.fake
         else VictronSource(victron_host(), victron_port(), victron_password())
     )
-
-    def on_connect(
-        client: mqtt.Client, userdata: object, flags: object, reason_code: object, *_: object
-    ) -> None:
-        print(f'victron sink connected ({reason_code})', flush=True)
-
-    client = make_client(
-        f'gps-sensor-{node}-{SENSOR_TYPE}',
-        lwt_topic=status_topic,
-        lwt_payload='offline',
-    )
-    client.on_connect = on_connect
-    client.connect(broker_host(), broker_port(), keepalive=KEEPALIVE_SECONDS)
-    client.loop_start()
-    source.start()
-
-    print(
-        f'Victron reader started (node={node}, fake={args.fake}, topic={reading_topic})',
-        flush=True,
-    )
-    try:
-        publish_loop(source, client, reading_topic, status_topic, args.once)
-    except KeyboardInterrupt:
-        print('Victron reader stopped', flush=True)
-    finally:
-        source.stop()
-        client.publish(status_topic, 'offline', qos=1, retain=True)
-        time.sleep(0.2)
-        client.loop_stop()
-        client.disconnect()
+    started = f'Victron reader started (node={args.node}, fake={args.fake})'
+    with publisher_session(args.node, SENSOR_TYPE, started_msg=started, announce_online=False) as (
+        client,
+        reading_topic,
+        status_topic,
+    ):
+        source.start()
+        try:
+            publish_loop(source, client, reading_topic, status_topic, args.once)
+        except KeyboardInterrupt:
+            print('Victron reader stopped', flush=True)
+        finally:
+            source.stop()
     return 0
 
 

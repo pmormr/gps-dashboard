@@ -18,34 +18,13 @@ Run::
 """
 
 import argparse
-import json
-import os
 import random
 import sys
-import time
-from datetime import UTC, datetime
 
-from mqttbus import topics
-from mqttbus.client import (
-    KEEPALIVE_SECONDS,
-    broker_host,
-    broker_port,
-    make_client,
-)
+from sensors.runner import SimpleSensor, add_publisher_args, run_simple_publisher
 
 SENSOR_TYPE = 'bme680'
-READ_INTERVAL_SECONDS = 5
-HEARTBEAT_SECONDS = 60
-
-
-def default_node() -> str:
-    """Return the node name from ``GPS_SENSOR_NODE`` (default ``cabin``)."""
-    return os.environ.get('GPS_SENSOR_NODE', 'cabin')
-
-
-def now_iso() -> str:
-    """Return the current time as a whole-second UTC ISO-8601 string."""
-    return datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
+READ_INTERVAL_SECONDS = 5.0
 
 
 class FakeSensor:
@@ -134,26 +113,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         Parsed arguments with ``node``, ``fake``, ``interval``, and ``once``.
     """
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument(
-        '--node',
-        default=default_node(),
-        help='Node name / location (topic <node> segment). Default $GPS_SENSOR_NODE or "cabin".',
-    )
-    parser.add_argument(
-        '--fake',
-        action='store_true',
-        help='Publish synthetic readings instead of reading I2C hardware.',
+    add_publisher_args(
+        parser,
+        node_default='cabin',
+        fake_help='Publish synthetic readings instead of reading I2C hardware.',
+        once_help='Publish a single reading and exit (for testing).',
     )
     parser.add_argument(
         '--interval',
         type=float,
         default=READ_INTERVAL_SECONDS,
         help=f'Seconds between readings (default {READ_INTERVAL_SECONDS}).',
-    )
-    parser.add_argument(
-        '--once',
-        action='store_true',
-        help='Publish a single reading and exit (for testing).',
     )
     return parser.parse_args(argv)
 
@@ -165,56 +135,15 @@ def main() -> int:
         Process exit code: 0 on graceful shutdown.
     """
     args = parse_args()
-    node = args.node
-    reading_topic = topics.reading_topic(node, SENSOR_TYPE)
-    status_topic = topics.status_topic(node, SENSOR_TYPE)
-    sensor = FakeSensor() if args.fake else Bme680Sensor()
-
-    def on_connect(client, userdata, flags, reason_code, properties) -> None:
-        client.publish(status_topic, 'online', qos=1, retain=True)
-        print(f'reader connected ({reason_code}); status online on {status_topic}', flush=True)
-
-    client = make_client(
-        f'gps-sensor-{node}-{SENSOR_TYPE}',
-        lwt_topic=status_topic,
-        lwt_payload='offline',
+    sensor: SimpleSensor = FakeSensor() if args.fake else Bme680Sensor()
+    run_simple_publisher(
+        sensor,
+        node=args.node,
+        sensor_type=SENSOR_TYPE,
+        interval=args.interval,
+        once=args.once,
+        started_msg=f'BME680 reader started (node={args.node}, fake={args.fake})',
     )
-    client.on_connect = on_connect
-    client.connect(broker_host(), broker_port(), keepalive=KEEPALIVE_SECONDS)
-    client.loop_start()
-
-    print(
-        f'BME680 reader started (node={node}, fake={args.fake}, topic={reading_topic})', flush=True
-    )
-    written = 0
-    dropped = 0
-    last_heartbeat = time.monotonic()
-    try:
-        while True:
-            reading = sensor.read()
-            if reading is None:
-                dropped += 1
-            else:
-                payload = {'ts': now_iso(), **reading}
-                client.publish(reading_topic, json.dumps(payload), qos=1, retain=True)
-                written += 1
-            if args.once:
-                time.sleep(0.2)
-                break
-            now = time.monotonic()
-            if now - last_heartbeat >= HEARTBEAT_SECONDS:
-                print(f'heartbeat: published={written} dropped={dropped} node={node}', flush=True)
-                written = 0
-                dropped = 0
-                last_heartbeat = now
-            time.sleep(args.interval)
-    except KeyboardInterrupt:
-        print('BME680 reader stopped', flush=True)
-    finally:
-        client.publish(status_topic, 'offline', qos=1, retain=True)
-        time.sleep(0.2)
-        client.loop_stop()
-        client.disconnect()
     return 0
 
 

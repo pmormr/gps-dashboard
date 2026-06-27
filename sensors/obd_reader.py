@@ -39,23 +39,20 @@ import argparse
 import json
 import logging
 import os
-import random
 import sys
 import time
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 
 import obd
 
-from mqttbus import topics
-from mqttbus.client import KEEPALIVE_SECONDS, broker_host, broker_port, make_client
+from common.timefmt import now_canonical
+from sensors.runner import Heartbeat, add_publisher_args, bounded_step, publisher_session
 
 SENSOR_TYPE = 'obd'
 
 # Full-snapshot publish cadence and per-PID baseline period (Phase 1: all PIDs at
 # this rate). The poll loop targets one snapshot per BASELINE_PERIOD_S.
 BASELINE_PERIOD_S = 1.0
-HEARTBEAT_SECONDS = 60
 
 # Engine-state gate (drain fix). Alternator-charging voltage cleanly separates a
 # running engine (~13.8-14.1 V measured) from key-off / key-on-engine-off (~12.0-12.3 V).
@@ -122,20 +119,9 @@ def _pid_specs() -> list[PidSpec]:
 PID_SPECS = _pid_specs()
 
 
-def default_node() -> str:
-    """Return the node name from ``GPS_SENSOR_NODE`` (default ``van``)."""
-    return os.environ.get('GPS_SENSOR_NODE', 'van')
-
-
 def default_port() -> str | None:
     """Return the serial port from ``GPS_OBD_PORT`` (default None → auto-scan)."""
     return os.environ.get('GPS_OBD_PORT') or None
-
-
-def now_iso_ms() -> str:
-    """Return the current time as a fixed-width millisecond UTC ISO string."""
-    now = datetime.now(UTC)
-    return now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{now.microsecond // 1000:03d}Z'
 
 
 def numeric(response: object) -> float | None:
@@ -257,41 +243,13 @@ class FakeReader:
         column = spec.column
         if column == 'run_time_s':
             return round(time.monotonic() - self._start, 1)
-        base = self._BASELINES[column]
-        drift = self._values[column] + random.uniform(-0.05, 0.05) * (abs(base) + 1.0)
-        self._values[column] = drift
-        return round(drift, 2)
+        self._values[column] = bounded_step(
+            self._values[column], self._BASELINES[column], scale=0.05
+        )
+        return round(self._values[column], 2)
 
     def close(self) -> None:
         """No-op; the fake holds no resources."""
-
-
-@dataclass
-class ObdStats:
-    """Rolling per-heartbeat counters (logger ethos: a stall names its own cause).
-
-    ``saturated`` counts cycles whose poll time exceeded the target period — the
-    backpressure signal that the bus can't keep up with the requested rate.
-    """
-
-    published: int = 0
-    nulls: int = 0
-    saturated: int = 0
-    last_heartbeat: float = field(default_factory=time.monotonic)
-
-    def maybe_heartbeat(self, state: str, voltage: float | None) -> None:
-        """Emit and reset the window if a heartbeat is due."""
-        now = time.monotonic()
-        if now - self.last_heartbeat < HEARTBEAT_SECONDS:
-            return
-        volts = f'{voltage:.1f}V' if voltage is not None else 'n/a'
-        print(
-            f'heartbeat: state={state} published={self.published} nulls={self.nulls} '
-            f'saturated={self.saturated} voltage={volts}',
-            flush=True,
-        )
-        self.published = self.nulls = self.saturated = 0
-        self.last_heartbeat = now
 
 
 def engine_running(reader: ObdReader | FakeReader) -> bool:
@@ -321,7 +279,7 @@ def poll_loop(
     """
     current: dict[str, float | None] = {spec.column: None for spec in PID_SPECS}
     next_due: dict[str, float] = {spec.column: 0.0 for spec in PID_SPECS}
-    stats = ObdStats()
+    hb = Heartbeat()
     state = 'parked'
     off_streak = 0
 
@@ -333,7 +291,7 @@ def poll_loop(
                 print('engine running — polling', flush=True)
             else:
                 reader.close()
-                stats.maybe_heartbeat(state, None)
+                hb.maybe_emit(state=state, voltage='n/a')
                 time.sleep(WAKE_INTERVAL_S)
                 continue
 
@@ -358,15 +316,18 @@ def poll_loop(
                 if value is None:
                     nulls += 1
 
-        payload = {'ts': now_iso_ms(), **current}
+        payload = {'ts': now_canonical(), **current}
         client.publish(reading_topic, json.dumps(payload), qos=1, retain=True)  # type: ignore[attr-defined]
-        stats.published += 1
-        stats.nulls += nulls
+        hb.bump('published')
+        hb.bump('nulls', nulls)
 
         cycle_s = time.monotonic() - cycle_start
+        # A cycle slower than the target period means the bus can't keep up at the
+        # requested rate — the backpressure signal surfaced in the heartbeat.
         if cycle_s > BASELINE_PERIOD_S:
-            stats.saturated += 1
-        stats.maybe_heartbeat(state, voltage)
+            hb.bump('saturated')
+        volts = f'{voltage:.1f}V' if voltage is not None else 'n/a'
+        hb.maybe_emit(state=state, voltage=volts)
 
         if once:
             return
@@ -383,10 +344,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         The parsed argument namespace.
     """
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument(
-        '--node',
-        default=default_node(),
-        help='Node name (topic <node> segment). Default $GPS_SENSOR_NODE or "van".',
+    add_publisher_args(
+        parser,
+        node_default='van',
+        fake_help='Publish synthetic readings instead of reading a real adapter.',
+        once_help='Publish a single snapshot (once running) and exit (for testing).',
     )
     parser.add_argument(
         '--port',
@@ -403,16 +365,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         '--fast',
         action='store_true',
         help='Enable python-OBD fast mode (default off; flakier on cheap clones).',
-    )
-    parser.add_argument(
-        '--fake',
-        action='store_true',
-        help='Publish synthetic readings instead of reading a real adapter.',
-    )
-    parser.add_argument(
-        '--once',
-        action='store_true',
-        help='Publish a single snapshot (once running) and exit (for testing).',
     )
     return parser.parse_args(argv)
 
@@ -455,37 +407,21 @@ def main() -> int:
     """
     args = parse_args()
     _quiet_obd_engine_off_logging()
-    node = args.node
-    reading_topic = topics.reading_topic(node, SENSOR_TYPE)
-    status_topic = topics.status_topic(node, SENSOR_TYPE)
     reader: ObdReader | FakeReader = (
         FakeReader() if args.fake else ObdReader(args.port, args.baud, args.protocol, args.fast)
     )
-
-    def on_connect(client, userdata, flags, reason_code, properties) -> None:
-        client.publish(status_topic, 'online', qos=1, retain=True)
-        print(f'reader connected ({reason_code}); status online on {status_topic}', flush=True)
-
-    client = make_client(
-        f'gps-sensor-{node}-{SENSOR_TYPE}',
-        lwt_topic=status_topic,
-        lwt_payload='offline',
-    )
-    client.on_connect = on_connect
-    client.connect(broker_host(), broker_port(), keepalive=KEEPALIVE_SECONDS)
-    client.loop_start()
-
-    print(f'OBD reader started (node={node}, fake={args.fake}, topic={reading_topic})', flush=True)
-    try:
-        poll_loop(reader, client, reading_topic, args.once)
-    except KeyboardInterrupt:
-        print('OBD reader stopped', flush=True)
-    finally:
-        reader.close()
-        client.publish(status_topic, 'offline', qos=1, retain=True)
-        time.sleep(0.2)
-        client.loop_stop()
-        client.disconnect()
+    started = f'OBD reader started (node={args.node}, fake={args.fake})'
+    with publisher_session(args.node, SENSOR_TYPE, started_msg=started) as (
+        client,
+        reading_topic,
+        _status,
+    ):
+        try:
+            poll_loop(reader, client, reading_topic, args.once)
+        except KeyboardInterrupt:
+            print('OBD reader stopped', flush=True)
+        finally:
+            reader.close()
     return 0
 
 
