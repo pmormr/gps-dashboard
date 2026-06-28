@@ -14,7 +14,16 @@
      */
     "allowJs": true,
     "checkJs": true,
-    "moduleDetection": "force"
+    "moduleDetection": "force",
+
+    /*
+     * pmtiles 3.0.0 ships types (dist/index.d.ts) but its `exports` is a bare
+     * string with no `types` condition, so bundler resolution can't find them.
+     * Point tsc at the real declarations; Vite resolves the runtime .mjs itself.
+     */
+    "paths": {
+      "pmtiles": ["./node_modules/pmtiles/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"]
 }

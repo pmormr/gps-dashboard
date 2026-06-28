@@ -3,6 +3,7 @@ import type { Component } from 'svelte'
 import Globe from '../views/Globe.svelte'
 import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
+import Map from '../views/Map.svelte'
 import NotFound from '../views/NotFound.svelte'
 import Ntp from '../views/Ntp.svelte'
 import Radio from '../views/Radio.svelte'
@@ -25,6 +26,9 @@ export interface RouteDef {
  */
 export const routes: RouteDef[] = [
   { path: '/', component: Home, tab: '/' },
+  // Temporary dev route while the map ports in sub-steps — the live legacy `/map`
+  // stays served by Flask until the cutover (Map sub-step 6).
+  { path: '/map-next', component: Map, tab: '/map' },
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/passes', component: Sky, tab: '/sky' },

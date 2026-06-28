@@ -87,6 +87,22 @@ A small store layer for cross-view shared state — the Selection window (so it 
 across Map↔Systems↔Sky), and a single persistent WS feed for live status once the broker
 WS transport lands (currently blocked — see `.claude/modules/sensors.md`).
 
+**Selection is a *global time axis* (decided 2026-06-28).** Every tier shares one
+`canonical_timestamp` (ms-UTC), so every historical-window read already takes `start`/`end`
+(`/api/points`, `/api/sensors/:id/readings`, `/api/obd/economy`, `/api/drone/flights`,
+`/api/constellation`). One app-level store — `web/src/lib/stores/selection.svelte.ts`,
+`{ mode, from, to, live, brush }` — is the single window; **many consumers**, each fetching
+its own data at its own resolution for that window. "What was happening *then*" across map +
+sensors + OBD + drone from one pick. `live` is a *mode* of the axis (trailing → now,
+auto-refresh — Home/live-dot/skyplot sit here), not an exception. **Non-consumers (honest
+edges):** passes is *forward* time (a future horizon, its own control); the globe trailing
+window *is* a clean consumer. **Scope:** only **Selection (time)** is global; **Layers** and
+**Marks** stay map-local (drawing-on-map / curated-place concerns). So: one global axis + two
+map-local axes. **Adoption is incremental** — build the store now, map is consumer #1
+(Map sub-step 2), Systems/globe opt in later (small rewires each); the `TimeStrip` may later
+graduate from a map widget to shell-level chrome (global picker + per-source density lane).
+Don't rewire every consumer in the map pass.
+
 ---
 
 ## Phased plan
@@ -177,6 +193,23 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   untouched). Verified headless (?demo, mobile width).
 - [ ] **Map** (last — most complex, stateful, and in flux) with the persistent-instance
   pattern; drone overlay folds in. Still the one legacy NAV tab (`/map`).
+  **Architecture DECIDED 2026-06-28: hybrid Svelte-native** (not a verbatim island-port).
+  Keep *only* the real renderers imperative as thin TS modules — `map.ts` (the `MapView`
+  MapLibre façade; instance persists across routes), `timestrip.ts` (canvas brush, driven
+  via its `setData`/`getSelection`/`onBrush` API), `overlay3d.ts` (three drone layer). Rewrite
+  all chrome (panels, drawer, annotation form, timeline labels/buttons, time picker, layer
+  select) as idiomatic Svelte. A **Selection/Layers store** (`$state` module) is the seam:
+  UI writes intent → an effect pushes it into `map.ts` via the façade (replaces the `app.js`
+  wiring + `timeline→MapView` calls; lets the Selection window persist cross-view later).
+  Keep-alive: the `#map` element is a DOM-level singleton that persists; **state** persists
+  in the store; the Svelte chrome unmounts/remounts cheaply, rehydrating from the store (no
+  refetch). This advances the redesign (Layers/Marks land native) instead of porting debt.
+  MapLibre + pmtiles flip to npm (pinned to vendored `maplibre-gl@5.24.0` / `pmtiles@3.0.0`).
+  Sub-steps (each a commit): (1) npm flip + `map.ts` + persistent host + basemap/layer/terrain
+  → (2) Selection store + Svelte timeline driving `timestrip.ts` → (3) Annotations/Marks Svelte
+  + store → (4) Layers panel Svelte (labels/terrain/drone fold in) → (5) `overlay3d.ts` drone
+  → (6) cutover `/map` to SPA + remove legacy route/`index.html`/ported `static/js` + retire
+  vendored maplibre/pmtiles.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire
@@ -188,12 +221,14 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
 
 ## Open decisions / flags
 
-- **Map ⇄ map-redesign collision.** `plans/mapview-redesign-plan.md` ([[next-ui-pass]])
-  is being built on the *vanilla* map (Selection axis done; Layers + Marks rework
-  pending). When we reach Phase 3 we must choose: finish the vanilla redesign then port a
-  finished thing, **or** fold the remaining redesign (Layers/Marks) into the Svelte port.
-  Not deciding now — flagged so it can't ambush us. The redesign's three-axis model
-  (Selection/Layers/Marks) survives the port intact; it's *inside* the Map tab.
+- **Map ⇄ map-redesign collision. DECIDED 2026-06-28: port now, finish the redesign in
+  Svelte.** Port the current vanilla map into the shell as-is (Selection/`TimeStrip` axis
+  done + deployed; Marks partial — Bookmark Here + edit/rename; Layers **not started**),
+  then build the not-yet-started Layers axis + finish the Marks rework natively in Svelte.
+  Rationale: captures the finished `TimeStrip` work, keeps "map last", and builds Layers
+  exactly once (finishing vanilla first would implement Layers in vanilla then again in the
+  port). The redesign's three-axis model survives intact, *inside* the Map tab; its plan
+  (`plans/mapview-redesign-plan.md`) continues against the Svelte map after the port lands.
 - **Home content scope.** Which metrics earn a card on the glance view, and which are
   drill-in only. Settle when building `/api/status`.
 - **Testing.** Frontend currently has no JS tests (suite is pytest). Decide whether to add
