@@ -1,4 +1,6 @@
-from flask import Flask, render_template
+import os
+
+from flask import Flask, abort, render_template, send_file
 
 from api.db import get_connection, init_db, migrate
 from api.routes.annotations import annotations_bp
@@ -33,9 +35,30 @@ def create_app():
     app.register_blueprint(status_gpsd_bp)
     app.register_blueprint(status_ntp_bp)
 
+    dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'static', 'dist'))
+
+    def spa_index():
+        """Serve the built Van OS SPA shell (static/dist/index.html)."""
+        index_path = os.path.join(dist_dir, 'index.html')
+        if not os.path.exists(index_path):
+            abort(503, description='Frontend not built — run `npm run build` in web/.')
+        return send_file(index_path)
+
     @app.get('/')
     def index():
+        return spa_index()
+
+    @app.get('/map')
+    def legacy_map():
+        """Legacy map view; ported into the SPA in a later phase (dual-serve)."""
         return render_template('index.html')
+
+    @app.get('/<path:path>')
+    def spa_catchall(path):
+        """Serve the SPA shell for client-side routes; never shadow api/tiles/static."""
+        if path.startswith(('api/', 'tiles/', 'static/')):
+            abort(404)
+        return spa_index()
 
     return app
 
