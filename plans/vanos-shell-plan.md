@@ -205,11 +205,17 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   in the store; the Svelte chrome unmounts/remounts cheaply, rehydrating from the store (no
   refetch). This advances the redesign (Layers/Marks land native) instead of porting debt.
   MapLibre + pmtiles flip to npm (pinned to vendored `maplibre-gl@5.24.0` / `pmtiles@3.0.0`).
-  Sub-steps (each a commit): (1) npm flip + `map.ts` + persistent host + basemap/layer/terrain
-  → (2) Selection store + Svelte timeline driving `timestrip.ts` → (3) Annotations/Marks Svelte
-  + store → (4) Layers panel Svelte (labels/terrain/drone fold in) → (5) `overlay3d.ts` drone
-  → (6) cutover `/map` to SPA + remove legacy route/`index.html`/ported `static/js` + retire
-  vendored maplibre/pmtiles.
+  Sub-steps (each a commit): **(1) LANDED 2026-06-28** — npm flip (`maplibre-gl@5.24.0` /
+  `pmtiles@3.0.0`), `map.js`→`map.ts` façade (npm imports, typed, `setOverlay3D` seam,
+  `geo.ts`), `mapHost.ts` persistent keep-alive host (body-level, translated off-screen
+  off-route — never `display:none`, which blanks the WebGL buffer), `Map.svelte` minimal
+  chrome (layer/3D), MapLibre dynamic-imported (Map-only chunk; main stays ~34 kB gz). Temp
+  `/map-next` dev route; legacy `/map` still dual-served. Verified headless (keep-alive: one
+  instance survives a client-side route round-trip with tiles intact). → (2) Selection store
+  (app-global time axis) + Svelte timeline driving `timestrip.ts` (also fixes chrome↔engine
+  state-sync on remount) → (3) Annotations/Marks Svelte + store → (4) Layers panel Svelte
+  (labels/terrain/drone fold in) → (5) `overlay3d.ts` drone → (6) cutover `/map` to SPA +
+  remove legacy route/`index.html`/ported `static/js` + retire vendored maplibre/pmtiles.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire
