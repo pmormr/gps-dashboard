@@ -82,7 +82,9 @@
     <button class="diag" onclick={() => router.navigate('/ntp')}>
       <span>NTP</span><span class="muted">time sync / chrony</span>
     </button>
-    <a class="diag" href="/gpsd"><span>gpsd</span><span class="muted">GPS receiver status</span></a>
+    <button class="diag" onclick={() => router.navigate('/gpsd')}>
+      <span>gpsd</span><span class="muted">GPS receiver status</span>
+    </button>
     <a class="diag" href="/sensors">
       <span>History &amp; charts</span><span class="muted">detailed sensor viewer</span>
     </a>

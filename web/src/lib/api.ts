@@ -67,7 +67,8 @@ export function getStatus(): Promise<Status> {
   return getJSON<Status>('/api/status')
 }
 
-export interface NtpCheck {
+/** A PASS/FAIL diagnostic check, shared by the NTP and gpsd status views. */
+export interface StatusCheck {
   name: string
   ok: boolean
 }
@@ -92,7 +93,7 @@ export interface NtpSource {
 
 export interface NtpStatus {
   overall_ok: boolean
-  checks: NtpCheck[]
+  checks: StatusCheck[]
   service_state: string
   tracking: NtpTracking
   sources: NtpSource[]
@@ -106,6 +107,34 @@ export interface NtpStatus {
 /** Fetch NTP/chrony status. */
 export function getNtp(): Promise<NtpStatus> {
   return getJSON<NtpStatus>('/api/ntp')
+}
+
+export interface GpsdLatest {
+  timestamp: string
+  lat: number
+  lon: number
+  speed: number | null
+  altitude: number | null
+}
+
+export interface GpsdStatus {
+  overall_ok: boolean
+  checks: StatusCheck[]
+  service_state: string
+  device: string
+  device_present: boolean
+  fix_mode: number
+  fix_label: string
+  sats_used: number
+  sats_visible: number
+  latest: GpsdLatest | null
+  data_age: number | null
+  frozen: boolean
+}
+
+/** Fetch gpsd/receiver status. */
+export function getGpsdStatus(): Promise<GpsdStatus> {
+  return getJSON<GpsdStatus>('/api/gpsd/status')
 }
 
 /** Per-metric presentation metadata, mirrored from api/sensor_schema.py METRIC_META. */

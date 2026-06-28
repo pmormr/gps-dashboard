@@ -1,5 +1,6 @@
 import type { Component } from 'svelte'
 
+import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
 import NotFound from '../views/NotFound.svelte'
 import Ntp from '../views/Ntp.svelte'
@@ -24,6 +25,7 @@ export const routes: RouteDef[] = [
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
+  { path: '/gpsd', component: Gpsd, tab: '/systems' },
 ]
 
 /** Fallback view for an unmatched client path. */

@@ -1,7 +1,7 @@
 import os
 from datetime import UTC, datetime, timedelta
 
-from flask import Blueprint, render_template
+from flask import Blueprint, jsonify, render_template
 
 from api.db import canonical_timestamp, get_connection
 from common import proc
@@ -69,8 +69,13 @@ def _position_frozen():
         return False
 
 
-@status_gpsd_bp.get('/gpsd')
-def gpsd_status():
+def _collect() -> dict:
+    """Gather gpsd/receiver health: service, device, live fix, and the checks.
+
+    Returns:
+        The gpsd status document served by ``/api/gpsd/status`` and rendered by
+        the Van OS Systems view.
+    """
     service_state = proc.service_state('gpsd')
     device = configured_gpsd_device()
     gpsd = query_gpsd()
@@ -101,31 +106,34 @@ def gpsd_status():
     frozen = bool(data_fresh) and _position_frozen()
 
     checks = [
-        ('gpsd service', service_state == 'active'),
-        ('device present', device_present),
-        ('port 2947 open', gpsd['connected']),
-        ('GPS fix', fix_mode >= 2),
-        ('data fresh (< 30s)', bool(data_fresh)),
-        ('position moving', not frozen),
+        {'name': 'gpsd service', 'ok': service_state == 'active'},
+        {'name': 'device present', 'ok': device_present},
+        {'name': 'port 2947 open', 'ok': gpsd['connected']},
+        {'name': 'GPS fix', 'ok': fix_mode >= 2},
+        {'name': 'data fresh (< 30s)', 'ok': bool(data_fresh)},
+        {'name': 'position moving', 'ok': not frozen},
     ]
 
-    overall_ok = all(ok for _, ok in checks)
+    return {
+        'overall_ok': all(c['ok'] for c in checks),
+        'checks': checks,
+        'service_state': service_state,
+        'device': device or 'not configured',
+        'device_present': device_present,
+        'fix_mode': fix_mode,
+        'fix_label': FIX_LABELS.get(fix_mode, 'Unknown'),
+        'sats_used': sats_used,
+        'sats_visible': sats_visible,
+        'latest': latest,
+        'data_age': data_age,
+        'frozen': frozen,
+    }
 
-    return render_template(
-        'gpsd.html',
-        overall_ok=overall_ok,
-        checks=checks,
-        service_state=service_state,
-        device=device or 'not configured',
-        device_present=device_present,
-        fix_mode=fix_mode,
-        fix_label=FIX_LABELS.get(fix_mode, 'Unknown'),
-        sats_used=sats_used,
-        sats_visible=sats_visible,
-        latest=latest,
-        data_age=data_age,
-        frozen=frozen,
-    )
+
+@status_gpsd_bp.get('/api/gpsd/status')
+def gpsd_status_api():
+    """gpsd/receiver status as JSON for the Van OS Systems view."""
+    return jsonify(_collect())
 
 
 @status_gpsd_bp.get('/skyplot')
