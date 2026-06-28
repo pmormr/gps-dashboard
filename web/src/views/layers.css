@@ -1,0 +1,77 @@
+/*
+ * Layers panel styles. The `.floating-panel` shell (header/body/collapse) is shared
+ * with the Marks panel in annotations.css; this adds the Layers-specific sections,
+ * the POI category grid, sliders, and the base-map select.
+ */
+
+.map-chrome-tr .floating-panel.layers-panel {
+  width: 232px;
+}
+
+.layers-section {
+  padding: 4px 0;
+}
+.layers-section + .layers-section {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+
+.layers-panel h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.layers-panel select {
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.layers-panel input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.label-cats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 8px;
+}
+
+.label-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.label-check input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+.label-row {
+  margin-top: 8px;
+}
+.label-row h4 {
+  display: flex;
+  justify-content: space-between;
+}
+.label-val {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.label-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-top: 2px;
+}

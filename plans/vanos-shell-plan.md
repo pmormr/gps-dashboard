@@ -229,9 +229,23 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   obd-economy client; **marks stay map-local** (panel-owned `$state`, no store — no other
   consumer). Verified headless desktop + mobile (drawer list with per-range bounds/notes,
   jump-to-range reframes the window to 41 pts + fits, Create Range form, marks panel; only the
-  expected local tile-404s in console). → (4) Layers panel Svelte
-  (labels/terrain/drone fold in) → (5) `overlay3d.ts` drone → (6) cutover `/map` to SPA +
+  expected local tile-404s in console). → **(4) LANDED 2026-06-28** — unified `Layers.svelte`
+  panel (base map + labels + 3D terrain) replacing the 3 legacy floating panels (⚙ Labels /
+  🏔 3D / 🚁 Drone); `lib/labels.ts` ports the POI-category/density GL-style controls
+  (runtime-MapLibre-free — operates on the `gl` handed over; re-applied on every vector-style
+  load via `hookLabels`, idempotent); `stores/layers.svelte.ts` is the map-local single source
+  of truth (base/refresh/terrain/exaggeration + label groups/offset/minor-roads), the engine
+  getting pushes via the panel's change handlers (defaults match the engine, so no read-back).
+  The tile-refresh banner became an inline panel hint; **drone deferred to (5)** (its renderer
+  is overlay3d). Verified headless: panel sections render, POI toggles + density + minor-streets,
+  3D toggle reveals the exaggeration slider, OSM↔USGS swap loads real proxy tiles + hides
+  labels + shows refresh — only expected tile-404s in console (the label *visual* effect needs
+  the Pi's OSM vector archive). → (5) `overlay3d.ts` + drone (the Drone section folds into the
+  Layers panel here) → (6) cutover `/map` to SPA +
   remove legacy route/`index.html`/ported `static/js` + retire vendored maplibre/pmtiles.
+
+  *Deferred during the port (fold into a later sub-step):* the `⊕` zoom-to-current-location FAB
+  (`tl-zoom-here-btn`) isn't ported yet.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire

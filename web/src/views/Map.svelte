@@ -1,24 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
+  import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { annotations } from '../lib/stores/annotations.svelte'
+  import { layers } from '../lib/stores/layers.svelte'
   import './map.css'
   import './annotations.css'
   import AnnotationForm from './AnnotationForm.svelte'
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
+  import Layers from './Layers.svelte'
   import MarksPanel from './MarksPanel.svelte'
   import Timeline from './Timeline.svelte'
 
   // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
   // (map.ts + MapLibre, ~283 kB gz) is dynamic-imported so it's a Map-only chunk;
-  // the main bundle stays small. `view` is passed to chrome children (Timeline) so
-  // they never import map.ts directly. Layer/3D chrome resyncs from the engine on
-  // mount (the engine persists across routes; this view remounts).
+  // the main bundle stays small. `view` is passed to chrome children (Timeline,
+  // Layers) so they never import map.ts directly. Map-local state (Layers/Marks)
+  // lives in stores that persist across the cheap chrome remount; the engine itself
+  // persists too, so on a fresh load the two agree without reading back.
   let view = $state<typeof MapViewType | undefined>()
-  let layer = $state('osm')
-  let terrain = $state(false)
-  let exaggeration = $state(1.3)
   let drawerOpen = $state(false)
 
   onMount(() => {
@@ -29,10 +30,8 @@
       view = mod.MapView
       host.showMap()
       hide = host.hideMap
-      // Resync chrome to the (persisted) engine state, not this view's defaults.
-      layer = mod.MapView.getLayer()
-      terrain = mod.MapView.getTerrainEnabled()
-      exaggeration = mod.MapView.getExaggeration()
+      // Re-apply label settings whenever the vector base (re)loads its style.
+      hookLabels(mod.MapView, () => layers.labelSettings)
     })
     annotations.reload()
     return () => {
@@ -40,16 +39,6 @@
       hide?.()
     }
   })
-
-  function onLayer(): void {
-    view?.setLayer(layer)
-  }
-  function onTerrain(): void {
-    view?.setTerrainEnabled(terrain)
-  }
-  function onExag(): void {
-    view?.setExaggeration(exaggeration)
-  }
 </script>
 
 <div class="map-region">
@@ -61,19 +50,7 @@
   </div>
 
   <div class="map-chrome-tr">
-    <select bind:value={layer} onchange={onLayer} title="Map layer">
-      <option value="osm">OSM</option>
-      <option value="usgs">USGS Topo</option>
-    </select>
-    <label class="map-ctl">
-      <input type="checkbox" bind:checked={terrain} onchange={onTerrain} /> 3D terrain
-    </label>
-    {#if terrain}
-      <label class="map-ctl">
-        ⛰ {exaggeration.toFixed(1)}×
-        <input type="range" min="0.5" max="8" step="0.1" bind:value={exaggeration} oninput={onExag} />
-      </label>
-    {/if}
+    <Layers {view} />
     <MarksPanel />
   </div>
 
