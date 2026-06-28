@@ -148,15 +148,24 @@ are all proven and committed on branch `vanos-shell`. Carry-forward niceties for
 - [x] **Radio** port — `Radio.svelte` full control head (live readout + freq/mode/CTCSS/
   repeater writes, toast, edit-safe re-sync) from `radio.js`; `/radio` HTML route + template
   removed; now a client-route NAV tab. Renders the honest offline head when rigctld is down.
-- [ ] **skyplot** — DEFERRED to Phase 3. It's an 858-line custom 2D-canvas renderer (pointer
-  drag), not a "simple view"; island-wrap it with globe/map (the heavy-canvas batch) rather
-  than rewrite. Stays a legacy drill-in from Sky until then. *(Pending user confirmation of
-  this descope.)*
+- [→] **skyplot** — DESCOPED to Phase 3 (confirmed 2026-06-28). It's an 858-line custom
+  2D-canvas renderer (pointer drag), not a "simple view"; island-wrap it with globe/map (the
+  heavy-canvas batch) rather than rewrite. Stays a legacy drill-in from Sky until then.
 
-### Phase 3 — Port the heavy/stateful views
+**Phase 2 deployed (2026-06-28).** Systems (consolidated telemetry) + gpsd + passes (Sky) +
+radio live on the Pi. Map/Radio are no longer legacy NAV links — Radio is ported; Map is the
+only NAV tab still pointing at a legacy page (`/map`), ported in Phase 3.
+
+### Phase 3 — Port the heavy/stateful views (the heavy-canvas batch)
+
+All three reuse their existing renderers as **islands** (mount in a Svelte shell), not
+rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
+
 - [ ] **Map** (last — most complex, stateful, and in flux) with the persistent-instance
-  pattern; drone overlay folds in.
-- [ ] **Globe** (lazy WebGL).
+  pattern; drone overlay folds in. Still the one legacy NAV tab (`/map`).
+- [ ] **Globe** (lazy WebGL, three.js).
+- [ ] **skyplot** (2D canvas, `static/js/skyplot.js` — 858 lines, pointer-drag). Becomes a
+  `/skyplot` client route under Sky, replacing the legacy drill-in.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire
