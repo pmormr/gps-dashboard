@@ -98,10 +98,15 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
 - **`/sensors` port** — the trend charts (uPlot) still live on the legacy `/sensors` Jinja
   page (`static/js/sensors.js` + `templates/sensors.html` + vendored `static/vendor/uplot`).
   Port into Systems, then retire those + uplot.
-- **Map-redesign Axis 2 (Layers) continuation** — trail color-by (speed/elevation/sensor
-  channel), sensor overlays on the map + a uPlot chart synced to the Selection window
-  (retire the divorced `/sensors`), stops-as-a-layer toggle. Tracked in
-  `plans/mapview-redesign-plan.md`, now continuing against the Svelte map.
+- **Layers (Axis 2) continuation** — trail color-by (speed/elevation/sensor channel),
+  sensor overlays on the map + a uPlot chart synced to the Selection window (retire the
+  divorced `/sensors`), stops-as-a-layer toggle. Built onto the `Layers.svelte` panel +
+  the `timestrip.ts` density lane (the multi-channel handoff S4 left open).
+- **Marks (Axis 3) continuation** — mark *types* (campsite / fuel / scenic / repair); an
+  **"inspect this window"** panel that generalizes the per-range fuel-economy readout
+  (`AnnotationsDrawer`, currently bolted onto saved ranges) to *any* current Selection;
+  and **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
+  curated mark (denoise **Phase 6**, see `.claude/modules/processor.md`).
 - **Vendored `static/vendor/{maplibre,pmtiles}` retirement** — blocked on the standalone
   `static/dev-terrain.html` dev tool (script-tag loads, can't use npm); retire with it.
 - Richer trail rendering (direction chevrons, head dot); per-annotation elevation/speed

@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`); **active/in-flight** plans live in `plans/` (`mapview-redesign`, `obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -85,6 +85,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### API Endpoints
 
+- `GET /api/status` — Home glance: one aggregate read (latest fix + mode, Victron SOC/solar/load, OBD when the engine was recently on, cabin IAQ/temp, GNSS sat count/fix health, systemd service states); backs the SPA Home view
 - `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated (C17): every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`; stops also carry `dwell_start`/`dwell_end`/`radius` (the frontend renders them as dwell-interval blocks on the slider and selects them by interval overlap).
 - `GET /api/points/latest` — single most-recent **raw** fix (the live position dot reads raw `gps_points`, not the processed tier, so it tracks the true current fix — C13)
 - `GET /api/annotations` — list every annotation; `point_count` is NULL for point bookmarks, integer for ranges
@@ -101,17 +102,14 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
 - `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
+- `GET /api/gpsd/status` — read-only gpsd device/version/fix snapshot; backs the Systems → gpsd drill-in (`Gpsd.svelte`)
 - `GET /api/constellation?start=&end=` — logged `sat_observations` reconstructed to 3D ECEF positions (grouped by SV, with each SV's fitted orbit-plane normal); feeds `/globe`. See `.claude/modules/observatory.md`
 - `GET /api/passes?hours=&mask=&track=1` — predicted upcoming satellite passes (orbit fit from logged az/el → propagate): rise/peak/set + az/el, duration, in-progress, sorted by rise. `mask` is the rise/set elevation (`0` = horizon, valid); `track=1` adds a per-pass `[az,el]` polyline for the skyplot overlay
 - `GET /api/radio/status` — live ID-5100A main-band state via rigctld (freq/mode/`rawstr` S-meter/tone/repeater/DCD/PTT); `online:false` + service state when rigctld is unreachable (cable unplugged or service disabled)
 - `POST /api/radio/freq` · `POST /api/radio/mode` · `POST /api/radio/tone` · `POST /api/radio/repeater` — main-band control writes; 502 on a rig refusal, 503 when rigctld is unreachable
-- `GET /gpsd` — read-only gpsd status page
-- `GET /radio` — Icom ID-5100A control head (main-band freq/mode/S-meter + tone + repeater)
-- `GET /skyplot` — live 3D satellite skyplot page (optional **Predicted** pass-arc overlay, `?passes`)
-- `GET /globe` — 3D constellation globe (three.js, PC-only)
-- `GET /passes` — upcoming satellite-passes schedule
-- `GET /ntp` — read-only NTP/chrony status page
-- `GET /sensors` — sensor viewer (current values + trend charts)
+- `GET /api/ntp` — read-only chrony/NTP status (tracking, sources, PPS); backs the Systems → ntp drill-in (`Ntp.svelte`)
+
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/systems` (+ `/gpsd`, `/ntp` drill-ins) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. The lone surviving server-rendered page is **`GET /sensors`** — the legacy Jinja trend-charts viewer (un-ported; see Frontend).
 
 ### Frontend
 
@@ -153,12 +151,13 @@ gps-dashboard/
 │       ├── tiles.py
 │       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
-│       ├── globe.py            # /globe + /api/constellation (3D reconstruction)
-│       ├── passes.py           # /passes + /api/passes (pass prediction)
+│       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
+│       ├── passes.py           # /api/passes (pass prediction; /passes is SPA-served)
 │       ├── obd.py              # /api/obd* (OBD-II telemetry read)
-│       ├── radio.py            # /radio + /api/radio/* (Icom ID-5100A CI-V control via rigctld)
-│       ├── status_gpsd.py
-│       └── status_ntp.py
+│       ├── radio.py            # /api/radio/* (Icom ID-5100A CI-V control via rigctld; /radio is SPA-served)
+│       ├── status.py           # /api/status (Home glance aggregate read)
+│       ├── status_gpsd.py      # /api/gpsd/status + /api/gpsd/sky (Systems → gpsd drill-in + skyplot)
+│       └── status_ntp.py       # /api/ntp (Systems → ntp drill-in)
 ├── common/                     # shared core library (imported across api/tools/processor)
 │   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
 │   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry + on-sky angular sep
