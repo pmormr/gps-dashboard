@@ -3,13 +3,13 @@
 
   import type { MapView as MapViewType } from '../lib/map'
   import './map.css'
+  import Timeline from './Timeline.svelte'
 
-  // Sub-step 1 chrome: layer + 3D, proving the engine façade + keep-alive. The full
-  // chrome (timeline, annotations, layers/marks panels) lands in later sub-steps.
-  // The engine (map.ts + MapLibre, ~283 kB gz) is dynamic-imported so it stays out
-  // of the main bundle — only this view pays for it, on first visit. The engine
-  // element is a persistent body-level singleton (mapHost.ts); this view only shows
-  // / hides it and overlays the chrome.
+  // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
+  // (map.ts + MapLibre, ~283 kB gz) is dynamic-imported so it's a Map-only chunk;
+  // the main bundle stays small. `view` is passed to chrome children (Timeline) so
+  // they never import map.ts directly. Layer/3D chrome resyncs from the engine on
+  // mount (the engine persists across routes; this view remounts).
   let view = $state<typeof MapViewType | undefined>()
   let layer = $state('osm')
   let terrain = $state(false)
@@ -23,6 +23,10 @@
       view = mod.MapView
       host.showMap()
       hide = host.hideMap
+      // Resync chrome to the (persisted) engine state, not this view's defaults.
+      layer = mod.MapView.getLayer()
+      terrain = mod.MapView.getTerrainEnabled()
+      exaggeration = mod.MapView.getExaggeration()
     })
     return () => {
       cancelled = true
@@ -53,15 +57,12 @@
     {#if terrain}
       <label class="map-ctl">
         ⛰ {exaggeration.toFixed(1)}×
-        <input
-          type="range"
-          min="0.5"
-          max="8"
-          step="0.1"
-          bind:value={exaggeration}
-          oninput={onExag}
-        />
+        <input type="range" min="0.5" max="8" step="0.1" bind:value={exaggeration} oninput={onExag} />
       </label>
     {/if}
+  </div>
+
+  <div class="tl-overlay">
+    <Timeline {view} />
   </div>
 </div>

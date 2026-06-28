@@ -684,6 +684,14 @@ export const MapView = (() => {
     return terrainEnabled
   }
 
+  function getLayer(): string {
+    return currentLayer
+  }
+
+  function getExaggeration(): number {
+    return exaggeration
+  }
+
   function isInitialized(): boolean {
     return map !== undefined
   }
@@ -708,5 +716,7 @@ export const MapView = (() => {
     setTerrainEnabled,
     setExaggeration,
     getTerrainEnabled,
+    getLayer,
+    getExaggeration,
   }
 })()

@@ -211,9 +211,16 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   off-route — never `display:none`, which blanks the WebGL buffer), `Map.svelte` minimal
   chrome (layer/3D), MapLibre dynamic-imported (Map-only chunk; main stays ~34 kB gz). Temp
   `/map-next` dev route; legacy `/map` still dual-served. Verified headless (keep-alive: one
-  instance survives a client-side route round-trip with tiles intact). → (2) Selection store
-  (app-global time axis) + Svelte timeline driving `timestrip.ts` (also fixes chrome↔engine
-  state-sync on remount) → (3) Annotations/Marks Svelte + store → (4) Layers panel Svelte
+  instance survives a client-side route round-trip with tiles intact). → **(2) LANDED
+  2026-06-28** — app-global Selection store (`stores/selection.svelte.ts`: `{mode,from,to,live,
+  brush}` + 30s live tick; the time axis), `timestrip.ts` (canvas brush island, scoped/typed),
+  `TimePicker.svelte` + `Timeline.svelte` (picker/strip/labels/zoom-to-range orchestration
+  ported from `timeline.js`); `getPoints` added to the typed API; chrome resyncs layer/3D from
+  the engine on remount. Map renders the trail for `selection.range`; brush selects a
+  sub-range (dwell-overlap S2). Annotation-creating bits (Create Range, Bookmark, Marks panel,
+  form/drawer, strip bands) deferred to (3). Verified headless (gps_drive.db: 30d preset →
+  1549-pt trail + strip, brush → sub-range count/labels/zoom-gating). → (3) Annotations/Marks
+  Svelte + store → (4) Layers panel Svelte
   (labels/terrain/drone fold in) → (5) `overlay3d.ts` drone → (6) cutover `/map` to SPA +
   remove legacy route/`index.html`/ported `static/js` + retire vendored maplibre/pmtiles.
 

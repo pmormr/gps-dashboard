@@ -1,6 +1,8 @@
 // Typed client for the Van OS JSON API. One function per endpoint; shapes mirror
 // the Flask routes (api/routes/*). Same-origin in production; proxied to Flask in dev.
 
+import type { TrackPoint } from './geo'
+
 export interface LocationReading {
   timestamp: string
   lat: number
@@ -240,6 +242,25 @@ export function getRadioStatus(): Promise<RadioStatus> {
 }
 
 /** POST a radio control write; throws Error(message) on a rig/daemon refusal. */
+// ── Points (the map trail, processed track_points tier) ──
+
+/** `/api/points` response: size-aware decimated track points + a truncation flag. */
+export interface PointsResponse {
+  points: TrackPoint[]
+  truncated?: boolean
+}
+
+/** Trail/history for a time window (stops always kept; moving thinned by importance). */
+export function getPoints(start: string, end: string, limit = 5000): Promise<PointsResponse> {
+  const params = new URLSearchParams({ start, end, limit: String(limit) })
+  return getJSON<PointsResponse>(`/api/points?${params}`)
+}
+
+/** The single most-recent raw fix (live position). */
+export function getPointsLatest(): Promise<TrackPoint | null> {
+  return getJSON<TrackPoint | null>('/api/points/latest')
+}
+
 export async function postRadio(path: string, body: unknown): Promise<void> {
   const resp = await fetch(path, {
     method: 'POST',
