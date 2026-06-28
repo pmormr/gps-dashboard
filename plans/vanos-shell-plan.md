@@ -240,12 +240,21 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   is overlay3d). Verified headless: panel sections render, POI toggles + density + minor-streets,
   3D toggle reveals the exaggeration slider, OSM↔USGS swap loads real proxy tiles + hides
   labels + shows refresh — only expected tile-404s in console (the label *visual* effect needs
-  the Pi's OSM vector archive). → (5) `overlay3d.ts` + drone (the Drone section folds into the
-  Layers panel here) → (6) cutover `/map` to SPA +
+  the Pi's OSM vector archive). → **(5) LANDED 2026-06-28** — `lib/overlay3d.ts` ports the
+  three.js elevated-line custom MapLibre layer (registers via `setOverlay3D` on import);
+  `lib/drone.ts` controller lazily **dynamic-imports** it on first drone-enable, so three stays
+  out of the map chunk — it lands in a shared `Line2` chunk with the globe (~125 kB gz, loaded
+  only on demand; the map chunk holds steady at 283 kB gz). The controller fetches
+  `/api/drone/flights` once + shows/clears via the façade; the **Drone section** (toggle + model
+  legend + flight-count status) folds into the Layers panel; `map.ts` `showDroneTracks` ensures
+  `installLayer` (idempotent) before pushing data. Verified headless: toggling drone lazy-loads
+  overlay3d + three and renders the flight as a model-colored (Mini-5-Pro purple) track that
+  floats at altitude and foreshortens under 3D tilt (exaggeration synced); only expected
+  tile-404s in console. → (6) cutover `/map` to SPA +
   remove legacy route/`index.html`/ported `static/js` + retire vendored maplibre/pmtiles.
 
-  *Deferred during the port (fold into a later sub-step):* the `⊕` zoom-to-current-location FAB
-  (`tl-zoom-here-btn`) isn't ported yet.
+  *Deferred during the port (fold into sub-step 6 or later):* the `⊕` zoom-to-current-location
+  FAB (`tl-zoom-here-btn`) isn't ported yet.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire

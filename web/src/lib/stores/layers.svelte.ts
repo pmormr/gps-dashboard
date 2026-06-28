@@ -24,6 +24,10 @@ class LayersStore {
   labelOffset = $state(-1)
   minorRoads = $state(true)
 
+  // Drone overlay (a standalone 3D layer, independent of the Selection window).
+  drone = $state(false)
+  droneStatus = $state('')
+
   /** Whether the vector basemap (which alone has labels) is active. */
   get isVector(): boolean {
     return this.base === 'osm'

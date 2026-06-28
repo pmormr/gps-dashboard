@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { setDroneEnabled } from '../lib/drone'
   import { POI_GROUPS, reapply } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
@@ -52,6 +53,18 @@
 
   function onExag(): void {
     view?.setExaggeration(layers.exaggeration)
+  }
+
+  async function onDrone(e: Event): Promise<void> {
+    const on = (e.currentTarget as HTMLInputElement).checked
+    layers.drone = on
+    if (!view) return
+    if (on) layers.droneStatus = 'Loading…'
+    try {
+      layers.droneStatus = await setDroneEnabled(view, on)
+    } catch (err) {
+      layers.droneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+    }
   }
 </script>
 
@@ -108,6 +121,20 @@
           <div class="label-hint">drag to drive a mountain harder</div>
         </div>
       {/if}
+    </div>
+
+    <div class="layers-section">
+      <h4>Drone</h4>
+      <label class="label-check">
+        <input type="checkbox" checked={layers.drone} onchange={onDrone} /> Show drone flights
+      </label>
+      <!-- Swatch colors mirror DRONE_COLORS in map.ts. -->
+      <div class="drone-legend">
+        <span class="drone-legend-item"><span class="drone-swatch" style="background:#a855f7"></span>Mini 5 Pro</span>
+        <span class="drone-legend-item"><span class="drone-swatch" style="background:#f97316"></span>Avata 2</span>
+        <span class="drone-legend-item"><span class="drone-swatch" style="background:#ec4899"></span>Neo</span>
+      </div>
+      {#if layers.droneStatus}<p class="label-hint">{layers.droneStatus}</p>{/if}
     </div>
   </div>
 </div>

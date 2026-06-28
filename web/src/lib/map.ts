@@ -631,8 +631,11 @@ export const MapView = (() => {
   }
 
   // Replace the drone overlay with the given flights, as floating 3D tracks. Lines
-  // with <2 abs_alt points are dropped inside the builder.
+  // with <2 abs_alt points are dropped inside the builder. overlay3d is lazily
+  // registered (the drone toggle imports overlay3d.ts on first use), so ensure its
+  // custom layer is installed before pushing data — installLayer is idempotent.
   function showDroneTracks(flights: DroneFlight[]): void {
+    if (overlay3d && map) overlay3d.installLayer(map)
     overlay3d?.setLines('drone', (flights || []).map(droneToLine))
   }
 

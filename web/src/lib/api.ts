@@ -2,6 +2,7 @@
 // the Flask routes (api/routes/*). Same-origin in production; proxied to Flask in dev.
 
 import type { TrackPoint } from './geo'
+import type { DroneFlight } from './map'
 
 export interface LocationReading {
   timestamp: string
@@ -358,4 +359,9 @@ export interface ObdEconomy {
 export function getObdEconomy(start: string, end: string): Promise<ObdEconomy> {
   const params = new URLSearchParams({ start, end })
   return getJSON<ObdEconomy>(`/api/obd/economy?${params}`)
+}
+
+/** All drone flights with their thinned tracks embedded (the map-overlay read). */
+export function getDroneFlights(): Promise<{ flights: DroneFlight[] }> {
+  return getJSON<{ flights: DroneFlight[] }>('/api/drone/flights')
 }
