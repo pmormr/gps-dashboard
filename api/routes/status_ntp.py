@@ -1,6 +1,6 @@
 import re
 
-from flask import Blueprint, render_template
+from flask import Blueprint, jsonify
 
 from common import proc
 
@@ -80,8 +80,14 @@ def _ntp_serving():
     return bool(re.search(r'[*\d]:123\s', out))
 
 
-@status_ntp_bp.get('/ntp')
-def ntp_status():
+def _collect() -> dict:
+    """Gather chrony sync state, sources, and the derived PASS/FAIL checks.
+
+    Returns:
+        The NTP status document served by ``/api/ntp`` and rendered by the Van OS
+        Systems view: service state, tracking summary, sources, the check list,
+        and the GPS/PPS mode flags.
+    """
     service_state = proc.service_state('chrony')
     tracking = _parse_tracking()
     sources = _parse_sources()
@@ -93,28 +99,33 @@ def ntp_status():
     pps_mode = pps_source is not None
 
     checks = [
-        ('no conflicting services', not conflicts),
-        ('chrony service', service_state == 'active'),
-        ('GPS SHM source', gps_source is not None),
-        ('synchronised', tracking.get('synced', False)),
-        ('stratum ≤ 10', (tracking.get('stratum') or 99) <= 10),
-        ('NTP serving (LAN)', serving),
+        {'name': 'no conflicting services', 'ok': not conflicts},
+        {'name': 'chrony service', 'ok': service_state == 'active'},
+        {'name': 'GPS SHM source', 'ok': gps_source is not None},
+        {'name': 'synchronised', 'ok': tracking.get('synced', False)},
+        {'name': 'stratum ≤ 10', 'ok': (tracking.get('stratum') or 99) <= 10},
+        {'name': 'NTP serving (LAN)', 'ok': serving},
     ]
     if pps_mode:
-        checks.insert(3, ('PPS source selected', bool(pps_source and pps_source['selected'])))
+        checks.insert(
+            3, {'name': 'PPS source selected', 'ok': bool(pps_source and pps_source['selected'])}
+        )
 
-    overall_ok = all(ok for _, ok in checks)
+    return {
+        'overall_ok': all(c['ok'] for c in checks),
+        'checks': checks,
+        'service_state': service_state,
+        'tracking': tracking,
+        'sources': sources,
+        'gps_source': gps_source,
+        'pps_source': pps_source,
+        'pps_mode': pps_mode,
+        'serving': serving,
+        'conflicts': conflicts,
+    }
 
-    return render_template(
-        'ntp.html',
-        conflicts=conflicts,
-        overall_ok=overall_ok,
-        checks=checks,
-        service_state=service_state,
-        tracking=tracking,
-        sources=sources,
-        gps_source=gps_source,
-        pps_source=pps_source,
-        pps_mode=pps_mode,
-        serving=serving,
-    )
+
+@status_ntp_bp.get('/api/ntp')
+def ntp_api():
+    """NTP/chrony status as JSON for the Van OS Systems view."""
+    return jsonify(_collect())

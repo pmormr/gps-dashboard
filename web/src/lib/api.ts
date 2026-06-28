@@ -66,3 +66,44 @@ async function getJSON<T>(url: string): Promise<T> {
 export function getStatus(): Promise<Status> {
   return getJSON<Status>('/api/status')
 }
+
+export interface NtpCheck {
+  name: string
+  ok: boolean
+}
+
+export interface NtpTracking {
+  reference: string | null
+  synced: boolean
+  stratum: number | null
+  offset_ms: number | null
+  offset_dir: string | null
+  rms_ms: number | null
+  leap_status: string | null
+}
+
+export interface NtpSource {
+  type: string
+  selected: boolean
+  name: string
+  stratum: number
+  sample: string
+}
+
+export interface NtpStatus {
+  overall_ok: boolean
+  checks: NtpCheck[]
+  service_state: string
+  tracking: NtpTracking
+  sources: NtpSource[]
+  gps_source: NtpSource | null
+  pps_source: NtpSource | null
+  pps_mode: boolean
+  serving: boolean
+  conflicts: string[]
+}
+
+/** Fetch NTP/chrony status. */
+export function getNtp(): Promise<NtpStatus> {
+  return getJSON<NtpStatus>('/api/ntp')
+}

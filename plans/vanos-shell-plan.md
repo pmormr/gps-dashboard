@@ -112,8 +112,18 @@ WS transport lands (currently blocked — see `.claude/modules/sensors.md`).
   typed client + Home cards/health strip with per-domain staleness, 5 s poll. Van "Off"
   is the stale-OBD path. 3 Flask-client tests; verified live against a seeded DB. Alarms
   deferred — `alarm_events` unused for now.)*
-- [ ] Port one trivial status page (`/ntp` or `/gpsd`) end-to-end to prove the pattern.
-  *(← resume here.)*
+- [x] Port one trivial status page (`/ntp` or `/gpsd`) end-to-end to prove the pattern.
+  *(`/ntp` ported: `status_ntp.py` refactored to `_collect()` + `GET /api/ntp` (legacy HTML
+  route + `templates/ntp.html` removed); `Ntp.svelte` + typed `getNtp` + `/ntp` client
+  route; Systems hub links to it via client nav. Verified: deep-link resolves through the
+  catch-all, view renders banner/checks/sources/mode. 2 endpoint tests — which also cover
+  the previously-untested chrony parsers.)*
+
+**Phase 1 complete (2026-06-28).** The shell, the status home, and the migration pattern
+are all proven and committed on branch `vanos-shell`. Carry-forward niceties for Phase 2:
+- Parent-tab highlight: a sub-route (e.g. `/ntp`) highlights no top-level tab. Map
+  sub-routes → their parent tab when Systems sub-routing is formalized.
+- Alarms (`alarm_events`) not yet surfaced on Home.
 
 ### Phase 2 — Port the simple views
 - [ ] Systems shell + the remaining status/telemetry pages: sensors, OBD, Victron, gpsd,

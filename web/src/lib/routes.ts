@@ -2,6 +2,7 @@ import type { Component } from 'svelte'
 
 import Home from '../views/Home.svelte'
 import NotFound from '../views/NotFound.svelte'
+import Ntp from '../views/Ntp.svelte'
 import Sky from '../views/Sky.svelte'
 import Systems from '../views/Systems.svelte'
 
@@ -20,6 +21,7 @@ export const routes: RouteDef[] = [
   { path: '/', component: Home },
   { path: '/systems', component: Systems },
   { path: '/sky', component: Sky },
+  { path: '/ntp', component: Ntp },
 ]
 
 /** Fallback view for an unmatched client path. */
