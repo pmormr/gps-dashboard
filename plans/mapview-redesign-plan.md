@@ -40,7 +40,20 @@ sections of `CLAUDE.md`) and drop out of here.
 
 ---
 
-## Status — resume here (paused 2026-06-23)
+## Status — resume here
+
+**2026-06-28: the map is now the Van OS Svelte SPA** (`/map`, `web/src/views/Map.svelte`),
+not the vanilla `static/js`. The Van OS app-shell port (its plan now dropped) carried the
+finished axes into Svelte natively: **Selection** is the global time-axis store
+(`stores/selection.svelte.ts`) + `Timeline`/`timestrip.ts`; **Marks** + annotations are
+`stores/annotations.svelte.ts` + `AnnotationsDrawer`/`AnnotationForm`/`MarksPanel`; and a
+**Layers panel** (`Layers.svelte` + `stores/layers.svelte.ts`) landed with base map / labels /
+3D / drone folded in. So **Axis 2 (Layers) is now the live frontier** — build trail color-by +
+sensor-on-map onto that Svelte panel + the `timestrip.ts` density lane. File references below
+are the *old vanilla* paths (kept for the design rationale); the work continues in `web/src`.
+See `.claude/modules/frontend.md`.
+
+### Prior status (paused 2026-06-23, vanilla)
 
 **Selection axis — DONE.** S1 axis = window · S2 stop-overlap select · S3 stop blocks +
 constant map dots · S4 legible density track · S5 **full canvas strip** (`TimeStrip`,

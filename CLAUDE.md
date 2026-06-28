@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`); **active/in-flight** plans live in `plans/` (`vanos-shell`, `mapview-redesign`, `obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`); **active/in-flight** plans live in `plans/` (`mapview-redesign`, `obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -115,11 +115,11 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### Frontend
 
-Plain files in `static/` + `templates/`, all JS/CSS vendored in `static/vendor/` (no CDN at runtime), mobile-first. One map-centric MapLibre view at `/` (time picker, sub-range slider, annotations drawer, server-side size-aware decimation) plus standalone pages — `/gpsd`, `/skyplot`, `/ntp`, `/sensors`, `/radio` (Icom ID-5100A control), and the GNSS-observatory pair `/globe` (three.js, PC-only) + `/passes`. See **`.claude/modules/frontend.md`** for the view controls and per-page detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot-overlay subsystem.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with five destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. The legacy `/sensors` Jinja page is the only un-ported view. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
 
 ### Basemaps & Terrain
 
-A single MapLibre map (`MapView`, `static/js/map.js`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The ⚙ Labels and 🏔 3D panels drive the map directly. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
+A single MapLibre map (`MapView`, `web/src/lib/map.ts`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The unified **Layers panel** (base map + labels + 3D terrain + drone) drives the map directly. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
 
 ### GPS Logger Detail
 
@@ -185,34 +185,35 @@ gps-dashboard/
 │   ├── cabin-bme680.yaml       # XIAO ESP32-C6 + BME680 (BSEC2 IAQ)
 │   ├── README.md
 │   └── secrets.yaml.example    # copy to secrets.yaml before flashing
+├── web/                        # Van OS SPA source (Svelte 5 + Vite + TS) → builds to static/dist/
+│   ├── package.json, vite.config.ts, tsconfig*.json
+│   └── src/
+│       ├── App.svelte, main.ts, app.css
+│       ├── lib/
+│       │   ├── Shell.svelte, router.svelte.ts, routes.ts   # nav shell + client router
+│       │   ├── api.ts          # typed JSON API client
+│       │   ├── geo.ts          # pure geo/format helpers
+│       │   ├── map.ts          # MapView MapLibre façade (npm maplibre/pmtiles)
+│       │   ├── mapHost.ts      # persistent keep-alive map host (alive across routes)
+│       │   ├── timestrip.ts    # canvas sub-range timeline island (density + stops + brush)
+│       │   ├── labels.ts       # POI/label GL-style controls (vector base)
+│       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
+│       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
+│       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
+│       │   └── stores/         # selection (global time axis) · annotations · layers (map-local)
+│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Annotations*), Systems, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
-│   ├── css/app.css
+│   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
+│   ├── css/app.css             # legacy CSS (the un-ported /sensors page + dev-terrain)
 │   ├── img/tile-error.png
-│   ├── js/
-│   │   ├── api.js, app.js, geo.js, map.js, labels.js, timepicker.js, annotations.js
-│   │   ├── timestrip.js    # canvas sub-range timeline (density + stops + brush)
-│   │   ├── timeline.js     # window load + selection wiring around TimeStrip
-│   │   ├── drone.js        # 🚁 drone-flight map overlay
-│   │   ├── sensors.js      # /sensors viewer (current values + uPlot charts)
-│   │   ├── skyplot.js      # /skyplot 3D satellite hemisphere + predicted-arc overlay
-│   │   ├── globe.js        # /globe 3D constellation globe (three.js)
-│   │   ├── passes.js       # /passes schedule
-│   │   └── radio.js        # /radio Icom ID-5100A control head
+│   ├── dev-terrain.html        # standalone terrain-preview dev tool (vendored maplibre/pmtiles)
+│   ├── js/sensors.js           # the only legacy JS left — /sensors viewer (+ uPlot)
 │   └── vendor/
-│       ├── maplibre/       # maplibre-gl
-│       ├── pmtiles/        # pmtiles.js range reader
-│       ├── uplot/          # uPlot time-series charts (sensor trends)
-│       ├── three/          # three.js r160 (the /globe 3D view)
-│       └── basemap/        # Protomaps style.json + glyphs + sprite
+│       ├── basemap/            # Protomaps style.json + glyphs + sprite (data, served as-is)
+│       ├── maplibre/, pmtiles/ # legacy: dev-terrain.html only (the SPA uses npm); retire with it
+│       └── uplot/              # legacy: /sensors trend charts only
 ├── templates/
-│   ├── index.html
-│   ├── gpsd.html
-│   ├── skyplot.html
-│   ├── globe.html
-│   ├── passes.html
-│   ├── ntp.html
-│   ├── sensors.html
-│   └── radio.html
+│   └── sensors.html            # the only legacy Jinja page left (un-ported /sensors)
 ├── tools/
 │   ├── precache.py
 │   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)
@@ -341,7 +342,7 @@ uv run mypy .                  # type check (must be clean)
 
 ## Offline Constraint
 
-All runtime dependencies must work without internet. When adding new frontend libraries, vendor them into `static/vendor/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (vendored MapLibre/pmtiles libs + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
+All runtime dependencies must work without internet. Frontend libraries are npm deps that Vite **bundles into the committed `static/dist/`** (the bundle is offline; the Pi never builds — rebuild + commit before pushing); basemap *data* assets stay in `static/vendor/basemap/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (bundled MapLibre/pmtiles + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
 
 A few runtime deps are **system packages** that work offline once installed but aren't carried by `uv sync` — install them on the Pi while online (one-time): `libhamlib-utils` for the radio `rigctld` service, and the udev rules (`99-gps-dongle.rules`, `99-icom-civ.rules`), which the deploy hook does **not** copy (it installs only `deploy/*.service`/`*.timer`). This matches the project's reading of the offline constraint: it governs *runtime* off-grid correctness, not avoiding cacheable dev-time/system installs.
 

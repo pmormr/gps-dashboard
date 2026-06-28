@@ -1,104 +1,109 @@
 # Frontend
 
-Plain files in `static/` and `templates/`, all JS/CSS vendored in `static/vendor/`
-(no CDN at runtime), mobile-first (the primary client is a phone browser). One
-map-centric view at `/` plus standalone status/viewer pages (`/gpsd`, `/skyplot`,
-`/ntp`, `/sensors`, `/radio`, and the observatory pair `/globe` + `/passes`). The
-MapLibre map, the ⚙ Labels panel, and the 🏔 3D/terrain panel are documented in
-`.claude/modules/basemaps.md`.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
+`static/dist/` (committed) and served by Flask. A persistent nav shell with five
+top-level destinations (**Home · Map · Systems · Sky · Radio**); the map is one tab
+among several, not the privileged single view it once was. Mobile-first (the primary
+client is a phone over the van's WiFi): a bottom tab bar on phones, a left sidebar on
+desktop.
 
-## Map view (`/`)
+## Build & serve
 
-A single MapLibre map (`MapView`, `static/js/map.js`) with a time panel docked at the
-bottom — picker + slider together (they were split top/bottom before the map-view
-redesign):
+- **Source:** `web/` (`web/src`, `web/vite.config.ts`, `web/package.json`).
+  `node_modules` gitignored; **build output `static/dist/` is committed**.
+- **Dev:** `cd web && npm run dev` (Vite + HMR) with `/api`+`/tiles` proxied to a local
+  Flask (`uv run python -m api.app`, on a non-5000 port — `VITE_API_TARGET`). `npm run
+  check` runs svelte-check + tsc.
+- **Prod:** `npm run build` → `static/dist/` → Flask `send_file`s `dist/index.html` for
+  `/` and every non-`api`/`tiles`/`static` path (`api/app.py` catch-all), so client-side
+  deep links resolve. **New discipline: rebuild + commit `static/dist/` before `git push
+  all`** — the Pi never builds (offline constraint is runtime-only; see
+  [[offline-constraint-interpretation]] in memory).
+- **Vendoring → npm.** MapLibre, three, pmtiles, uPlot are npm deps Vite bundles (the
+  committed bundle is still fully offline). Heavy deps are **dynamic-imported** so each
+  heavy view is its own chunk and the main bundle stays small (~44 kB gz): `map` (MapLibre,
+  ~283 kB gz), `globe` + `overlay3d` share a `three` chunk (~125 kB gz, lazy). The basemap
+  **data** assets (`static/vendor/basemap/` style/glyphs/sprite) stay served as static
+  files. `static/vendor/{maplibre,pmtiles}` are retained only for the standalone
+  `static/dev-terrain.html` dev tool; `static/vendor/uplot` only for the legacy `/sensors`.
 
-- **Time picker** (`TimePicker`, `static/js/timepicker.js`) — Graylog-style trigger
-  docked above the strip; its popover opens *upward*. Modes Last / Around / From→To
-  with anchor + window state; preset chips (15m/1h/6h/24h/7d/30d) collapse to Live +
-  Last. A Live flag pins the anchor to `now()` and re-fetches every 30s.
-- **Timeline strip** (`TimeStrip`, `static/js/timestrip.js`) — the whole sub-range
-  timeline drawn in **one canvas** (it replaced noUiSlider + the DOM overlay hacks in the
-  redesign's S5). Its axis is the **requested `[from, to]` window**, not the loaded-data
-  extent, so empty time stays selectable and a lead-in dwell can't stretch it. One draw
-  pass layers: a **density coverage fill** (stops fill their dwell interval; moving
-  vertices raise the column's density and bridge gaps under `DENSITY_GAP_CAP_MS`/15 min;
-  `sqrt(count)` height/alpha — a drive reads bright, a park a low floor, van-off the bare
-  track — answering *where data is / parked / genuinely empty*), **red stop-dwell blocks**
-  (bottom lane), **annotation range bands + point ticks** (top lane, fed by
-  `setAnnotations`), a **dimmed mask** over the unselected time, and the **two brush
-  handles**. Pointer Events drive the brush (drag a handle to resize, drag the middle to
-  pan, tap empty track to jump the nearest handle); arrow keys nudge it; hover shows a
-  stop/annotation tooltip. The plot area is inset (`EDGE`) so full-extent handles stay
-  grabbable; `touch-action:none` keeps a finger drag from scrolling. Brushing re-renders
-  the trail/map locally (no fetch; `fitBounds` skipped on live ticks). **Zoom to Range**
-  promotes the brushed selection to a tighter fetch window — more detail, since
-  `/api/points` is size-aware decimated. The Layers axis will render sensor density onto
-  this same canvas.
-- **Annotations drawer** — right-edge drawer on desktop, bottom sheet on mobile,
-  toggled from the tab bar. Lists points + ranges; click jumps the picker (range →
-  `range` mode, point → `around` mode keeping the current window) and pans to the
-  nearest fix. Each item has **✎ edit / × delete** (revealed on hover; always shown on
-  touch via `@media (hover: none)`); edit reuses the create modal in "Edit" mode
-  (`PATCH`). Map overlays: cyan polylines for in-window ranges, amber pins for in-window
-  points, **constant-size red dots for stops**; matching bands + ticks on the strip.
-- **Creation / bookmarks** — "Create Range" makes a range annotation from the brush's
-  `[lo, hi]` (≥2 points); **"📍 Bookmark Here"** (Live only) one-taps a point bookmark at
-  the latest GPS fix, auto-named `Bookmark · <time>`.
-- **⊕ FAB** — zooms to the most recent GPS fix.
-- **🚁 Drone panel** (`static/js/drone.js`) — toggles the drone-track overlay,
-  rendered floating at flight altitude via the three.js `Overlay3D` layer. The
-  subsystem (source, importer, tier, overlay) is documented in
-  `.claude/modules/drone.md`.
+## Shell, routing, state
 
-**View behavior.** Default view is Live, last 24h, centered on the most recent fix. The
-map re-centers **only** when Live is on or an annotation is clicked — otherwise the user
-pans/zooms freely (browsing ≠ navigation). Live is offered only in `last` mode (an
-`around`/`range` Live window would extend into the future).
+- **Shell** (`web/src/lib/Shell.svelte`) — persistent nav chrome + active-tab highlight.
+  A `RouteDef.tab` maps a sub-route (`/ntp`, `/gpsd`, `/globe`, …) to its parent tab.
+- **Router** (`web/src/lib/router.svelte.ts`, `routes.ts`) — a tiny History-API router
+  (no dep); pushState + popstate, so canvas/WebGL state survives tab switches.
+- **Home** (`web/src/views/Home.svelte`) — the status glance, from `GET /api/status` (one
+  aggregate read: latest fix + mode, Victron SOC/solar/load, OBD if engine recently on,
+  cabin IAQ/temp, GNSS sat count/fix health, systemd service states); 5 s poll, per-domain
+  staleness.
+- **Stores** (`web/src/lib/stores/`) — `selection.svelte.ts` is the **global time axis**
+  (`{mode,from,to,live,brush}` + a 30 s live tick): every historical-window read takes the
+  same canonical-ms-UTC `start`/`end`, so one window can drive many consumers (the map is
+  consumer #1; Systems/globe can opt in later). `annotations.svelte.ts` and
+  `layers.svelte.ts` are **map-local** (curated places / data-on-map) — not global.
 
-**Decimation is server-side and size-aware (C17):** the client always requests
-`limit=20000`; the `/api/points` handler keeps every stop plus the highest-
-`importance` moving vertices (see the API Endpoints section in CLAUDE.md). The old
-client-side `?bucket=` time-bucketing is gone — the processed tier is already sparse.
+## Map view (`/map`)
 
-## Standalone pages
+A **hybrid Svelte-native** view: the real renderers stay imperative as thin TS modules;
+all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine façade).
 
-- `/gpsd` — gpsd service state, fix mode, satellite count, latest coordinates,
-  pass/fail indicators.
-- `/skyplot` — live 3D satellite skyplot (`static/js/skyplot.js`). Polls
-  `/api/gpsd/sky` every ~4s and renders the visible constellation on a draggable,
-  tilted wireframe hemisphere in plain canvas (no 3D lib — stays offline). Satellites
-  placed by az/el, depth-sorted with a stem to the dome floor, colored by
-  constellation, filled = used / hollow = visible, sized by SNR. Drag to orbit/tilt;
-  "Top-down" sets tilt 90° for the classic flat azimuth plot. A van glyph at dome
-  center is oriented to the GPS heading (falls back to an observer dot when stopped).
-  Legend chips tap-to-toggle each constellation; "Trails"/"Vectors" overlay each
-  satellite's trajectory and a moving-average direction arrow. DOP is illustrated
-  three ways: always-on H/V/PDOP gauge bars (zoned by quality) + a colored Quality
-  label, a toggleable "Footprint" (horizontal error ellipse on the dome floor from
-  xdop/ydop + a VDOP pillar, colored by PDOP band), and a toggleable "Geometry" hull
-  (dashed convex hull of the used satellites). Toggles persist in `localStorage`;
-  motion history accumulates client-side (pruned ~5 min) — the server stores nothing.
-- `/ntp` — chrony sync status, stratum, offset, GPS/PPS source state, LAN server status.
-- `/sensors` — per-sensor current values + trend charts (`static/js/sensors.js`,
-  vendored uPlot), polling `/api/sensors` and `/api/sensors/:id/readings` every 30s.
-  Reads the logged DB — no live broker — so it works regardless of broker websockets.
-  Range buttons (1h/6h/24h/7d) and a per-sensor liveness dot (online/stale/offline).
-- `/radio` — Icom ID-5100A control head (`static/js/radio.js`): active-main-band
-  freq/mode + S-meter readout, CTCSS/DCS tone, repeater shift/offset. Polls
-  `/api/radio/status`; control writes POST `/api/radio/*`. See the Radio Control
-  section in CLAUDE.md.
-- `/globe`, `/passes` — the GNSS-observatory pair (3D constellation globe, PC-only;
-  upcoming-passes schedule). Documented in `.claude/modules/observatory.md`, which also
-  owns the `/skyplot` **Predicted** pass-arc overlay.
+- **Engine** — `map.ts` is the single `MapView` MapLibre façade (the only module that
+  touches MapLibre). `mapHost.ts` keeps the `#map` element **alive across routes** as a
+  body-level singleton translated off-screen off-route (never `display:none`, which blanks
+  the WebGL buffer). Basemaps + terrain DEM draping live in **`.claude/modules/basemaps.md`**.
+- **Timeline** (`Timeline.svelte` + `TimePicker.svelte`) — the Selection-axis chrome. The
+  Graylog-style picker (Last / Around / From→To, preset chips, Live) writes the `selection`
+  store; an effect refetches `/api/points` for the window. The sub-range **`timestrip.ts`**
+  is a kept-imperative canvas island (one draw pass: density-coverage fill + red stop-dwell
+  blocks + annotation bands/ticks + dim mask + two-handle brush; pointer/touch drag·pan·tap
+  + keyboard; hover tooltips). Its axis is the **requested window**, not the data extent.
+  **Zoom to Range** promotes the brush to a tighter fetch window (more detail —
+  `/api/points` is size-aware decimated). Stops select by dwell-interval overlap.
+- **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) — drawer
+  (side desktop / bottom sheet mobile) lists points + ranges; click jumps the global window
+  (range → `range`, point → `around`) and pans to the nearest fix; ✎ edit / × delete; per-
+  range fuel economy lazy-filled from `/api/obd/economy`. Map overlays: cyan range
+  polylines, amber point pins, constant-size red stop dots; matching strip bands/ticks.
+  **Create Range** (brush ≥2 pts) and **📍 Bookmark Here** (Live only, latest fix) create
+  annotations. **⊕ FAB** recenters on the latest raw fix.
+- **Marks** (`MarksPanel.svelte`) — persisted live range-construction (Mark Start/End →
+  Use Marks reframes the window). Panel-local state (no store — no other consumer).
+- **Layers** (`Layers.svelte` + store, `labels.ts`) — one panel folding in base map
+  (OSM vector / USGS raster + refresh), **labels** (POI categories / density / minor
+  streets, vector-only — `labels.ts` drives the Protomaps GL style), **3D terrain**
+  (toggle + exaggeration), and **drone** (toggle + legend; `drone.ts` lazily imports
+  `overlay3d.ts` — a three.js custom MapLibre layer floating tracks at MSL altitude). The
+  drone subsystem is in **`.claude/modules/drone.md`**.
 
-`/gpsd` and `/ntp` auto-refresh every 30s via `<meta refresh>`; `/skyplot`,
-`/sensors`, and `/radio` poll in place (a full reload would drop canvas/chart/live
-state).
+**View behavior.** Default Live, last 24h. The map re-centers only when Live is on or an
+annotation/⊕ is clicked — otherwise free pan/zoom (browsing ≠ navigation). Decimation is
+server-side + size-aware (C17): the client always asks `limit=20000`.
+
+## Other views
+
+- **Systems** (`Systems.svelte`) — consolidated house/van/cabin telemetry from
+  `/api/sensors` + `METRIC_META` (grouped, unit-converted, per-section liveness).
+  Diagnostics drill-ins: **gpsd** (`Gpsd.svelte`, `GET /api/gpsd/status`) and **ntp**
+  (`Ntp.svelte`, `GET /api/ntp`) as client routes; a "History & charts" link to the legacy
+  `/sensors` page (uPlot trend charts, not yet ported).
+- **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`), plus **globe**
+  (`globe.ts`, lazy three.js, PC-only) and **skyplot** (`skyplot.ts`, 2D-canvas) drill-ins.
+  The observatory subsystem is in **`.claude/modules/observatory.md`**.
+- **Radio** (`Radio.svelte`) — Icom ID-5100A control head (freq/mode/S-meter + CTCSS +
+  repeater; `/api/radio/*`), with an honest offline head when rigctld is down.
 
 ## Deferred
 
-- Richer trail rendering: color-by-speed, direction chevrons, head dot.
-- Per-annotation elevation profiles + speed-over-time charts (uPlot is already vendored
-  from `/sensors`).
-- Annotation-list pagination — hundreds of annotations render fine without it.
+- **`/sensors` port** — the trend charts (uPlot) still live on the legacy `/sensors` Jinja
+  page (`static/js/sensors.js` + `templates/sensors.html` + vendored `static/vendor/uplot`).
+  Port into Systems, then retire those + uplot.
+- **Map-redesign Axis 2 (Layers) continuation** — trail color-by (speed/elevation/sensor
+  channel), sensor overlays on the map + a uPlot chart synced to the Selection window
+  (retire the divorced `/sensors`), stops-as-a-layer toggle. Tracked in
+  `plans/mapview-redesign-plan.md`, now continuing against the Svelte map.
+- **Vendored `static/vendor/{maplibre,pmtiles}` retirement** — blocked on the standalone
+  `static/dev-terrain.html` dev tool (script-tag loads, can't use npm); retire with it.
+- Richer trail rendering (direction chevrons, head dot); per-annotation elevation/speed
+  charts; the Selection axis graduating to shell-level chrome (global picker + per-source
+  density lanes).
