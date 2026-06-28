@@ -161,11 +161,22 @@ only NAV tab still pointing at a legacy page (`/map`), ported in Phase 3.
 All three reuse their existing renderers as **islands** (mount in a Svelte shell), not
 rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
 
+- [x] **Globe** (lazy WebGL, three.js). `globe.js` → `web/src/lib/globe.ts` as
+  `mountGlobe(root) → teardown` (container-scoped; rAF stopped + GL context disposed on
+  unmount; create/destroy per visit). three flips to an npm dep (pinned `0.160.1` = vendored
+  r160), **dynamic-imported** so it's a separate `globe` chunk (~133 kB gz) — main bundle
+  stays ~28 kB gz. `/globe` is a client route under Sky; legacy HTML route + `templates/globe.html`
+  removed (`/api/constellation` untouched). `static/vendor/three/` kept until the Map port
+  (overlay3d.js still uses it). Verified headless (?demo + no-data).
+- [x] **skyplot** (2D canvas). `skyplot.js` → `web/src/lib/skyplot.ts` as
+  `mountSkyplot(root) → teardown` (container-scoped; poll/stat timers cleared + resize
+  listener dropped on unmount — no gpsd polling while off-screen). No three/heavy dep, so
+  static-imported (no separate chunk). Normal flow page (narrow card), not a fixed overlay.
+  `/skyplot` is a client route under Sky; Sky + the Globe panel link to it via SPA nav.
+  Legacy HTML route (`status_gpsd.py`) + `templates/skyplot.html` removed (`/api/gpsd/sky`
+  untouched). Verified headless (?demo, mobile width).
 - [ ] **Map** (last — most complex, stateful, and in flux) with the persistent-instance
   pattern; drone overlay folds in. Still the one legacy NAV tab (`/map`).
-- [ ] **Globe** (lazy WebGL, three.js).
-- [ ] **skyplot** (2D canvas, `static/js/skyplot.js` — 858 lines, pointer-drag). Becomes a
-  `/skyplot` client route under Sky, replacing the legacy drill-in.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire

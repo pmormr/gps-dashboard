@@ -6,6 +6,7 @@ import Home from '../views/Home.svelte'
 import NotFound from '../views/NotFound.svelte'
 import Ntp from '../views/Ntp.svelte'
 import Radio from '../views/Radio.svelte'
+import Skyplot from '../views/Skyplot.svelte'
 import Sky from '../views/Sky.svelte'
 import Systems from '../views/Systems.svelte'
 
@@ -28,6 +29,7 @@ export const routes: RouteDef[] = [
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/passes', component: Sky, tab: '/sky' },
   { path: '/globe', component: Globe, tab: '/sky' },
+  { path: '/skyplot', component: Skyplot, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },

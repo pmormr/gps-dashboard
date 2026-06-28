@@ -89,7 +89,9 @@
 </header>
 
 <div class="views">
-  <a class="view" href="/skyplot"><span>Skyplot</span><span class="muted">live hemisphere</span></a>
+  <a class="view" href="/skyplot" onclick={(e) => spaLink(e, '/skyplot')}>
+    <span>Skyplot</span><span class="muted">live hemisphere</span>
+  </a>
   <a class="view" href="/globe" onclick={(e) => spaLink(e, '/globe')}>
     <span>Globe</span><span class="muted">3D constellation (PC)</span>
   </a>

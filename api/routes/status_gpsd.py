@@ -1,7 +1,7 @@
 import os
 from datetime import UTC, datetime, timedelta
 
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify
 
 from api.db import canonical_timestamp, get_connection
 from common import proc
@@ -134,12 +134,6 @@ def _collect() -> dict:
 def gpsd_status_api():
     """gpsd/receiver status as JSON for the Van OS Systems view."""
     return jsonify(_collect())
-
-
-@status_gpsd_bp.get('/skyplot')
-def skyplot():
-    """Live 3D satellite skyplot page (client polls ``/api/gpsd/sky``)."""
-    return render_template('skyplot.html')
 
 
 @status_gpsd_bp.get('/api/gpsd/sky')

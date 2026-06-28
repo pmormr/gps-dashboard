@@ -30,6 +30,7 @@
   <div class="panel">
     <div class="nav">
       <button onclick={() => router.navigate('/sky')}>← Sky</button>
+      <button onclick={() => router.navigate('/skyplot')}>Skyplot</button>
     </div>
     <h1>Constellation Globe</h1>
     <div class="sub">
