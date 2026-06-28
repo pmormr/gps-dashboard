@@ -11,6 +11,7 @@ from api.routes.passes import passes_bp
 from api.routes.points import points_bp
 from api.routes.radio import radio_bp
 from api.routes.sensors import sensors_bp
+from api.routes.status import status_bp
 from api.routes.status_gpsd import status_gpsd_bp
 from api.routes.status_ntp import status_ntp_bp
 from api.routes.tiles import tiles_bp
@@ -25,6 +26,7 @@ def create_app():
 
     app.register_blueprint(points_bp)
     app.register_blueprint(sensors_bp)
+    app.register_blueprint(status_bp)
     app.register_blueprint(annotations_bp)
     app.register_blueprint(drone_bp)
     app.register_blueprint(globe_bp)

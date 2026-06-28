@@ -92,16 +92,28 @@ WS transport lands (currently blocked — see `.claude/modules/sensors.md`).
 ## Phased plan
 
 ### Phase 1 — Toolchain + shell (prove the integration)
-- [ ] Stand up `web/` (Svelte 5 + Vite + TS), build → `static/dist/`, gitignore
-  `node_modules`, commit `dist`.
-- [ ] Flask catch-all for SPA routes (dual-serve: only migrated routes); dev proxy config.
-- [ ] **Shell**: persistent nav (bottom tab bar mobile / sidebar desktop), active-tab
-  highlighting, the five top-level destinations, "Van OS" identity.
-- [ ] **Home** (greenfield — validates new-UI ergonomics) + **`GET /api/status`**
+- [x] Stand up `web/` (Svelte 5 + Vite + TS), build → `static/dist/`, gitignore
+  `node_modules`, commit `dist`. *(Vite 8 / Svelte 5.56 / TS 6; build = 42 kB JS / 16 kB
+  gz. `vite.config.ts` base = `/static/dist/` on build, dev proxy `/api`+`/tiles` →
+  `VITE_API_TARGET`.)*
+- [x] Flask catch-all for SPA routes (dual-serve: only migrated routes); dev proxy config.
+  *(`api/app.py`: `/` → SPA, `/map` → legacy Jinja, `/<path:path>` → SPA guarded against
+  `api/`/`tiles/`/`static/`. Verified: client routes, legacy `/gpsd`/`/map`, and the API
+  all resolve correctly; 392 tests green.)*
+- [x] **Shell**: persistent nav (bottom tab bar mobile / sidebar desktop), active-tab
+  highlighting, the five top-level destinations, "Van OS" identity. *(Tiny History-API
+  router `router.svelte.ts`, no dep. Verified headless at true 390 px (CDP device
+  emulation — plain `--screenshot` mis-sizes the layout viewport) + desktop.)*
+- [x] **Home** (greenfield — validates new-UI ergonomics) + **`GET /api/status`**
   aggregating the headline metric per domain (latest fix + mode, Victron SOC/solar/load,
   OBD if engine recently on, cabin IAQ/temp, GNSS sat count/fix health, systemd service
-  states via `common/proc.py`, any alarms).
+  states via `common/proc.py`). *(`api/routes/status.py` — one read, each domain carries
+  its `timestamp` + a server `now` so the client decides freshness; `web/src/lib/api.ts`
+  typed client + Home cards/health strip with per-domain staleness, 5 s poll. Van "Off"
+  is the stale-OBD path. 3 Flask-client tests; verified live against a seeded DB. Alarms
+  deferred — `alarm_events` unused for now.)*
 - [ ] Port one trivial status page (`/ntp` or `/gpsd`) end-to-end to prove the pattern.
+  *(← resume here.)*
 
 ### Phase 2 — Port the simple views
 - [ ] Systems shell + the remaining status/telemetry pages: sensors, OBD, Victron, gpsd,
