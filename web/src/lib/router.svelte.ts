@@ -16,7 +16,11 @@ class Router {
 
   /** The route matching the current path, or the not-found fallback. */
   get current(): RouteDef {
-    return routes.find((r) => r.path === this.path) ?? notFoundRoute
+    return (
+      routes.find(
+        (r) => r.path === this.path || (r.prefix && this.path.startsWith(`${r.path}/`)),
+      ) ?? notFoundRoute
+    )
   }
 
   /** Navigate to a client-side route, pushing a history entry. */

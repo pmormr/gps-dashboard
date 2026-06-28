@@ -1,5 +1,6 @@
 import type { Component } from 'svelte'
 
+import Docs from '../views/Docs.svelte'
 import Globe from '../views/Globe.svelte'
 import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
@@ -17,6 +18,8 @@ export interface RouteDef {
   component: Component
   /** The top-level NAV `to` this route highlights (a sub-route lights its parent). */
   tab: string
+  /** Match `path` and any `path/...` sub-path (e.g. `/docs/devices/pmpi1.md`). */
+  prefix?: boolean
 }
 
 /** Routes the SPA owns and renders client-side. Every top-level destination + drill-in. */
@@ -24,6 +27,7 @@ export const routes: RouteDef[] = [
   { path: '/', component: Home, tab: '/' },
   { path: '/map', component: Map, tab: '/map' },
   { path: '/systems', component: Systems, tab: '/systems' },
+  { path: '/docs', component: Docs, tab: '/docs', prefix: true },
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/passes', component: Sky, tab: '/sky' },
   { path: '/globe', component: Globe, tab: '/sky' },
@@ -51,6 +55,7 @@ export const NAV: NavItem[] = [
   { label: 'Home', icon: '◉', to: '/' },
   { label: 'Map', icon: '🗺️', href: '/map' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
+  { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
   { label: 'Radio', icon: '📻', to: '/radio' },
 ]

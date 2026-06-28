@@ -1,6 +1,7 @@
 // Typed client for the Van OS JSON API. One function per endpoint; shapes mirror
 // the Flask routes (api/routes/*). Same-origin in production; proxied to Flask in dev.
 
+import type { DocsTree } from './docs'
 import type { TrackPoint } from './geo'
 import type { DroneFlight } from './map'
 
@@ -364,4 +365,16 @@ export function getObdEconomy(start: string, end: string): Promise<ObdEconomy> {
 /** All drone flights with their thinned tracks embedded (the map-overlay read). */
 export function getDroneFlights(): Promise<{ flights: DroneFlight[] }> {
   return getJSON<{ flights: DroneFlight[] }>('/api/drone/flights')
+}
+
+/** Fetch the network-docs file tree (empty when the vault is unconfigured). */
+export function getDocsTree(): Promise<DocsTree> {
+  return getJSON<DocsTree>('/api/docs/tree')
+}
+
+/** Fetch one vault file's raw markdown body. */
+export async function getDocFile(path: string): Promise<string> {
+  const resp = await fetch(`/api/docs/file?path=${encodeURIComponent(path)}`)
+  if (!resp.ok) throw new Error(`/api/docs/file → ${resp.status}`)
+  return resp.text()
 }
