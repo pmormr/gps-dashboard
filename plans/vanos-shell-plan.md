@@ -219,8 +219,17 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   the engine on remount. Map renders the trail for `selection.range`; brush selects a
   sub-range (dwell-overlap S2). Annotation-creating bits (Create Range, Bookmark, Marks panel,
   form/drawer, strip bands) deferred to (3). Verified headless (gps_drive.db: 30d preset →
-  1549-pt trail + strip, brush → sub-range count/labels/zoom-gating). → (3) Annotations/Marks
-  Svelte + store → (4) Layers panel Svelte
+  1549-pt trail + strip, brush → sub-range count/labels/zoom-gating). → **(3) LANDED
+  2026-06-28** — annotations store (`stores/annotations.svelte.ts`: list + create/edit form
+  state + CRUD + `jumpTo` seam writing Selection + form-less `bookmarkCurrent` + `pendingPan`),
+  `AnnotationsDrawer`/`AnnotationForm`/`MarksPanel` Svelte components, Create Range + (live-only)
+  Bookmark Here in the Timeline bottom actions, and an effect that re-renders map pins/range bands
+  + strip annotation ticks from the loaded points on points/list change (point-annotation jump
+  pans to the nearest fix once the reframed window lands). `api.ts` gains the annotations/marks/
+  obd-economy client; **marks stay map-local** (panel-owned `$state`, no store — no other
+  consumer). Verified headless desktop + mobile (drawer list with per-range bounds/notes,
+  jump-to-range reframes the window to 41 pts + fits, Create Range form, marks panel; only the
+  expected local tile-404s in console). → (4) Layers panel Svelte
   (labels/terrain/drone fold in) → (5) `overlay3d.ts` drone → (6) cutover `/map` to SPA +
   remove legacy route/`index.html`/ported `static/js` + retire vendored maplibre/pmtiles.
 

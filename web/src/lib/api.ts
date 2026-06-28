@@ -272,3 +272,90 @@ export async function postRadio(path: string, body: unknown): Promise<void> {
     throw new Error(data.error ?? `Failed (${resp.status})`)
   }
 }
+
+// ── Annotations + marks (map view) ──
+
+/** A user-curated annotation. `end_time` null ⇒ point bookmark; else a range. */
+export interface Annotation {
+  id: number
+  name: string
+  notes: string | null
+  start_time: string
+  end_time: string | null
+  point_count: number | null
+}
+
+/** The fields accepted when creating an annotation (range omits/nulls `end_time`). */
+export interface NewAnnotation {
+  name: string
+  start_time: string
+  end_time?: string | null
+  notes?: string
+}
+
+/** Send a JSON body (or none) and parse the reply; throws Error(message) on failure. */
+async function sendJSON<T>(url: string, method: string, body?: unknown): Promise<T> {
+  const resp = await fetch(url, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (resp.status === 204) return undefined as T
+  const data = (await resp.json().catch(() => ({}))) as { error?: string }
+  if (!resp.ok) throw new Error(data.error ?? `HTTP ${resp.status}`)
+  return data as T
+}
+
+/** List every annotation (all history; the frontend windows them client-side). */
+export function getAnnotations(): Promise<{ annotations: Annotation[] }> {
+  return getJSON<{ annotations: Annotation[] }>('/api/annotations')
+}
+
+/** Create an annotation (point bookmark or range); returns the stored row. */
+export function createAnnotation(data: NewAnnotation): Promise<Annotation> {
+  return sendJSON<Annotation>('/api/annotations', 'POST', data)
+}
+
+/** Patch an annotation's name/notes/bounds; returns the updated row. */
+export function updateAnnotation(
+  id: number,
+  data: { name?: string; notes?: string; start_time?: string; end_time?: string | null },
+): Promise<Annotation> {
+  return sendJSON<Annotation>(`/api/annotations/${id}`, 'PATCH', data)
+}
+
+/** Delete an annotation. */
+export function deleteAnnotation(id: number): Promise<void> {
+  return sendJSON<void>(`/api/annotations/${id}`, 'DELETE')
+}
+
+/** The persisted live range-construction marks (either key may be absent). */
+export interface Marks {
+  start?: string
+  end?: string
+}
+
+/** Read the persisted start/end marks. */
+export function getMarks(): Promise<Marks> {
+  return getJSON<Marks>('/api/annotations/mark')
+}
+
+/** Stamp the given mark with the current UTC time; returns the full mark set. */
+export function markTimestamp(marker: 'start' | 'end'): Promise<Marks> {
+  return sendJSON<Marks>('/api/annotations/mark', 'POST', { marker })
+}
+
+/** Per-window fuel economy (derived OBD fuel ÷ GPS-track distance); the drawer's per-range MPG. */
+export interface ObdEconomy {
+  mpg: number | null
+  distance_mi: number
+  fuel_gallons: number
+  n_obd_rows: number
+  calibrated: boolean
+}
+
+/** Fetch fuel economy over a window (pass an annotation's bounds for per-trip MPG). */
+export function getObdEconomy(start: string, end: string): Promise<ObdEconomy> {
+  const params = new URLSearchParams({ start, end })
+  return getJSON<ObdEconomy>(`/api/obd/economy?${params}`)
+}

@@ -2,7 +2,12 @@
   import { onMount } from 'svelte'
 
   import type { MapView as MapViewType } from '../lib/map'
+  import { annotations } from '../lib/stores/annotations.svelte'
   import './map.css'
+  import './annotations.css'
+  import AnnotationForm from './AnnotationForm.svelte'
+  import AnnotationsDrawer from './AnnotationsDrawer.svelte'
+  import MarksPanel from './MarksPanel.svelte'
   import Timeline from './Timeline.svelte'
 
   // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
@@ -14,6 +19,7 @@
   let layer = $state('osm')
   let terrain = $state(false)
   let exaggeration = $state(1.3)
+  let drawerOpen = $state(false)
 
   onMount(() => {
     let cancelled = false
@@ -28,6 +34,7 @@
       terrain = mod.MapView.getTerrainEnabled()
       exaggeration = mod.MapView.getExaggeration()
     })
+    annotations.reload()
     return () => {
       cancelled = true
       hide?.()
@@ -46,6 +53,13 @@
 </script>
 
 <div class="map-region">
+  <div class="map-chrome-tl">
+    <button class="map-ann-toggle" class:active={drawerOpen} onclick={() => (drawerOpen = !drawerOpen)}>
+      <span>📍 Annotations</span>
+      {#if annotations.count}<span class="ann-count">{annotations.count}</span>{/if}
+    </button>
+  </div>
+
   <div class="map-chrome-tr">
     <select bind:value={layer} onchange={onLayer} title="Map layer">
       <option value="osm">OSM</option>
@@ -60,9 +74,13 @@
         <input type="range" min="0.5" max="8" step="0.1" bind:value={exaggeration} oninput={onExag} />
       </label>
     {/if}
+    <MarksPanel />
   </div>
 
   <div class="tl-overlay">
     <Timeline {view} />
   </div>
 </div>
+
+<AnnotationsDrawer bind:open={drawerOpen} />
+<AnnotationForm />
