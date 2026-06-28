@@ -182,3 +182,36 @@ export interface SensorsResponse {
 export function getSensors(): Promise<SensorsResponse> {
   return getJSON<SensorsResponse>('/api/sensors')
 }
+
+export interface SatPass {
+  gnssid: number
+  svid: number
+  name: string
+  system: string
+  rise_unix: number
+  rise_az: number
+  peak_unix: number
+  peak_az: number
+  peak_el: number
+  set_unix: number
+  set_az: number
+  duration_s: number
+  in_progress: boolean
+  max_snr: number | null
+  used: boolean
+}
+
+export interface PassesResponse {
+  observer: { lat: number; lon: number; alt: number; timestamp: string }
+  generated: string
+  horizon_hours: number
+  mask_deg: number
+  fit_window_hours: number
+  counts: { observed: number; fit: number }
+  passes: SatPass[]
+}
+
+/** Fetch predicted satellite passes for the given horizon (h) and mask (deg). */
+export function getPasses(hours: number, mask: number): Promise<PassesResponse> {
+  return getJSON<PassesResponse>(`/api/passes?hours=${hours}&mask=${mask}`)
+}

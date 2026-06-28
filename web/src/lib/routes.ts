@@ -24,6 +24,7 @@ export const routes: RouteDef[] = [
   { path: '/', component: Home, tab: '/' },
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/sky', component: Sky, tab: '/sky' },
+  { path: '/passes', component: Sky, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
 ]

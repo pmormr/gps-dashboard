@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
 from api.observatory import anchor_observer, reconstruct_tracks, sat_name
@@ -31,12 +31,6 @@ _DEFAULT_MASK_DEG = 5.0
 _MAX_MASK_DEG = 30.0
 # Evenly spaced az/el samples per pass when track=1 (the skyplot arc overlay).
 _TRACK_POINTS = 32
-
-
-@passes_bp.get('/passes')
-def passes_page() -> str:
-    """The upcoming-satellite-passes schedule page."""
-    return render_template('passes.html')
 
 
 def _parse_float(
