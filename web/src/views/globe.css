@@ -1,0 +1,243 @@
+/*
+ * Constellation globe island styles.
+ *
+ * Ported from the legacy globe.html <style> block, namespaced under
+ * `.globe-island` and imported globally (Svelte scoped CSS can't reach the DOM
+ * the renderer injects via innerHTML — legend chips, popup rows). The island is a
+ * fixed overlay filling the shell content area (everything but the nav), so the
+ * canvas runs edge-to-edge like the standalone page did.
+ */
+
+.globe-island {
+  --g-surface: #1e293b;
+  --g-border: #334155;
+  --g-text: #f1f5f9;
+  --g-muted: #94a3b8;
+  --g-primary: #3b82f6;
+
+  position: fixed;
+  inset: 0 0 calc(var(--nav-h) + env(safe-area-inset-bottom)) 0;
+  background: #05080f;
+  color: var(--g-text);
+  overflow: hidden;
+  font-size: 13px;
+}
+
+@media (min-width: 768px) {
+  .globe-island {
+    inset: 0 0 0 var(--sidebar-w);
+  }
+}
+
+.globe-island a {
+  color: var(--g-primary);
+  text-decoration: none;
+}
+
+.globe-island #globe-container {
+  position: absolute;
+  inset: 0;
+}
+
+.globe-island canvas {
+  display: block;
+}
+
+.globe-island .panel {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 270px;
+  max-height: calc(100% - 28px);
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  backdrop-filter: blur(6px);
+}
+
+.globe-island .panel .nav {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--g-muted);
+}
+
+.globe-island .panel .nav button {
+  background: none;
+  border: none;
+  color: var(--g-primary);
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.globe-island .panel h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+
+.globe-island .panel .sub {
+  color: var(--g-muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.globe-island .row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.globe-island .chip {
+  background: var(--g-surface);
+  border: 1px solid var(--g-border);
+  border-radius: 6px;
+  color: var(--g-text);
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.globe-island .chip.active {
+  background: var(--g-primary);
+  border-color: var(--g-primary);
+  color: #fff;
+}
+
+.globe-island .legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.globe-island .leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--g-surface);
+  border: 1px solid var(--g-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--g-text);
+  cursor: pointer;
+}
+
+.globe-island .leg.off {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
+.globe-island .sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.globe-island .info {
+  font-size: 12px;
+  color: var(--g-muted);
+  line-height: 1.7;
+  border-top: 1px solid var(--g-border);
+  padding-top: 10px;
+}
+
+.globe-island .info b {
+  color: var(--g-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.globe-island #status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--g-muted);
+  font-size: 14px;
+  pointer-events: none;
+  text-align: center;
+  padding: 24px;
+}
+
+.globe-island #status.hide {
+  display: none;
+}
+
+.globe-island .hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--g-muted);
+  font-size: 12px;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+.globe-island .popup {
+  position: absolute;
+  width: 232px;
+  z-index: 10;
+  font-size: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  backdrop-filter: blur(6px);
+}
+
+.globe-island .popup.hidden {
+  display: none;
+}
+
+.globe-island .pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.globe-island .pop-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.globe-island .pop-close {
+  background: none;
+  border: none;
+  color: var(--g-muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.globe-island .pop-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  color: var(--g-muted);
+}
+
+.globe-island .pop-row b {
+  color: var(--g-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

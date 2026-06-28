@@ -2,6 +2,15 @@
   import { onDestroy, onMount } from 'svelte'
 
   import { getPasses, type PassesResponse, type SatPass } from '../lib/api'
+  import { router } from '../lib/router.svelte'
+
+  // Drill-in to a ported SPA view: a real href (middle-click/new-tab still work),
+  // intercepted into client-side navigation so the shell isn't torn down.
+  function spaLink(e: MouseEvent, to: string): void {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+    e.preventDefault()
+    router.navigate(to)
+  }
 
   const HORIZONS = [6, 12, 24, 48]
   const MASKS = [0, 5, 10, 20]
@@ -81,7 +90,9 @@
 
 <div class="views">
   <a class="view" href="/skyplot"><span>Skyplot</span><span class="muted">live hemisphere</span></a>
-  <a class="view" href="/globe"><span>Globe</span><span class="muted">3D constellation (PC)</span></a>
+  <a class="view" href="/globe" onclick={(e) => spaLink(e, '/globe')}>
+    <span>Globe</span><span class="muted">3D constellation (PC)</span>
+  </a>
 </div>
 
 <div class="controls">

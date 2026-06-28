@@ -1,5 +1,6 @@
 import type { Component } from 'svelte'
 
+import Globe from '../views/Globe.svelte'
 import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
 import NotFound from '../views/NotFound.svelte'
@@ -26,6 +27,7 @@ export const routes: RouteDef[] = [
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/passes', component: Sky, tab: '/sky' },
+  { path: '/globe', component: Globe, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },

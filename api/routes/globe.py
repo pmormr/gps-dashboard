@@ -1,19 +1,18 @@
-"""3D constellation globe: the page plus the reconstructed-position API.
+"""3D constellation globe: the reconstructed-position API.
 
-``/globe`` renders the satellites we've logged in true 3D scale around the Earth
-(three.js, PC browsers). ``/api/constellation`` reconstructs each
-``sat_observations`` row in a time window to an ECEF position via
-:mod:`common.satgeo`, anchored to a representative observer fix, fits each
-satellite's inertial orbit, and groups both by satellite — the client propagates
-the fit to draw the live position, trail, and orbit. See
-.claude/modules/observatory.md.
+The globe page itself is now the Van OS SPA (`/globe`, served by the shell
+catch-all). ``/api/constellation`` reconstructs each ``sat_observations`` row in
+a time window to an ECEF position via :mod:`common.satgeo`, anchored to a
+representative observer fix, fits each satellite's inertial orbit, and groups
+both by satellite — the client propagates the fit to draw the live position,
+trail, and orbit. See .claude/modules/observatory.md.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
 from api.observatory import anchor_observer, reconstruct_tracks
@@ -25,12 +24,6 @@ globe_bp = Blueprint('globe', __name__)
 
 # Default trailing window when the client omits start/end.
 _DEFAULT_WINDOW_HOURS = 24
-
-
-@globe_bp.get('/globe')
-def globe_page():
-    """The 3D constellation globe page (three.js; PC browsers)."""
-    return render_template('globe.html')
 
 
 @globe_bp.get('/api/constellation')
