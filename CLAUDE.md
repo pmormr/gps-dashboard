@@ -32,6 +32,7 @@ App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
 - `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
 - `/mnt/nvme/tiles/northamerica-terrain.pmtiles` — terrain (Mapzen Terrarium) PMTiles archive, ~105 GB (persists across deploys)
+- `/mnt/nvme/paul-network-docs.git` + `/mnt/nvme/paul-network-docs` — the network-docs vault, synced as its **own** bare repo + post-receive checkout (the same pattern as gps-dashboard, but a separate repo). Push from the local `../paul-network-docs` repo with `git push pi main`; the Docs tab reads the checkout via `GPS_NETWORK_DOCS_PATH`. The repo's `.gitignore` keeps secrets/installers out of the sync.
 
 **Never commit directly on the Pi.** All commits go local → push to both remotes. Direct Pi commits cause history divergence requiring force-pushes to fix.
 
@@ -108,12 +109,14 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /api/radio/status` — live ID-5100A main-band state via rigctld (freq/mode/`rawstr` S-meter/tone/repeater/DCD/PTT); `online:false` + service state when rigctld is unreachable (cable unplugged or service disabled)
 - `POST /api/radio/freq` · `POST /api/radio/mode` · `POST /api/radio/tone` · `POST /api/radio/repeater` — main-band control writes; 502 on a rig refusal, 503 when rigctld is unreachable
 - `GET /api/ntp` — read-only chrony/NTP status (tracking, sources, PPS); backs the Systems → ntp drill-in (`Ntp.svelte`)
+- `GET /api/docs/tree` — markdown file tree of the synced `paul-network-docs` vault (`available:false` when `GPS_NETWORK_DOCS_PATH` is unset/missing → the Docs tab shows an empty state)
+- `GET /api/docs/file?path=` — raw markdown body of one vault file, realpath-confined to the docs root (traversal-safe, `.md` only); the SPA renders it client-side (markdown-it + lazy mermaid)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/systems` (+ `/gpsd`, `/ntp` drill-ins) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. The lone surviving server-rendered page is **`GET /sensors`** — the legacy Jinja trend-charts viewer (un-ported; see Frontend).
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/systems` (+ `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. The lone surviving server-rendered page is **`GET /sensors`** — the legacy Jinja trend-charts viewer (un-ported; see Frontend).
 
 ### Frontend
 
-**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with five destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. The legacy `/sensors` Jinja page is the only un-ported view. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with six destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. The legacy `/sensors` Jinja page is the only un-ported view. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
 
 ### Basemaps & Terrain
 
@@ -151,6 +154,7 @@ gps-dashboard/
 │       ├── tiles.py
 │       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
+│       ├── docs.py             # /api/docs/* (network-docs vault reader: tree + raw markdown)
 │       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
 │       ├── passes.py           # /api/passes (pass prediction; /passes is SPA-served)
 │       ├── obd.py              # /api/obd* (OBD-II telemetry read)
@@ -199,8 +203,9 @@ gps-dashboard/
 │       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
+│       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   └── stores/         # selection (global time axis) · annotations · layers (map-local)
-│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Annotations*), Systems, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
+│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Annotations*), Systems, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── css/app.css             # legacy CSS (the un-ported /sensors page + dev-terrain)
@@ -318,7 +323,7 @@ uv run pytest tests/test_simplify.py   # one module
 `pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers the load-bearing pure logic and the API read paths:
 
 - **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
-- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation (C17), `/api/constellation`, `/api/passes`, `/api/obd/economy`, and the radio routes.
+- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation (C17), `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader (`/api/docs/*`: tree, file fetch, traversal/non-`.md` rejection).
 - **Backtest tools** — the pure helpers in `passes_validate` and `tle_validate`.
 
 ### Linting & formatting

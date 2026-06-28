@@ -1,9 +1,9 @@
 # Frontend
 
 **Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
-`static/dist/` (committed) and served by Flask. A persistent nav shell with five
-top-level destinations (**Home · Map · Systems · Sky · Radio**); the map is one tab
-among several, not the privileged single view it once was. Mobile-first (the primary
+`static/dist/` (committed) and served by Flask. A persistent nav shell with six
+top-level destinations (**Home · Map · Systems · Docs · Sky · Radio**); the map is one
+tab among several, not the privileged single view it once was. Mobile-first (the primary
 client is a phone over the van's WiFi): a bottom tab bar on phones, a left sidebar on
 desktop.
 
@@ -87,6 +87,13 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
   Diagnostics drill-ins: **gpsd** (`Gpsd.svelte`, `GET /api/gpsd/status`) and **ntp**
   (`Ntp.svelte`, `GET /api/ntp`) as client routes; a "History & charts" link to the legacy
   `/sensors` page (uPlot trend charts, not yet ported).
+- **Docs** (`Docs.svelte`) — browses the synced `paul-network-docs` Obsidian vault
+  (`GET /api/docs/{tree,file}`). Two-pane: a file tree + the rendered markdown. `docs.ts`
+  is the render seam — markdown-it (raw HTML disabled, so no sanitizer dep), **lazy**
+  mermaid for diagrams (its own dynamic chunk, loaded only on docs with a `mermaid` block),
+  and relative-`.md` link resolution → in-app `/docs/<path>` navigation (the route is
+  `prefix`-matched in `router.svelte.ts` so `/docs/devices/foo.md` deep-links). The vault is
+  read from a separate bare-repo checkout on the Pi — see CLAUDE.md Deployment.
 - **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`), plus **globe**
   (`globe.ts`, lazy three.js, PC-only) and **skyplot** (`skyplot.ts`, 2D-canvas) drill-ins.
   The observatory subsystem is in **`.claude/modules/observatory.md`**.
