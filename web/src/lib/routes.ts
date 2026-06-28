@@ -4,6 +4,7 @@ import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
 import NotFound from '../views/NotFound.svelte'
 import Ntp from '../views/Ntp.svelte'
+import Radio from '../views/Radio.svelte'
 import Sky from '../views/Sky.svelte'
 import Systems from '../views/Systems.svelte'
 
@@ -27,6 +28,7 @@ export const routes: RouteDef[] = [
   { path: '/passes', component: Sky, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
+  { path: '/radio', component: Radio, tab: '/radio' },
 ]
 
 /** Fallback view for an unmatched client path. */
@@ -48,5 +50,5 @@ export const NAV: NavItem[] = [
   { label: 'Map', icon: '🗺️', href: '/map' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
-  { label: 'Radio', icon: '📻', href: '/radio' },
+  { label: 'Radio', icon: '📻', to: '/radio' },
 ]

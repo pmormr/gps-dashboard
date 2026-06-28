@@ -139,11 +139,19 @@ are all proven and committed on branch `vanos-shell`. Carry-forward niceties for
   history; port uPlot later if Systems should own charts too.)*
 - [x] **Parent-tab highlight** — `RouteDef.tab`; a sub-route (`/ntp`) lights its parent
   (Systems). Shell active = `router.current.tab === item.to`.
-- [ ] **gpsd** port — same pattern as `/ntp` (JSON `/api/gpsd-status` + Svelte view),
-  as a Systems diagnostic. (Currently a legacy drill-in.)
-- [ ] **Sky** shell: passes, skyplot. (Globe handled with Map in Phase 3 — both are heavy
-  canvas/WebGL.)
-- [ ] **Radio** page port.
+- [x] **gpsd** port — `_collect()` + `GET /api/gpsd/status`; `Gpsd.svelte` + `/gpsd` client
+  route (tab Systems); Systems diagnostics navigate to it. Legacy route + template removed.
+  2 endpoint tests.
+- [x] **Sky → passes** — `Sky.svelte` is the passes schedule (horizon/mask chips, pass
+  cards, 60s refresh) ported from `passes.js`, + Skyplot/Globe drill-ins. `/passes` HTML
+  route + template removed; `/passes` is a client-route alias.
+- [x] **Radio** port — `Radio.svelte` full control head (live readout + freq/mode/CTCSS/
+  repeater writes, toast, edit-safe re-sync) from `radio.js`; `/radio` HTML route + template
+  removed; now a client-route NAV tab. Renders the honest offline head when rigctld is down.
+- [ ] **skyplot** — DEFERRED to Phase 3. It's an 858-line custom 2D-canvas renderer (pointer
+  drag), not a "simple view"; island-wrap it with globe/map (the heavy-canvas batch) rather
+  than rewrite. Stays a legacy drill-in from Sky until then. *(Pending user confirmation of
+  this descope.)*
 
 ### Phase 3 — Port the heavy/stateful views
 - [ ] **Map** (last — most complex, stateful, and in flux) with the persistent-instance

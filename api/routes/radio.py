@@ -9,7 +9,7 @@ the radio's active VFO each poll. See ``plans/radio-platform-plan.md`` (R6).
 
 from collections.abc import Callable
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 
 from api.rigctld import Rigctld, RigctldError
 from common import proc
@@ -61,12 +61,6 @@ def _apply(action: Callable[[Rigctld], None]):
     except RigctldError as exc:
         return jsonify({'ok': False, 'error': str(exc)}), (503 if exc.rprt is None else 502)
     return jsonify({'ok': True})
-
-
-@radio_bp.get('/radio')
-def radio_page():
-    """Standalone radio control head."""
-    return render_template('radio.html')
 
 
 @radio_bp.get('/api/radio/status')

@@ -215,3 +215,39 @@ export interface PassesResponse {
 export function getPasses(hours: number, mask: number): Promise<PassesResponse> {
   return getJSON<PassesResponse>(`/api/passes?hours=${hours}&mask=${mask}`)
 }
+
+/** Live ID-5100A main-band state; online:false (with service state) when rigctld is down. */
+export interface RadioStatus {
+  online: boolean
+  service?: string
+  error?: string
+  freq_hz?: number
+  mode?: string
+  passband_hz?: number
+  rawstr?: number | null
+  strength_db?: number | null
+  tone_mode?: string
+  ctcss_tone_hz?: number | null
+  rptr_shift?: string
+  rptr_offset_hz?: number | null
+  dcd?: boolean
+  ptt?: boolean
+}
+
+/** Fetch live radio state (always 200; check `online`). */
+export function getRadioStatus(): Promise<RadioStatus> {
+  return getJSON<RadioStatus>('/api/radio/status')
+}
+
+/** POST a radio control write; throws Error(message) on a rig/daemon refusal. */
+export async function postRadio(path: string, body: unknown): Promise<void> {
+  const resp = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!resp.ok) {
+    const data = (await resp.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `Failed (${resp.status})`)
+  }
+}
