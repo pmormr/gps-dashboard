@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, abort, render_template, send_file
+from flask import Flask, abort, send_file
 
 from api.db import get_connection, init_db, migrate
 from api.routes.annotations import annotations_bp
@@ -49,11 +49,6 @@ def create_app():
     @app.get('/')
     def index():
         return spa_index()
-
-    @app.get('/map')
-    def legacy_map():
-        """Legacy map view; ported into the SPA in a later phase (dual-serve)."""
-        return render_template('index.html')
 
     @app.get('/<path:path>')
     def spa_catchall(path):

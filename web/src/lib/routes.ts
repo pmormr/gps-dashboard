@@ -19,16 +19,10 @@ export interface RouteDef {
   tab: string
 }
 
-/**
- * Routes the SPA owns and renders client-side. Paths with a live legacy Jinja
- * page (e.g. /map, /radio) are intentionally absent — they're reached as
- * full-page links during migration (see NAV) and become routes once ported.
- */
+/** Routes the SPA owns and renders client-side. Every top-level destination + drill-in. */
 export const routes: RouteDef[] = [
   { path: '/', component: Home, tab: '/' },
-  // Temporary dev route while the map ports in sub-steps — the live legacy `/map`
-  // stays served by Flask until the cutover (Map sub-step 6).
-  { path: '/map-next', component: Map, tab: '/map' },
+  { path: '/map', component: Map, tab: '/map' },
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/passes', component: Sky, tab: '/sky' },

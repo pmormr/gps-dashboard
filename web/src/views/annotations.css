@@ -5,13 +5,36 @@
  * classes across those components, so one sheet beats per-component scoping.
  */
 
-/* ── Top-left chrome: annotations drawer toggle ── */
+/* ── Top-left chrome: annotations drawer toggle + zoom-to-current FAB ── */
 .map-chrome-tl {
   position: absolute;
   top: 12px;
   left: 12px;
   z-index: 5;
   pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.map-fab {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+}
+.map-fab:hover {
+  background: rgba(31, 35, 44, 0.9);
 }
 
 .map-ann-toggle {

@@ -250,11 +250,19 @@ rewrites. Decide the keep-alive vs lazy policy per WebGL-context limits.
   `installLayer` (idempotent) before pushing data. Verified headless: toggling drone lazy-loads
   overlay3d + three and renders the flight as a model-colored (Mini-5-Pro purple) track that
   floats at altitude and foreshortens under 3D tilt (exaggeration synced); only expected
-  tile-404s in console. → (6) cutover `/map` to SPA +
-  remove legacy route/`index.html`/ported `static/js` + retire vendored maplibre/pmtiles.
+  tile-404s in console. → **(6) LANDED 2026-06-28 (cutover)** — the SPA route flipped `/map-next`
+  → `/map` (`routes.ts`); the Flask legacy `/map` route + `render_template` import removed, so
+  `/map` now falls through the catch-all to the SPA. Deleted `templates/index.html` + the 11
+  ported `static/js/*` (api, geo, map, labels, timepicker, timestrip, timeline, annotations,
+  drone, app, overlay3d) + retired `static/vendor/three` (now npm). The deferred `⊕`
+  zoom-to-current FAB folded into `Map.svelte` (`getPointsLatest` → `view.zoomTo`). Verified:
+  `/map` → 200 SPA + full Map view; deleted JS + vendored three → 404; ruff/mypy/svelte-check
+  clean, 399 pytest green. **The Map port is complete; the vanilla map is fully retired.**
 
-  *Deferred during the port (fold into sub-step 6 or later):* the `⊕` zoom-to-current-location
-  FAB (`tl-zoom-here-btn`) isn't ported yet.
+  *Deferred (not blocking):* vendored `static/vendor/maplibre` + `static/vendor/pmtiles` are
+  **kept** — the standalone dev tool `static/dev-terrain.html` still loads them via `<script>`
+  (can't consume npm). Retire both when that page is updated/removed. `static/vendor/uplot` +
+  `static/js/sensors.js` + `templates/sensors.html` stay until `/sensors` ports.
 
 ### Phase 4 — Reconcile & clean up
 - [ ] Remove old `templates/*.html` + `static/js/*.js` as their ports land; retire

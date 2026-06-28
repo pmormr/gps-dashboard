@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
+  import { getPointsLatest } from '../lib/api'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { annotations } from '../lib/stores/annotations.svelte'
@@ -39,6 +40,16 @@
       hide?.()
     }
   })
+
+  // Recenter the map on the latest *raw* fix (the true current position).
+  async function zoomToCurrent(): Promise<void> {
+    try {
+      const pt = await getPointsLatest()
+      if (pt && pt.lat != null && pt.lon != null) view?.zoomTo(pt.lat, pt.lon, 17)
+    } catch {
+      /* no fix available — ignore */
+    }
+  }
 </script>
 
 <div class="map-region">
@@ -47,6 +58,7 @@
       <span>📍 Annotations</span>
       {#if annotations.count}<span class="ann-count">{annotations.count}</span>{/if}
     </button>
+    <button class="map-fab" title="Zoom to current location" onclick={zoomToCurrent}>⊕</button>
   </div>
 
   <div class="map-chrome-tr">
