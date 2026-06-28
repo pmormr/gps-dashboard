@@ -6,10 +6,12 @@ import Ntp from '../views/Ntp.svelte'
 import Sky from '../views/Sky.svelte'
 import Systems from '../views/Systems.svelte'
 
-/** A client-side route: a path owned by the SPA and the view it renders. */
+/** A client-side route: a path, the view it renders, and the NAV tab it lives under. */
 export interface RouteDef {
   path: string
   component: Component
+  /** The top-level NAV `to` this route highlights (a sub-route lights its parent). */
+  tab: string
 }
 
 /**
@@ -18,14 +20,14 @@ export interface RouteDef {
  * full-page links during migration (see NAV) and become routes once ported.
  */
 export const routes: RouteDef[] = [
-  { path: '/', component: Home },
-  { path: '/systems', component: Systems },
-  { path: '/sky', component: Sky },
-  { path: '/ntp', component: Ntp },
+  { path: '/', component: Home, tab: '/' },
+  { path: '/systems', component: Systems, tab: '/systems' },
+  { path: '/sky', component: Sky, tab: '/sky' },
+  { path: '/ntp', component: Ntp, tab: '/systems' },
 ]
 
 /** Fallback view for an unmatched client path. */
-export const notFoundRoute: RouteDef = { path: '*', component: NotFound }
+export const notFoundRoute: RouteDef = { path: '*', component: NotFound, tab: '' }
 
 /**
  * A top-level navigation destination. `to` = a client-side SPA route; `href` =

@@ -107,3 +107,49 @@ export interface NtpStatus {
 export function getNtp(): Promise<NtpStatus> {
   return getJSON<NtpStatus>('/api/ntp')
 }
+
+/** Per-metric presentation metadata, mirrored from api/sensor_schema.py METRIC_META. */
+export interface MetricMeta {
+  label: string
+  unit: string
+  dec: number
+  chart: boolean
+  color: string
+  convert: string | null
+  y_range: number[] | null
+  group: string
+}
+
+export interface ReadingTableSpec {
+  table: string
+  metrics: string[]
+}
+
+export interface SensorLatest {
+  timestamp: string
+  [metric: string]: number | string | null
+}
+
+export interface SensorRow {
+  id: number
+  node: string
+  type: string
+  location: string | null
+  description: string
+  first_seen: string
+  last_seen: string | null
+  status: string
+  latest: SensorLatest | null
+}
+
+/** The /api/sensors registry: rows with embedded latest readings + presentation meta. */
+export interface SensorsResponse {
+  sensors: SensorRow[]
+  metrics: Record<string, ReadingTableSpec>
+  meta: Record<string, MetricMeta>
+}
+
+/** Fetch the sensor registry (each row with its latest reading embedded). */
+export function getSensors(): Promise<SensorsResponse> {
+  return getJSON<SensorsResponse>('/api/sensors')
+}

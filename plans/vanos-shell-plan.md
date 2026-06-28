@@ -126,10 +126,21 @@ are all proven and committed on branch `vanos-shell`. Carry-forward niceties for
 - Alarms (`alarm_events`) not yet surfaced on Home.
 
 ### Phase 2 — Port the simple views
-- [ ] Systems shell + the remaining status/telemetry pages: sensors, OBD, Victron, gpsd,
-  ntp into one **Systems** domain (note: `/sensors` reads the sensor registry, but OBD
-  lives in `obd_readings` / `/api/obd/*` and Victron in `victron_readings` — unifying
-  them into one Systems view is partly new work, not just a move).
+
+**Systems shape decided: hybrid** — one consolidated telemetry page (house/van/cabin)
++ diagnostics (gpsd, ntp) as drill-in sub-views.
+
+- [x] **Systems consolidated telemetry view** — `Systems.svelte` rebuilt from `/api/sensors`
+  + `METRIC_META`: house/van/cabin sections, grouped (battery/solar/dc/ac, engine/temps/
+  fuel/electrical, environment), °C→°F etc. conversions, per-section liveness dot/age.
+  Diagnostics drill-ins at the bottom (NTP client route, gpsd legacy link, "History &
+  charts" → legacy `/sensors`). Pure helpers ported to `web/src/lib/sensors.ts`. Verified
+  against live Pi data. *(Trend charts not ported — legacy `/sensors` is the drill-in for
+  history; port uPlot later if Systems should own charts too.)*
+- [x] **Parent-tab highlight** — `RouteDef.tab`; a sub-route (`/ntp`) lights its parent
+  (Systems). Shell active = `router.current.tab === item.to`.
+- [ ] **gpsd** port — same pattern as `/ntp` (JSON `/api/gpsd-status` + Svelte view),
+  as a Systems diagnostic. (Currently a legacy drill-in.)
 - [ ] **Sky** shell: passes, skyplot. (Globe handled with Map in Phase 3 — both are heavy
   canvas/WebGL.)
 - [ ] **Radio** page port.

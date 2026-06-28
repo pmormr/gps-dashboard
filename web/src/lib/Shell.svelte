@@ -16,7 +16,7 @@
           {#if item.to}
             <button
               class="navitem"
-              class:active={router.path === item.to}
+              class:active={router.current.tab === item.to}
               onclick={() => router.navigate(item.to!)}
             >
               <span class="icon">{item.icon}</span>
