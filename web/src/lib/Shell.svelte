@@ -13,21 +13,14 @@
     <ul>
       {#each NAV as item (item.label)}
         <li>
-          {#if item.to}
-            <button
-              class="navitem"
-              class:active={router.current.tab === item.to}
-              onclick={() => router.navigate(item.to!)}
-            >
-              <span class="icon">{item.icon}</span>
-              <span class="label">{item.label}</span>
-            </button>
-          {:else}
-            <a class="navitem" href={item.href}>
-              <span class="icon">{item.icon}</span>
-              <span class="label">{item.label}</span>
-            </a>
-          {/if}
+          <button
+            class="navitem"
+            class:active={router.current.tab === item.to}
+            onclick={() => router.navigate(item.to)}
+          >
+            <span class="icon">{item.icon}</span>
+            <span class="label">{item.label}</span>
+          </button>
         </li>
       {/each}
     </ul>

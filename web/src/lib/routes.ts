@@ -40,20 +40,16 @@ export const routes: RouteDef[] = [
 /** Fallback view for an unmatched client path. */
 export const notFoundRoute: RouteDef = { path: '*', component: NotFound, tab: '' }
 
-/**
- * A top-level navigation destination. `to` = a client-side SPA route; `href` =
- * a full-page link to a not-yet-ported legacy page.
- */
+/** A top-level navigation destination — a client-side SPA route. */
 export interface NavItem {
   label: string
   icon: string
-  to?: string
-  href?: string
+  to: string
 }
 
 export const NAV: NavItem[] = [
   { label: 'Home', icon: '◉', to: '/' },
-  { label: 'Map', icon: '🗺️', href: '/map' },
+  { label: 'Map', icon: '🗺️', to: '/map' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
