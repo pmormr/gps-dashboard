@@ -19,7 +19,7 @@ from api.routes.tiles import tiles_bp
 
 
 def create_app():
-    app = Flask(__name__, static_folder='../static', template_folder='../templates')
+    app = Flask(__name__, static_folder='../static')
 
     conn = get_connection()
     init_db(conn)

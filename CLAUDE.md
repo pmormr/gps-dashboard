@@ -112,11 +112,11 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /api/docs/tree` — markdown file tree of the synced `paul-network-docs` vault (`available:false` when `GPS_NETWORK_DOCS_PATH` is unset/missing → the Docs tab shows an empty state)
 - `GET /api/docs/file?path=` — raw markdown body of one vault file, realpath-confined to the docs root (traversal-safe, `.md` only); the SPA renders it client-side (markdown-it + lazy mermaid)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/systems` (+ `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. The lone surviving server-rendered page is **`GET /sensors`** — the legacy Jinja trend-charts viewer (un-ported; see Frontend).
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
-**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with six destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. The legacy `/sensors` Jinja page is the only un-ported view. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with six destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
 
 ### Basemaps & Terrain
 
@@ -152,7 +152,7 @@ gps-dashboard/
 │       ├── points.py
 │       ├── annotations.py
 │       ├── tiles.py
-│       ├── sensors.py          # /sensors page + /api/sensors[/<id>/readings]
+│       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
 │       ├── docs.py             # /api/docs/* (network-docs vault reader: tree + raw markdown)
 │       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
@@ -205,19 +205,14 @@ gps-dashboard/
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   └── stores/         # selection (global time axis) · annotations · layers (map-local)
-│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Annotations*), Systems, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
+│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
-│   ├── css/app.css             # legacy CSS (the un-ported /sensors page + dev-terrain)
 │   ├── img/tile-error.png
 │   ├── dev-terrain.html        # standalone terrain-preview dev tool (vendored maplibre/pmtiles)
-│   ├── js/sensors.js           # the only legacy JS left — /sensors viewer (+ uPlot)
 │   └── vendor/
 │       ├── basemap/            # Protomaps style.json + glyphs + sprite (data, served as-is)
-│       ├── maplibre/, pmtiles/ # legacy: dev-terrain.html only (the SPA uses npm); retire with it
-│       └── uplot/              # legacy: /sensors trend charts only
-├── templates/
-│   └── sensors.html            # the only legacy Jinja page left (un-ported /sensors)
+│       └── maplibre/, pmtiles/ # legacy: dev-terrain.html only (the SPA uses npm); retire with it
 ├── tools/
 │   ├── precache.py
 │   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)

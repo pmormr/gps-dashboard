@@ -1,15 +1,15 @@
-"""Sensor viewer: read-only registry, latest readings, and history.
+"""Sensor read API: registry, latest readings, history, and bucketed series.
 
-Backs the ``/sensors`` page. Everything here reads from SQLite — the ingest
-subscriber (``mqttbus/ingest.py``) is the only writer — so this view needs no
-MQTT connection and works regardless of the broker's websockets support
-(Phase 3 blocker F). The page polls these JSON endpoints; a future live upgrade
-can swap the poll for an MQTT-over-WS push without changing the schema.
+Backs the SPA's Systems (current values) and Trends (charts) views. Everything
+here reads from SQLite — the ingest subscriber (``mqttbus/ingest.py``) is the
+only writer — so these endpoints need no MQTT connection and work regardless of
+the broker's websockets support; a future live upgrade can swap the poll for an
+MQTT-over-WS push without changing the schema.
 """
 
 from datetime import UTC, datetime, timedelta
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection, now_canonical
 from api.params import parse_limit, parse_time
@@ -292,9 +292,3 @@ def sensor_series():
     return jsonify(
         {'start': start_ts, 'end': end_ts, 'bucket_ms': bucket_s * 1000, 'x': x, 'series': series}
     )
-
-
-@sensors_bp.get('/sensors')
-def sensors_page():
-    """Render the sensor viewer shell; data is loaded client-side."""
-    return render_template('sensors.html')

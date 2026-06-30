@@ -19,13 +19,14 @@ desktop.
   deep links resolve. **New discipline: rebuild + commit `static/dist/` before `git push
   all`** — the Pi never builds (offline constraint is runtime-only; see
   [[offline-constraint-interpretation]] in memory).
-- **Vendoring → npm.** MapLibre, three, pmtiles, uPlot are npm deps Vite bundles (the
-  committed bundle is still fully offline). Heavy deps are **dynamic-imported** so each
-  heavy view is its own chunk and the main bundle stays small (~44 kB gz): `map` (MapLibre,
-  ~283 kB gz), `globe` + `overlay3d` share a `three` chunk (~125 kB gz, lazy). The basemap
-  **data** assets (`static/vendor/basemap/` style/glyphs/sprite) stay served as static
-  files. `static/vendor/{maplibre,pmtiles}` are retained only for the standalone
-  `static/dev-terrain.html` dev tool; `static/vendor/uplot` only for the legacy `/sensors`.
+- **Vendoring → npm.** MapLibre, three, pmtiles are npm deps Vite bundles, as are the
+  chart deps (LayerCake + d3-scale/d3-shape; the committed bundle is still fully offline).
+  Heavy deps are **dynamic-imported** so each heavy view is its own chunk and the main
+  bundle stays small (~44 kB gz): `map` (MapLibre, ~283 kB gz), `globe` + `overlay3d` share
+  a `three` chunk (~125 kB gz, lazy), and the Trends chart is its own ~10 kB gz LayerCake
+  chunk. The basemap **data** assets (`static/vendor/basemap/` style/glyphs/sprite) stay
+  served as static files. `static/vendor/{maplibre,pmtiles}` are retained only for the
+  standalone `static/dev-terrain.html` dev tool.
 
 ## Shell, routing, state
 
@@ -84,9 +85,14 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
 
 - **Systems** (`Systems.svelte`) — consolidated house/van/cabin telemetry from
   `/api/sensors` + `METRIC_META` (grouped, unit-converted, per-section liveness).
-  Diagnostics drill-ins: **gpsd** (`Gpsd.svelte`, `GET /api/gpsd/status`) and **ntp**
-  (`Ntp.svelte`, `GET /api/ntp`) as client routes; a "History & charts" link to the legacy
-  `/sensors` page (uPlot trend charts, not yet ported).
+  Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below), **gpsd**
+  (`Gpsd.svelte`, `GET /api/gpsd/status`), and **ntp** (`Ntp.svelte`, `GET /api/ntp`).
+- **Trends** (`Trends.svelte`, `/trends` under Systems) — the configurable trend-graph
+  explorer: a registry-driven metric picker over any sensor channel, overlaid on one
+  bucketed/aligned chart (`GET /api/sensors/series`), scoped by the global Selection axis
+  (drag-to-zoom drives `setRange`), with smoothing, a min/max band, and localStorage
+  presets. LayerCake chart, dynamic-imported as its own chunk. Replaces the retired legacy
+  `/sensors`. Detail in **`plans/sensor-graphing-plan.md`**.
 - **Docs** (`Docs.svelte`) — browses the synced `paul-network-docs` Obsidian vault
   (`GET /api/docs/{tree,file}`). Two-pane: a file tree + the rendered markdown. `docs.ts`
   is the render seam — markdown-it (raw HTML disabled, so no sanitizer dep), **lazy**
@@ -102,13 +108,11 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
 
 ## Deferred
 
-- **`/sensors` port** — the trend charts (uPlot) still live on the legacy `/sensors` Jinja
-  page (`static/js/sensors.js` + `templates/sensors.html` + vendored `static/vendor/uplot`).
-  Port into Systems, then retire those + uplot.
 - **Layers (Axis 2) continuation** — trail color-by (speed/elevation/sensor channel),
-  sensor overlays on the map + a uPlot chart synced to the Selection window (retire the
-  divorced `/sensors`), stops-as-a-layer toggle. Built onto the `Layers.svelte` panel +
-  the `timestrip.ts` density lane (the multi-channel handoff S4 left open).
+  sensor overlays on the map, stops-as-a-layer toggle. Built onto the `Layers.svelte` panel
+  + the `timestrip.ts` density lane (the multi-channel handoff S4 left open). *(The
+  Selection-synced chart is done — the Trends view; the divorced legacy `/sensors` +
+  vendored uPlot were retired.)*
 - **Marks (Axis 3) continuation** — mark *types* (campsite / fuel / scenic / repair); an
   **"inspect this window"** panel that generalizes the per-range fuel-economy readout
   (`AnnotationsDrawer`, currently bolted onto saved ranges) to *any* current Selection;

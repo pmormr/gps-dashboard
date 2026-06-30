@@ -66,11 +66,10 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   Persistent session + QoS-1 so a restart loses nothing. Heartbeat with a
   dropped-reading reason breakdown, logger-style.
 - **Alarm subscriber** — Phase 4, not built yet (`mqttbus/alarms.py`).
-- **Web app** (`api/routes/sensors.py`) — the `/sensors` page + `/api/sensors` and
-  `/api/sensors/<id>/readings` JSON. Read-only, DB-backed (no MQTT): the page
-  (`static/js/sensors.js`, vendored uPlot) polls every 30s for current values and
-  per-metric trend charts. This is the non-live half of Phase 3; it sidesteps the
-  broker websockets blocker entirely.
+- **Web app** (`api/routes/sensors.py`) — `/api/sensors`, `/api/sensors/<id>/readings`,
+  and the bucketed `/api/sensors/series` JSON. Read-only, DB-backed (no MQTT): the SPA's
+  Systems (current values) and Trends (charts) views consume these. This is the non-live
+  half of Phase 3; it sidesteps the broker websockets blocker entirely.
 - **Browser (live)** — Phase 3 push path via MQTT-over-WS, **blocked:** the Pi's
   mosquitto (Debian bookworm, 2.0.11 arm64) is built *without* libwebsockets, so a
   `:9001` `protocol websockets` listener makes the broker refuse to start —

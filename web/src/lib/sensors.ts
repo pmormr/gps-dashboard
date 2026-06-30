@@ -1,6 +1,6 @@
-// Pure presentation helpers for the sensor registry, ported from the legacy
-// static/js/sensors.js. The server (api/sensor_schema.py METRIC_META) owns labels,
-// units, decimals, grouping, and alt-unit conversions; these just apply them.
+// Pure presentation helpers for the sensor registry. The server
+// (api/sensor_schema.py METRIC_META) owns labels, units, decimals, grouping, and
+// alt-unit conversions; these just apply them.
 
 import type { MetricMeta, SensorRow, SensorsResponse } from './api'
 
