@@ -81,22 +81,24 @@ def parse_bbox(args: MultiDict[str, str]) -> tuple[Bbox | None, ErrorResponse | 
 
 
 def parse_limit(
-    args: MultiDict[str, str], default: int, maximum: int
+    args: MultiDict[str, str], default: int, maximum: int, key: str = 'limit'
 ) -> tuple[int | None, ErrorResponse | None]:
-    """Parse an optional integer ``limit``, clamped to ``maximum`` and required > 0.
+    """Parse an optional positive integer count, clamped to ``maximum``.
 
     Args:
         args: The request args mapping (``request.args``).
-        default: Value used when ``limit`` is absent.
+        default: Value used when the param is absent.
         maximum: Upper bound the parsed value is clamped to.
+        key: The query-param name (e.g. ``'limit'`` for row caps, ``'buckets'``
+            for the trend-series resolution).
 
     Returns:
-        ``(limit, None)`` on success, or ``(None, error_response)``.
+        ``(value, None)`` on success, or ``(None, error_response)``.
     """
     try:
-        limit = min(int(args.get('limit', default)), maximum)
+        value = min(int(args.get(key, default)), maximum)
     except (ValueError, TypeError):
-        return None, _error("'limit' must be an integer")
-    if limit <= 0:
-        return None, _error("'limit' must be > 0")
-    return limit, None
+        return None, _error(f"'{key}' must be an integer")
+    if value <= 0:
+        return None, _error(f"'{key}' must be > 0")
+    return value, None

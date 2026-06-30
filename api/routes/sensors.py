@@ -20,6 +20,11 @@ sensors_bp = Blueprint('sensors', __name__)
 DEFAULT_HISTORY_HOURS = 24
 MAX_READINGS = 20000
 
+# /api/sensors/series — the configurable trend engine (plans/sensor-graphing-plan.md).
+DEFAULT_BUCKETS = 1000  # target point count across the window when ?buckets is absent
+MAX_BUCKETS = 2000  # clamp: bounds both the SQL grouping and the wire payload
+MAX_SERIES = 12  # cap on overlaid metrics per request
+
 
 def _latest_reading(conn, sensor_id, type):
     """Return the most recent reading row for a sensor, or None.
@@ -118,6 +123,163 @@ def sensor_readings(sensor_id):
             'count': len(readings),
             'truncated': len(readings) == limit,
         }
+    )
+
+
+def _canonical_to_epoch_s(ts: str) -> int:
+    """Whole-second epoch for a canonical millisecond-UTC timestamp.
+
+    Used to lay out the bucket grid in the same ``epoch // bucket_s`` space the
+    SQL ``GROUP BY`` uses, so grouped rows index straight into the dense grid.
+
+    Args:
+        ts: A canonical ``...Z`` timestamp (see :func:`api.db.canonical_timestamp`).
+
+    Returns:
+        Seconds since the Unix epoch (UTC), truncated to whole seconds.
+    """
+    return int(datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp())
+
+
+def _parse_metric_specs(conn, raw):
+    """Resolve ``sensorId.column`` metric addresses against the sensor registry.
+
+    Args:
+        conn: Open SQLite connection.
+        raw: The ``metrics`` query value (comma-separated ``<sensor_id>.<column>``).
+
+    Returns:
+        ``(specs, error)`` where ``specs`` is an ordered list of
+        ``(sensor_id, type, column)`` tuples (request order, de-duplicated) and
+        ``error`` is None; or ``(None, (json, status))`` on a malformed address,
+        an unknown sensor, or a column not in that sensor type's metric set.
+    """
+    addrs = [a.strip() for a in raw.split(',') if a.strip()]
+    if not addrs:
+        return None, (jsonify({'error': "'metrics' must list at least one sensorId.column"}), 400)
+    if len(addrs) > MAX_SERIES:
+        return None, (jsonify({'error': f'At most {MAX_SERIES} metrics per request'}), 400)
+
+    types: dict[int, str] = {}
+    for row in conn.execute('SELECT id, type FROM sensors').fetchall():
+        types[row['id']] = row['type']
+
+    specs: list[tuple[int, str, str]] = []
+    seen: set[tuple[int, str]] = set()
+    for addr in addrs:
+        sensor_part, sep, column = addr.partition('.')
+        if not sep or not sensor_part.isdigit() or not column:
+            return None, (jsonify({'error': f"Malformed metric address '{addr}'"}), 400)
+        sensor_id = int(sensor_part)
+        type = types.get(sensor_id)
+        if type is None:
+            return None, (jsonify({'error': f'No sensor with id {sensor_id}'}), 400)
+        spec = READING_TABLES.get(type)
+        if spec is None or column not in spec['metrics']:
+            return None, (
+                jsonify({'error': f"Unknown metric '{column}' for sensor {sensor_id}"}),
+                400,
+            )
+        if (sensor_id, column) not in seen:
+            seen.add((sensor_id, column))
+            specs.append((sensor_id, type, column))
+    return specs, None
+
+
+@sensors_bp.get('/api/sensors/series')
+def sensor_series():
+    """Time-bucketed, aligned multi-metric series — the trend-graph engine.
+
+    Takes ``metrics`` (comma-separated ``<sensor_id>.<column>`` addresses), a
+    ``start``/``end`` window (defaults trailing ``DEFAULT_HISTORY_HOURS``), and a
+    ``buckets`` target resolution. Returns one shared bucket grid (``x``, epoch
+    ms) plus, per metric, an aligned ``values`` array (averaged per bucket, NULL
+    for empty buckets) carrying its :data:`METRIC_META` presentation fields. The
+    dense grid puts every metric — across sensors and cadences — on one axis so
+    the client overlays them directly; bucketing bounds long windows (a 2-week
+    range that would truncate ``/readings`` collapses to ``buckets`` points).
+    """
+    conn = get_connection()
+    raw = request.args.get('metrics', '')
+    specs, err = _parse_metric_specs(conn, raw)
+    if err:
+        return err
+
+    end = request.args.get('end')
+    start = request.args.get('start')
+    if end:
+        end_ts, terr = parse_time(end, 'end')
+        if terr:
+            return terr
+    else:
+        end_ts = now_canonical()
+    if start:
+        start_ts, terr = parse_time(start, 'start')
+        if terr:
+            return terr
+    else:
+        start_ts = canonical_timestamp(
+            (datetime.now(UTC) - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat()
+        )
+    if start_ts >= end_ts:
+        return jsonify({'error': "'start' must be before 'end'"}), 400
+
+    buckets, berr = parse_limit(
+        request.args, default=DEFAULT_BUCKETS, maximum=MAX_BUCKETS, key='buckets'
+    )
+    if berr:
+        return berr
+
+    start_s = _canonical_to_epoch_s(start_ts)
+    end_s = _canonical_to_epoch_s(end_ts)
+    bucket_s = max(1, round((end_s - start_s) / buckets))
+    start_bucket = start_s // bucket_s
+    n = end_s // bucket_s - start_bucket + 1
+    x = [(start_bucket + i) * bucket_s * 1000 for i in range(n)]
+
+    # One query per sensor covers all its requested columns; scatter the grouped
+    # rows into each column's aligned grid by bucket index.
+    by_sensor: dict[tuple[int, str], list[str]] = {}
+    for sensor_id, type, column in specs:
+        by_sensor.setdefault((sensor_id, type), []).append(column)
+    values: dict[tuple[int, str], list[float | None]] = {
+        (sensor_id, column): [None] * n for sensor_id, _, column in specs
+    }
+    for (sensor_id, type), cols in by_sensor.items():
+        table = READING_TABLES[type]['table']
+        select = ', '.join(f'AVG("{c}") AS "{c}"' for c in cols)
+        rows = conn.execute(
+            f"SELECT CAST(strftime('%s', substr(timestamp, 1, 19)) AS INTEGER) / ? AS b, "
+            f'{select} FROM {table} '
+            'WHERE sensor_id = ? AND timestamp >= ? AND timestamp <= ? GROUP BY b',
+            (bucket_s, sensor_id, start_ts, end_ts),
+        ).fetchall()
+        for row in rows:
+            idx = row['b'] - start_bucket
+            if 0 <= idx < n:
+                for c in cols:
+                    values[(sensor_id, c)][idx] = row[c]
+
+    series = []
+    for sensor_id, _, column in specs:
+        meta = METRIC_META.get(column)
+        series.append(
+            {
+                'metric': f'{sensor_id}.{column}',
+                'sensor_id': sensor_id,
+                'column': column,
+                'label': meta['label'] if meta else column,
+                'unit': meta['unit'] if meta else '',
+                'color': meta['color'] if meta else '#94a3b8',
+                'dec': meta['dec'] if meta else 1,
+                'convert': meta['convert'] if meta else None,
+                'y_range': meta['y_range'] if meta else None,
+                'group': meta['group'] if meta else '',
+                'values': values[(sensor_id, column)],
+            }
+        )
+    return jsonify(
+        {'start': start_ts, 'end': end_ts, 'bucket_ms': bucket_s * 1000, 'x': x, 'series': series}
     )
 
 
