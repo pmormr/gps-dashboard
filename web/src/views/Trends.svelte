@@ -112,7 +112,7 @@
 </header>
 
 <div class="bar">
-  <TimePicker />
+  <TimePicker placement="down" />
   <label class="smooth">
     Smoothing
     <select bind:value={smoothWindow}>

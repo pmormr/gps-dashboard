@@ -251,6 +251,15 @@
   margin-top: 4px;
 }
 
+/* Top-anchored triggers (e.g. Trends) open downward instead — desktop only, so the
+   mobile bottom sheet below is untouched. */
+@media (min-width: 768px) {
+  .timepicker-card.down {
+    top: calc(100% + 6px);
+    bottom: auto;
+  }
+}
+
 /* Mobile: bottom sheet */
 @media (max-width: 767px) {
   .timepicker-backdrop {

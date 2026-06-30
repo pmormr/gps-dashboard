@@ -6,6 +6,11 @@
   // commit immediately. Self-contained: reads `selection.label` for the trigger and
   // writes via `selection.setPicker`.
 
+  // `placement` picks the desktop popover direction: 'up' for a bottom-anchored
+  // trigger (the Map timeline), 'down' for a top-anchored one (Trends). Mobile is a
+  // bottom sheet regardless.
+  let { placement = 'up' }: { placement?: 'up' | 'down' } = $props()
+
   let open = $state(false)
   let mode = $state<Mode>('last')
   let anchorStr = $state('')
@@ -107,7 +112,7 @@
       role="presentation"
       onclick={() => (open = false)}
     ></div>
-    <div class="timepicker-card">
+    <div class="timepicker-card" class:down={placement === 'down'}>
       <div class="timepicker-modes">
         {#each MODES as m (m.id)}
           <button type="button" class:active={mode === m.id} onclick={() => selectMode(m.id)}>
