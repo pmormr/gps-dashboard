@@ -12,11 +12,14 @@ the legacy `/sensors` Jinja page.
 
 ## Status
 
-**Phase 1 landed (local, pending deploy):** `/api/sensors/series` endpoint +
-tests; the `/trends` Systems drill-in (LayerCake chart, registry-driven metric
-picker, global-Selection time axis, moving-average smoothing, dual-axis overlay
-by unit); `charts/util.ts` pure helpers + Vitest. Verified against a Pi DB
-snapshot (single-metric + voltage/current dual-axis). Phases 2–3 below are open.
+**Phases 1–2 built + deployed (2026-06-29).** Live: `/api/sensors/series`
+(avg + min/max per bucket, `smooth` meta) and the `/trends` Systems drill-in —
+LayerCake chart, registry-driven metric picker, global-Selection time axis,
+dual-axis-by-unit overlay, moving-average smoothing (global control + per-metric
+defaults, e.g. `fuel_level_pct`), optional min/max envelope band, and
+localStorage presets. `charts/util.ts` pure helpers + Vitest; endpoint pytest.
+Verified against a Pi DB snapshot. **Phase 3 remains** (map-embedded synced
+chart; retire legacy `/sensors`), plus the deferred true-multi-axis (>2 units).
 
 ## Where things stand
 
@@ -128,10 +131,10 @@ envelope.
 picker, global time axis, basic client smoothing toggle) + `layercake`/`d3-shape`
 npm deps + `/trends` route/link. Retire nothing.
 
-**Phase 2 — fidelity + ergonomics.** Min/max envelope option (spike
-preservation); multi-unit y-axes (voltage + current on separate scales);
-per-metric smoothing defaults from `METRIC_META` (`fuel_level_pct` smoothed by
-default); saved metric presets (localStorage first).
+**Phase 2 — fidelity + ergonomics (done).** Min/max envelope option (spike
+preservation); per-metric smoothing defaults from `METRIC_META` (`fuel_level_pct`
+smoothed by default); saved metric presets (localStorage). Dual-axis-by-unit
+landed already in Phase 1; true multi-axis (>2 units) stays deferred (below).
 
 **Phase 3 — map tie-in + cleanup.** Dock the chart under the Map synced to the
 same Selection window (the Layers Axis-2 *"inspect this window"* item, which
