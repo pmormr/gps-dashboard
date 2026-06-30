@@ -11,7 +11,7 @@
   import AxisY from './AxisY.svelte'
   import Band from './Band.svelte'
   import Line from './Line.svelte'
-  import { axisForUnits, extent, movingAverage, padDomain, unionExtent } from './util'
+  import { axisForUnits, extent, movingAverage, padDomain, pixelToTime, unionExtent } from './util'
 
   let {
     resp,
@@ -19,12 +19,18 @@
     showBand = false,
     hidden = new Set<string>(),
     height = 300,
+    onzoom,
+    onresetzoom,
   }: {
     resp: SensorSeriesResponse | null
     smoothWindow?: number
     showBand?: boolean
     hidden?: Set<string>
     height?: number
+    /** Drag-select a region → zoom to `[fromMs, hiMs]`. The parent owns the window. */
+    onzoom?: (fromMs: number, toMs: number) => void
+    /** Double-click → reset zoom (the parent decides what "reset" means). */
+    onresetzoom?: () => void
   } = $props()
 
   interface Prepared {
@@ -95,7 +101,33 @@
     hoverIdx == null || n < 2 ? 0 : padding.left + (hoverIdx / (n - 1)) * plotW
   )
 
+  // ── Drag-to-zoom: select a region → the parent narrows the window (true zoom:
+  // a narrower window re-buckets at finer resolution, so sparse bursts spread out).
+  const DRAG_THRESHOLD = 6 // px; below this a press is a click, not a region select
+  let dragStartX = $state<number | null>(null)
+  let dragCurX = $state<number | null>(null)
+  const dragging = $derived(dragStartX != null && dragCurX != null)
+  const dragLo = $derived(dragging ? Math.min(dragStartX!, dragCurX!) : 0)
+  const dragHi = $derived(dragging ? Math.max(dragStartX!, dragCurX!) : 0)
+
+  /** Clamp a clientX (relative to the element) to the plot's x band. */
+  function plotX(e: PointerEvent): number {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    return Math.min(cw - padding.right, Math.max(padding.left, e.clientX - rect.left))
+  }
+
+  function onDown(e: PointerEvent): void {
+    if (e.button !== 0 || n < 2 || !onzoom) return
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    dragStartX = dragCurX = plotX(e)
+    hoverIdx = null
+  }
+
   function onMove(e: PointerEvent): void {
+    if (dragging) {
+      dragCurX = plotX(e)
+      return
+    }
     if (n < 2) return
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const mx = e.clientX - rect.left
@@ -105,6 +137,17 @@
     }
     const frac = (mx - padding.left) / plotW
     hoverIdx = Math.min(n - 1, Math.max(0, Math.round(frac * (n - 1))))
+  }
+
+  function onUp(e: PointerEvent): void {
+    if (!dragging) return
+    const lo = dragLo
+    const hi = dragHi
+    dragStartX = dragCurX = null
+    if (hi - lo < DRAG_THRESHOLD || !onzoom) return
+    const fromMs = pixelToTime(lo, padding.left, plotW, startMs, endMs)
+    const toMs = pixelToTime(hi, padding.left, plotW, startMs, endMs)
+    if (toMs > fromMs) onzoom(fromMs, toMs)
   }
 
   function hoverTime(): string {
@@ -121,12 +164,19 @@
 
 <div
   class="chart"
+  class:zoomable={!!onzoom}
   role="img"
   aria-label="Trend chart"
   style:height="{height}px"
   bind:clientWidth={cw}
+  onpointerdown={onDown}
   onpointermove={onMove}
-  onpointerleave={() => (hoverIdx = null)}
+  onpointerup={onUp}
+  onpointerleave={() => {
+    hoverIdx = null
+    dragStartX = dragCurX = null
+  }}
+  ondblclick={() => onresetzoom?.()}
 >
   {#if resp && prepared.length}
     <LayerCake
@@ -156,7 +206,17 @@
       </Svg>
     </LayerCake>
 
-    {#if hoverIdx != null}
+    {#if dragging}
+      <div
+        class="drag-sel"
+        style:left="{dragLo}px"
+        style:width="{dragHi - dragLo}px"
+        style:top="{padding.top}px"
+        style:height="{height - padding.top - padding.bottom}px"
+      ></div>
+    {/if}
+
+    {#if hoverIdx != null && !dragging}
       {@const hi = hoverIdx}
       <div class="crosshair" style:left="{hoverX}px" style:top="{padding.top}px" style:height="{height - padding.top - padding.bottom}px"></div>
       <div class="tip" class:flip style:left="{hoverX}px" style:top="{padding.top}px">
@@ -189,10 +249,20 @@
     color: var(--text-dim);
     font-size: 13px;
   }
+  .chart.zoomable {
+    cursor: crosshair;
+  }
   .crosshair {
     position: absolute;
     width: 1px;
     background: #64748b;
+    pointer-events: none;
+  }
+  .drag-sel {
+    position: absolute;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-left: 1px solid var(--accent);
+    border-right: 1px solid var(--accent);
     pointer-events: none;
   }
   .tip {

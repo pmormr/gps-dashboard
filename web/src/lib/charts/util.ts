@@ -39,6 +39,24 @@ export function movingAverage(values: (number | null)[], window: number): (numbe
   return out
 }
 
+/**
+ * Map a plot-area pixel x to a time (epoch ms), clamped to `[startMs, endMs]`.
+ *
+ * Inverts the chart's linear time scale (domain `[startMs, endMs]` over the plot
+ * width `[padLeft, padLeft + plotW]`) — the basis for drag-to-zoom region select.
+ */
+export function pixelToTime(
+  mx: number,
+  padLeft: number,
+  plotW: number,
+  startMs: number,
+  endMs: number
+): number {
+  if (plotW <= 0) return startMs
+  const frac = Math.min(1, Math.max(0, (mx - padLeft) / plotW))
+  return startMs + frac * (endMs - startMs)
+}
+
 /** [min, max] over non-null values, or null when every value is null. */
 export function extent(values: (number | null)[]): [number, number] | null {
   let lo = Infinity

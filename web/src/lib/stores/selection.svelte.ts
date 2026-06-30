@@ -29,6 +29,16 @@ export interface Brush {
   hiMs: number
 }
 
+/** A snapshot of the picker fields — enough to restore a window verbatim (zoom-out). */
+export interface PickerState {
+  mode: Mode
+  anchor: Date | null
+  windowMs: number
+  from: Date | null
+  to: Date | null
+  live: boolean
+}
+
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000
 const POLL_MS = 30 * 1000
 
@@ -100,6 +110,18 @@ class SelectionStore {
       live: false,
       mode: 'around',
       windowMs: this.windowMs,
+    }
+  }
+
+  /** A snapshot of the picker fields — push before a zoom, pass to `setPicker` to restore. */
+  get pickerState(): PickerState {
+    return {
+      mode: this.mode,
+      anchor: this.anchor,
+      windowMs: this.windowMs,
+      from: this.from,
+      to: this.to,
+      live: this.live,
     }
   }
 

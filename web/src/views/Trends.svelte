@@ -7,7 +7,7 @@
 
   import { getSensors, getSensorSeries } from '../lib/api'
   import type { SensorSeriesResponse, SensorsResponse } from '../lib/api'
-  import { selection } from '../lib/stores/selection.svelte'
+  import { selection, type PickerState } from '../lib/stores/selection.svelte'
   import { DOMAIN_LABELS, metricKeysFor, metricMeta, orderedSensors } from '../lib/sensors'
   import TimePicker from './TimePicker.svelte'
 
@@ -27,6 +27,8 @@
     showBand?: boolean
     hidden?: Set<string>
     height?: number
+    onzoom?: (fromMs: number, toMs: number) => void
+    onresetzoom?: () => void
   }
   let TrendComp = $state<Component<TrendProps> | null>(null)
 
@@ -37,6 +39,30 @@
   let smoothWindow = $state(1)
   let showBand = $state(false)
   let error = $state<string | null>(null)
+
+  // ── Drag-to-zoom: each region select narrows the global window (the Map follows
+  // the same axis); the stack of prior windows lets us step back out. ──
+  let zoomStack = $state<PickerState[]>([])
+
+  function zoomIn(fromMs: number, toMs: number): void {
+    zoomStack = [...zoomStack, selection.pickerState]
+    selection.setRange(new Date(fromMs), new Date(toMs))
+  }
+
+  function zoomOut(): void {
+    if (zoomStack.length === 0) return
+    const prev = zoomStack[zoomStack.length - 1]
+    zoomStack = zoomStack.slice(0, -1)
+    selection.setPicker(prev)
+  }
+
+  /** Double-click on the chart — pop straight back to the pre-zoom window. */
+  function resetZoom(): void {
+    if (zoomStack.length === 0) return
+    const base = zoomStack[0]
+    zoomStack = []
+    selection.setPicker(base)
+  }
 
   /** Chartable channels for a sensor as `[address, label, color]`, picker order. */
   function channelsFor(r: SensorsResponse, sensorId: number): [string, string, string][] {
@@ -157,7 +183,7 @@
 <header class="page-head">
   <h1>Trends</h1>
   <p class="muted">
-    {#if error}<span class="err-text">{error}</span>{:else}Graph any sensor channel over time{/if}
+    {#if error}<span class="err-text">{error}</span>{:else}Graph any sensor channel over time · drag across the chart to zoom in{/if}
   </p>
 </header>
 
@@ -175,6 +201,11 @@
     <input type="checkbox" bind:checked={showBand} />
     Min/max band
   </label>
+  {#if zoomStack.length > 0}
+    <button class="zoom-out" onclick={zoomOut} title="Step back to the previous window (or double-click the chart to reset)">
+      ⊖ Zoom out
+    </button>
+  {/if}
 </div>
 
 <div class="presets">
@@ -189,7 +220,7 @@
 
 <section class="panel chart-panel">
   {#if TrendComp}
-    <TrendComp {resp} {smoothWindow} {showBand} {hidden} height={320} />
+    <TrendComp {resp} {smoothWindow} {showBand} {hidden} height={320} onzoom={zoomIn} onresetzoom={resetZoom} />
   {:else}
     <div class="chart-loading">Loading chart…</div>
   {/if}
@@ -266,6 +297,16 @@
     gap: 6px;
     font-size: 12px;
     color: var(--text-dim);
+    cursor: pointer;
+  }
+  .zoom-out {
+    padding: 5px 10px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 12px;
     cursor: pointer;
   }
 

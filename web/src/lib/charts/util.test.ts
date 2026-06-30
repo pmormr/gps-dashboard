@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { axisForUnits, extent, movingAverage, padDomain, unionExtent } from './util'
+import { axisForUnits, extent, movingAverage, padDomain, pixelToTime, unionExtent } from './util'
 
 describe('movingAverage', () => {
   it('returns a copy for window <= 1 (no smoothing)', () => {
@@ -47,6 +47,27 @@ describe('padDomain', () => {
 
   it('gives a flat domain unit headroom', () => {
     expect(padDomain([5, 5])).toEqual([4, 6])
+  })
+})
+
+describe('pixelToTime', () => {
+  // Plot spans x∈[40, 240] (padLeft 40, plotW 200) over t∈[1000, 5000].
+  it('maps the left edge to the start and the right edge to the end', () => {
+    expect(pixelToTime(40, 40, 200, 1000, 5000)).toBe(1000)
+    expect(pixelToTime(240, 40, 200, 1000, 5000)).toBe(5000)
+  })
+
+  it('maps the midpoint linearly', () => {
+    expect(pixelToTime(140, 40, 200, 1000, 5000)).toBe(3000)
+  })
+
+  it('clamps pixels outside the plot to the domain bounds', () => {
+    expect(pixelToTime(0, 40, 200, 1000, 5000)).toBe(1000)
+    expect(pixelToTime(999, 40, 200, 1000, 5000)).toBe(5000)
+  })
+
+  it('returns the start for a degenerate (zero-width) plot', () => {
+    expect(pixelToTime(140, 40, 0, 1000, 5000)).toBe(1000)
   })
 })
 
