@@ -7,6 +7,8 @@
   import { getContext } from 'svelte'
   import type { Readable } from 'svelte/store'
 
+  import { isolatedIndices } from './util'
+
   interface LC {
     height: Readable<number>
     xScale: Readable<ScaleTime<number, number>>
@@ -31,6 +33,20 @@
       .y((p) => y(p.v as number))
     return gen(points) ?? ''
   })
+
+  // d3's line draws only segments between consecutive defined points, so a point
+  // with null neighbours (a brief, isolated burst — common in engine-gated data
+  // once zoomed in) would be invisible. Mark those as dots so they still show.
+  const dots = $derived.by(() => {
+    const y = scaleLinear(domain, [$height, 0])
+    return isolatedIndices(points.map((p) => p.v)).map((i) => ({
+      cx: $xScale(new Date(points[i].t)),
+      cy: y(points[i].v as number),
+    }))
+  })
 </script>
 
 <path d={path} fill="none" stroke={color} stroke-width="1.5" stroke-linejoin="round" />
+{#each dots as d (d.cx)}
+  <circle cx={d.cx} cy={d.cy} r="2" fill={color} />
+{/each}

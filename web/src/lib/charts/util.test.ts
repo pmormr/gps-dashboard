@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { axisForUnits, extent, movingAverage, padDomain, pixelToTime, unionExtent } from './util'
+import {
+  axisForUnits,
+  extent,
+  isolatedIndices,
+  movingAverage,
+  padDomain,
+  pixelToTime,
+  unionExtent,
+} from './util'
 
 describe('movingAverage', () => {
   it('returns a copy for window <= 1 (no smoothing)', () => {
@@ -47,6 +55,29 @@ describe('padDomain', () => {
 
   it('gives a flat domain unit headroom', () => {
     expect(padDomain([5, 5])).toEqual([4, 6])
+  })
+})
+
+describe('isolatedIndices', () => {
+  it('finds a point with null on both sides', () => {
+    expect(isolatedIndices([null, 5, null])).toEqual([1])
+  })
+
+  it('treats out-of-bounds as null (edges can be isolated)', () => {
+    expect(isolatedIndices([5, null, 7])).toEqual([0, 2])
+  })
+
+  it('ignores points that have a defined neighbour (they form a segment)', () => {
+    expect(isolatedIndices([1, 2, null, 4, 5])).toEqual([])
+  })
+
+  it('returns nothing for an all-null or empty series', () => {
+    expect(isolatedIndices([null, null])).toEqual([])
+    expect(isolatedIndices([])).toEqual([])
+  })
+
+  it('handles a mix of runs and singletons', () => {
+    expect(isolatedIndices([3, null, 9, null, 1, 2])).toEqual([0, 2])
   })
 })
 

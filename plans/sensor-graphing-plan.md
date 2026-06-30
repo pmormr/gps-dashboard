@@ -159,6 +159,16 @@ the gesture + selection rectangle live in `Trend.svelte`; the zoom-out stack +
 button live in `Trends.svelte` (snapshots the picker state so a `Live · Last Nd`
 window restores verbatim, not as a frozen range).
 
+Two sparse-data refinements went in with it (a zoom over engine-gated data often
+lands between bursts): an explicit **"No data in this range"** overlay when every
+visible series is null in the window (instead of a silent blank plot), and
+**dots for isolated points** — `Line.svelte` draws only segments between
+*consecutive* defined buckets, so a lone non-null bucket (a brief burst) was
+invisible; `isolatedIndices` (pure, Vitest) marks them as dots. Note the
+isolated-dot aid is masked for channels with a per-metric smoothing default
+(e.g. `fuel_level_pct`, `smooth:5`), whose moving average smears a singleton into
+a short faint segment before the line sees it.
+
 **Phase 3 — map tie-in + cleanup.** Dock the chart under the Map synced to the
 same Selection window (the Layers Axis-2 *"inspect this window"* item, which
 generalizes the per-range `/api/obd/economy` readout to any window). Then retire

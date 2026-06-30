@@ -76,6 +76,11 @@
     return ex ? padDomain(ex) : null
   }
 
+  // No non-null sample in any visible series → the window is empty (common after a
+  // zoom that lands between sparse, engine-gated bursts). Surfaced as an overlay so
+  // the axes/window stay for context instead of a silent blank plot.
+  const hasData = $derived(prepared.some((s) => s.values.some((v) => v != null)))
+
   const x = $derived(resp?.x ?? [])
   const gridRows = $derived(x.map((t) => ({ t })))
   const startMs = $derived(resp ? Date.parse(resp.start) : 0)
@@ -206,6 +211,10 @@
       </Svg>
     </LayerCake>
 
+    {#if !hasData}
+      <div class="nodata">No data in this range</div>
+    {/if}
+
     {#if dragging}
       <div
         class="drag-sel"
@@ -263,6 +272,15 @@
     background: color-mix(in srgb, var(--accent) 18%, transparent);
     border-left: 1px solid var(--accent);
     border-right: 1px solid var(--accent);
+    pointer-events: none;
+  }
+  .nodata {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--text-dim);
+    font-size: 13px;
     pointer-events: none;
   }
   .tip {

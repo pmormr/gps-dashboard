@@ -57,6 +57,23 @@ export function pixelToTime(
   return startMs + frac * (endMs - startMs)
 }
 
+/**
+ * Indices of non-null values whose neighbours are both null (out-of-bounds counts
+ * as null). A line generator draws only segments between *consecutive* defined
+ * points, so these isolated points draw nothing — the chart marks them as dots
+ * instead, keeping brief, sparse bursts (engine-gated data) visible.
+ */
+export function isolatedIndices(values: (number | null)[]): number[] {
+  const out: number[] = []
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] == null) continue
+    const prev = i > 0 ? values[i - 1] : null
+    const next = i < values.length - 1 ? values[i + 1] : null
+    if (prev == null && next == null) out.push(i)
+  }
+  return out
+}
+
 /** [min, max] over non-null values, or null when every value is null. */
 export function extent(values: (number | null)[]): [number, number] | null {
   let lo = Infinity
