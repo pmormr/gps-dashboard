@@ -391,12 +391,17 @@ export function markTimestamp(marker: 'start' | 'end'): Promise<Marks> {
   return sendJSON<Marks>('/api/annotations/mark', 'POST', { marker })
 }
 
-/** Per-window fuel economy (derived OBD fuel ÷ GPS-track distance); the drawer's per-range MPG. */
+/** Per-window drive summary (derived OBD fuel ÷ GPS-track distance + speed/time). */
 export interface ObdEconomy {
   mpg: number | null
   distance_mi: number
   fuel_gallons: number
+  max_speed_kph: number | null
+  engine_on_s: number
+  moving_s: number
+  idle_s: number
   n_obd_rows: number
+  n_track_points: number
   calibrated: boolean
 }
 

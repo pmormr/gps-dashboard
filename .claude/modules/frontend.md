@@ -70,6 +70,11 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   annotations. **⊕ FAB** recenters on the latest raw fix.
 - **Marks** (`MarksPanel.svelte`) — persisted live range-construction (Mark Start/End →
   Use Marks reframes the window). Panel-local state (no store — no other consumer).
+- **Inspect window** (`InspectPanel.svelte`) — a collapsible chrome panel of derived
+  stats for the *current Selection window* (duration, GPS distance, avg-moving/max speed,
+  fuel + MPG, moving/idle time), from `GET /api/obd/economy`. Generalizes the per-saved-
+  range fuel-economy readout (AnnotationsDrawer) to any scrubbed window; fetches only while
+  open. Shows GPS distance even with no OBD coverage.
 - **Layers** (`Layers.svelte` + store, `labels.ts`) — one panel folding in base map
   (OSM vector / USGS raster + refresh), **labels** (POI categories / density / minor
   streets, vector-only — `labels.ts` drives the Protomaps GL style), **3D terrain**
@@ -113,11 +118,12 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
   + the `timestrip.ts` density lane (the multi-channel handoff S4 left open). *(The
   Selection-synced chart is done — the Trends view; the divorced legacy `/sensors` +
   vendored uPlot were retired.)*
-- **Marks (Axis 3) continuation** — mark *types* (campsite / fuel / scenic / repair); an
-  **"inspect this window"** panel that generalizes the per-range fuel-economy readout
-  (`AnnotationsDrawer`, currently bolted onto saved ranges) to *any* current Selection;
-  and **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
-  curated mark (denoise **Phase 6**, see `.claude/modules/processor.md`).
+- **Marks (Axis 3) continuation** — mark *types* (campsite / fuel / scenic / repair); and
+  **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
+  curated mark (denoise **Phase 6**, see `.claude/modules/processor.md`). *(The
+  "inspect this window" panel — generalizing the per-range fuel-economy readout to any
+  Selection — is built: `InspectPanel.svelte`, above. Window **energy** from Victron is
+  the remaining stat, deferred until the power-integration endpoint lands.)*
 - **Vendored `static/vendor/{maplibre,pmtiles}` retirement** — blocked on the standalone
   `static/dev-terrain.html` dev tool (script-tag loads, can't use npm); retire with it.
 - Richer trail rendering (direction chevrons, head dot); per-annotation elevation/speed

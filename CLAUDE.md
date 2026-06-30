@@ -99,7 +99,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
 - `GET /api/sensors` — sensor registry, each row with its latest reading embedded
 - `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
-- `GET /api/obd/economy?start=&end=` — per-window fuel economy: speed-density fuel (derived at read time via `common/obd.py`, since `fuel_rate_lph` is stored NULL) integrated over `obd_readings`, divided by the `track_points` path length over the same window. Pass an annotation's bounds for per-trip MPG; `calibrated` stays false until a fill-up calibration lands
+- `GET /api/obd/economy?start=&end=` — per-window drive summary: speed-density fuel (derived at read time via `common/obd.py`, since `fuel_rate_lph` is stored NULL) integrated over `obd_readings`, divided by the `track_points` path length over the same window, plus `max_speed_kph` and moving/idle/engine-on seconds. Pass an annotation's bounds for per-trip MPG; `calibrated` stays false until a fill-up calibration lands. Backs both the per-range readout (AnnotationsDrawer) and the Map's "inspect this window" panel
 - `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
 - `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
@@ -205,7 +205,7 @@ gps-dashboard/
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   └── stores/         # selection (global time axis) · annotations · layers (map-local)
-│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
+│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Inspect/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/tile-error.png

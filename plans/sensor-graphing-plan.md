@@ -27,8 +27,10 @@ bursts in a 7-day fuel view spread out and become legible. A "Zoom out" button
 steps back through a local stack of prior windows; double-click resets. Verified
 end-to-end via a CDP-driven drag against the Pi snapshot.
 
-**Phase 3 remains** (map-embedded synced chart; retire legacy `/sensors`), plus
-the deferred true-multi-axis (>2 units).
+**Phase 3 built (2026-06-30).** Legacy `/sensors` + vendored uPlot retired; the
+Map gained an **"inspect this window"** stats panel (`InspectPanel.svelte`) off
+`/api/obd/economy`. Deferred: window **energy** (Victron power integration) and
+true multi-axis (>2 units).
 
 ## Where things stand
 
@@ -173,11 +175,21 @@ between bursts and the bucket grid goes finer than the data cadence):
   sample (singleton run) is drawn as a dot so brief bursts stay visible. This is
   cadence-agnostic and needs no per-channel config.
 
-**Phase 3 — map tie-in + cleanup.** Dock the chart under the Map synced to the
-same Selection window (the Layers Axis-2 *"inspect this window"* item, which
-generalizes the per-range `/api/obd/economy` readout to any window). Then retire
-legacy `/sensors` + `templates/sensors.html` + `static/js/sensors.js` +
-`static/vendor/uplot`; fix the `frontend.md` uPlot-is-an-npm-dep line.
+**Phase 3 — map tie-in + cleanup (done).**
+- *Cleanup:* the legacy `/sensors` Jinja page + `templates/sensors.html` +
+  `static/js/sensors.js` + vendored `static/vendor/uplot` + the dead
+  `static/css/app.css` are retired; the Flask `sensors_page()` route is gone and
+  the docs reconciled (incl. the `frontend.md` uPlot-is-an-npm-dep line). The
+  Selection-synced chart the plan envisioned *is* the Trends view (`/trends`).
+- *Map tie-in:* instead of docking the full chart under the map (it would overlap
+  `/trends`, which already shares the Selection window), the chosen form is an
+  **"inspect this window" stats panel** (`InspectPanel.svelte`) — the current
+  Selection window's duration / GPS distance / avg-moving + max speed / fuel +
+  MPG / moving-idle time, from `/api/obd/economy` (now also returns
+  `max_speed_kph`). Generalizes the per-saved-range readout to any window.
+  **Window energy (Victron power integration) is deferred** — it needs a new
+  integration endpoint + sign-convention/which-loads decisions worth verifying
+  carefully.
 
 ## Testing
 

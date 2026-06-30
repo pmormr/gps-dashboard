@@ -74,6 +74,8 @@ def economy():
     miles = distance_m / _M_PER_MILE
     mpg = miles / gallons if gallons > 0 else None
     l_per_100km = summary.fuel_litres / (distance_m / 1000.0) * 100.0 if distance_m > 0 else None
+    speeds = [r['speed_kph'] for r in obd_rows if r['speed_kph'] is not None]
+    max_speed_kph = max(speeds) if speeds else None
 
     return jsonify(
         {
@@ -85,6 +87,7 @@ def economy():
             'distance_mi': round(miles, 3),
             'mpg': round(mpg, 2) if mpg is not None else None,
             'l_per_100km': round(l_per_100km, 2) if l_per_100km is not None else None,
+            'max_speed_kph': round(max_speed_kph, 1) if max_speed_kph is not None else None,
             'engine_on_s': round(summary.engine_on_s, 1),
             'moving_s': round(summary.moving_s, 1),
             'idle_s': round(summary.idle_s, 1),

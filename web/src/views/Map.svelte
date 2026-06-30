@@ -10,6 +10,7 @@
   import './annotations.css'
   import AnnotationForm from './AnnotationForm.svelte'
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
+  import InspectPanel from './InspectPanel.svelte'
   import Layers from './Layers.svelte'
   import MarksPanel from './MarksPanel.svelte'
   import Timeline from './Timeline.svelte'
@@ -64,6 +65,7 @@
   <div class="map-chrome-tr">
     <Layers {view} />
     <MarksPanel />
+    <InspectPanel />
   </div>
 
   <div class="tl-overlay">

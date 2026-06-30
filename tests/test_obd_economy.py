@@ -129,6 +129,7 @@ def test_economy_joins_fuel_and_distance(client):
     # mpg matches the derived legs, computed unrounded to dodge display rounding.
     expected_mpg = (math.radians(0.01) * 6_371_000.0 / 1609.344) / (expected_l / 3.785411784)
     assert body['mpg'] == pytest.approx(expected_mpg, rel=2e-2)
+    assert body['max_speed_kph'] == pytest.approx(30.0)
     assert body['calibrated'] is False
 
 
