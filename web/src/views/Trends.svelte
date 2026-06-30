@@ -61,6 +61,54 @@
     hidden = next
   }
 
+  // ── Saved presets (localStorage): a named metric set + its smoothing/band ──
+  interface Preset {
+    name: string
+    metrics: string[]
+    smoothWindow: number
+    showBand: boolean
+  }
+  const PRESETS_KEY = 'trends.presets'
+
+  function loadPresets(): Preset[] {
+    try {
+      const raw = localStorage.getItem(PRESETS_KEY)
+      const data = raw ? JSON.parse(raw) : []
+      return Array.isArray(data) ? data : []
+    } catch {
+      return []
+    }
+  }
+
+  let presets = $state<Preset[]>(loadPresets())
+
+  function persistPresets(): void {
+    try {
+      localStorage.setItem(PRESETS_KEY, JSON.stringify(presets))
+    } catch {
+      // Private mode / quota — presets just don't survive the session.
+    }
+  }
+
+  function savePreset(): void {
+    const name = prompt('Preset name?')?.trim()
+    if (!name || selected.length === 0) return
+    presets = [...presets.filter((p) => p.name !== name), { name, metrics: [...selected], smoothWindow, showBand }]
+    persistPresets()
+  }
+
+  function applyPreset(p: Preset): void {
+    selected = [...p.metrics]
+    smoothWindow = p.smoothWindow
+    showBand = p.showBand
+    hidden = new Set()
+  }
+
+  function deletePreset(name: string): void {
+    presets = presets.filter((p) => p.name !== name)
+    persistPresets()
+  }
+
   onMount(async () => {
     import('../lib/charts/Trend.svelte').then((m) => (TrendComp = m.default))
     try {
@@ -127,6 +175,16 @@
     <input type="checkbox" bind:checked={showBand} />
     Min/max band
   </label>
+</div>
+
+<div class="presets">
+  {#each presets as p (p.name)}
+    <span class="preset">
+      <button class="preset-load" onclick={() => applyPreset(p)}>{p.name}</button>
+      <button class="preset-del" onclick={() => deletePreset(p.name)} aria-label="Delete {p.name}">×</button>
+    </span>
+  {/each}
+  <button class="preset-save" onclick={savePreset} disabled={selected.length === 0}>+ Save preset</button>
 </div>
 
 <section class="panel chart-panel">
@@ -209,6 +267,60 @@
     font-size: 12px;
     color: var(--text-dim);
     cursor: pointer;
+  }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .preset {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .preset-load {
+    padding: 5px 6px 5px 12px;
+    background: var(--surface);
+    color: var(--text);
+    border: none;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .preset-load:hover {
+    background: var(--border);
+  }
+  .preset-del {
+    padding: 5px 9px 5px 4px;
+    background: var(--surface);
+    color: var(--text-dim);
+    border: none;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .preset-del:hover {
+    color: var(--err);
+  }
+  .preset-save {
+    padding: 5px 12px;
+    background: none;
+    color: var(--accent);
+    border: 1px dashed var(--border);
+    border-radius: 999px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .preset-save:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .panel {
