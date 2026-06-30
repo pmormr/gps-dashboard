@@ -57,6 +57,26 @@ def test_buckets_average_and_align_with_nulls(client):
     assert s['values'] == [13.2, None, 12.8, None, None, None]
 
 
+def test_min_max_envelope_brackets_the_average(client):
+    conn = db.get_connection()
+    sid = _sensor(conn, 'house', 'victron')
+    # Two readings in bucket 0: avg 13.2, spread 13.0–13.4.
+    _vic(conn, sid, '2026-06-20T12:00:10.000Z', 13.0)
+    _vic(conn, sid, '2026-06-20T12:00:50.000Z', 13.4)
+    conn.commit()
+    conn.close()
+
+    body = client.get(
+        '/api/sensors/series', query_string={**WINDOW, 'metrics': f'{sid}.battery_voltage'}
+    ).get_json()
+    (s,) = body['series']
+    assert s['values'][0] == 13.2
+    assert s['min'][0] == 13.0
+    assert s['max'][0] == 13.4
+    # Empty buckets are null across all three arrays.
+    assert s['min'][1] is None and s['max'][1] is None
+
+
 def test_meta_fields_travel_with_each_series(client):
     conn = db.get_connection()
     sid = _sensor(conn, 'house', 'victron')

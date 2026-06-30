@@ -238,16 +238,21 @@ def sensor_series():
     x = [(start_bucket + i) * bucket_s * 1000 for i in range(n)]
 
     # One query per sensor covers all its requested columns; scatter the grouped
-    # rows into each column's aligned grid by bucket index.
+    # rows into each column's aligned grid by bucket index. Per metric: the avg
+    # line plus the min/max envelope (per-bucket spread), so downsampling a long
+    # window keeps spikes (voltage sag, RPM) visible instead of averaging them out.
     by_sensor: dict[tuple[int, str], list[str]] = {}
     for sensor_id, type, column in specs:
         by_sensor.setdefault((sensor_id, type), []).append(column)
-    values: dict[tuple[int, str], list[float | None]] = {
-        (sensor_id, column): [None] * n for sensor_id, _, column in specs
-    }
+    keys = [(sensor_id, column) for sensor_id, _, column in specs]
+    avg: dict[tuple[int, str], list[float | None]] = {k: [None] * n for k in keys}
+    lo: dict[tuple[int, str], list[float | None]] = {k: [None] * n for k in keys}
+    hi: dict[tuple[int, str], list[float | None]] = {k: [None] * n for k in keys}
     for (sensor_id, type), cols in by_sensor.items():
         table = READING_TABLES[type]['table']
-        select = ', '.join(f'AVG("{c}") AS "{c}"' for c in cols)
+        select = ', '.join(
+            f'AVG("{c}") AS "a_{c}", MIN("{c}") AS "lo_{c}", MAX("{c}") AS "hi_{c}"' for c in cols
+        )
         rows = conn.execute(
             f"SELECT CAST(strftime('%s', substr(timestamp, 1, 19)) AS INTEGER) / ? AS b, "
             f'{select} FROM {table} '
@@ -258,11 +263,14 @@ def sensor_series():
             idx = row['b'] - start_bucket
             if 0 <= idx < n:
                 for c in cols:
-                    values[(sensor_id, c)][idx] = row[c]
+                    avg[(sensor_id, c)][idx] = row[f'a_{c}']
+                    lo[(sensor_id, c)][idx] = row[f'lo_{c}']
+                    hi[(sensor_id, c)][idx] = row[f'hi_{c}']
 
     series = []
     for sensor_id, _, column in specs:
         meta = METRIC_META.get(column)
+        key = (sensor_id, column)
         series.append(
             {
                 'metric': f'{sensor_id}.{column}',
@@ -275,7 +283,9 @@ def sensor_series():
                 'convert': meta['convert'] if meta else None,
                 'y_range': meta['y_range'] if meta else None,
                 'group': meta['group'] if meta else '',
-                'values': values[(sensor_id, column)],
+                'values': avg[key],
+                'min': lo[key],
+                'max': hi[key],
             }
         )
     return jsonify(

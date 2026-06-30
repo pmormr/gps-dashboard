@@ -201,6 +201,9 @@ export interface TrendSeries {
   group: string
   /** Averaged value per bucket, aligned to the shared `x`; null for empty buckets. */
   values: (number | null)[]
+  /** Per-bucket min/max (raw spread), aligned to `x`, for the optional envelope band. */
+  min: (number | null)[]
+  max: (number | null)[]
 }
 
 /** `/api/sensors/series`: a shared bucket grid (`x`, epoch ms) + overlaid metric series. */

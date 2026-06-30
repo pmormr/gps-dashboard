@@ -9,17 +9,20 @@
   import type { SensorSeriesResponse } from '../api'
   import AxisX from './AxisX.svelte'
   import AxisY from './AxisY.svelte'
+  import Band from './Band.svelte'
   import Line from './Line.svelte'
   import { axisForUnits, extent, movingAverage, padDomain, unionExtent } from './util'
 
   let {
     resp,
     smoothWindow = 1,
+    showBand = false,
     hidden = new Set<string>(),
     height = 300,
   }: {
     resp: SensorSeriesResponse | null
     smoothWindow?: number
+    showBand?: boolean
     hidden?: Set<string>
     height?: number
   } = $props()
@@ -31,6 +34,8 @@
     color: string
     dec: number
     values: (number | null)[]
+    min: (number | null)[]
+    max: (number | null)[]
   }
 
   const prepared = $derived(
@@ -42,7 +47,9 @@
         unit: s.unit,
         color: s.color,
         dec: s.dec,
-        values: movingAverage(s.values, smoothWindow),
+        values: movingAverage(s.values, smoothWindow), // line: smoothed trend
+        min: s.min, // band: raw spread, never smoothed (that would hide spikes)
+        max: s.max,
       }))
   )
 
@@ -52,8 +59,12 @@
   const leftDomain = $derived(domainFor(leftSeries))
   const rightDomain = $derived(domainFor(rightSeries))
 
+  /** Axis domain: the band's raw spread when shown (so excursions fit), else the line. */
   function domainFor(series: Prepared[]): [number, number] | null {
-    const ex = unionExtent(series.map((s) => extent(s.values)))
+    const extents = series.flatMap((s) =>
+      showBand ? [extent(s.values), extent(s.min), extent(s.max)] : [extent(s.values)]
+    )
+    const ex = unionExtent(extents)
     return ex ? padDomain(ex) : null
   }
 
@@ -65,6 +76,9 @@
 
   function pointsFor(s: Prepared): { t: number; v: number | null }[] {
     return x.map((t, i) => ({ t, v: s.values[i] }))
+  }
+  function bandPointsFor(s: Prepared): { t: number; lo: number | null; hi: number | null }[] {
+    return x.map((t, i) => ({ t, lo: s.min[i], hi: s.max[i] }))
   }
   function domainOf(s: Prepared): [number, number] {
     return (sides.get(s.unit) === 'right' ? rightDomain : leftDomain) ?? [0, 1]
@@ -128,6 +142,11 @@
         {/if}
         {#if rightDomain}
           <AxisY domain={rightDomain} side="right" unit={rightSeries[0]?.unit} color={rightSeries[0]?.color} />
+        {/if}
+        {#if showBand}
+          {#each prepared as s (s.metric)}
+            <Band points={bandPointsFor(s)} domain={domainOf(s)} color={s.color} />
+          {/each}
         {/if}
         {#each prepared as s (s.metric)}
           <Line points={pointsFor(s)} domain={domainOf(s)} color={s.color} />

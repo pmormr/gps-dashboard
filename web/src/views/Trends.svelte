@@ -24,6 +24,7 @@
   type TrendProps = {
     resp: SensorSeriesResponse | null
     smoothWindow?: number
+    showBand?: boolean
     hidden?: Set<string>
     height?: number
   }
@@ -34,6 +35,7 @@
   let selected = $state<string[]>([])
   let hidden = $state(new Set<string>())
   let smoothWindow = $state(1)
+  let showBand = $state(false)
   let error = $state<string | null>(null)
 
   /** Chartable channels for a sensor as `[address, label, color]`, picker order. */
@@ -121,11 +123,15 @@
       {/each}
     </select>
   </label>
+  <label class="toggle">
+    <input type="checkbox" bind:checked={showBand} />
+    Min/max band
+  </label>
 </div>
 
 <section class="panel chart-panel">
   {#if TrendComp}
-    <TrendComp {resp} {smoothWindow} {hidden} height={320} />
+    <TrendComp {resp} {smoothWindow} {showBand} {hidden} height={320} />
   {:else}
     <div class="chart-loading">Loading chart…</div>
   {/if}
@@ -195,6 +201,14 @@
     border-radius: 8px;
     padding: 5px 8px;
     font: inherit;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
   }
 
   .panel {
