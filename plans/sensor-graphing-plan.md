@@ -159,15 +159,19 @@ the gesture + selection rectangle live in `Trend.svelte`; the zoom-out stack +
 button live in `Trends.svelte` (snapshots the picker state so a `Live · Last Nd`
 window restores verbatim, not as a frozen range).
 
-Two sparse-data refinements went in with it (a zoom over engine-gated data often
-lands between bursts): an explicit **"No data in this range"** overlay when every
-visible series is null in the window (instead of a silent blank plot), and
-**dots for isolated points** — `Line.svelte` draws only segments between
-*consecutive* defined buckets, so a lone non-null bucket (a brief burst) was
-invisible; `isolatedIndices` (pure, Vitest) marks them as dots. Note the
-isolated-dot aid is masked for channels with a per-metric smoothing default
-(e.g. `fuel_level_pct`, `smooth:5`), whose moving average smears a singleton into
-a short faint segment before the line sees it.
+Sparse-data refinements went in with it (a zoom over engine-gated data lands
+between bursts and the bucket grid goes finer than the data cadence):
+
+- **"No data in this range"** overlay when every visible series is null in the
+  window, instead of a silent blank plot.
+- **Gap-bridged lines** — the server returns a *dense* bucket grid with nulls, so
+  a line that breaks at every empty bucket shatters into isolated dots once the
+  buckets are finer than the sampling cadence (e.g. 30 s Victron zoomed to a
+  10‑min window → 1 s buckets). `lineSegments` (pure, Vitest) groups defined
+  samples into runs, splitting only where a gap exceeds `gapFactor`×(median
+  sample spacing); `Line.svelte`/`Band.svelte` render one path per run. A lone
+  sample (singleton run) is drawn as a dot so brief bursts stay visible. This is
+  cadence-agnostic and needs no per-channel config.
 
 **Phase 3 — map tie-in + cleanup.** Dock the chart under the Map synced to the
 same Selection window (the Layers Axis-2 *"inspect this window"* item, which

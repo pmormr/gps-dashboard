@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   axisForUnits,
   extent,
-  isolatedIndices,
+  lineSegments,
   movingAverage,
   padDomain,
   pixelToTime,
@@ -58,26 +58,39 @@ describe('padDomain', () => {
   })
 })
 
-describe('isolatedIndices', () => {
-  it('finds a point with null on both sides', () => {
-    expect(isolatedIndices([null, 5, null])).toEqual([1])
+describe('lineSegments', () => {
+  const T = (n: number): number[] => Array.from({ length: n }, (_, i) => i * 1000)
+
+  it('keeps evenly-spaced samples in one segment', () => {
+    expect(lineSegments(T(4), [true, true, true, true])).toEqual([[0, 1, 2, 3]])
   })
 
-  it('treats out-of-bounds as null (edges can be isolated)', () => {
-    expect(isolatedIndices([5, null, 7])).toEqual([0, 2])
+  it('bridges small empty-bucket runs (a bucketing artefact)', () => {
+    // gaps 1s,1s among dense buckets → median 1s → threshold 8s; the 1-bucket
+    // hole (2s gap) stays connected.
+    expect(lineSegments(T(5), [true, true, false, true, true])).toEqual([[0, 1, 3, 4]])
   })
 
-  it('ignores points that have a defined neighbour (they form a segment)', () => {
-    expect(isolatedIndices([1, 2, null, 4, 5])).toEqual([])
+  it('breaks on a gap far larger than the median spacing', () => {
+    // 0,1,2s then a jump to 100s: median 1s, threshold 8s, 98s gap splits.
+    const times = [0, 1000, 2000, 100000, 101000]
+    expect(lineSegments(times, [true, true, true, true, true])).toEqual([[0, 1, 2], [3, 4]])
   })
 
-  it('returns nothing for an all-null or empty series', () => {
-    expect(isolatedIndices([null, null])).toEqual([])
-    expect(isolatedIndices([])).toEqual([])
+  it('connects sparse-but-regular samples (the zoom-in case)', () => {
+    // 30s spacing everywhere → median 30s → threshold 240s → all connected.
+    const times = [0, 30000, 60000, 90000]
+    expect(lineSegments(times, [true, true, true, true])).toEqual([[0, 1, 2, 3]])
   })
 
-  it('handles a mix of runs and singletons', () => {
-    expect(isolatedIndices([3, null, 9, null, 1, 2])).toEqual([0, 2])
+  it('returns a lone sample as a singleton run', () => {
+    const times = [0, 1000, 2000, 3000, 1000000]
+    expect(lineSegments(times, [true, true, true, true, true])).toEqual([[0, 1, 2, 3], [4]])
+  })
+
+  it('returns nothing when no bucket is defined', () => {
+    expect(lineSegments(T(3), [false, false, false])).toEqual([])
+    expect(lineSegments([], [])).toEqual([])
   })
 })
 

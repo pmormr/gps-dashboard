@@ -7,6 +7,8 @@
   import { getContext } from 'svelte'
   import type { Readable } from 'svelte/store'
 
+  import { lineSegments } from './util'
+
   interface LC {
     height: Readable<number>
     xScale: Readable<ScaleTime<number, number>>
@@ -24,15 +26,26 @@
     color,
   }: { points: Span[]; domain: [number, number]; color: string } = $props()
 
-  const path = $derived.by(() => {
+  // Same gap-bridging as the line, so the envelope tracks it instead of shattering
+  // at every empty bucket once zoomed in.
+  const segments = $derived(
+    lineSegments(
+      points.map((p) => p.t),
+      points.map((p) => p.lo != null && p.hi != null)
+    )
+  )
+  const paths = $derived.by(() => {
     const y = scaleLinear(domain, [$height, 0])
     const gen = area<Span>()
-      .defined((p) => p.lo != null && p.hi != null)
       .x((p) => $xScale(new Date(p.t)))
       .y0((p) => y(p.lo as number))
       .y1((p) => y(p.hi as number))
-    return gen(points) ?? ''
+    return segments
+      .filter((s) => s.length >= 2)
+      .map((s) => gen(s.map((i) => points[i])) ?? '')
   })
 </script>
 
-<path d={path} fill={color} fill-opacity="0.16" stroke="none" />
+{#each paths as d, i (i)}
+  <path {d} fill={color} fill-opacity="0.16" stroke="none" />
+{/each}

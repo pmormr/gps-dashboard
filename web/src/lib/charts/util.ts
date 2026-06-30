@@ -58,20 +58,52 @@ export function pixelToTime(
 }
 
 /**
- * Indices of non-null values whose neighbours are both null (out-of-bounds counts
- * as null). A line generator draws only segments between *consecutive* defined
- * points, so these isolated points draw nothing — the chart marks them as dots
- * instead, keeping brief, sparse bursts (engine-gated data) visible.
+ * Group defined samples into connected segments, returning index arrays into the
+ * dense grid.
+ *
+ * The server returns a dense bucket grid with nulls for empty buckets; a line
+ * that breaks at every null shatters once the buckets are finer than the data's
+ * cadence (zooming into engine-gated data). So a break is inserted only where the
+ * time gap between consecutive defined samples exceeds ``gapFactor`` times the
+ * *median* sample spacing — small empty-bucket runs (a bucketing artefact) stay
+ * connected, while a genuine no-data gap still splits the line. A run of one
+ * index is a lone sample (drawn as a dot, not a segment).
+ *
+ * Args:
+ *   times: Per-bucket epoch-ms, aligned to ``defined``.
+ *   defined: Whether each bucket has a value to plot.
+ *   gapFactor: Break threshold as a multiple of the median spacing.
+ *
+ * Returns:
+ *   Connected runs of defined indices, in time order.
  */
-export function isolatedIndices(values: (number | null)[]): number[] {
-  const out: number[] = []
-  for (let i = 0; i < values.length; i++) {
-    if (values[i] == null) continue
-    const prev = i > 0 ? values[i - 1] : null
-    const next = i < values.length - 1 ? values[i + 1] : null
-    if (prev == null && next == null) out.push(i)
+export function lineSegments(
+  times: number[],
+  defined: boolean[],
+  gapFactor = 8
+): number[][] {
+  const idx: number[] = []
+  for (let i = 0; i < defined.length; i++) if (defined[i]) idx.push(i)
+  if (idx.length === 0) return []
+  const gaps: number[] = []
+  for (let i = 1; i < idx.length; i++) gaps.push(times[idx[i]] - times[idx[i - 1]])
+  let breakAt = Infinity
+  if (gaps.length) {
+    const sorted = [...gaps].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    if (median > 0) breakAt = median * gapFactor
   }
-  return out
+  const segs: number[][] = []
+  let cur: number[] = [idx[0]]
+  for (let i = 1; i < idx.length; i++) {
+    if (times[idx[i]] - times[idx[i - 1]] > breakAt) {
+      segs.push(cur)
+      cur = []
+    }
+    cur.push(idx[i])
+  }
+  segs.push(cur)
+  return segs
 }
 
 /** [min, max] over non-null values, or null when every value is null. */
