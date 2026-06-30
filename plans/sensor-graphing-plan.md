@@ -18,8 +18,17 @@ LayerCake chart, registry-driven metric picker, global-Selection time axis,
 dual-axis-by-unit overlay, moving-average smoothing (global control + per-metric
 defaults, e.g. `fuel_level_pct`), optional min/max envelope band, and
 localStorage presets. `charts/util.ts` pure helpers + Vitest; endpoint pytest.
-Verified against a Pi DB snapshot. **Phase 3 remains** (map-embedded synced
-chart; retire legacy `/sensors`), plus the deferred true-multi-axis (>2 units).
+Verified against a Pi DB snapshot.
+
+**Phase 2.5 — brush-to-zoom built (2026-06-30).** Drag a region on the chart to
+zoom into it: the gesture narrows the global Selection window (`setRange`), which
+re-buckets the series at finer resolution — a *true* zoom, so the sparse driving
+bursts in a 7-day fuel view spread out and become legible. A "Zoom out" button
+steps back through a local stack of prior windows; double-click resets. Verified
+end-to-end via a CDP-driven drag against the Pi snapshot.
+
+**Phase 3 remains** (map-embedded synced chart; retire legacy `/sensors`), plus
+the deferred true-multi-axis (>2 units).
 
 ## Where things stand
 
@@ -108,12 +117,17 @@ envelope.
 
 - **`web/src/lib/charts/`** — LayerCake chart components, composed not wrapped:
   `Trend.svelte` (the `<LayerCake>` container + shared scales) plus layer
-  components `Line.svelte`, `AxisX.svelte`, `AxisY.svelte`, `Tooltip.svelte`
-  (and later `Band.svelte` for the min/max envelope, `Brush.svelte` for the
-  trip sub-window). Reactive to props/stores directly — no imperative façade.
-  Phase 1: series sharing a unit share a y-scale (simple). The pure bits —
-  client moving-average smoothing + the value→aligned-series merge — live in
-  `web/src/lib/charts/util.ts` so they're unit-testable.
+  components `Line.svelte`, `AxisX.svelte`, `AxisY.svelte`, `Band.svelte` (min/max
+  envelope). Reactive to props/stores directly — no imperative façade. Phase 1:
+  series sharing a unit share a y-scale (simple). The pure bits — client
+  moving-average smoothing, the value→aligned-series merge, and `pixelToTime`
+  (drag-zoom pixel→time inversion) — live in `web/src/lib/charts/util.ts` so
+  they're unit-testable. *Drag-to-zoom (Phase 2.5) is an inline pointer gesture +
+  absolute-positioned selection rectangle in `Trend.svelte`, not a separate
+  `Brush.svelte` SVG layer — it lives with the crosshair/tooltip overlays that
+  already keep LayerCake pointer-free. The chart stays store-agnostic: it emits
+  `onzoom(fromMs, toMs)`/`onresetzoom`; `Trends.svelte` owns the window + the
+  zoom-out stack.*
 - **`web/src/lib/api.ts`** — `getSensorSeries(metrics, start, end, buckets?)` +
   response types.
 - **`web/src/views/Trends.svelte`** — the explorer: a metric picker (grouped by
@@ -135,6 +149,15 @@ npm deps + `/trends` route/link. Retire nothing.
 preservation); per-metric smoothing defaults from `METRIC_META` (`fuel_level_pct`
 smoothed by default); saved metric presets (localStorage). Dual-axis-by-unit
 landed already in Phase 1; true multi-axis (>2 units) stays deferred (below).
+
+**Phase 2.5 — brush-to-zoom (done).** Drag a region on the chart to zoom in.
+**Locked decision:** the gesture drives the *shared* global Selection window
+(`setRange`), not a chart-local window — so the chart re-fetches at finer
+buckets, the Map follows the same axis, and this is exactly what the Phase-3
+docked chart wants. Pure `pixelToTime` inversion (`charts/util.ts`, Vitest);
+the gesture + selection rectangle live in `Trend.svelte`; the zoom-out stack +
+button live in `Trends.svelte` (snapshots the picker state so a `Live · Last Nd`
+window restores verbatim, not as a frozen range).
 
 **Phase 3 — map tie-in + cleanup.** Dock the chart under the Map synced to the
 same Selection window (the Layers Axis-2 *"inspect this window"* item, which
@@ -160,3 +183,8 @@ legacy `/sensors` + `templates/sensors.html` + `static/js/sensors.js` +
   localStorage — only if presets prove worth syncing across devices.
 - A `chart:true` vs. numeric-but-stateful distinction already lives in
   `METRIC_META`; revisit if a wanted channel is currently `chart:false`.
+- Zoom-out stack (Phase 2.5) isn't cleared when the user changes the window via
+  the TimePicker mid-zoom, so a stale breadcrumb can remain; "Zoom out" then
+  steps back to a pre-zoom window rather than the manually-picked one. Benign
+  (every restored window is valid); revisit if it proves confusing — clearing on
+  a foreign picker change is awkward given the live tick mutates `range`.
