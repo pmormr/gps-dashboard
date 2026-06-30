@@ -11,6 +11,7 @@ import Radio from '../views/Radio.svelte'
 import Skyplot from '../views/Skyplot.svelte'
 import Sky from '../views/Sky.svelte'
 import Systems from '../views/Systems.svelte'
+import Trends from '../views/Trends.svelte'
 
 /** A client-side route: a path, the view it renders, and the NAV tab it lives under. */
 export interface RouteDef {
@@ -34,6 +35,7 @@ export const routes: RouteDef[] = [
   { path: '/skyplot', component: Skyplot, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
+  { path: '/trends', component: Trends, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
 ]
 

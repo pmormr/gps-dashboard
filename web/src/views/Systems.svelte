@@ -79,15 +79,15 @@
 
   <section class="panel">
     <div class="grp">Diagnostics</div>
+    <button class="diag" onclick={() => router.navigate('/trends')}>
+      <span>Trends</span><span class="muted">graph any channel over time</span>
+    </button>
     <button class="diag" onclick={() => router.navigate('/ntp')}>
       <span>NTP</span><span class="muted">time sync / chrony</span>
     </button>
     <button class="diag" onclick={() => router.navigate('/gpsd')}>
       <span>gpsd</span><span class="muted">GPS receiver status</span>
     </button>
-    <a class="diag" href="/sensors">
-      <span>History &amp; charts</span><span class="muted">detailed sensor viewer</span>
-    </a>
   </section>
 {:else if !error}
   <p class="muted">Loading…</p>

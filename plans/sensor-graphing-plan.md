@@ -10,6 +10,14 @@ This implements the long-standing `frontend.md` Deferred item *"a uPlot chart
 synced to the Selection window (retire the divorced /sensors)"* and supersedes
 the legacy `/sensors` Jinja page.
 
+## Status
+
+**Phase 1 landed (local, pending deploy):** `/api/sensors/series` endpoint +
+tests; the `/trends` Systems drill-in (LayerCake chart, registry-driven metric
+picker, global-Selection time axis, moving-average smoothing, dual-axis overlay
+by unit); `charts/util.ts` pure helpers + Vitest. Verified against a Pi DB
+snapshot (single-metric + voltage/current dual-axis). Phases 2–3 below are open.
+
 ## Where things stand
 
 - **Legacy `/sensors`** (`templates/sensors.html` + `static/js/sensors.js` +

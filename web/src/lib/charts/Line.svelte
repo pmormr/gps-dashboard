@@ -1,0 +1,36 @@
+<script lang="ts">
+  // One metric's line. Reads the shared x (time) scale + plot height from LayerCake
+  // context, builds its own linear y-scale from the passed domain (so series sharing
+  // an axis share a domain), and breaks the path across null buckets (gaps).
+  import { scaleLinear, type ScaleTime } from 'd3-scale'
+  import { line } from 'd3-shape'
+  import { getContext } from 'svelte'
+  import type { Readable } from 'svelte/store'
+
+  interface LC {
+    height: Readable<number>
+    xScale: Readable<ScaleTime<number, number>>
+  }
+  const { height, xScale } = getContext<LC>('LayerCake')
+
+  interface Point {
+    t: number
+    v: number | null
+  }
+  let {
+    points,
+    domain,
+    color,
+  }: { points: Point[]; domain: [number, number]; color: string } = $props()
+
+  const path = $derived.by(() => {
+    const y = scaleLinear(domain, [$height, 0])
+    const gen = line<Point>()
+      .defined((p) => p.v != null)
+      .x((p) => $xScale(new Date(p.t)))
+      .y((p) => y(p.v as number))
+    return gen(points) ?? ''
+  })
+</script>
+
+<path d={path} fill="none" stroke={color} stroke-width="1.5" stroke-linejoin="round" />

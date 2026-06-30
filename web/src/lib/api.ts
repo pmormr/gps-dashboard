@@ -187,6 +187,43 @@ export function getSensors(): Promise<SensorsResponse> {
   return getJSON<SensorsResponse>('/api/sensors')
 }
 
+/** One bucketed metric series: METRIC_META presentation fields + an aligned value array. */
+export interface TrendSeries {
+  metric: string
+  sensor_id: number
+  column: string
+  label: string
+  unit: string
+  color: string
+  dec: number
+  convert: string | null
+  y_range: number[] | null
+  group: string
+  /** Averaged value per bucket, aligned to the shared `x`; null for empty buckets. */
+  values: (number | null)[]
+}
+
+/** `/api/sensors/series`: a shared bucket grid (`x`, epoch ms) + overlaid metric series. */
+export interface SensorSeriesResponse {
+  start: string
+  end: string
+  bucket_ms: number
+  x: number[]
+  series: TrendSeries[]
+}
+
+/** Fetch bucketed, aligned trend series for overlaid metrics over a window. */
+export function getSensorSeries(
+  metrics: string[],
+  start: string,
+  end: string,
+  buckets?: number
+): Promise<SensorSeriesResponse> {
+  const params = new URLSearchParams({ metrics: metrics.join(','), start, end })
+  if (buckets != null) params.set('buckets', String(buckets))
+  return getJSON<SensorSeriesResponse>(`/api/sensors/series?${params}`)
+}
+
 export interface SatPass {
   gnssid: number
   svid: number
