@@ -283,6 +283,7 @@ def sensor_series():
                 'convert': meta['convert'] if meta else None,
                 'y_range': meta['y_range'] if meta else None,
                 'group': meta['group'] if meta else '',
+                'smooth': meta['smooth'] if meta else 0,
                 'values': avg[key],
                 'min': lo[key],
                 'max': hi[key],

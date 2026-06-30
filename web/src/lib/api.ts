@@ -151,6 +151,8 @@ export interface MetricMeta {
   convert: string | null
   y_range: number[] | null
   group: string
+  /** Default smoothing window (moving-average buckets); 0 = none. A floor, not a cap. */
+  smooth: number
 }
 
 export interface ReadingTableSpec {
@@ -199,6 +201,8 @@ export interface TrendSeries {
   convert: string | null
   y_range: number[] | null
   group: string
+  /** Default smoothing window (moving-average buckets) for this channel; 0 = none. */
+  smooth: number
   /** Averaged value per bucket, aligned to the shared `x`; null for empty buckets. */
   values: (number | null)[]
   /** Per-bucket min/max (raw spread), aligned to `x`, for the optional envelope band. */

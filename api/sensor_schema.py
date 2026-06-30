@@ -139,6 +139,10 @@ class MetricMeta(TypedDict):
             chart and reading as turbulence.
         group: Logical grouping key (``'battery'``, ``'solar'``, …) for sectioning the
             current-values grid (and, later, overlay charts).
+        smooth: Default trend-chart smoothing window (moving-average buckets) for this
+            channel; 0 = none. A floor the global Trends control can raise but not
+            lower, so an intrinsically noisy channel (fuel-level slosh) reads cleanly
+            without dragging every other series through the same filter.
     """
 
     label: str
@@ -149,6 +153,7 @@ class MetricMeta(TypedDict):
     convert: str | None
     y_range: list[float] | None
     group: str
+    smooth: int
 
 
 def _m(
@@ -161,6 +166,7 @@ def _m(
     convert: str | None = None,
     y_range: list[float] | None = None,
     group: str = '',
+    smooth: int = 0,
 ) -> MetricMeta:
     """Build a :class:`MetricMeta`, defaulting the optional presentation fields."""
     return {
@@ -172,6 +178,7 @@ def _m(
         'convert': convert,
         'y_range': y_range,
         'group': group,
+        'smooth': smooth,
     }
 
 
@@ -200,7 +207,9 @@ METRIC_META: dict[str, MetricMeta] = {
     'coolant_c': _m('Coolant', '°C', dec=0, color=_ORANGE, convert='c_to_f', group='temps'),
     'intake_c': _m('Intake', '°C', dec=0, chart=False, convert='c_to_f', group='temps'),
     'ambient_air_c': _m('Ambient', '°C', dec=0, chart=False, convert='c_to_f', group='temps'),
-    'fuel_level_pct': _m('Fuel', '%', dec=0, color=_CYAN, y_range=[0, 100], group='fuel'),
+    'fuel_level_pct': _m(
+        'Fuel', '%', dec=0, color=_CYAN, y_range=[0, 100], group='fuel', smooth=5
+    ),
     'fuel_rate_lph': _m('Fuel rate', 'L/h', dec=1, chart=False, group='fuel'),
     'commanded_equiv_ratio': _m('λ cmd', dec=3, chart=False, group='fuel'),
     'short_fuel_trim_1_pct': _m('STFT B1', '%', dec=1, chart=False, group='fuel'),

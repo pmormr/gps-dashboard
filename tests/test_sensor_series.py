@@ -35,6 +35,13 @@ def _bme(conn, sensor_id, ts, temp_c):
     )
 
 
+def _obd(conn, sensor_id, ts, fuel):
+    conn.execute(
+        'INSERT INTO obd_readings (sensor_id, timestamp, fuel_level_pct) VALUES (?, ?, ?)',
+        (sensor_id, ts, fuel),
+    )
+
+
 def test_buckets_average_and_align_with_nulls(client):
     conn = db.get_connection()
     sid = _sensor(conn, 'house', 'victron')
@@ -92,6 +99,24 @@ def test_meta_fields_travel_with_each_series(client):
     assert s['unit'] == 'V'
     assert s['color'] == '#facc15'
     assert s['dec'] == 2
+
+
+def test_series_carries_per_metric_smoothing_default(client):
+    conn = db.get_connection()
+    vic = _sensor(conn, 'house', 'victron')
+    van = _sensor(conn, 'van', 'obd')
+    _vic(conn, vic, '2026-06-20T12:00:10.000Z', 13.0)
+    _obd(conn, van, '2026-06-20T12:00:10.000Z', 55.0)
+    conn.commit()
+    conn.close()
+
+    body = client.get(
+        '/api/sensors/series',
+        query_string={**WINDOW, 'metrics': f'{vic}.battery_voltage,{van}.fuel_level_pct'},
+    ).get_json()
+    by = {s['column']: s for s in body['series']}
+    assert by['battery_voltage']['smooth'] == 0  # voltage stays honest
+    assert by['fuel_level_pct']['smooth'] == 5  # fuel slosh smooths by default
 
 
 def test_cross_sensor_overlay_shares_one_grid(client):

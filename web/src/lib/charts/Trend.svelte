@@ -47,7 +47,9 @@
         unit: s.unit,
         color: s.color,
         dec: s.dec,
-        values: movingAverage(s.values, smoothWindow), // line: smoothed trend
+        // The global control is a floor the per-metric default can raise (noisy
+        // channels like fuel smooth even at Off) but not lower.
+        values: movingAverage(s.values, Math.max(smoothWindow, s.smooth)),
         min: s.min, // band: raw spread, never smoothed (that would hide spikes)
         max: s.max,
       }))

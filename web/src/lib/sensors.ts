@@ -13,6 +13,7 @@ const FALLBACK_META: MetricMeta = {
   convert: null,
   y_range: null,
   group: '',
+  smooth: 0,
 }
 
 /** Display metadata for a metric column, falling back for unknown columns. */
