@@ -14,6 +14,8 @@ const FALLBACK_META: MetricMeta = {
   y_range: null,
   group: '',
   smooth: 0,
+  codec: null,
+  codes: null,
 }
 
 /** Display metadata for a metric column, falling back for unknown columns. */
@@ -75,6 +77,26 @@ export interface FormattedValue {
   alt: string | null
 }
 
+/** Decode an integer-coded value to display text per its codec.
+ *
+ * `enum` looks the value up directly; `bitmask` ORs together the labels of every set
+ * flag (the `0` key is the all-clear label). Unknown codes/codecs fall back to the raw
+ * number, so a firmware that adds a state degrades to a number rather than mislabelling.
+ */
+export function decodeCoded(codec: string, value: number, codes: Record<string, string>): string {
+  if (codec === 'enum') return codes[String(value)] ?? String(value)
+  if (codec === 'bitmask') {
+    if (value === 0) return codes['0'] ?? 'OK'
+    const labels: string[] = []
+    for (const [mask, label] of Object.entries(codes)) {
+      const m = Number(mask)
+      if (m !== 0 && (value & m) === m) labels.push(label)
+    }
+    return labels.length ? labels.join(', ') : String(value)
+  }
+  return String(value)
+}
+
 /** Format one metric value with its unit and optional alt-unit, or an em dash. */
 export function formatValue(
   meta: Record<string, MetricMeta>,
@@ -84,6 +106,9 @@ export function formatValue(
   if (value == null) return { text: '—', unit: '', alt: null }
   const m = metricMeta(meta, key)
   const num = Number(value)
+  if (m.codec && m.codes && Number.isFinite(num)) {
+    return { text: decodeCoded(m.codec, num, m.codes), unit: '', alt: null }
+  }
   const conv = m.convert ? CONVERTERS[m.convert] : null
   let alt: string | null = null
   if (conv) {
@@ -122,9 +147,10 @@ export const DOMAIN_LABELS: Record<string, string> = {
   victron: 'House power',
   obd: 'Van',
   bme680: 'Cabin',
+  system: 'Pi',
 }
 
-const DOMAIN_ORDER = ['victron', 'obd', 'bme680']
+const DOMAIN_ORDER = ['victron', 'obd', 'bme680', 'system']
 
 /** Sensors in Van OS domain order (House power, Van, Cabin), unknowns last. */
 export function orderedSensors(sensors: SensorRow[]): SensorRow[] {

@@ -153,6 +153,11 @@ export interface MetricMeta {
   group: string
   /** Default smoothing window (moving-average buckets); 0 = none. A floor, not a cap. */
   smooth: number
+  /** How an integer-coded column decodes for display: 'enum', 'bitmask', or null. */
+  codec: string | null
+  /** code→label table for `codec` (string keys over JSON): value→label for 'enum',
+   * mask→label for 'bitmask' (the '0' key is the all-clear label). Null when codec is null. */
+  codes: Record<string, string> | null
 }
 
 export interface ReadingTableSpec {

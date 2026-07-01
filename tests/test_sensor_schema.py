@@ -13,6 +13,9 @@ from api.sensor_schema import METRIC_META, READING_TABLES
 #: Conversion ids the client's CONVERTERS registry implements (static/js/sensors.js).
 KNOWN_CONVERTS = {'c_to_f', 'kph_to_mph', 's_to_h'}
 
+#: Codec ids the client's decodeCoded implements (web/src/lib/sensors.ts).
+KNOWN_CODECS = {'enum', 'bitmask'}
+
 
 def _all_columns() -> set[str]:
     """Return every metric column across all reading tables."""
@@ -43,6 +46,33 @@ def test_y_range_well_formed() -> None:
         rng = meta['y_range']
         if rng is not None:
             assert len(rng) == 2 and rng[0] < rng[1], f'{col}: bad y_range {rng}'
+
+
+def test_codec_ids_known() -> None:
+    """Every codec id maps to a decoder the client implements."""
+    used = {m['codec'] for m in METRIC_META.values() if m['codec'] is not None}
+    assert used <= KNOWN_CODECS, f'unknown codec ids: {sorted(used - KNOWN_CODECS)}'
+
+
+def test_codec_and_codes_paired() -> None:
+    """codec and codes are set together; codes is an int→str table; 0 keys bitmasks."""
+    for col, meta in METRIC_META.items():
+        codec, codes = meta['codec'], meta['codes']
+        assert (codec is None) == (codes is None), f'{col}: codec/codes must be paired'
+        if codes is None:
+            continue
+        assert all(isinstance(k, int) for k in codes), f'{col}: codes keys must be int'
+        assert all(isinstance(v, str) for v in codes.values()), f'{col}: codes values must be str'
+        if codec == 'bitmask':
+            assert 0 in codes, f'{col}: bitmask codes need a 0 (all-clear) label'
+
+
+def test_throttled_is_bitmask() -> None:
+    """The Pi throttle column decodes as a bitmask with the expected flag bits."""
+    meta = METRIC_META['throttled']
+    assert meta['codec'] == 'bitmask'
+    assert meta['codes'] is not None
+    assert meta['codes'][0x10000] and meta['codes'][0x40000]  # under-volt + throttled (sticky)
 
 
 def test_api_sensors_serves_meta(client) -> None:

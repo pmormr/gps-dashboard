@@ -156,6 +156,13 @@ class MetricMeta(TypedDict):
             channel; 0 = none. A floor the global Trends control can raise but not
             lower, so an intrinsically noisy channel (fuel-level slosh) reads cleanly
             without dragging every other series through the same filter.
+        codec: How an integer-coded column is decoded for display — ``'enum'`` (value
+            → label lookup) or ``'bitmask'`` (OR of flag labels), or None for a plain
+            numeric metric. Pairs with :attr:`codes`; the client renders the decoded
+            text in place of the raw number (these columns are always ``chart=False``).
+        codes: The code→label table for :attr:`codec` — value→label for ``'enum'``,
+            mask→label for ``'bitmask'`` (the ``0`` key is the all-clear label). None
+            when ``codec`` is None. Serialized with string keys over JSON.
     """
 
     label: str
@@ -167,6 +174,8 @@ class MetricMeta(TypedDict):
     y_range: list[float] | None
     group: str
     smooth: int
+    codec: str | None
+    codes: dict[int, str] | None
 
 
 def _m(
@@ -180,6 +189,8 @@ def _m(
     y_range: list[float] | None = None,
     group: str = '',
     smooth: int = 0,
+    codec: str | None = None,
+    codes: dict[int, str] | None = None,
 ) -> MetricMeta:
     """Build a :class:`MetricMeta`, defaulting the optional presentation fields."""
     return {
@@ -192,7 +203,63 @@ def _m(
         'y_range': y_range,
         'group': group,
         'smooth': smooth,
+        'codec': codec,
+        'codes': codes,
     }
+
+
+# Integer-coded state tables. Victron enums are from the Victron D-Bus / Modbus-TCP
+# register list (the paths in sensors/victron_reader.py TOPIC_MAP); the Pi throttle
+# table is the vcgencmd get_throttled bitmask. Unlisted codes fall back to the raw
+# number, so a firmware that adds a state degrades gracefully rather than mislabelling.
+
+#: system/Dc/Battery/State.
+_BATTERY_STATE = {0: 'Idle', 1: 'Charging', 2: 'Discharging'}
+#: solarcharger/State (MPPT charge stages).
+_SOLAR_STATE = {
+    0: 'Off',
+    2: 'Fault',
+    3: 'Bulk',
+    4: 'Absorption',
+    5: 'Float',
+    6: 'Storage',
+    7: 'Equalize',
+    245: 'Wake-up',
+    252: 'Ext. control',
+}
+#: system/Ac/ActiveIn/Source.
+_AC_SOURCE = {0: 'Not available', 1: 'Grid', 2: 'Generator', 3: 'Shore'}
+#: vebus/State (VE.Bus inverter/charger state).
+_VEBUS_STATE = {
+    0: 'Off',
+    1: 'Low power',
+    2: 'Fault',
+    3: 'Bulk',
+    4: 'Absorption',
+    5: 'Float',
+    6: 'Storage',
+    7: 'Equalize',
+    8: 'Passthru',
+    9: 'Inverting',
+    10: 'Power assist',
+    11: 'Power supply',
+    252: 'Bulk protection',
+}
+#: vebus/Mode.
+_VEBUS_MODE = {1: 'Charger only', 2: 'Inverter only', 3: 'On', 4: 'Off'}
+#: vcgencmd get_throttled bitmask. Low bits are currently-active; bits 16+ are the
+#: sticky "has occurred since boot" flags. The 0 key is the all-clear label.
+_THROTTLED_BITS = {
+    0: 'OK',
+    0x1: 'under-volt (now)',
+    0x2: 'freq-capped (now)',
+    0x4: 'throttled (now)',
+    0x8: 'temp-limit (now)',
+    0x10000: 'under-volt',
+    0x20000: 'freq-capped',
+    0x40000: 'throttled',
+    0x80000: 'temp-limit',
+}
 
 
 #: ``column -> MetricMeta``. Every column in every :data:`READING_TABLES` table has an
@@ -238,25 +305,35 @@ METRIC_META: dict[str, MetricMeta] = {
     ),
     'consumed_ah': _m('Consumed', 'Ah', dec=1, color=_PURPLE, group='battery'),
     'time_to_go_s': _m('Time to go', 's', dec=0, chart=False, convert='s_to_h', group='battery'),
-    'battery_state': _m('Battery state', dec=0, chart=False, group='battery'),
+    'battery_state': _m(
+        'Battery state', dec=0, chart=False, group='battery', codec='enum', codes=_BATTERY_STATE
+    ),
     'pv_power': _m('Solar P', 'W', dec=0, color=_AMBER, group='solar'),
     'pv_voltage': _m('Solar V', 'V', dec=1, color=_CYAN, group='solar'),
     'pv_yield_today_kwh': _m('Yield today', 'kWh', dec=2, color=_GREEN, group='solar'),
-    'solar_state': _m('Solar state', dec=0, chart=False, group='solar'),
+    'solar_state': _m(
+        'Solar state', dec=0, chart=False, group='solar', codec='enum', codes=_SOLAR_STATE
+    ),
     'dc_system_power': _m('DC load', 'W', dec=0, color=_BLUE, group='dc'),
     'ac_in_power': _m('AC in', 'W', dec=0, color=_PURPLE, group='ac'),
     'ac_in_current': _m('AC in I', 'A', dec=1, chart=False, group='ac'),
-    'ac_in_source': _m('AC source', dec=0, chart=False, group='ac'),
+    'ac_in_source': _m('AC source', dec=0, chart=False, group='ac', codec='enum', codes=_AC_SOURCE),
     'ac_consumption_power': _m('AC load', 'W', dec=0, color=_RED, group='ac'),
-    'vebus_state': _m('Inverter state', dec=0, chart=False, group='ac'),
-    'vebus_mode': _m('Inverter mode', dec=0, chart=False, group='ac'),
+    'vebus_state': _m(
+        'Inverter state', dec=0, chart=False, group='ac', codec='enum', codes=_VEBUS_STATE
+    ),
+    'vebus_mode': _m(
+        'Inverter mode', dec=0, chart=False, group='ac', codec='enum', codes=_VEBUS_MODE
+    ),
     # Raspberry Pi host node. `throttled` is a raw vcgencmd bitmask (0 = healthy),
     # shown as a cell like the Victron enum states rather than plotted.
     'cpu_temp_c': _m('CPU temp', '°C', dec=1, color=_RED, convert='c_to_f', group='compute'),
     'load_1m': _m('Load (1m)', dec=2, color=_BLUE, group='compute'),
     'mem_used_pct': _m('Memory', '%', dec=0, color=_GREEN, y_range=[0, 100], group='compute'),
     'uptime_s': _m('Uptime', 's', dec=0, chart=False, convert='s_to_h', group='compute'),
-    'throttled': _m('Throttled', dec=0, chart=False, group='compute'),
+    'throttled': _m(
+        'Throttled', dec=0, chart=False, group='compute', codec='bitmask', codes=_THROTTLED_BITS
+    ),
     'disk_root_pct': _m(
         'Disk (root)', '%', dec=0, color=_PURPLE, y_range=[0, 100], group='storage'
     ),
