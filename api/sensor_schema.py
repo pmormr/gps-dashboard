@@ -101,6 +101,19 @@ READING_TABLES: dict[str, ReadingTable] = {
             'vebus_mode',
         ],
     },
+    'system': {
+        'table': 'system_readings',
+        'metrics': [
+            'cpu_temp_c',
+            'load_1m',
+            'mem_used_pct',
+            'disk_root_pct',
+            'disk_nvme_pct',
+            'disk_nvme_free_gb',
+            'uptime_s',
+            'throttled',
+        ],
+    },
 }
 
 
@@ -207,9 +220,7 @@ METRIC_META: dict[str, MetricMeta] = {
     'coolant_c': _m('Coolant', '°C', dec=0, color=_ORANGE, convert='c_to_f', group='temps'),
     'intake_c': _m('Intake', '°C', dec=0, chart=False, convert='c_to_f', group='temps'),
     'ambient_air_c': _m('Ambient', '°C', dec=0, chart=False, convert='c_to_f', group='temps'),
-    'fuel_level_pct': _m(
-        'Fuel', '%', dec=0, color=_CYAN, y_range=[0, 100], group='fuel', smooth=5
-    ),
+    'fuel_level_pct': _m('Fuel', '%', dec=0, color=_CYAN, y_range=[0, 100], group='fuel', smooth=5),
     'fuel_rate_lph': _m('Fuel rate', 'L/h', dec=1, chart=False, group='fuel'),
     'commanded_equiv_ratio': _m('λ cmd', dec=3, chart=False, group='fuel'),
     'short_fuel_trim_1_pct': _m('STFT B1', '%', dec=1, chart=False, group='fuel'),
@@ -239,4 +250,16 @@ METRIC_META: dict[str, MetricMeta] = {
     'ac_consumption_power': _m('AC load', 'W', dec=0, color=_RED, group='ac'),
     'vebus_state': _m('Inverter state', dec=0, chart=False, group='ac'),
     'vebus_mode': _m('Inverter mode', dec=0, chart=False, group='ac'),
+    # Raspberry Pi host node. `throttled` is a raw vcgencmd bitmask (0 = healthy),
+    # shown as a cell like the Victron enum states rather than plotted.
+    'cpu_temp_c': _m('CPU temp', '°C', dec=1, color=_RED, convert='c_to_f', group='compute'),
+    'load_1m': _m('Load (1m)', dec=2, color=_BLUE, group='compute'),
+    'mem_used_pct': _m('Memory', '%', dec=0, color=_GREEN, y_range=[0, 100], group='compute'),
+    'uptime_s': _m('Uptime', 's', dec=0, chart=False, convert='s_to_h', group='compute'),
+    'throttled': _m('Throttled', dec=0, chart=False, group='compute'),
+    'disk_root_pct': _m(
+        'Disk (root)', '%', dec=0, color=_PURPLE, y_range=[0, 100], group='storage'
+    ),
+    'disk_nvme_pct': _m('Disk (NVMe)', '%', dec=0, color=_AMBER, y_range=[0, 100], group='storage'),
+    'disk_nvme_free_gb': _m('NVMe free', 'GB', dec=0, color=_CYAN, group='storage'),
 }

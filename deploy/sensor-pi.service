@@ -1,0 +1,23 @@
+# Pi host-metrics reader (the Pi as a sensor): /proc + /sys + vcgencmd → MQTT publisher.
+# Unlike the other sensor units this needs no external hardware, secret, or gating: the
+# Pi is always on and every metric is a local stdlib read, so it runs continuously (like
+# sensor-victron) and is enabled by default. Node "pi", type "system".
+[Unit]
+Description=Pi host-metrics reader (system → MQTT publisher)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_SENSOR_NODE=pi
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/system_reader.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

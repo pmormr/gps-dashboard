@@ -156,6 +156,30 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_victron_time
             ON victron_readings(timestamp);
 
+        -- Raspberry Pi host metrics (the Pi as a sensor), ingested over MQTT like the
+        -- other streams. Published by sensors/system_reader.py (one row per 30s snapshot)
+        -- from stdlib /proc + /sys + vcgencmd reads, so rows join gps_points on the
+        -- canonical ms grid. `throttled` is the raw vcgencmd get_throttled bitmask
+        -- (0 = healthy; INTEGER like the Victron enum columns); the rest are
+        -- measurements. Column set mirrors api/sensor_schema.py's 'system' metrics.
+        CREATE TABLE IF NOT EXISTS system_readings (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id         INTEGER NOT NULL,
+            timestamp         TEXT NOT NULL,
+            cpu_temp_c        REAL,
+            load_1m           REAL,
+            mem_used_pct      REAL,
+            disk_root_pct     REAL,
+            disk_nvme_pct     REAL,
+            disk_nvme_free_gb REAL,
+            uptime_s          REAL,
+            throttled         INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_system_sensor_time
+            ON system_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_system_time
+            ON system_readings(timestamp);
+
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id   INTEGER,

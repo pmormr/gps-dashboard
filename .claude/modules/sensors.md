@@ -2,12 +2,13 @@
 
 Turns the Pi from a GPS-only logger into a centralized data-logging platform: it
 still logs GPS unchanged, and additionally ingests other streams over an MQTT bus into
-the **same** SQLite DB, so GPS↔sensor correlation is a local join. Three streams are
+the **same** SQLite DB, so GPS↔sensor correlation is a local join. Four streams are
 live: **environmental sensors** (a BME680: temperature, humidity, pressure, gas/VOC),
 **the van itself over OBD-II** (engine RPM/speed/load, temps, fuel — see *OBD-II: the
-van as a sensor* below), and **house power over Victron** (a Venus OS GX: battery /
-solar / inverter / AC + DC, bridged from its own MQTT broker). Adding a stream is a
-spec entry, not a new pipeline.
+van as a sensor* below), **house power over Victron** (a Venus OS GX: battery /
+solar / inverter / AC + DC, bridged from its own MQTT broker), and **the Pi host
+itself** (CPU temp, load, memory, disk, uptime, throttle flags — the platform now
+reports on its own health). Adding a stream is a spec entry, not a new pipeline.
 
 This module documents the sensor platform — what has **landed** and what's still open.
 Phases 0–2 (schema + broker + ingest + the first remote ESP32 node) are in, plus a
@@ -58,6 +59,15 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   GX runs 24/7); a **staleness watchdog** flips the stream offline rather than republish
   a frozen cache when the GX goes silent. `--fake` mode for desk testing. The GX MQTT
   password is the only secret — via `/etc/default/gps-victron` on the Pi, never committed.
+- **System reader** (`sensors/system_reader.py`) — the Pi as a sensor: publishes its
+  own host metrics (CPU temp, 1-min load, memory %, root + NVMe disk %, NVMe free GB,
+  uptime, and the `vcgencmd get_throttled` bitmask) to `sensors/pi/system` on a 30 s
+  interval via the shared `run_simple_publisher`. No external source, driver, or
+  secret — every metric is a stdlib read of `/proc`/`/sys`, `os.statvfs`,
+  `os.getloadavg`, or `vcgencmd`, and each read is defensive (an absent source yields
+  None for that one metric, so it degrades cleanly off-Pi). Not gated: the Pi is always
+  on, so it runs continuously like Victron. `--fake` mode for desk testing. `throttled`
+  is stored raw (0 = healthy), a cell like the Victron enum states rather than plotted.
 - **Ingest subscriber** (`mqttbus/ingest.py`) — the **only** writer of sensor data.
   Subscribes `sensors/#`, auto-registers sensors, canonicalizes timestamps, inserts
   per-type rows, applies LWT status. The per-type INSERT is **column-driven** off a
@@ -86,7 +96,8 @@ source of truth for the topic taxonomy (build/parse, no broker dependency).
 
 Sensor tables live in `gps_history.db` alongside GPS — see `api/db.py` `init_db`:
 `sensors` (registry, keyed `UNIQUE(node, type)`), `bme680_readings`, `obd_readings`,
-and the `alarm_rules` / `alarm_events` tables (created now, exercised in Phase 4). All
+`victron_readings`, `system_readings`, and the `alarm_rules` / `alarm_events` tables
+(created now, exercised in Phase 4). All
 timestamps go through `api.db.canonical_timestamp` so they join cleanly against
 `gps_points`. FKs are logical/unenforced, matching the trips↔points style. Each
 per-type table's columns are declared once in `api/sensor_schema.py` `READING_TABLES`,
@@ -144,12 +155,14 @@ times. Fallbacks are counted in the ingest heartbeat.
 
 ## Deploy & ops
 
-Services: `deploy/{mqtt-ingest,sensor-bme680,sensor-obd,sensor-victron}.service` (slot into the
-existing systemd + post-receive model). The hook copies the new unit files and
-`mosquitto.conf` when `deploy/` changes, restarts `mqtt-ingest` when enabled, and
-restarts `sensor-bme680` / `sensor-obd` / `sensor-victron` only when `sensors/` changes
-**and** the unit is enabled — so a host without that hardware never starts a
-crash-looping reader.
+Services: `deploy/{mqtt-ingest,sensor-bme680,sensor-obd,sensor-victron,sensor-pi}.service`
+(slot into the existing systemd + post-receive model). The hook copies the new unit
+files and `mosquitto.conf` when `deploy/` changes, restarts `mqtt-ingest` when enabled,
+and restarts the `sensor-*` readers only when `sensors/` changes **and** the unit is
+enabled — so a host without that hardware never starts a crash-looping reader. (The
+post-receive hook enumerates the reader units to restart; a newly added unit like
+`sensor-pi` needs adding to that list on the Pi, plus a one-time `systemctl enable --now
+sensor-pi`.)
 
 One-time Pi setup (broker install, enabling units) is in the plan's Phase 1 section.
 `mosquitto` + `mqtt-ingest` run on the Pi and ingest whatever publishes. The
@@ -160,7 +173,9 @@ self-gates on engine state, so it idles cleanly when the van is parked. `sensor-
 **is enabled** (node `house`): it bridges the always-on Venus GX and runs continuously
 (not engine-gated), reading the GX MQTT password from `/etc/default/gps-victron`
 (root-owned, `chmod 600` — out of git; create it before enabling, or the GX rejects the
-unauthenticated connection).
+unauthenticated connection). `sensor-pi` **is enabled** (node `pi`): it needs no
+hardware, secret, or gating (every metric is a local stdlib read), so unlike the other
+readers it just runs continuously.
 
 The ESP32 node is flashed from a dev host, not the Pi:
 `uv tool run esphome run firmware/cabin-bme680.yaml` (first flash over USB, OTA after;
