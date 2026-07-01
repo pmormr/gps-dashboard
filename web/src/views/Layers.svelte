@@ -2,6 +2,7 @@
   import { setDroneEnabled } from '../lib/drone'
   import { POI_GROUPS, reapply } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
+  import { MODE_COLORS, MODE_LEGEND } from '../lib/phone'
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
   import './layers.css'
 
@@ -65,6 +66,14 @@
     } catch (err) {
       layers.droneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
     }
+  }
+
+  // Phone history follows the Selection window, so the toggle only flips the store;
+  // Map.svelte's effect does the windowed fetch/clear and writes phoneStatus.
+  function onPhone(e: Event): void {
+    const on = (e.currentTarget as HTMLInputElement).checked
+    layers.phone = on
+    layers.phoneStatus = on ? 'Loading…' : ''
   }
 </script>
 
@@ -135,6 +144,23 @@
         <span class="drone-legend-item"><span class="drone-swatch" style="background:#ec4899"></span>Neo</span>
       </div>
       {#if layers.droneStatus}<p class="label-hint">{layers.droneStatus}</p>{/if}
+    </div>
+
+    <div class="layers-section">
+      <h4>Phone history</h4>
+      <label class="label-check">
+        <input type="checkbox" checked={layers.phone} onchange={onPhone} /> Show phone track
+      </label>
+      <div class="label-hint">Google Timeline · follows the time window · colored by mode</div>
+      <!-- Swatch colors mirror MODE_COLORS in phone.ts. -->
+      <div class="drone-legend">
+        {#each MODE_LEGEND as m (m.group)}
+          <span class="drone-legend-item">
+            <span class="drone-swatch" style="background:{MODE_COLORS[m.group]}"></span>{m.label}
+          </span>
+        {/each}
+      </div>
+      {#if layers.phoneStatus}<p class="label-hint">{layers.phoneStatus}</p>{/if}
     </div>
   </div>
 </div>

@@ -277,12 +277,17 @@ export const MapView = (() => {
   let rangeFeatures: Feature<LineString>[] = []
   let stopFeatures: Feature<Point>[] = []
   let lastTrackPoints: MapPoint[] = []
+  // Phone-history overlay: prebuilt GeoJSON (color-by-mode is baked into each
+  // feature's `color` by phone.ts, so these layers are domain-free).
+  let phonePathData: FeatureCollection = emptyFC()
+  let phoneVisitData: FeatureCollection = emptyFC()
   const endpointMarkers: Marker[] = []
   const pinMarkers: Marker[] = []
 
   let installing = false // re-entrancy guard for reinstallOverlays
   let rangePopup: Popup | null = null
   let dronePopup: Popup | null = null
+  let phonePopup: Popup | null = null
 
   function rangeFC(): FeatureCollection {
     return { type: 'FeatureCollection', features: rangeFeatures }
@@ -387,6 +392,37 @@ export const MapView = (() => {
           paint: { 'line-color': RANGE_COLOR, 'line-width': 6, 'line-opacity': 0.7 },
         })
       }
+      // Phone history sits under the van track (added next), so the live trail
+      // stays legible on top. Line color is data-driven (per-mode) off the feature.
+      if (!m.getSource('phone-track')) {
+        m.addSource('phone-track', { type: 'geojson', data: phonePathData })
+      }
+      if (!m.getLayer('phone-track-line')) {
+        m.addLayer({
+          id: 'phone-track-line',
+          type: 'line',
+          source: 'phone-track',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.8 },
+        })
+      }
+      if (!m.getSource('phone-visits')) {
+        m.addSource('phone-visits', { type: 'geojson', data: phoneVisitData })
+      }
+      if (!m.getLayer('phone-visit-circle')) {
+        m.addLayer({
+          id: 'phone-visit-circle',
+          type: 'circle',
+          source: 'phone-visits',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-color': '#334155',
+            'circle-stroke-width': 1,
+          },
+        })
+      }
+
       if (!m.getSource('track')) m.addSource('track', { type: 'geojson', data: trackData })
       if (!m.getLayer('track-line')) {
         m.addLayer({
@@ -425,6 +461,8 @@ export const MapView = (() => {
       ;(m.getSource('track') as GeoJSONSource | undefined)?.setData(trackData)
       ;(m.getSource('stops') as GeoJSONSource | undefined)?.setData(stopsFC())
       ;(m.getSource('ann-range') as GeoJSONSource | undefined)?.setData(rangeFC())
+      ;(m.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
+      ;(m.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
 
       applyTerrain()
     } catch (e) {
@@ -514,6 +552,24 @@ export const MapView = (() => {
     })
   }
 
+  // Click a phone-history visit pin → its prebuilt popup (phone.ts bakes the HTML
+  // into the feature). Layer-scoped and registered once; a no-op until the layer
+  // exists, like the range tooltip.
+  function wirePhonePopup(m: MlMap): void {
+    phonePopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '260px' })
+    m.on('mouseenter', 'phone-visit-circle', () => {
+      m.getCanvas().style.cursor = 'pointer'
+    })
+    m.on('mouseleave', 'phone-visit-circle', () => {
+      m.getCanvas().style.cursor = ''
+    })
+    m.on('click', 'phone-visit-circle', (e) => {
+      const feature = e.features && e.features[0]
+      const html = feature && (feature.properties?.popup as string | undefined)
+      if (html) phonePopup!.setLngLat(e.lngLat).setHTML(html).addTo(m)
+    })
+  }
+
   function setRotationEnabled(on: boolean): void {
     if (!map) return
     const fns = on ? 'enable' : 'disable'
@@ -547,6 +603,7 @@ export const MapView = (() => {
     map.on('style.load', handleStyleLoad)
     wireRangeTooltip(map)
     wireDronePopup(map)
+    wirePhonePopup(map)
     applyBasemap(currentLayer)
   }
 
@@ -644,6 +701,17 @@ export const MapView = (() => {
     overlay3d?.clear('drone')
   }
 
+  // Replace the phone-history overlay with prebuilt GeoJSON (built by phone.ts:
+  // color-by-mode line runs + visit pins). Clearing is setPhoneData(empty, empty).
+  function setPhoneData(pathFC: FeatureCollection, visitFC: FeatureCollection): void {
+    phonePathData = pathFC
+    phoneVisitData = visitFC
+    if (!map) return
+    ;(map.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
+    ;(map.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
+    if (phoneVisitData.features.length === 0 && phonePopup) phonePopup.remove()
+  }
+
   function fitTo(points: MapPoint[]): void {
     if (!map || !points.length) return
     const b = new maplibregl.LngLatBounds()
@@ -716,6 +784,7 @@ export const MapView = (() => {
     addPinOverlay,
     showDroneTracks,
     clearDroneTracks,
+    setPhoneData,
     setTerrainEnabled,
     setExaggeration,
     getTerrainEnabled,

@@ -345,12 +345,15 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON phone_paths(start_time);
 
         CREATE TABLE IF NOT EXISTS phone_track_points (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            path_id     INTEGER NOT NULL,
-            timestamp   TEXT NOT NULL,
-            lat         REAL NOT NULL,
-            lon         REAL NOT NULL,
-            importance  REAL NOT NULL
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            path_id       INTEGER NOT NULL,
+            timestamp     TEXT NOT NULL,
+            lat           REAL NOT NULL,
+            lon           REAL NOT NULL,
+            importance    REAL NOT NULL,
+            -- Mode of the activity segment covering this point's time (driving/
+            -- walking/…), for color-by-mode rendering; NULL between labeled trips.
+            activity_type TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_phone_track_points_path
             ON phone_track_points(path_id);

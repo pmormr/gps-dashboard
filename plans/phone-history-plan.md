@@ -79,12 +79,24 @@ Indexes on the time columns (`phone_track_points.timestamp`,
       overlapping the window (visits bbox on the point, activities on start-or-end).
 - [x] Flask-client tests against a temp DB (10, `tests/test_phone_api.py`).
 
-### Phase 3 — frontend layer  ⟵ current
-- [ ] "Phone history" toggle in the Layers panel (drone-style overlay): breadcrumb
-      polylines + visit pins, filtered by the global time selection.
-- [ ] Vitest where it earns it. Build + commit `static/dist/`.
+### Phase 3 — frontend layer  ✅ done (2026-07-01)
+Decided 2026-07-01: breadcrumb **follows the time scrubber** (not all-time —
+15 yrs is a hairball) and is **colored by activity mode** + visit pins.
+- [x] Backend prep: tag each `phone_track_points` row with `activity_type` (the
+      mode of the covering `activity` interval; ~60% of raw points covered, driving
+      dominant). Column on the point + `bisect` interval join at import; returned by
+      `/api/phone/tracks`.
+- [x] `phone.ts` (pure, MapLibre-free): color-by-mode palette/legend + run-splitting
+      (one colored LineString per contiguous same-mode run, sharing boundary
+      vertices) + visit pins + `syncPhone`/`clearPhone` controller. map.ts gains a
+      `phone-track` line layer (`['get','color']`) + `phone-visit` circle layer +
+      visit popup; `setPhoneData` façade method.
+- [x] "Phone history" toggle + mode legend in the Layers panel; Map.svelte `$effect`
+      refetches on the global time selection (only while the toggle is on).
+- [x] Vitest for the run-splitting (7). svelte-check + build clean; `static/dist/`
+      rebuilt. Smoke-tested API on the real 15-yr DB + headless boot of the panel.
 
-### Phase 4 — run for real
+### Phase 4 — run for real  ⟵ current (HOLD for explicit go-ahead — writes live DB + pushes)
 - [ ] scp `Timeline.json` to the Pi; run the importer against the live DB; verify
       counts; `git push all` (dist committed).
 - [ ] Fold the durable bits into a new `.claude/modules/phone.md`; drop this plan.

@@ -129,6 +129,34 @@ def test_collinear_path_thinned_to_endpoints() -> None:
     assert path.bbox == (40.0, -77.002, 40.0, -77.000)
 
 
+def test_breadcrumb_points_tagged_with_activity_mode() -> None:
+    data = {
+        'semanticSegments': [
+            _path_seg(
+                [
+                    ('40.000°, -77.000°', '2020-01-01T00:00:00.000Z'),  # in interval
+                    ('40.010°, -77.002°', '2020-01-01T00:05:00.000Z'),  # in interval, off-line
+                    ('40.000°, -77.004°', '2020-01-01T02:00:00.000Z'),  # after interval → None
+                ]
+            ),
+            {
+                'startTime': '2020-01-01T00:00:00.000Z',
+                'endTime': '2020-01-01T00:10:00.000Z',
+                'activity': {
+                    'start': {'latLng': '40.0°, -77.0°'},
+                    'end': {'latLng': '40.0°, -77.002°'},
+                    'topCandidate': {'type': 'IN_PASSENGER_VEHICLE', 'probability': 0.9},
+                },
+            },
+        ]
+    }
+    path = parse_timeline(data, epsilon=20.0).paths[0]
+    modes = {p.timestamp: p.activity_type for p in path.points}
+    assert modes['2020-01-01T00:00:00.000Z'] == 'IN_PASSENGER_VEHICLE'
+    assert modes['2020-01-01T00:05:00.000Z'] == 'IN_PASSENGER_VEHICLE'
+    assert modes['2020-01-01T02:00:00.000Z'] is None
+
+
 def test_points_sorted_before_thinning() -> None:
     seg = _path_seg(
         [

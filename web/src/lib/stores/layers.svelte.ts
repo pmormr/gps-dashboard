@@ -28,6 +28,11 @@ class LayersStore {
   drone = $state(false)
   droneStatus = $state('')
 
+  // Phone-history overlay (Google Timeline import). Unlike drone, it *follows* the
+  // Selection window — Map.svelte refetches it when the window or this toggle changes.
+  phone = $state(false)
+  phoneStatus = $state('')
+
   /** Whether the vector basemap (which alone has labels) is active. */
   get isVector(): boolean {
     return this.base === 'osm'

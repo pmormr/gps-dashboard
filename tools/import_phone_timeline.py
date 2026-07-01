@@ -34,10 +34,11 @@ Examples::
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import sqlite3
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -60,12 +61,16 @@ class TrackPoint:
         lat: Latitude (deg).
         lon: Longitude (deg).
         importance: Reumann–Witkam deviation (m) that retained the vertex.
+        activity_type: Mode of the ``activity`` segment covering this point's
+            time (e.g. ``IN_PASSENGER_VEHICLE``), or None between labeled trips.
+            Filled by :func:`_annotate_modes`, for color-by-mode rendering.
     """
 
     timestamp: str
     lat: float
     lon: float
     importance: float
+    activity_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -285,13 +290,49 @@ def _parse_activity(seg: dict) -> Activity | None:
     )
 
 
+def _annotate_modes(paths: list[PhonePath], activities: list[Activity]) -> list[PhonePath]:
+    """Tag each breadcrumb point with the mode of the ``activity`` covering it.
+
+    The breadcrumb (``timelinePath``) and the labeled trips (``activity``) are
+    separate Timeline segments, so color-by-mode needs a time join: a point takes
+    the ``activity_type`` of the activity interval containing its timestamp, or
+    None if it falls between labeled trips (≈40% of points — visits, short hops).
+    Activities are effectively non-overlapping, so a ``bisect`` on their sorted
+    starts plus a single containment check resolves each point.
+
+    Args:
+        paths: The thinned breadcrumb paths.
+        activities: The parsed trip segments.
+
+    Returns:
+        New paths whose points carry ``activity_type`` (unchanged if there are no
+        activities to join against).
+    """
+    if not activities:
+        return paths
+    ordered = sorted(activities, key=lambda a: a.start_time)
+    starts = [a.start_time for a in ordered]
+
+    def mode_at(timestamp: str) -> str | None:
+        i = bisect.bisect_right(starts, timestamp) - 1
+        if i >= 0 and ordered[i].start_time <= timestamp <= ordered[i].end_time:
+            return ordered[i].activity_type
+        return None
+
+    return [
+        replace(path, points=[replace(p, activity_type=mode_at(p.timestamp)) for p in path.points])
+        for path in paths
+    ]
+
+
 def parse_timeline(data: dict, epsilon: float) -> Timeline:
     """Parse a Timeline export dict into thinned paths + semantic segments.
 
     Dispatches each ``semanticSegments`` entry by its discriminating key
     (``timelinePath`` / ``visit`` / ``activity``); other kinds (e.g.
     ``timelineMemory``) and ``rawSignals`` are ignored. Malformed segments are
-    skipped rather than fatal — a 15-year export tolerates a few bad rows.
+    skipped rather than fatal — a 15-year export tolerates a few bad rows. A final
+    pass tags each breadcrumb point with its activity mode (color-by-mode).
 
     Args:
         data: The decoded ``Timeline.json`` object.
@@ -316,7 +357,7 @@ def parse_timeline(data: dict, epsilon: float) -> Timeline:
             activity = _parse_activity(seg)
             if activity is not None:
                 activities.append(activity)
-    return Timeline(paths=paths, visits=visits, activities=activities)
+    return Timeline(paths=_annotate_modes(paths, activities), visits=visits, activities=activities)
 
 
 # --- Load ----------------------------------------------------------------------
@@ -346,9 +387,13 @@ def load_timeline(conn: sqlite3.Connection, timeline: Timeline) -> None:
                 (path.start_time, path.end_time, len(path.points), *path.bbox, now),
             )
             conn.executemany(
-                'INSERT INTO phone_track_points (path_id, timestamp, lat, lon, importance) '
-                'VALUES (?, ?, ?, ?, ?)',
-                [(cursor.lastrowid, p.timestamp, p.lat, p.lon, p.importance) for p in path.points],
+                'INSERT INTO phone_track_points '
+                '(path_id, timestamp, lat, lon, importance, activity_type) '
+                'VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    (cursor.lastrowid, p.timestamp, p.lat, p.lon, p.importance, p.activity_type)
+                    for p in path.points
+                ],
             )
         conn.executemany(
             'INSERT INTO phone_visits (start_time, end_time, lat, lon, place_id, '

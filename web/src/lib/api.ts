@@ -421,6 +421,60 @@ export function getDroneFlights(): Promise<{ flights: DroneFlight[] }> {
   return getJSON<{ flights: DroneFlight[] }>('/api/drone/flights')
 }
 
+// ── Phone location history (Google Timeline import) ──
+
+/** One breadcrumb vertex; `activity_type` is the covering trip mode (color-by-mode). */
+export interface PhonePoint {
+  lat: number
+  lon: number
+  importance: number
+  activity_type: string | null
+}
+
+/** A breadcrumb path (one contiguous Timeline segment) with its thinned points. */
+export interface PhonePath {
+  id: number
+  start_time: string
+  end_time: string
+  n_points: number
+  points?: PhonePoint[]
+}
+
+/** A place visit from the semantic layer. */
+export interface PhoneVisit {
+  id: number
+  start_time: string
+  end_time: string
+  lat: number
+  lon: number
+  place_id: string | null
+  semantic_type: string | null
+  probability: number | null
+}
+
+export interface PhoneTracksResponse {
+  paths: PhonePath[]
+  truncated?: boolean
+}
+
+export interface PhonePlacesResponse {
+  visits: PhoneVisit[]
+  activities: unknown[]
+  truncated?: boolean
+}
+
+/** Breadcrumb paths overlapping the window, thinned points embedded. */
+export function getPhoneTracks(start: string, end: string): Promise<PhoneTracksResponse> {
+  const params = new URLSearchParams({ start, end })
+  return getJSON<PhoneTracksResponse>(`/api/phone/tracks?${params}`)
+}
+
+/** Place visits (+ activities) overlapping the window. */
+export function getPhonePlaces(start: string, end: string): Promise<PhonePlacesResponse> {
+  const params = new URLSearchParams({ start, end })
+  return getJSON<PhonePlacesResponse>(`/api/phone/places?${params}`)
+}
+
 /** Fetch the network-docs file tree (empty when the vault is unconfigured). */
 export function getDocsTree(): Promise<DocsTree> {
   return getJSON<DocsTree>('/api/docs/tree')

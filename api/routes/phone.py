@@ -28,6 +28,7 @@ phone_bp = Blueprint('phone', __name__)
 _PATH_COLUMNS = (
     'id, start_time, end_time, n_points, min_lat, min_lon, max_lat, max_lon, imported_at'
 )
+_POINT_COLUMNS = 'path_id, timestamp, lat, lon, importance, activity_type'
 _VISIT_COLUMNS = 'id, start_time, end_time, lat, lon, place_id, semantic_type, probability'
 _ACTIVITY_COLUMNS = (
     'id, start_time, end_time, start_lat, start_lon, end_lat, end_lon, '
@@ -103,14 +104,14 @@ def list_tracks():
         ids = [p['id'] for p in paths]
         placeholders = ','.join('?' * len(ids))
         endpoints = conn.execute(
-            'SELECT path_id, timestamp, lat, lon, importance FROM phone_track_points '
+            f'SELECT {_POINT_COLUMNS} FROM phone_track_points '
             f'WHERE path_id IN ({placeholders}) AND importance = 0.0 '
             'ORDER BY path_id, timestamp',
             ids,
         ).fetchall()
         interior_budget = max(0, limit - len(endpoints))
         interior = conn.execute(
-            'SELECT path_id, timestamp, lat, lon, importance FROM phone_track_points '
+            f'SELECT {_POINT_COLUMNS} FROM phone_track_points '
             f'WHERE path_id IN ({placeholders}) AND importance > 0.0 '
             'ORDER BY importance DESC LIMIT ?',
             [*ids, interior_budget],

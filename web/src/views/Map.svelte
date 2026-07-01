@@ -4,8 +4,10 @@
   import { getPointsLatest } from '../lib/api'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
+  import { clearPhone, syncPhone } from '../lib/phone'
   import { annotations } from '../lib/stores/annotations.svelte'
   import { layers } from '../lib/stores/layers.svelte'
+  import { selection } from '../lib/stores/selection.svelte'
   import './map.css'
   import './annotations.css'
   import AnnotationForm from './AnnotationForm.svelte'
@@ -40,6 +42,25 @@
       cancelled = true
       hide?.()
     }
+  })
+
+  // Phone-history overlay follows the global time window: refetch when the window
+  // or the toggle changes (and once `view` lands). `range` is only read while the
+  // layer is on, so an off overlay doesn't refetch on every scrub.
+  $effect(() => {
+    if (!view) return
+    if (!layers.phone) {
+      clearPhone(view)
+      return
+    }
+    const range = selection.range
+    syncPhone(view, range.from.toISOString(), range.to.toISOString())
+      .then((label) => {
+        if (label) layers.phoneStatus = label
+      })
+      .catch((err) => {
+        layers.phoneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+      })
   })
 
   // Recenter the map on the latest *raw* fix (the true current position).
