@@ -322,6 +322,68 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON drone_track_points(flight_id);
         CREATE INDEX IF NOT EXISTS idx_drone_track_points_timestamp
             ON drone_track_points(timestamp);
+
+        -- Phone location-history tier — the user's Google Timeline export,
+        -- imported by tools/import_phone_timeline.py (see the phone-history plan).
+        -- Derived and fully rebuildable from the export (full-replace each run);
+        -- canonical ms-UTC puts phone points on the same axis as gps_points.
+        -- phone_paths is one contiguous breadcrumb segment (a Timeline
+        -- timelinePath); the semantic layer (visits/activities) is kept out of the
+        -- user-curated annotations table on purpose.
+        CREATE TABLE IF NOT EXISTS phone_paths (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time  TEXT NOT NULL,
+            end_time    TEXT NOT NULL,
+            n_points    INTEGER NOT NULL,
+            min_lat     REAL NOT NULL,
+            min_lon     REAL NOT NULL,
+            max_lat     REAL NOT NULL,
+            max_lon     REAL NOT NULL,
+            imported_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_phone_paths_start_time
+            ON phone_paths(start_time);
+
+        CREATE TABLE IF NOT EXISTS phone_track_points (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            path_id     INTEGER NOT NULL,
+            timestamp   TEXT NOT NULL,
+            lat         REAL NOT NULL,
+            lon         REAL NOT NULL,
+            importance  REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_phone_track_points_path
+            ON phone_track_points(path_id);
+        CREATE INDEX IF NOT EXISTS idx_phone_track_points_timestamp
+            ON phone_track_points(timestamp);
+
+        CREATE TABLE IF NOT EXISTS phone_visits (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time    TEXT NOT NULL,
+            end_time      TEXT NOT NULL,
+            lat           REAL NOT NULL,
+            lon           REAL NOT NULL,
+            place_id      TEXT,
+            semantic_type TEXT,
+            probability   REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_phone_visits_start_time
+            ON phone_visits(start_time);
+
+        CREATE TABLE IF NOT EXISTS phone_activities (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time    TEXT NOT NULL,
+            end_time      TEXT NOT NULL,
+            start_lat     REAL NOT NULL,
+            start_lon     REAL NOT NULL,
+            end_lat       REAL NOT NULL,
+            end_lon       REAL NOT NULL,
+            distance_m    REAL,
+            activity_type TEXT,
+            probability   REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_phone_activities_start_time
+            ON phone_activities(start_time);
     """)
     conn.commit()
 
