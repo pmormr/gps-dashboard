@@ -33,6 +33,8 @@
   interface Card {
     name: string
     metric: string
+    // Small secondary readout shown beside the metric (e.g. the °F of a °C temp).
+    alt?: string
     sub: string
     dim: boolean
   }
@@ -40,6 +42,12 @@
   const r0 = (n: number | null | undefined): string =>
     n == null ? '—' : String(Math.round(n))
   const r1 = (n: number | null | undefined): string => (n == null ? '—' : n.toFixed(1))
+
+  /** Format a Celsius value as Fahrenheit, or an em dash when absent. */
+  const f0 = (c: number | null | undefined): string =>
+    c == null ? '—' : String(Math.round((c * 9) / 5 + 32))
+  const f1 = (c: number | null | undefined): string =>
+    c == null ? '—' : ((c * 9) / 5 + 32).toFixed(1)
 
   function buildCards(s: Status): Card[] {
     const age = (ts: string): number => Date.parse(s.now) - Date.parse(ts)
@@ -75,6 +83,7 @@
       cards.push({
         name: 'Cabin',
         metric: `${r1(s.cabin.temp_c)}°C`,
+        alt: `${f1(s.cabin.temp_c)}°F`,
         sub: `${r0(s.cabin.humidity_pct)}% RH · IAQ ${r0(s.cabin.iaq)}`,
         dim: age(s.cabin.timestamp) > MAX_AGE.cabin,
       })
@@ -99,7 +108,7 @@
       cards.push({
         name: 'Van',
         metric: r0(s.van.rpm),
-        sub: `rpm · coolant ${r0(s.van.coolant_c)}°C`,
+        sub: `rpm · coolant ${r0(s.van.coolant_c)}°C / ${f0(s.van.coolant_c)}°F`,
         dim: false,
       })
     }
@@ -128,7 +137,7 @@
 <div class="cards">
   {#each cards as c (c.name)}
     <div class="card" class:dim={c.dim}>
-      <div class="card-metric">{c.metric}</div>
+      <div class="card-metric">{c.metric}{#if c.alt}<span class="alt">{c.alt}</span>{/if}</div>
       <div class="card-name">{c.name}</div>
       <div class="card-sub muted">{c.sub}</div>
     </div>
@@ -154,6 +163,13 @@
 <style>
   .card.dim {
     opacity: 0.5;
+  }
+
+  .card-metric .alt {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-left: 6px;
   }
 
   .err-text {
