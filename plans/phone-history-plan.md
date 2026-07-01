@@ -70,14 +70,16 @@ Indexes on the time columns (`phone_track_points.timestamp`,
 - Validated against the real 87 MB export: 22,201 paths (231,290 pts thinned from
   307,753 at ε=20 m), 15,435 visits, 13,608 activities; re-run confirms full-replace.
 
-### Phase 2 — API read  ⟵ current
-- [ ] `GET /api/phone/tracks?start=&end=&bbox=` — `phone_paths` overlapping the
-      window, thinned points embedded (mirror `/api/drone/flights`; size guard).
-- [ ] `GET /api/phone/places?start=&end=&bbox=` — visits + activities overlapping
-      the window.
-- [ ] Flask-client tests against a temp DB.
+### Phase 2 — API read  ✅ done (2026-07-01)
+- [x] `GET /api/phone/tracks?start=&end=&bbox=&limit=` — `phone_paths` overlapping
+      the window, thinned points embedded. Endpoints (`importance=0`) always kept,
+      remaining budget filled by top-`importance` interior vertices; `truncated`
+      reports interior loss. `api/routes/phone.py`, registered in `app.py`.
+- [x] `GET /api/phone/places?start=&end=&bbox=&limit=` — visits + activities
+      overlapping the window (visits bbox on the point, activities on start-or-end).
+- [x] Flask-client tests against a temp DB (10, `tests/test_phone_api.py`).
 
-### Phase 3 — frontend layer
+### Phase 3 — frontend layer  ⟵ current
 - [ ] "Phone history" toggle in the Layers panel (drone-style overlay): breadcrumb
       polylines + visit pins, filtered by the global time selection.
 - [ ] Vitest where it earns it. Build + commit `static/dist/`.
