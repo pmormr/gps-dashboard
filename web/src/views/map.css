@@ -44,17 +44,137 @@
   height: 100%;
 }
 
-/* Top-right chrome stack (Layers + Marks floating panels) over the map. */
-.map-chrome-tr {
+/* ── Right icon rail (Layers / Marks / Inspect) + its exclusive-open panel ── */
+.map-rail {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 6;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: flex-end;
-  z-index: 5;
+  gap: 6px;
+}
+.map-rail button {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+}
+.map-rail button:hover {
+  background: rgba(31, 35, 44, 0.9);
+}
+.map-rail button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Desktop: a card anchored next to the rail. */
+.rail-card {
+  position: absolute;
+  top: 12px;
+  right: 62px;
+  z-index: 6;
+  pointer-events: auto;
+  width: 252px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+}
+.rail-card-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.rail-card-hdr button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.rail-card-hdr button:hover {
+  color: var(--text);
+}
+.rail-card-body {
+  padding: 8px 10px;
+  overflow-y: auto;
+}
+
+/* Mobile: the panel becomes a bottom sheet above the tab bar. */
+@media (max-width: 767px) {
+  .rail-card {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 55vh;
+    border-radius: 12px 12px 0 0;
+    z-index: 8;
+  }
+}
+
+/* ── On-map legend chips (top-left, under the annotations cluster) ── */
+.map-legend-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+}
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  max-width: 260px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  backdrop-filter: blur(6px);
+}
+.legend-chip-icon {
+  font-size: 12px;
+}
+.legend-chip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* Drone popup (engine-injected innerHTML — must be global). */

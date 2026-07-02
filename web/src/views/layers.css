@@ -1,12 +1,8 @@
 /*
- * Layers panel styles. The `.floating-panel` shell (header/body/collapse) is shared
- * with the Marks panel in annotations.css; this adds the Layers-specific sections,
- * the POI category grid, sliders, and the base-map select.
+ * Layers rail-panel styles. The card shell (header/close/bottom-sheet) is the
+ * rail's, in map.css; this adds the Layers-specific sections, the POI category
+ * grid, sliders, and the base-map select.
  */
-
-.map-chrome-tr .floating-panel.layers-panel {
-  width: 232px;
-}
 
 .layers-section {
   padding: 4px 0;
@@ -76,22 +72,30 @@
   margin-top: 2px;
 }
 
-.drone-legend {
+/* The collapsed-by-default Map style group. */
+.layers-style-toggle {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.layers-style-toggle h4 {
+  margin: 0;
+}
+.layers-style-caret {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.layers-style-body {
   margin-top: 6px;
 }
-.drone-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.drone-swatch {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.layers-subsection + .layers-subsection {
+  border-top: 1px dashed var(--border);
+  margin-top: 8px;
+  padding-top: 8px;
 }

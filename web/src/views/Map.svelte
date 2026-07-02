@@ -5,7 +5,7 @@
   import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
-  import { clearPhone, syncPhone } from '../lib/phone'
+  import { clearPhone, MODE_COLORS, MODE_LEGEND, syncPhone } from '../lib/phone'
   import { annotations } from '../lib/stores/annotations.svelte'
   import { layers } from '../lib/stores/layers.svelte'
   import { selection } from '../lib/stores/selection.svelte'
@@ -29,6 +29,29 @@
   // this view only *renders* it — trail, annotation overlays, pendingPan.
   let view = $state<typeof MapViewType | undefined>()
   let drawerOpen = $state(false)
+
+  // The right icon rail (time-dock Phase 4): exclusive-open panels — opening one
+  // closes the rest. Default closed (a clean map); resets on remount.
+  type RailPanel = 'layers' | 'marks' | 'inspect'
+  const RAIL: { id: RailPanel; icon: string; label: string }[] = [
+    { id: 'layers', icon: '🗺', label: 'Layers' },
+    { id: 'marks', icon: '🚩', label: 'Marks' },
+    { id: 'inspect', icon: '📊', label: 'Inspect window' },
+  ]
+  let openPanel = $state<RailPanel | null>(null)
+  const railLabel = $derived(RAIL.find((r) => r.id === openPanel)?.label ?? '')
+
+  function toggleRail(id: RailPanel): void {
+    openPanel = openPanel === id ? null : id
+  }
+
+  // On-map legend chips (swatch colors mirror DRONE_COLORS in map.ts and
+  // MODE_COLORS in phone.ts) — shown only while that layer is on.
+  const DRONE_LEGEND = [
+    { label: 'Mini 5 Pro', color: '#a855f7' },
+    { label: 'Avata 2', color: '#f97316' },
+    { label: 'Neo', color: '#ec4899' },
+  ]
 
   onMount(() => {
     let cancelled = false
@@ -144,13 +167,59 @@
       {#if annotations.count}<span class="ann-count">{annotations.count}</span>{/if}
     </button>
     <button class="map-fab" title="Zoom to current location" onclick={zoomToCurrent}>⊕</button>
+
+    <!-- On-map legends, visible only while that layer is on. -->
+    {#if layers.drone || layers.phone}
+      <div class="map-legend-chips">
+        {#if layers.drone}
+          <div class="legend-chip">
+            <span class="legend-chip-icon">🚁</span>
+            {#each DRONE_LEGEND as m (m.label)}
+              <span class="legend-chip-item"><span class="legend-swatch" style:background={m.color}></span>{m.label}</span>
+            {/each}
+          </div>
+        {/if}
+        {#if layers.phone}
+          <div class="legend-chip">
+            <span class="legend-chip-icon">📱</span>
+            {#each MODE_LEGEND as m (m.group)}
+              <span class="legend-chip-item"><span class="legend-swatch" style:background={MODE_COLORS[m.group]}></span>{m.label}</span>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 
-  <div class="map-chrome-tr">
-    <Layers {view} />
-    <MarksPanel />
-    <InspectPanel />
+  <div class="map-rail">
+    {#each RAIL as r (r.id)}
+      <button
+        type="button"
+        class:active={openPanel === r.id}
+        title={r.label}
+        aria-label={r.label}
+        onclick={() => toggleRail(r.id)}
+      >{r.icon}</button>
+    {/each}
   </div>
+
+  {#if openPanel}
+    <div class="rail-card">
+      <div class="rail-card-hdr">
+        <span>{railLabel}</span>
+        <button type="button" aria-label="Close panel" onclick={() => (openPanel = null)}>✕</button>
+      </div>
+      <div class="rail-card-body">
+        {#if openPanel === 'layers'}
+          <Layers {view} />
+        {:else if openPanel === 'marks'}
+          <MarksPanel />
+        {:else}
+          <InspectPanel />
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <div class="tl-overlay">
     <TimeDock />

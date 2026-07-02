@@ -333,39 +333,7 @@
   border: 1px solid var(--border);
 }
 
-/* ── Marks floating panel (in the top-right chrome stack) ── */
-.map-chrome-tr .floating-panel {
-  width: 200px;
-  max-width: 100%;
-  background: rgba(15, 23, 42, 0.82);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  color: var(--text);
-  font-size: 13px;
-  overflow: hidden;
-  backdrop-filter: blur(6px);
-  padding: 0;
-}
-.floating-panel-hdr {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px 10px;
-  background: var(--surface-2);
-  border: 0;
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.floating-panel-body {
-  padding: 8px 10px;
-}
-.floating-panel.collapsed .floating-panel-body {
-  display: none;
-}
-
+/* ── Marks rail-panel content ── */
 .tl-mark-row {
   display: flex;
   align-items: center;

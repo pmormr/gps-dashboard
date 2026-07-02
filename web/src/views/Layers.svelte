@@ -2,18 +2,19 @@
   import { setDroneEnabled } from '../lib/drone'
   import { POI_GROUPS, reapply } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
-  import { MODE_COLORS, MODE_LEGEND } from '../lib/phone'
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
   import './layers.css'
 
-  // The unified Layers panel (redesign Axis 2): base map + labels + 3D terrain in
-  // one collapsible panel (folding in the legacy ⚙ Labels / 🏔 3D / 🚁 Drone floats;
-  // drone lands in sub-step 5). Binds to the map-local `layers` store and pushes
-  // intent into the engine via the passed MapView façade (`view` is a prop so this
-  // never imports map.ts — that would pull MapLibre into the main bundle).
+  // The Layers rail-panel content (time-dock Phase 4): **Data layers** first
+  // (frequent toggles — drone, phone), **Map style** (base map + labels + terrain,
+  // rare) second and collapsed by default. Legends live on-map as chips
+  // (Map.svelte), shown only while the layer is on. Binds to the map-local
+  // `layers` store and pushes intent into the engine via the passed MapView
+  // façade (`view` is a prop so this never imports map.ts — that would pull
+  // MapLibre into the main bundle). The rail owns open/close; this is body-only.
   let { view }: { view?: typeof MapViewType } = $props()
 
-  let collapsed = $state(false)
+  let styleOpen = $state(false)
 
   const GROUPS = Object.keys(POI_GROUPS)
 
@@ -77,90 +78,78 @@
   }
 </script>
 
-<div class="floating-panel layers-panel" class:collapsed>
-  <button class="floating-panel-hdr" type="button" onclick={() => (collapsed = !collapsed)}>
-    🗺 Layers
-  </button>
-  <div class="floating-panel-body">
-    <div class="layers-section">
-      <h4>Base map</h4>
-      <select value={layers.base} onchange={onBase}>
-        <option value="osm">OSM (vector)</option>
-        <option value="usgs">USGS Topo</option>
-      </select>
-      {#if !layers.isVector}
-        <label class="label-check">
-          <input type="checkbox" checked={layers.refresh} onchange={onRefresh} /> ↻ Refresh tiles
-        </label>
-        <div class="label-hint">re-checks upstream; reload to see updates</div>
-      {/if}
-    </div>
+<div class="layers-panel">
+  <div class="layers-section">
+    <h4>Data layers</h4>
+    <label class="label-check">
+      <input type="checkbox" checked={layers.drone} onchange={onDrone} /> 🚁 Drone flights
+    </label>
+    {#if layers.droneStatus}<p class="label-hint">{layers.droneStatus}</p>{/if}
+    <label class="label-check">
+      <input type="checkbox" checked={layers.phone} onchange={onPhone} /> 📱 Phone track
+    </label>
+    <div class="label-hint">Google Timeline · follows the time window · colored by mode</div>
+    {#if layers.phoneStatus}<p class="label-hint">{layers.phoneStatus}</p>{/if}
+  </div>
 
-    {#if layers.isVector}
-      <div class="layers-section">
-        <h4>Labels</h4>
-        <div class="label-cats">
-          {#each GROUPS as g (g)}
+  <div class="layers-section">
+    <button class="layers-style-toggle" type="button" onclick={() => (styleOpen = !styleOpen)}>
+      <h4>Map style</h4>
+      <span class="layers-style-caret">{styleOpen ? '▾' : '▸'}</span>
+    </button>
+
+    {#if styleOpen}
+      <div class="layers-style-body">
+        <div class="layers-subsection">
+          <h4>Base map</h4>
+          <select value={layers.base} onchange={onBase}>
+            <option value="osm">OSM (vector)</option>
+            <option value="usgs">USGS Topo</option>
+          </select>
+          {#if !layers.isVector}
             <label class="label-check">
-              <input type="checkbox" checked={layers.labelGroups.has(g)} onchange={(e) => onGroup(g, e)} />
-              {g}
+              <input type="checkbox" checked={layers.refresh} onchange={onRefresh} /> ↻ Refresh tiles
             </label>
-          {/each}
+            <div class="label-hint">re-checks upstream; reload to see updates</div>
+          {/if}
         </div>
-        <div class="label-row">
-          <h4>Density <span class="label-val">{layers.labelOffset}</span></h4>
-          <input type="range" min="-4" max="0" step="1" bind:value={layers.labelOffset} oninput={onOffset} />
-          <div class="label-hint">left = labels appear earlier / denser</div>
+
+        {#if layers.isVector}
+          <div class="layers-subsection">
+            <h4>Labels</h4>
+            <div class="label-cats">
+              {#each GROUPS as g (g)}
+                <label class="label-check">
+                  <input type="checkbox" checked={layers.labelGroups.has(g)} onchange={(e) => onGroup(g, e)} />
+                  {g}
+                </label>
+              {/each}
+            </div>
+            <div class="label-row">
+              <h4>Density <span class="label-val">{layers.labelOffset}</span></h4>
+              <input type="range" min="-4" max="0" step="1" bind:value={layers.labelOffset} oninput={onOffset} />
+              <div class="label-hint">left = labels appear earlier / denser</div>
+            </div>
+            <label class="label-check">
+              <input type="checkbox" checked={layers.minorRoads} onchange={onMinor} /> Minor street names (z13+)
+            </label>
+          </div>
+        {/if}
+
+        <div class="layers-subsection">
+          <h4>3D terrain</h4>
+          <label class="label-check">
+            <input type="checkbox" checked={layers.terrain} onchange={onTerrain} /> Drape on terrain
+          </label>
+          {#if layers.terrain}
+            <div class="label-row">
+              <h4>Exaggeration <span class="label-val">{layers.exaggeration.toFixed(1)}×</span></h4>
+              <input type="range" min="0.5" max="8" step="0.1" bind:value={layers.exaggeration} oninput={onExag} />
+              <div class="label-hint">drag to drive a mountain harder</div>
+            </div>
+          {/if}
         </div>
-        <label class="label-check">
-          <input type="checkbox" checked={layers.minorRoads} onchange={onMinor} /> Minor street names (z13+)
-        </label>
       </div>
     {/if}
-
-    <div class="layers-section">
-      <h4>3D terrain</h4>
-      <label class="label-check">
-        <input type="checkbox" checked={layers.terrain} onchange={onTerrain} /> Drape on terrain
-      </label>
-      {#if layers.terrain}
-        <div class="label-row">
-          <h4>Exaggeration <span class="label-val">{layers.exaggeration.toFixed(1)}×</span></h4>
-          <input type="range" min="0.5" max="8" step="0.1" bind:value={layers.exaggeration} oninput={onExag} />
-          <div class="label-hint">drag to drive a mountain harder</div>
-        </div>
-      {/if}
-    </div>
-
-    <div class="layers-section">
-      <h4>Drone</h4>
-      <label class="label-check">
-        <input type="checkbox" checked={layers.drone} onchange={onDrone} /> Show drone flights
-      </label>
-      <!-- Swatch colors mirror DRONE_COLORS in map.ts. -->
-      <div class="drone-legend">
-        <span class="drone-legend-item"><span class="drone-swatch" style="background:#a855f7"></span>Mini 5 Pro</span>
-        <span class="drone-legend-item"><span class="drone-swatch" style="background:#f97316"></span>Avata 2</span>
-        <span class="drone-legend-item"><span class="drone-swatch" style="background:#ec4899"></span>Neo</span>
-      </div>
-      {#if layers.droneStatus}<p class="label-hint">{layers.droneStatus}</p>{/if}
-    </div>
-
-    <div class="layers-section">
-      <h4>Phone history</h4>
-      <label class="label-check">
-        <input type="checkbox" checked={layers.phone} onchange={onPhone} /> Show phone track
-      </label>
-      <div class="label-hint">Google Timeline · follows the time window · colored by mode</div>
-      <!-- Swatch colors mirror MODE_COLORS in phone.ts. -->
-      <div class="drone-legend">
-        {#each MODE_LEGEND as m (m.group)}
-          <span class="drone-legend-item">
-            <span class="drone-swatch" style="background:{MODE_COLORS[m.group]}"></span>{m.label}
-          </span>
-        {/each}
-      </div>
-      {#if layers.phoneStatus}<p class="label-hint">{layers.phoneStatus}</p>{/if}
-    </div>
   </div>
 </div>

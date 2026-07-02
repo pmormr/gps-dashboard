@@ -4,11 +4,11 @@
   import { getMarks, markTimestamp, type Marks } from '../lib/api'
   import { selection } from '../lib/stores/selection.svelte'
 
-  // The Marks floating panel (ported from the marks half of timeline.js). Marks
-  // are persisted live range-construction timestamps (two rows: start/end); once
-  // both are set, "Use Marks" reframes the global window to that range. Self-
+  // The Marks rail-panel content (ported from the marks half of timeline.js).
+  // Marks are persisted live range-construction timestamps (two rows: start/end);
+  // once both are set, "Use Marks" reframes the global window to that range. Self-
   // contained — marks have no other consumer, so state lives here, not in a store.
-  let collapsed = $state(true)
+  // The rail (Map.svelte) owns open/close; this is body-only.
   let marks = $state<Marks>({})
 
   let hasBoth = $derived(!!marks.start && !!marks.end)
@@ -47,16 +47,9 @@
   })
 </script>
 
-<div class="floating-panel" class:collapsed>
-  <button class="floating-panel-hdr" type="button" onclick={() => (collapsed = !collapsed)}>
-    🚩 Marks
-  </button>
-  <div class="floating-panel-body">
-    <div class="tl-mark-row">
-      <button class="btn-secondary" onclick={() => mark('start')}>Mark Start</button>
-      <button class="btn-secondary" onclick={() => mark('end')}>Mark End</button>
-      {#if hasBoth}<button class="btn-secondary" onclick={useMarks}>Use Marks</button>{/if}
-    </div>
-    {#if status}<p class="tl-mark-status muted">{status}</p>{/if}
-  </div>
+<div class="tl-mark-row">
+  <button class="btn-secondary" onclick={() => mark('start')}>Mark Start</button>
+  <button class="btn-secondary" onclick={() => mark('end')}>Mark End</button>
+  {#if hasBoth}<button class="btn-secondary" onclick={useMarks}>Use Marks</button>{/if}
 </div>
+{#if status}<p class="tl-mark-status muted">{status}</p>{/if}

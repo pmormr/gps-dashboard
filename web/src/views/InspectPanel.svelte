@@ -6,15 +6,14 @@
   // (distance / speed / fuel / economy / drive-time), generalizing the per-
   // annotation fuel-economy readout (AnnotationsDrawer) to any scrubbed window.
   // Reads /api/obd/economy, which already joins derived OBD fuel with the GPS-track
-  // distance. Fetches only while open — the window can be large and the effect
-  // re-runs on the live tick.
-  let collapsed = $state(true)
+  // distance. The rail (Map.svelte) mounts this only while its panel is open, so
+  // the fetch effect runs only then — the window can be large and it re-runs on
+  // the live tick.
   let data = $state<ObdEconomy | null>(null)
   let loading = $state(false)
   let error = $state<string | null>(null)
 
   $effect(() => {
-    if (collapsed) return
     const r = selection.range
     const from = r.from.toISOString()
     const to = r.to.toISOString()
@@ -64,32 +63,25 @@
   }
 </script>
 
-<div class="floating-panel inspect-panel" class:collapsed>
-  <button class="floating-panel-hdr" type="button" onclick={() => (collapsed = !collapsed)}>
-    📊 Inspect window
-  </button>
-  <div class="floating-panel-body">
-    {#if error}
-      <p class="msg err">{error}</p>
-    {:else if loading && !data}
-      <p class="msg muted">Loading…</p>
-    {:else if data}
-      <div class="stat-grid">
-        <span class="k">Window</span><span class="v">{fmtSecs(durationMs / 1000)}</span>
-        <span class="k">Distance</span><span class="v">{num(data.distance_mi, 1)}<u>mi</u></span>
-        <span class="k">Avg moving</span><span class="v">{num(avgMph, 0)}<u>mph</u></span>
-        <span class="k">Max speed</span><span class="v">{num(maxMph, 0)}<u>mph</u></span>
-        <span class="k">Fuel</span><span class="v">{hasObd ? num(data.fuel_gallons, 2) : '—'}<u>gal</u></span>
-        <span class="k">Economy</span><span class="v">{num(data.mpg, 1)}<u>mpg</u></span>
-        <span class="k">Moving</span><span class="v">{hasObd ? fmtSecs(data.moving_s) : '—'}</span>
-        <span class="k">Idle</span><span class="v">{hasObd ? fmtSecs(data.idle_s) : '—'}</span>
-      </div>
-      {#if !hasObd}
-        <p class="msg muted">No engine data here — GPS distance only.</p>
-      {/if}
-    {/if}
+{#if error}
+  <p class="msg err">{error}</p>
+{:else if loading && !data}
+  <p class="msg muted">Loading…</p>
+{:else if data}
+  <div class="stat-grid">
+    <span class="k">Window</span><span class="v">{fmtSecs(durationMs / 1000)}</span>
+    <span class="k">Distance</span><span class="v">{num(data.distance_mi, 1)}<u>mi</u></span>
+    <span class="k">Avg moving</span><span class="v">{num(avgMph, 0)}<u>mph</u></span>
+    <span class="k">Max speed</span><span class="v">{num(maxMph, 0)}<u>mph</u></span>
+    <span class="k">Fuel</span><span class="v">{hasObd ? num(data.fuel_gallons, 2) : '—'}<u>gal</u></span>
+    <span class="k">Economy</span><span class="v">{num(data.mpg, 1)}<u>mpg</u></span>
+    <span class="k">Moving</span><span class="v">{hasObd ? fmtSecs(data.moving_s) : '—'}</span>
+    <span class="k">Idle</span><span class="v">{hasObd ? fmtSecs(data.idle_s) : '—'}</span>
   </div>
-</div>
+  {#if !hasObd}
+    <p class="msg muted">No engine data here — GPS distance only.</p>
+  {/if}
+{/if}
 
 <style>
   .stat-grid {
