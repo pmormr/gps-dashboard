@@ -1,4 +1,4 @@
-"""OBD-II vehicle probe (Phase 0 of plans/obd-platform-plan.md).
+"""OBD-II vehicle probe (the bring-up diagnostic for the van OBD stream).
 
 Throwaway diagnostic for bringing up the OBD stream. It connects to an ELM327
 reader (the owned BAFX over Bluetooth ``/dev/rfcomm0``, or the OBDLink EX over
@@ -7,7 +7,7 @@ supported-PID set, reads any stored diagnostic trouble codes, then logs a chosen
 set of live PIDs to JSONL.
 
 Run it on the Pi, plugged into the van, **engine running** — that is the only
-context that answers the Phase 0 questions: does the FCA Security Gateway pass
+context that answers the bring-up questions: does the FCA Security Gateway pass
 read-only polling, which PIDs the 3.6 Pentastar actually reports (notably whether
 MAF ``0110`` is absent and fuel-rate ``015E`` is present), and the real per-cycle
 throughput of the reader.

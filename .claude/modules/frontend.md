@@ -117,13 +117,24 @@ asks `limit=20000`.
   Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below), **gpsd**
   (`Gpsd.svelte`, `GET /api/gpsd/status`), and **ntp** (`Ntp.svelte`, `GET /api/ntp`).
 - **Trends** (`Trends.svelte`, `/trends` under Systems) — the configurable trend-graph
-  explorer: a registry-driven metric picker over any sensor channel, overlaid on one
-  bucketed/aligned chart (`GET /api/sensors/series`), with smoothing, a min/max band, and
+  explorer: a registry-driven metric picker over any sensor channel (grouped by domain,
+  `chart:true` columns from `/api/sensors`), overlaid on one bucketed/aligned chart
+  (`GET /api/sensors/series` — contract in `.claude/modules/sensors.md`), with
+  moving-average smoothing (global control + per-metric defaults from `METRIC_META`,
+  e.g. `fuel_level_pct`), an optional min/max envelope band, dual-axis-by-unit, and
   localStorage presets. Renders the **shared TimeDock** above the chart (same axis +
   strip as the Map — chart drag-zoom goes through `selection.zoomTo`, double-click
-  `resetZoom`; the dock's density lane shows GPS activity as context). LayerCake chart,
-  dynamic-imported as its own chunk. Replaces the retired legacy `/sensors`. Detail in
-  **`plans/sensor-graphing-plan.md`**.
+  `resetZoom`; the dock's density lane shows GPS activity as context). Chart components
+  live in `web/src/lib/charts/` — LayerCake composed as Svelte layers (`Trend.svelte`
+  container + `Line`/`Band`/axes), dynamic-imported as its own chunk; the load-bearing
+  pure logic (smoothing, series alignment, `pixelToTime` drag-zoom inversion,
+  `lineSegments`) is in `charts/util.ts` under Vitest. **Sparse-data invariants:** the
+  server returns a *dense* bucket grid with nulls, so lines are gap-bridged —
+  `lineSegments` splits a series into runs only where a gap exceeds `gapFactor`× the
+  median sample spacing (cadence-agnostic, no per-channel config), singleton runs draw
+  as dots so brief engine-gated bursts stay visible, and an all-null window shows a
+  "No data in this range" overlay instead of a silent blank plot. Replaces the retired
+  legacy `/sensors`.
 - **Docs** (`Docs.svelte`) — browses the synced `paul-network-docs` Obsidian vault
   (`GET /api/docs/{tree,file}`). Two-pane: a file tree + the rendered markdown. `docs.ts`
   is the render seam — markdown-it (raw HTML disabled, so no sanitizer dep), **lazy**
@@ -158,6 +169,12 @@ asks `limit=20000`.
 - **Data-layers continuation** — trail color-by (speed/elevation/
   sensor channel), sensor overlays on the map, stops-as-a-layer toggle. Built onto
   `DataLayers.svelte` + the `timestrip.ts` density lane.
+- **Trends continuation** — true multi-axis (>2 units) / per-series axis assignment
+  beyond unit-grouping; server-side preset persistence (a small table) only if syncing
+  presets across devices proves worth it. Known benign quirk: a TimePicker window change
+  mid-zoom doesn't clear the zoom-out stack, so "Zoom out" can step to a pre-zoom window
+  rather than the manually-picked one (every restored window is still valid; clearing on
+  a foreign picker change is awkward because the live tick mutates `range`).
 - **Marks continuation** — mark *types* (campsite / fuel / scenic / repair); and
   **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
   curated mark (deferred from the denoise work; see `.claude/modules/processor.md`). *(Window

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Trends — the configurable graph explorer (plans/sensor-graphing-plan.md).
+  // Trends — the configurable graph explorer.
   // A registry-driven metric picker over any sensor channel, overlaid on one
   // bucketed/aligned chart, scoped by the global Selection time axis (so picking a
   // trip's window — e.g. via the map/annotations — re-scopes these charts too).

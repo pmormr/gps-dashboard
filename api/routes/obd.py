@@ -2,7 +2,7 @@
 
 Read-only and DB-backed. ``fuel_rate_lph`` is stored NULL; fuel rate is derived
 here at read time via :mod:`common.obd`, so the speed-density calibration
-constant re-scales all history at once (Phase 4, O8). The fuel leg comes from
+constant re-scales all history at once. The fuel leg comes from
 ``obd_readings``, the distance leg from the denoised ``track_points`` tier.
 """
 
@@ -28,7 +28,7 @@ def _epoch_seconds(ts: str) -> float:
 
 @obd_bp.get('/api/obd/economy')
 def economy():
-    """Per-window fuel economy: derived fuel ÷ GPS-track distance (O8).
+    """Per-window fuel economy: derived fuel ÷ GPS-track distance.
 
     Integrates speed-density fuel over ``obd_readings`` in ``[start, end]`` and
     divides by the ``track_points`` path length over the same window. Pass an

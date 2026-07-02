@@ -20,7 +20,7 @@ sensors_bp = Blueprint('sensors', __name__)
 DEFAULT_HISTORY_HOURS = 24
 MAX_READINGS = 20000
 
-# /api/sensors/series — the configurable trend engine (plans/sensor-graphing-plan.md).
+# /api/sensors/series — the bucketed multi-metric trend engine (feeds the SPA Trends view).
 DEFAULT_BUCKETS = 1000  # target point count across the window when ?buckets is absent
 MAX_BUCKETS = 2000  # clamp: bounds both the SQL grouping and the wire payload
 MAX_SERIES = 12  # cap on overlaid metrics per request

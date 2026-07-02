@@ -1,11 +1,12 @@
 # OBD-II Supported-PID Reference — 2021 Ram ProMaster 2500
 
-> Phase 0 capability dump for the van. Captured by `tools/obd_probe.py` on the Pi
-> through the **12+8 SGW-bypass harness** + OBDLink EX, **2026-06-22**. This is the
-> authoritative list of what this vehicle's ECUs actually report — every later
-> decision about which PIDs to log is made against this, not against assumptions.
-> When the OBD platform lands, the durable bits fold into `.claude/modules/sensors.md`
-> and this file can go.
+> Capability dump for the van, captured by `tools/obd_probe.py` on the Pi through
+> the **12+8 SGW-bypass harness** + OBDLink EX, **2026-06-22**. This is the
+> authoritative list of what this vehicle's ECUs actually report — any decision
+> about which PIDs to log is made against this, not against assumptions. Durable
+> reference (the OBD platform's architecture is in `.claude/modules/sensors.md`);
+> the Mode 06 monitors and freeze-frame/DTC modes matter for future
+> diagnostics/check-engine work.
 
 ## Connection facts
 
@@ -21,22 +22,22 @@
 | Throughput | ~22 queries/s (fast mode off) → ~0.49 s for an 11-PID snapshot |
 | Voltage signature | parked/KOEO ~12.0–12.3 V · engine running ~13.8–14.1 V (alternator) |
 
-**Protocol note:** the bus is **29-bit** CAN, not the 11-bit the plan originally
-assumed. python-OBD auto-detects it; no forced `ATSP` needed.
+**Protocol note:** the bus is **29-bit** CAN, not the 11-bit originally assumed.
+python-OBD auto-detects it; no forced `ATSP` needed.
 
 ## Notable absences (shape the data model)
 
 | PID | Name | Why it matters |
 |-----|------|----------------|
 | `0110` | MAF (mass airflow) | **Absent** — confirms the Pentastar is **speed-density** (MAP + IAT, no MAF sensor), as predicted. |
-| `015E` | Fuel rate | **Absent** — no native fuel-flow reading. Fuel rate must be **derived** from the speed-density inputs below (open decision B). |
+| `015E` | Fuel rate | **Absent** — no native fuel-flow reading. Fuel rate is **derived** from the speed-density inputs below, at read time (`common/obd.py`). |
 
 ---
 
 ## Mode 01 — live data (the loggable PIDs)
 
-The signals that change in real time. **→ col** marks PIDs slated for an
-`obd_readings` column (see the schema discussion in `obd-platform-plan.md`).
+The signals that change in real time. **→ col** marks PIDs captured as an
+`obd_readings` column (the column set is `api/sensor_schema.py`'s `READING_TABLES`).
 
 | PID | Name | Description | Logged |
 |-----|------|-------------|--------|

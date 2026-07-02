@@ -48,8 +48,20 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   `obd.py`** — `obd.py` shadows the `obd` library on a script-form run (circular
   self-import → startup crash). python-OBD's engine-off ERROR/WARNING chatter is dropped
   by a logging `Filter` so a parked van stays quiet in the journal. `--fake` mode for
-  desk testing. The FCA Security Gateway bypass (12+8 harness), supported-PID set, and
-  the phase roadmap live in `plans/obd-platform-plan.md`.
+  desk testing. **Bus access:** the OBD port's diagnostic CAN is physically isolated by
+  the FCA Security Gateway — two adapters (BAFX clone, then the genuine EX) `CAN ERROR`ed
+  through it, and OBDLink's AutoAuth unlock is online + app-locked, unfit for a headless
+  offline reader — so a **12+8 SGW-bypass harness** (fitted 2026-06-22) bridges the
+  diagnostic CAN around the gateway. The bus is ISO 15765-4 CAN **29-bit**/500k
+  (auto-detected; `GPS_OBD_PROTOCOL=7` skips the scan), ~22 queries/s. The captured
+  supported-PID reference is `reference/obd-supported-pids.md`. **OBD deferred:**
+  udev-pin the EX to a stable device path (it's on bare `/dev/ttyUSB0`); an optional
+  ignition-switched dongle feed for zero parked drain (the software gate covers it
+  today); DTC storage + a check-engine surface; the on-demand rate-table demand overlay
+  (an MQTT control topic with TTL-decayed demands, so a live gauge can raise a PID's
+  rate without a second serial client); a dedicated ~1 Hz driving gauge (Home's
+  `/api/status` glance covers the basics); the load-colored trail is part of frontend.md's
+  "trail color-by" deferred item.
 - **Victron reader** (`sensors/victron_reader.py`) — house power as a sensor: bridges
   the van's **Victron Venus OS GX** into the bus over **two MQTT clients**. A *source* on
   the GX's own broker (authenticated; subscribes `N/+/{system,solarcharger,vebus}/#`,
@@ -80,6 +92,13 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   and the bucketed `/api/sensors/series` JSON. Read-only, DB-backed (no MQTT): the SPA's
   Systems (current values) and Trends (charts) views consume these. This is the non-live
   half of the live-readout goal; it sidesteps the broker websockets blocker entirely.
+  **Series contract** (the Trends engine): metrics are addressed `<sensor_id>.<column>`
+  (any numeric column; the picker offers only `chart:true` ones), the server buckets on
+  epoch seconds (`bucket_ms = max(ceil(window_ms / buckets), 1s)`, default ~1000 buckets,
+  cap 2000) with avg + min/max per bucket, one query per distinct sensor covering all its
+  requested columns, and scatters results onto a **dense** `start…end` grid — nulls for
+  empty buckets, so the client renders gaps honestly. Presentation fields ride along from
+  `METRIC_META`; the client builds the chart entirely from the response.
 - **Browser (live)** — the planned push path via MQTT-over-WS, **blocked:** the Pi's
   mosquitto (Debian bookworm, 2.0.11 arm64) is built *without* libwebsockets, so a
   `:9001` `protocol websockets` listener makes the broker refuse to start —
@@ -120,8 +139,9 @@ engine + absolute load, throttle, coolant/intake/ambient temps, MAP, barometric,
 level, voltage, run-time, short/long fuel trims both banks, commanded equivalence
 ratio) plus a nullable `fuel_rate_lph`. Fuel rate is **NULL by design**: the Pentastar
 is speed-density (no MAF `0110`) and exposes no native fuel-rate `015E`, so it's derived
-from absolute load + RPM + λ at read time (calibration against a tank-to-tank fill-up is
-pending — see `plans/obd-platform-plan.md`). The
+from absolute load + RPM + λ at read time (`common/obd.py`; the single constant `K` is
+the calibration lever — a tank-to-tank fill-up calibration is pending, and because
+derivation happens at read time it re-scales all history at once when it lands). The
 column set is the `READING_TABLES` spec, not hand-written SQL.
 
 `victron_readings` is the wide table for the house-power stream — battery (SoC, voltage,

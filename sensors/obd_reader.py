@@ -7,7 +7,7 @@ current-values snapshot to ``sensors/van/obd``, registering a retained LWT on
 The ingest subscriber writes each snapshot into ``obd_readings`` (one row per
 cycle, complete) — see ``mqttbus/ingest.py`` and ``api/sensor_schema.py``.
 
-Two design points carried from the OBD plan (``plans/obd-platform-plan.md``):
+Two design points define this reader:
 
 * **Single serial owner, no queue.** The ELM327 is a blocking, half-duplex,
   request-response device: one query at a time, the call paces itself. This reader
@@ -19,11 +19,12 @@ Two design points carried from the OBD plan (``plans/obd-platform-plan.md``):
   periodically to check the adapter voltage; alternator voltage (~14 V vs. ~12.2 V
   parked) is the engine-running signal. This also bounds logging to drive-time.
 
-Polling is driven by a **per-PID rate table** (``PID_SPECS``). In Phase 1 every PID
+Polling is driven by a **per-PID rate table** (``PID_SPECS``). Today every PID
 shares one baseline period, so each cycle is a full fresh snapshot; the table is the
-seed the Phase 3 on-demand viewer modulates (a live gauge raising RPM's rate while
-it is open). ``fuel_rate_lph`` has no PID on the speed-density Pentastar — it is
-derived in Phase 4, so the reader leaves that column unset (NULL).
+seed a future on-demand viewer would modulate (a live gauge raising RPM's rate while
+it is open — deferred). ``fuel_rate_lph`` has no PID on the speed-density Pentastar —
+it is derived at read time (``common/obd.py``), so the reader leaves that column
+unset (NULL).
 
 The module is ``obd_reader`` (not ``obd``) so a script-form run does not shadow the
 ``obd`` library: ``python sensors/obd.py`` would put ``sensors/`` first on the path
@@ -72,8 +73,8 @@ class PidSpec:
     Attributes:
         column: The ``obd_readings`` / payload column this PID fills.
         command: The python-OBD command to query (typed ``object``; ``obd`` is untyped).
-        period_s: Baseline seconds between polls. The Phase 3 demand overlay shrinks
-            this for a PID a live viewer is actively watching.
+        period_s: Baseline seconds between polls. A future demand overlay would
+            shrink this for a PID a live viewer is actively watching (deferred).
     """
 
     column: str
@@ -85,8 +86,8 @@ def _pid_specs() -> list[PidSpec]:
     """Build the rate table: ``obd_readings`` column → OBD command.
 
     Columns mirror ``api/sensor_schema.py``'s ``obd`` metrics, minus ``fuel_rate_lph``
-    (no PID on the speed-density Pentastar; derived in Phase 4). This is the only
-    place the command↔column mapping lives.
+    (no PID on the speed-density Pentastar; derived at read time in ``common/obd.py``).
+    This is the only place the command↔column mapping lives.
 
     Returns:
         The PID specs to poll, in publish/display order.

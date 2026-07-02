@@ -1,8 +1,7 @@
 """Tests for GET /api/sensors/series — the bucketed multi-metric trend engine.
 
 Pins the dense-grid bucketing + alignment, within-bucket averaging, cross-sensor
-overlay on a shared axis, and the address/window validation (see
-plans/sensor-graphing-plan.md).
+overlay on a shared axis, and the address/window validation.
 """
 
 import api.db as db

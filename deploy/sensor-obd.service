@@ -4,7 +4,8 @@
 # engine-gated, so it idles cheaply (connection closed) while parked.
 #
 # GPS_OBD_PORT pins the adapter device. /dev/ttyUSB0 is the only USB serial device
-# today; Phase 5 udev-pins a stable path (like the GPS dongle). The OBD CAN protocol
+# today; udev-pinning a stable path (like the GPS dongle) is a deferred hardening
+# step. The OBD CAN protocol
 # auto-detects (the van is ISO 15765-4 CAN 29/500); set GPS_OBD_PROTOCOL=7 to skip
 # the scan if reconnect latency ever matters.
 [Unit]
