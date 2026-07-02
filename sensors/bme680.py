@@ -9,7 +9,7 @@ a periodic heartbeat with a published/dropped breakdown, and graceful shutdown t
 never raises on Ctrl+C.
 
 A ``--fake`` mode synthesizes plausible readings so the MQTT → SQLite pipeline can
-be exercised before the sensor is physically wired (Phase 1 de-risking).
+be exercised before the sensor is physically wired.
 
 Run::
 

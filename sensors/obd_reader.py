@@ -50,8 +50,8 @@ from sensors.runner import Heartbeat, add_publisher_args, bounded_step, publishe
 
 SENSOR_TYPE = 'obd'
 
-# Full-snapshot publish cadence and per-PID baseline period (Phase 1: all PIDs at
-# this rate). The poll loop targets one snapshot per BASELINE_PERIOD_S.
+# Full-snapshot publish cadence and per-PID baseline period (all PIDs currently
+# share this rate). The poll loop targets one snapshot per BASELINE_PERIOD_S.
 BASELINE_PERIOD_S = 1.0
 
 # Engine-state gate (drain fix). Alternator-charging voltage cleanly separates a

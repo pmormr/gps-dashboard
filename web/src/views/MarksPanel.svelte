@@ -4,7 +4,7 @@
   import { getMarks, markTimestamp, type Marks } from '../lib/api'
   import { selection } from '../lib/stores/selection.svelte'
 
-  // The Marks rail-panel content (ported from the marks half of timeline.js).
+  // The Marks rail-panel content.
   // Marks are persisted live range-construction timestamps (two rows: start/end);
   // once both are set, "Use Marks" reframes the global window to that range. Self-
   // contained — marks have no other consumer, so state lives here, not in a store.

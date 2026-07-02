@@ -1,5 +1,5 @@
 /**
- * TimeStrip geometry tests — the pure wheel-zoom math (time-dock Phase 2). The
+ * TimeStrip geometry tests — the pure wheel-zoom math. The
  * canvas widget itself is exercised manually; `zoomDomain` carries the logic
  * worth pinning: anchor invariance, direction, and the span clamps.
  */

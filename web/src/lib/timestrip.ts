@@ -1,8 +1,8 @@
 /**
  * TimeStrip — the Selection window's timeline lane, rendered entirely in one
- * canvas. It draws the window's layers in one pass — point-density coverage
- * (S4), stop dwell blocks, annotation range bands + point ticks — and turns
- * direct manipulation into Selection-axis actions (time-dock Phase 2): drag a
+ * canvas. It draws the window's layers in one pass — point-density coverage,
+ * stop dwell blocks, annotation range bands + point ticks — and turns
+ * direct manipulation into Selection-axis actions: drag a
  * rubber-band to zoom, wheel to zoom around the cursor (preview per step,
  * commit debounced so each notch doesn't refetch), double-click/Backspace to
  * step back out, ←/→ to shift, +/− to zoom. There is no local sub-selection —
@@ -47,7 +47,7 @@ export interface TimeStripHandle {
   destroy(): void
 }
 
-const GAP_CAP_MS = 15 * 60 * 1000 // density coverage gap cap (S4)
+const GAP_CAP_MS = 15 * 60 * 1000 // density coverage gap cap
 const PAD_TOP = 5 // top lane: annotation bands + ticks
 const PAD_BOT = 4 // bottom lane: stop dwell blocks
 const MIN_SPAN_MS = 60 * 1000 // wheel/keyboard zoom-in floor

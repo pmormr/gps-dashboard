@@ -1,6 +1,6 @@
 """Phone location-history tier API — the map-overlay reads.
 
-The phone tier's HTTP surface (``plans/phone-history-plan.md``): two read-only
+The phone tier's HTTP surface (see ``.claude/modules/phone.md``): two read-only
 overlays over the Google Timeline history imported by
 ``tools/import_phone_timeline.py``. There is no ingest route — the import is a
 batch tool run on the Pi against the live DB, not a LAN POST (unlike drone).

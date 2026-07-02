@@ -69,7 +69,7 @@ def now_canonical() -> str:
 
     The single source for "now" timestamps written across tiers (the logger's
     raw inserts, the marks upsert, the sensor readers' receipts). Wall-clock
-    ``now()`` is PPS-disciplined stratum-1 GPS time on the Pi (C23), so it is
+    ``now()`` is PPS-disciplined stratum-1 GPS time on the Pi, so it is
     GPS-quality without the backward jitter of the TPV ``time`` field.
 
     Returns:

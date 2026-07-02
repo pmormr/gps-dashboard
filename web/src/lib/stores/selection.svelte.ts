@@ -5,7 +5,7 @@
  * is uniform across tiers), so one window drives many consumers. This store is
  * that single window — the picker state (mode/anchor/window/live, the *fetch*
  * window) — plus a zoom history so drag-to-zoom anywhere can step back out.
- * The window is the only time object (time-dock plan): consumers react to
+ * The window is the only time object: consumers react to
  * `range` and refetch; Map and Trends share the same axis.
  *
  * `live` is a mode of the axis — anchor follows now and a 30s tick makes `range`
@@ -61,7 +61,7 @@ export class SelectionStore {
   live = $state(true)
 
   // Bumped every POLL_MS while live so `range` recomputes against a fresh `now`
-  // and consumers re-fetch (the reactive replacement for the old emit timer).
+  // and consumers re-fetch.
   private tick = $state(0)
   private pollTimer: number | undefined
 

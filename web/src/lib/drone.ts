@@ -1,5 +1,5 @@
 /**
- * Drone overlay controller (ported from drone.js). Toggling the Layers-panel drone
+ * Drone overlay controller. Toggling the Layers-panel drone
  * checkbox on lazily fetches *all* flights once (the dataset is tiny and MapLibre
  * only draws what's in view) and hands them to the MapView façade as a standalone 3D
  * layer, independent of the Selection time window. Re-toggling reuses the cache.

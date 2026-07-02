@@ -1,5 +1,5 @@
 /**
- * Pure geo + formatting helpers for the map view (ported from static/js/geo.js).
+ * Pure geo + formatting helpers for the map view.
  *
  * No DOM, no MapLibre — just distance/stat math and unit formatting shared by the
  * map engine (`map.ts`), the timeline, and the inspect-window panel.

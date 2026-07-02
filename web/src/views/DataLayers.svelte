@@ -4,7 +4,7 @@
   import { layers } from '../lib/stores/layers.svelte'
   import './layers.css'
 
-  // The Data-layers rail-panel content (time-dock Phase 4): the frequent overlay
+  // The Data-layers rail-panel content: the frequent overlay
   // toggles — drone flights, phone track. Map *style* (base/labels/terrain) is a
   // separate rail panel (MapStyle.svelte); legends live on-map as chips
   // (Map.svelte), shown only while the layer is on. The rail owns open/close;

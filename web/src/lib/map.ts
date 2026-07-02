@@ -1,5 +1,5 @@
 /**
- * Map façade (ported from static/js/map.js). One maplibregl.Map drives the whole
+ * Map façade. One maplibregl.Map drives the whole
  * view; this module is the only place that touches MapLibre directly. The public
  * API (`init`, `showTrack`, …) is the contract the Svelte chrome + the Selection
  * store depend on — keep it stable.
@@ -24,7 +24,7 @@ import { fmtAltitude, fmtDate, fmtDuration, fmtTime } from './geo'
 /**
  * The three.js elevated-data overlay (drone tracks float at MSL altitude). It's a
  * separate imperative island (overlay3d.ts) wired in via `setOverlay3D` so map.ts
- * doesn't depend on three; null until that lands. Replaces the old window.Overlay3D.
+ * doesn't depend on three; null until the drone controller lazy-imports and wires it.
  */
 export interface Overlay3DLine {
   coords: [number, number, number][]
@@ -442,7 +442,7 @@ export const MapView = (() => {
 
       // Stops as a constant-size dot on the trail — a "you stopped here" node, not
       // scaled by dwell (dwell reads off the timeline block). White stroke separates
-      // the dot from the same-colored track line (mapview-redesign S3).
+      // the dot from the same-colored track line.
       if (!m.getSource('stops')) m.addSource('stops', { type: 'geojson', data: stopsFC() })
       if (!m.getLayer('stop-circle')) {
         m.addLayer({
@@ -719,7 +719,7 @@ export const MapView = (() => {
     if (phoneVisitData.features.length === 0 && phonePopup) phonePopup.remove()
   }
 
-  // ── Hover-scrub ghost dot (time → space; time-dock Phase 5) ──
+  // ── Hover-scrub ghost dot (time → space) ──
 
   function setGhost(lat: number, lon: number): void {
     if (!map) return

@@ -1,6 +1,6 @@
 """GPS track processor: derive the processed tier from raw ``gps_points``.
 
-Phase 3 — **online denoise filter**. A single causal state machine tails raw
+The **online denoise filter**. A single causal state machine tails raw
 ``gps_points`` by a persisted id cursor and derives the processed tier the
 frontend reads: software static-hold for stops + Reumann–Witkam line
 simplification for moving segments, with per-fix accuracy gating. Each emitted
@@ -12,7 +12,7 @@ Writer invariant: the logger owns raw (``gps_points``, ``receiver_metadata``);
 this process owns the processed tier (``track_points``, ``track_events``) only.
 It never touches gpsd and never blocks the logger.
 
-Determinism / idempotency (C7): output is a pure function of the raw prefix
+Determinism / idempotency: output is a pure function of the raw prefix
 ordered by ``id`` — state transitions depend only on raw fields and the frozen
 ``Thresholds`` (no wall-clock in the algorithm, no RNG). The committed cursor
 advances only to the last *finalized* emit; an open stop and the open moving
@@ -62,11 +62,11 @@ EPH_FLOOR_M = 1.0
 
 @dataclass(frozen=True)
 class Thresholds:
-    """Tuning knobs for the denoise state machine (the plan's C-table starts).
+    """Tuning knobs for the denoise state machine.
 
-    Frozen because output is deterministic only *per threshold set* (C7):
+    Frozen because output is deterministic only *per threshold set*:
     changing any value is the intended trigger to rebuild the processed tier, not
-    a bug. Tuned against real trips in Phase 5.
+    a bug. Tuned against real trips.
 
     Attributes:
         stop_speed_enter: Doppler speed (m/s) below which a stop candidate opens.
@@ -330,7 +330,7 @@ class Stop:
 
     @property
     def dwell_seconds(self) -> float:
-        """Dwell length (s), clamped to >= 0 against a rare backward clock step (C23)."""
+        """Dwell length (s), clamped to >= 0 against a rare backward clock step."""
         return max(0.0, _ts_seconds(self.last_ts) - _ts_seconds(self.start_ts))
 
 
@@ -340,7 +340,7 @@ class TrackFilter:
     Feed raw fixes in ``id`` order via :meth:`feed`, then :meth:`drain` the
     finalized and provisional emits for the loop to persist. Construction
     reconstructs the moving anchor from the last committed vertex so that
-    replaying from the cursor reproduces steady-state output exactly (C7).
+    replaying from the cursor reproduces steady-state output exactly.
     """
 
     def __init__(self, thresholds: Thresholds, cursor: int, anchor: Anchor | None) -> None:
@@ -650,7 +650,7 @@ def discard_provisional(conn: sqlite3.Connection, cursor: int) -> int:
     These are rows emitted in a batch whose cursor advance never committed (a
     crash), the open-stop snapshot, or — when ``cursor`` is 0 — the entire
     processed tier for a rebuild. Dropping them before resuming is what makes
-    reprocessing idempotent (C7).
+    reprocessing idempotent.
 
     Args:
         conn: Open SQLite connection.
@@ -670,7 +670,7 @@ def reconstruct_anchor(conn: sqlite3.Connection, cursor: int) -> Anchor | None:
 
     The simplifier's anchor is an already-committed vertex sitting at the cursor,
     so a fresh replay (which reads only rows after the cursor) would otherwise
-    lose it and diverge. Reading it back makes replay match steady state (C7). A
+    lose it and diverge. Reading it back makes replay match steady state. A
     committed ``stop`` row anchors the resumed drive at the held position.
 
     Args:

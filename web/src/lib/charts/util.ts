@@ -140,9 +140,9 @@ export function padDomain([lo, hi]: [number, number], frac = 0.08): [number, num
 /**
  * Assign each distinct unit to an axis side.
  *
- * First unit → left, second → right; any further units share the left axis.
- * Phase 1 caps visible axes at two (true multi-axis is Phase 2). Empty-string
- * units (unitless metrics) are treated as their own group.
+ * First unit → left, second → right; any further units share the left axis —
+ * visible axes are capped at two. Empty-string units (unitless metrics) are
+ * treated as their own group.
  */
 export function axisForUnits(units: string[]): Map<string, AxisSide> {
   const seen: string[] = []

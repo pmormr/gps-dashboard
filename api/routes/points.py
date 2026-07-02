@@ -20,7 +20,7 @@ _TRACK_COLUMNS = (
 def latest_point():
     # The live "current position" dot reads *raw* gps_points, not the processed
     # tier — so the marker tracks the true latest fix and never waits on a stop
-    # row converging over its first minute (C13).
+    # row converging over its first minute.
     conn = get_connection()
     row = conn.execute(
         'SELECT id, timestamp, lat, lon, speed, altitude, track '
@@ -33,7 +33,7 @@ def latest_point():
 
 @points_bp.get('/api/points')
 def get_points():
-    """Trail/history points from the processed tier, size-aware decimated (C17).
+    """Trail/history points from the processed tier, size-aware decimated.
 
     Reads ``track_points`` (the denoised/simplified tier), not raw ``gps_points``.
     Every ``kind='stop'`` whose dwell overlaps the window always survives; the

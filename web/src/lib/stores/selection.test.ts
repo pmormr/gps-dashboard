@@ -1,6 +1,6 @@
 /**
  * Selection-store unit tests — the zoom history (zoomTo/back/resetZoom) and the
- * shift/widen navigation math (time-dock plan Phase 1). Runs in node: the store
+ * shift/widen navigation math. Runs in node: the store
  * skips its live poll timer without a DOM, and `vi.setSystemTime` pins `now` for
  * the live-window paths.
  */

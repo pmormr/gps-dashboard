@@ -1,7 +1,7 @@
 <script lang="ts">
   import { annotations } from '../lib/stores/annotations.svelte'
 
-  // The create/edit annotation modal (ported from timeline.js). Pure view over
+  // The create/edit annotation modal. Pure view over
   // `annotations.form`: any opener (Create Range button, drawer ✎) populates the
   // store, this renders it. Save routes POST vs PATCH inside the store by editId.
 

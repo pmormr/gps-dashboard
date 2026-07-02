@@ -1,6 +1,5 @@
 /**
- * The Layers store — the map-local data-on-map axis (redesign Axis 2; built native
- * in Svelte during the port). Single source of truth for the Layers panel: the base
+ * The Layers store — single source of truth for the Layers panel: the base
  * map, terrain, and label settings. Map-local (the engine receives pushes via the
  * panel's change handlers), in contrast to the global Selection axis.
  *

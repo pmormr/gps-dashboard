@@ -4,7 +4,7 @@
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
   import './layers.css'
 
-  // The Map-style rail-panel content (time-dock Phase 4): base map + labels +
+  // The Map-style rail-panel content: base map + labels +
   // 3D terrain — the rarely-touched styling, split from the Data-layers panel
   // (DataLayers.svelte). Binds to the map-local `layers` store and pushes intent
   // into the engine via the passed MapView façade (`view` is a prop so this never

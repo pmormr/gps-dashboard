@@ -55,7 +55,7 @@ def test_records_obd_reading(conn: sqlite3.Connection) -> None:
     row = conn.execute('SELECT * FROM obd_readings').fetchone()
     assert row['rpm'] == 1173.0
     assert row['map_kpa'] == 52.0
-    assert row['fuel_rate_lph'] is None  # reserved placeholder, never sent in Phase 1
+    assert row['fuel_rate_lph'] is None  # reserved placeholder — the reader never sends it
     assert conn.execute("SELECT 1 FROM sensors WHERE node = 'van' AND type = 'obd'").fetchone()
 
 

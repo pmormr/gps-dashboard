@@ -12,7 +12,7 @@ Two brokers, not one (unlike the OBD reader): a **source** client on the GX brok
 (authenticated — the password is the only secret, supplied via the environment) and a
 **sink** client on the Pi broker (anonymous, the usual LWT-on-``status`` pattern).
 
-Venus OS quirks handled here (see ``plans/victron-platform-plan.md``):
+Venus OS quirks handled here:
 
 * **Keepalive.** After its connect-time full publish, Venus stops sending unless it
   receives a keepalive within ~60 s. We learn the portal-id from the first message and

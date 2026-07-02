@@ -461,7 +461,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     )
 
     # Per-fix accuracy/quality fields from gpsd TPV, for accuracy-weighted denoise
-    # and richer analysis (C4). Existing rows get NULL.
+    # and richer analysis. Existing rows get NULL.
     _add_missing_columns(
         conn,
         'gps_points',

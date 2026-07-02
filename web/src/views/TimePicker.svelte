@@ -4,11 +4,11 @@
   import { PRESETS, selection } from '../lib/stores/selection.svelte'
 
   // Compact window picker (trigger + popover) for the Selection axis. No mode
-  // tabs, no Around, no Last-window form (time-dock plan Phase 1) — presets and
+  // tabs, no Around, no Last-window form — presets and
   // the Live toggle commit immediately; the From→To pair is the one staged edit
   // (two fields need an explicit Jump). Everything finer-grained is direct
   // manipulation on the strip. Saved windows (annotations) list here too — the
-  // axis-level jump, reachable from any view that renders the dock (Phase 3).
+  // axis-level jump, reachable from any view that renders the dock.
 
   // `placement` picks the desktop popover direction: 'up' for a bottom-anchored
   // trigger (the Map timeline), 'down' for a top-anchored one (Trends). Mobile is a

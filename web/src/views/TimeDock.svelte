@@ -8,7 +8,7 @@
   import './timeline.css'
   import TimePicker from './TimePicker.svelte'
 
-  // The shared TimeDock (time-dock Phase 3): picker + nav cluster + TimeStrip +
+  // The shared TimeDock: picker + nav cluster + TimeStrip +
   // status, rendered identically by Map (bottom overlay) and Trends (above the
   // chart) — one interaction grammar on one axis. It drives the shared track
   // store's window fetch and turns strip gestures into Selection-store commits;
@@ -34,7 +34,7 @@
   const startLabel = $derived(windowLabel(selection.range.from.getTime()))
   const endLabel = $derived(windowLabel(selection.range.to.getTime()))
 
-  // Name the current window — a range annotation is a saved window (time-dock plan).
+  // Name the current window — a range annotation is a saved window.
   function saveWindow(): void {
     const r = selection.range
     annotations.openCreate(r.from.toISOString(), r.to.toISOString())
@@ -76,7 +76,7 @@
   })
 
   // Feed the strip the loaded window + its points and the annotation overlays.
-  // The axis is the requested window, not the data extent (S1) — and it always
+  // The axis is the requested window, not the data extent — and it always
   // renders, even with zero points: an empty-density strip is still navigable
   // and its annotation bands stay clickable.
   $effect(() => {

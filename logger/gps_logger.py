@@ -9,7 +9,7 @@ from typing import Any
 
 from api.db import get_connection, init_db, migrate, now_canonical
 
-# Motion-gated raw write cadence (C20): full nav rate while moving, throttled to
+# Motion-gated raw write cadence: full nav rate while moving, throttled to
 # ~1 Hz while parked. Parked 5 Hz is correlated bloat the processor's static hold
 # collapses anyway; the moving rate is where the spatial fidelity lives. This gates
 # only writes, layered on the live fix stream, so the freeze watchdog (which tracks
@@ -330,7 +330,7 @@ def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerSta
             last_fix_time = now
             stats.note_fix(lat, lon, now)
 
-            # Motion-gated cadence: full nav rate moving, ~1 Hz parked (C20).
+            # Motion-gated cadence: full nav rate moving, ~1 Hz parked.
             # Unknown speed errs toward moving so raw never silently loses fixes.
             speed = report.get('speed')
             parked = speed is not None and speed < PARKED_SPEED_MPS

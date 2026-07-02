@@ -1,6 +1,6 @@
 /**
  * The shared track-window store — the `/api/points` fetch for the global
- * Selection window, decoupled from the map (time-dock Phase 3). One fetch per
+ * Selection window, decoupled from the map. One fetch per
  * window change feeds every consumer: the map trail, the TimeDock's density
  * lane, and window readouts — so Trends shows GPS density with no map on
  * screen. Consumers drive it: the mounted TimeDock calls `ensure(range)` from
@@ -29,7 +29,7 @@ class TrackStore {
   refit = $state(true)
 
   /**
-   * Viewport filter (time-dock Phase 5): when set (W,S,E,N), fetches pass it as
+   * Viewport filter: when set (W,S,E,N), fetches pass it as
    * `bbox` so the density lane shows only time spent in view. Map.svelte owns it
    * (updates on moveend while the toggle is on; null on toggle-off/unmount).
    */

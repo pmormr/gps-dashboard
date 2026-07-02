@@ -1,6 +1,6 @@
 """Import Google Timeline location history into the phone tier of ``gps_history.db``.
 
-Offline batch importer (see ``plans/phone-history-plan.md``) — the phone's own
+Offline batch importer (see ``.claude/modules/phone.md``) — the phone's own
 position history, the on-grid-history sibling of the parked OwnTracks live idea.
 The source is the **on-device Timeline export** (phone → Settings → Location →
 Timeline → Export), a single ``Timeline.json`` whose ``semanticSegments`` carry:

@@ -3,8 +3,8 @@
   import { fmtDate, fmtTime } from '../lib/geo'
   import { annotations } from '../lib/stores/annotations.svelte'
 
-  // The annotations drawer (side panel desktop / bottom sheet mobile), ported from
-  // annotations.js. Lists every annotation; click jumps the global window to it,
+  // The annotations drawer (side panel desktop / bottom sheet mobile).
+  // Lists every annotation; click jumps the global window to it,
   // ✎ edits, × deletes. Per-range fuel economy is lazy-filled (derived OBD fuel ÷
   // GPS distance) and skipped where there's no OBD coverage.
   let { open = $bindable(false) }: { open?: boolean } = $props()

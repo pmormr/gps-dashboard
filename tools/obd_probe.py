@@ -1,4 +1,4 @@
-"""OBD-II vehicle probe (Phase 0 of docs/obd-platform-plan.md).
+"""OBD-II vehicle probe (Phase 0 of plans/obd-platform-plan.md).
 
 Throwaway diagnostic for bringing up the OBD stream. It connects to an ELM327
 reader (the owned BAFX over Bluetooth ``/dev/rfcomm0``, or the OBDLink EX over

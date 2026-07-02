@@ -31,7 +31,7 @@
   let view = $state<typeof MapViewType | undefined>()
   let drawerOpen = $state(false)
 
-  // The right icon rail (time-dock Phase 4): exclusive-open panels — opening one
+  // The right icon rail: exclusive-open panels — opening one
   // closes the rest. Default closed (a clean map); resets on remount. Data layers
   // and map style are separate buttons — overlay toggles and basemap styling
   // aren't related tasks.
@@ -49,7 +49,7 @@
     openPanel = openPanel === id ? null : id
   }
 
-  // Viewport filter (time-dock Phase 5): while on, the shared track fetch carries
+  // Viewport filter: while on, the shared track fetch carries
   // the map bbox, so the strip's density shows only time spent in view ("when was
   // I ever at this campsite"). Updates on moveend; resets on toggle-off/unmount.
   let bboxFilter = $state(false)

@@ -1,5 +1,5 @@
 /**
- * Generic elevated-data overlay for the MapLibre map (ported from overlay3d.js).
+ * Generic elevated-data overlay for the MapLibre map.
  *
  * MapLibre has no elevated-line support, so anything that must float above the
  * terrain at a true altitude is drawn by three.js instead: a single MapLibre custom

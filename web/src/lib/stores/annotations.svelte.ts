@@ -3,7 +3,7 @@
  * time metadata; any tier replays against the bounds).
  *
  * Holds the annotation list and the create/edit form state, and owns the CRUD +
- * jump-to-annotation flow. The list + jump are axis-level (time-dock Phase 3):
+ * jump-to-annotation flow. The list + jump are axis-level:
  * the TimeDock's strip bands and the picker's saved-windows section consume them
  * from Map and Trends alike; jumps reframe the *global* window via `selection`.
  * Only the map rendering (pins/range polylines, `pendingPan`) stays map-side, in

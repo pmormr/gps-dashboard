@@ -1,5 +1,5 @@
 /**
- * Label / POI density controls for the vector basemap (ported from labels.js).
+ * Label / POI density controls for the vector basemap.
  *
  * Drives the live MapLibre GL style of the map's vector base directly — settings
  * are global (one panel applies to the vector base and is re-applied whenever its

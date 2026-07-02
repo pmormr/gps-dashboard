@@ -1,4 +1,4 @@
-"""Tests for the size-aware decimation in GET /api/points (C17).
+"""Tests for the size-aware decimation in GET /api/points.
 
 Seeds the processed ``track_points`` tier directly, then drives the real route
 through the Flask test client to pin the contract: every overlapping stop
