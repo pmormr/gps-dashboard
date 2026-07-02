@@ -34,12 +34,12 @@ END_MARK = '### PROBE END'
 #: followers/daemons) — the whole batch runs in one SSH round-trip.
 SECTIONS: dict[str, str] = {
     # Identity/context (not columns; confirms what box we probed).
-    'board': 'cat /etc/openwrt_release; ubus call system.board',
+    'board': 'cat /etc/openwrt_release; ubus call system board',
     # Load/memory/uptime — /proc vs the pre-parsed ubus JSON, to pick a parse source.
     'loadavg': 'cat /proc/loadavg',
     'uptime': 'cat /proc/uptime',
     'meminfo': 'grep -E "^(MemTotal|MemFree|MemAvailable|Buffers|Cached):" /proc/meminfo',
-    'ubus_system_info': 'ubus call system.info',
+    'ubus_system_info': 'ubus call system info',
     # SoC temperature — mt7621 may expose neither; absence is a finding.
     'thermal': (
         'for z in /sys/class/thermal/thermal_zone*; do '
