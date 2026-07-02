@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -78,6 +78,12 @@ Drone telemetry tier — aerial GPS tracks batch-imported from DJI footage by `t
 - `drone_flights(id, model, model_code, first_fix_utc, last_fix_utc, media_path, source_name, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per clip. Natural key `(model_code, first_fix_utc)` (no DJI model exposes a serial); `media_path` is the canonical rex-nas path, NULL on an SD-card import for the NAS scan to backfill.
 - `drone_track_points(id, flight_id, timestamp, lat, lon, abs_alt, importance)` — the thinned track (Reumann–Witkam, shared via `processor/simplify.py`); canonical ms-UTC puts drone points on the same time axis as `gps_points`. `abs_alt` is MSL metres.
 
+Phone location-history tier — the user's Google Timeline export batch-imported by `tools/import_phone_timeline.py` (full-replace on each run — exports are cumulative), fully rebuildable from the export (see `.claude/modules/phone.md`):
+
+- `phone_paths(id, start_time, end_time, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per contiguous `timelinePath` breadcrumb segment (thinning never crosses a time gap).
+- `phone_track_points(id, path_id, timestamp, lat, lon, importance, activity_type)` — the thinned breadcrumb (shared Reumann–Witkam); `importance=0` marks segment endpoints; `activity_type` is the covering activity's mode (what the map colors by).
+- `phone_visits(...)` / `phone_activities(...)` — the semantic layer (place visits, trip segments); its own tables, **not** `annotations` (which stays user-curated).
+
 GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
 
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
@@ -102,6 +108,8 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `GET /api/obd/economy?start=&end=` — per-window drive summary: speed-density fuel (derived at read time via `common/obd.py`, since `fuel_rate_lph` is stored NULL) integrated over `obd_readings`, divided by the `track_points` path length over the same window, plus `max_speed_kph` and moving/idle/engine-on seconds. Pass an annotation's bounds for per-trip MPG; `calibrated` stays false until a fill-up calibration lands. Backs both the per-range readout (AnnotationsDrawer) and the Map's "inspect this window" panel
 - `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
 - `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
+- `GET /api/phone/tracks?start=&end=&bbox=&limit=` — phone-history breadcrumb: `phone_paths` overlapping the window (all filters optional), thinned points embedded; segment endpoints always kept, remaining budget filled by top-`importance` interior vertices (`truncated` ⇒ interior loss only)
+- `GET /api/phone/places?start=&end=&bbox=&limit=` — phone semantic layer: visits + activities overlapping the window
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
 - `GET /api/gpsd/status` — read-only gpsd device/version/fix snapshot; backs the Systems → gpsd drill-in (`Gpsd.svelte`)
 - `GET /api/constellation?start=&end=` — logged `sat_observations` reconstructed to 3D ECEF positions (grouped by SV, with each SV's fitted orbit-plane normal); feeds `/globe`. See `.claude/modules/observatory.md`
@@ -120,7 +128,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### Basemaps & Terrain
 
-A single MapLibre map (`MapView`, `web/src/lib/map.ts`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The unified **Layers panel** (base map + labels + 3D terrain + drone) drives the map directly. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
+A single MapLibre map (`MapView`, `web/src/lib/map.ts`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The unified **Layers panel** (base map + labels + 3D terrain + drone + phone history) drives the map directly. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
 
 ### GPS Logger Detail
 
@@ -154,6 +162,7 @@ gps-dashboard/
 │       ├── tiles.py
 │       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
+│       ├── phone.py            # /api/phone/{tracks,places} (phone-history map-overlay reads)
 │       ├── docs.py             # /api/docs/* (network-docs vault reader: tree + raw markdown)
 │       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
 │       ├── passes.py           # /api/passes (pass prediction; /passes is SPA-served)
@@ -202,6 +211,7 @@ gps-dashboard/
 │       │   ├── timestrip.ts    # canvas sub-range timeline island (density + stops + brush)
 │       │   ├── labels.ts       # POI/label GL-style controls (vector base)
 │       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
+│       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
@@ -225,6 +235,7 @@ gps-dashboard/
 │   ├── obd_probe.py            # OBD-II Phase-0 connectivity probe (plans/obd-platform-plan.md)
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
+│   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
 │   ├── tle_validate.py         # backtest derived orbits vs CelesTrak TLEs+SGP4 (absolute, dev-time)
 │   └── fetch_satcat.py         # fetch/cache CelesTrak SATCAT satellite metadata

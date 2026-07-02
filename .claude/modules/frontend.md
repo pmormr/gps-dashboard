@@ -78,9 +78,11 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
 - **Layers** (`Layers.svelte` + store, `labels.ts`) — one panel folding in base map
   (OSM vector / USGS raster + refresh), **labels** (POI categories / density / minor
   streets, vector-only — `labels.ts` drives the Protomaps GL style), **3D terrain**
-  (toggle + exaggeration), and **drone** (toggle + legend; `drone.ts` lazily imports
-  `overlay3d.ts` — a three.js custom MapLibre layer floating tracks at MSL altitude). The
-  drone subsystem is in **`.claude/modules/drone.md`**.
+  (toggle + exaggeration), **drone** (toggle + legend; `drone.ts` lazily imports
+  `overlay3d.ts` — a three.js custom MapLibre layer floating tracks at MSL altitude), and
+  **phone history** (toggle + mode legend; `phone.ts` color-by-mode breadcrumb + visit pins,
+  refetched on the global time selection while on). The drone subsystem is in
+  **`.claude/modules/drone.md`**; phone in **`.claude/modules/phone.md`**.
 
 **View behavior.** Default Live, last 24h. The map re-centers only when Live is on or an
 annotation/⊕ is clicked — otherwise free pan/zoom (browsing ≠ navigation). Decimation is
