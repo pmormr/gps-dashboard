@@ -35,6 +35,8 @@ export interface TimeStripActions {
   onShift(dir: -1 | 1): void
   /** Double-click / Backspace — step back out of the last zoom. */
   onBack(): void
+  /** Single-click on an annotation band/tick — jump to that window. Optional. */
+  onAnnotationClick?(a: StripAnnotation): void
 }
 
 export interface TimeStripHandle {
@@ -50,6 +52,7 @@ const MIN_SPAN_MS = 60 * 1000 // wheel/keyboard zoom-in floor
 const DRAG_PX = 4 // pointer travel below this is a click, not a rubber-band
 const MIN_ZOOM_MS = 1000 // ignore degenerate rubber-bands
 const WHEEL_IDLE_MS = 200 // wheel commit debounce (preview redraws per step)
+const CLICK_DELAY_MS = 250 // single-click delay so a double-click (back) can cancel it
 
 /**
  * Scale a domain around an anchor time by `factor` (>1 widens), holding the
@@ -83,6 +86,7 @@ export function mountTimeStrip(
   let annotations: StripAnnotation[] = []
   let drag: { startX: number; curX: number; moved: boolean } | null = null
   let wheelTimer: number | undefined
+  let clickTimer: number | undefined
 
   canvas.tabIndex = 0
   canvas.setAttribute(
@@ -263,10 +267,44 @@ export function mountTimeStrip(
       /* non-fatal */
     }
     draw()
-    if (!d.moved) return
+    if (!d.moved) {
+      // A click: jump to the annotation under the cursor, delayed so a
+      // double-click (back) cancels it.
+      const a = actions.onAnnotationClick ? annotationAt(msOfX(d.startX), d.startX) : null
+      if (a) {
+        if (clickTimer) clearTimeout(clickTimer)
+        clickTimer = window.setTimeout(() => {
+          clickTimer = undefined
+          actions.onAnnotationClick!(a)
+        }, CLICK_DELAY_MS)
+      }
+      return
+    }
     const lo = clampMs(msOfX(Math.min(d.startX, d.curX)))
     const hi = clampMs(msOfX(Math.max(d.startX, d.curX)))
     if (hi - lo >= MIN_ZOOM_MS) actions.onZoom(lo, hi)
+  }
+
+  /**
+   * The annotation under a strip position: point ticks win (±5px), then the
+   * narrowest range band covering the time (most specific on overlap).
+   */
+  function annotationAt(ms: number, px: number): StripAnnotation | null {
+    let hit: StripAnnotation | null = null
+    let hitSpan = Infinity
+    for (const a of annotations) {
+      const sMs = new Date(a.start_time).getTime()
+      if (!a.end_time) {
+        if (Math.abs(xOfMs(sMs) - px) <= 5) return a
+        continue
+      }
+      const eMs = new Date(a.end_time).getTime()
+      if (ms >= sMs && ms <= eMs && eMs - sMs < hitSpan) {
+        hit = a
+        hitSpan = eMs - sMs
+      }
+    }
+    return hit
   }
 
   function onWheel(e: WheelEvent): void {
@@ -292,6 +330,10 @@ export function mountTimeStrip(
 
   function onDblClick(e: MouseEvent): void {
     e.preventDefault()
+    if (clickTimer) {
+      clearTimeout(clickTimer)
+      clickTimer = undefined
+    }
     actions.onBack()
   }
 
@@ -331,20 +373,24 @@ export function mountTimeStrip(
         break
       }
     }
+    let overAnnotation = false
     if (!text) {
       for (const a of annotations) {
         const sMs = new Date(a.start_time).getTime()
         if (a.end_time) {
           if (ms >= sMs && ms <= new Date(a.end_time).getTime()) {
             text = a.name ?? null
+            overAnnotation = true
             break
           }
         } else if (Math.abs(xOfMs(sMs) - px) <= 4) {
           text = a.name ?? null
+          overAnnotation = true
           break
         }
       }
     }
+    canvas.style.cursor = overAnnotation && actions.onAnnotationClick ? 'pointer' : 'crosshair'
     if (text) showTooltip(text, px)
     else hideTooltip()
   }
@@ -384,6 +430,7 @@ export function mountTimeStrip(
     },
     destroy() {
       if (wheelTimer) clearTimeout(wheelTimer)
+      if (clickTimer) clearTimeout(clickTimer)
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)

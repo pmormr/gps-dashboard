@@ -9,7 +9,7 @@
   import type { SensorSeriesResponse, SensorsResponse } from '../lib/api'
   import { selection } from '../lib/stores/selection.svelte'
   import { DOMAIN_LABELS, metricKeysFor, metricMeta, orderedSensors } from '../lib/sensors'
-  import TimePicker from './TimePicker.svelte'
+  import TimeDock from './TimeDock.svelte'
 
   // Smoothing presets — a moving-average window in buckets (Off = no smoothing).
   const SMOOTHING = [
@@ -174,8 +174,14 @@
   </p>
 </header>
 
+<!-- The shared TimeDock: same axis + interaction grammar as the Map's bottom bar;
+     its density lane shows GPS activity ("when was I driving") with no map on
+     screen. -->
+<section class="dock-panel">
+  <TimeDock placement="down" />
+</section>
+
 <div class="bar">
-  <TimePicker placement="down" />
   <label class="smooth">
     Smoothing
     <select bind:value={smoothWindow}>
@@ -188,11 +194,6 @@
     <input type="checkbox" bind:checked={showBand} />
     Min/max band
   </label>
-  {#if selection.canGoBack}
-    <button class="zoom-out" onclick={() => selection.back()} title="Step back to the previous window (or double-click the chart to reset)">
-      ⊖ Zoom out
-    </button>
-  {/if}
 </div>
 
 <div class="presets">
@@ -286,15 +287,12 @@
     color: var(--text-dim);
     cursor: pointer;
   }
-  .zoom-out {
-    padding: 5px 10px;
-    background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-    color: var(--text);
-    border: 1px solid var(--accent);
-    border-radius: 8px;
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
+  .dock-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
   }
 
   .presets {

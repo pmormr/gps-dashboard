@@ -241,6 +241,51 @@
   accent-color: var(--accent);
 }
 
+.timepicker-saved-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.timepicker-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.timepicker-saved-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.timepicker-saved-list button:hover {
+  background: var(--surface-2);
+}
+.tp-ann-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-ann-when {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .timepicker-actions {
   display: flex;
   gap: 8px;

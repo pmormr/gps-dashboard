@@ -2,12 +2,14 @@
   import { onMount } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
+  import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { clearPhone, syncPhone } from '../lib/phone'
   import { annotations } from '../lib/stores/annotations.svelte'
   import { layers } from '../lib/stores/layers.svelte'
   import { selection } from '../lib/stores/selection.svelte'
+  import { track } from '../lib/stores/track.svelte'
   import './map.css'
   import './annotations.css'
   import AnnotationForm from './AnnotationForm.svelte'
@@ -15,14 +17,16 @@
   import InspectPanel from './InspectPanel.svelte'
   import Layers from './Layers.svelte'
   import MarksPanel from './MarksPanel.svelte'
-  import Timeline from './Timeline.svelte'
+  import TimeDock from './TimeDock.svelte'
 
   // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
   // (map.ts + MapLibre, ~283 kB gz) is dynamic-imported so it's a Map-only chunk;
-  // the main bundle stays small. `view` is passed to chrome children (Timeline,
-  // Layers) so they never import map.ts directly. Map-local state (Layers/Marks)
-  // lives in stores that persist across the cheap chrome remount; the engine itself
-  // persists too, so on a fresh load the two agree without reading back.
+  // the main bundle stays small. `view` is passed to chrome children (Layers) so
+  // they never import map.ts directly. Map-local state (Layers/Marks) lives in
+  // stores that persist across the cheap chrome remount; the engine itself
+  // persists too, so on a fresh load the two agree without reading back. The
+  // window fetch itself lives in the shared track store (driven by the TimeDock);
+  // this view only *renders* it — trail, annotation overlays, pendingPan.
   let view = $state<typeof MapViewType | undefined>()
   let drawerOpen = $state(false)
 
@@ -63,6 +67,65 @@
       })
   })
 
+  function nearestByTime(points: TrackPoint[], when: Date): TrackPoint | null {
+    if (!points.length) return null
+    const target = when.getTime()
+    let best = points[0]
+    let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target)
+    for (const p of points) {
+      const d = Math.abs(new Date(p.timestamp).getTime() - target)
+      if (d < bestDiff) {
+        best = p
+        bestDiff = d
+      }
+    }
+    return best
+  }
+
+  // Trail follows the shared track store. `refit` is false on live continuations
+  // (the anchor sliding forward) so the camera stays put.
+  $effect(() => {
+    if (!view) return
+    const pts = track.points
+    if (!pts.length) {
+      view.clearTrack()
+      return
+    }
+    view.showTrack(pts, { fitBounds: track.refit })
+    // A point annotation was just clicked: recentre on its nearest fix now that
+    // the reframed window's points have landed.
+    if (annotations.pendingPan) {
+      const nearest = nearestByTime(pts, annotations.pendingPan)
+      annotations.pendingPan = null
+      if (nearest) view.zoomTo(nearest.lat, nearest.lon, 14)
+    }
+  })
+
+  // Annotation overlays (map pins for points, range bands for ranges) against the
+  // loaded points. Reactive: runs when the points or the annotation list change
+  // (created/deleted/edited — no refetch). Timestamp strings are canonical
+  // fixed-width ms-UTC, so lexicographic compares order correctly. The strip's
+  // annotation ticks are the TimeDock's job.
+  $effect(() => {
+    if (!view) return
+    view.clearAnnotations()
+    const pts = track.points
+    if (!pts.length) return
+    const winStart = pts[0].timestamp
+    const winEnd = pts.at(-1)!.timestamp
+    for (const a of annotations.list) {
+      if (a.end_time) {
+        if (a.start_time > winEnd || a.end_time < winStart) continue
+        const segment = pts.filter((p) => p.timestamp >= a.start_time && p.timestamp <= a.end_time!)
+        if (segment.length >= 2) view.addRangeOverlay(segment, a.name)
+      } else {
+        if (a.start_time < winStart || a.start_time > winEnd) continue
+        const nearest = nearestByTime(pts, new Date(a.start_time))
+        if (nearest) view.addPinOverlay(nearest.lat, nearest.lon, a.name)
+      }
+    }
+  })
+
   // Recenter the map on the latest *raw* fix (the true current position).
   async function zoomToCurrent(): Promise<void> {
     try {
@@ -90,7 +153,7 @@
   </div>
 
   <div class="tl-overlay">
-    <Timeline {view} />
+    <TimeDock />
   </div>
 </div>
 

@@ -1,13 +1,13 @@
 /**
- * The annotations store — the map-local curated-place axis (ported from the
- * legacy `Annotations` module + the annotation/bookmark half of `timeline.js`).
+ * The annotations store — named windows on the time axis (annotations are pure
+ * time metadata; any tier replays against the bounds).
  *
  * Holds the annotation list and the create/edit form state, and owns the CRUD +
- * jump-to-annotation flow. It is map-local (only the Map tab consumes it), in
- * contrast to the global Selection time axis — but jumps reframe the *global*
- * window, so this store writes `selection` as its one cross-store seam. The map
- * overlay render (pins/range bands + strip ticks) lives in Timeline.svelte, which
- * has the loaded points; it reacts to `list` + `pendingPan` here.
+ * jump-to-annotation flow. The list + jump are axis-level (time-dock Phase 3):
+ * the TimeDock's strip bands and the picker's saved-windows section consume them
+ * from Map and Trends alike; jumps reframe the *global* window via `selection`.
+ * Only the map rendering (pins/range polylines, `pendingPan`) stays map-side, in
+ * Map.svelte, which has the loaded points.
  */
 
 import {
@@ -121,7 +121,7 @@ class AnnotationsStore {
    * current window size centred on its time, with a pending pan so the map
    * recentres once points land.
    */
-  jumpTo(ann: Annotation): void {
+  jumpTo(ann: Pick<Annotation, 'start_time' | 'end_time'>): void {
     if (ann.end_time) {
       this.pendingPan = null
       selection.setRange(new Date(ann.start_time), new Date(ann.end_time))

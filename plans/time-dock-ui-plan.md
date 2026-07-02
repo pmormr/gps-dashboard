@@ -1,10 +1,14 @@
 # Time Dock + Map Chrome Rework
 
-**Status: Phases 1–2 landed (2026-07-02) — deployable; next: Phase 3.**
-Phase 2 notes: the stop-dwell-block click→zoom nice-to-have was deferred (it
-collides with double-click = back; revisit with a delayed-click guard if wanted).
-Wheel commits go through `zoomTo` (one history entry per gesture pause) so
-double-click backs out of wheel zooms too.
+**Status: Phases 1–3 landed + deployed (2026-07-02); next: Phase 4.**
+Landed beyond plan: a Go Live nav button (reset to Live · Last 24h, history
+cleared) — shown whenever the axis is frozen.
+Phase 2 notes: wheel commits go through `zoomTo` (one history entry per gesture
+pause) so double-click backs out of wheel zooms too.
+Phase 3 notes: annotation band/tick clicks use a 250ms delayed-click guard so
+double-click (back) cancels the jump — the same guard unlocks the deferred
+stop-dwell-block click→zoom nice-to-have if wanted. Trends' mobile dock collapse
+(picker+nav only) not done — revisit if vertical space actually hurts.
 Execute phases in order; Phases 1–2 are one deployable unit (the picker and strip
 change together — don't ship one without the other). Every UI phase ends with
 `npm run check` + Vitest, a rebuild of `static/dist/`, and a commit.
