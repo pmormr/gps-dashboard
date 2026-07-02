@@ -162,18 +162,41 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       — pinned in `tests/test_rigctld.py`. Verified live: pinning B/A flips what
       `get_freq` reads (and explained the Phase-1h "mystery freq change": the
       touchscreen had switched Main to the B band).
-- [ ] **1.5d — D-STAR heard log (mini-phase).** Poll "Read DV RX call signs"
-      (cmd `20 02`) through rigctld and log every station heard: new table
-      `radio_dstar_heard(id, timestamp, ur_call, my_call, rpt1, rpt2, ...)`,
-      GPS-joinable at read time by timestamp (the OBD convention — no stored lat/lon).
-      Standalone enabled-gated poller service (`radio-heard`), direct-to-DB like the
-      logger (events don't fit the MQTT readings pipeline). `GET /api/radio/heard`
-      + a recent-stations card on `/radio`. Extension (not in scope): D-PRS positions
-      of heard stations (cmd `20 03`) → map pins.
+- [x] ~~**1.5d — D-STAR heard log (mini-phase).**~~ **DROPPED 2026-07-02** — Paul
+      doesn't use D-STAR. (Was: poll cmd `20 02` → `radio_dstar_heard`, GPS-joined.)
+      The CI-V DV-heard commands remain in the manual's table if this ever revives.
+- [ ] **1.5e — cross-band repeater support (PROPOSED).** Repeater Mode itself is
+      **not CI-V-controllable** — the manual's command table has no enter/exit
+      command (no `1A` extended family on this rig), community sources show no
+      undocumented one, and blind write-fuzzing the rig is poor risk/reward. Scope
+      is everything *around* the USA-only mode instead: **(1)** a one-tap "stage
+      cross-band" action that sets both bands' freq/mode/tone (band-pin + sets),
+      dualwatch ON (raw CI-V `16 59 01` — a required precondition), and TX power,
+      leaving only the touchscreen confirm; **(2)** live-validate whether the rig
+      accepts CI-V at all inside Repeater Mode (front panel locks to [MONI]);
+      **(3)** validated CI-V power off/on (`18`, wakeup preamble before `18 01`) —
+      Repeater Mode survives power-off, enabling remote power-cycling. Part-97 note:
+      cross-band retransmission has station-ID obligations the 5100 doesn't
+      automate; operator's responsibility, outside the app.
 
-## Phase 2 — Transmission recording (needs a USB audio dongle)
+## Phase 2 — Transmission recording (Digirig ordered 2026-07-02)
 
-- [ ] Pick + wire a USB audio interface (RX audio off the speaker jack).
+- **Q4 RESOLVED (2026-07-02): Digirig Mobile + Icom RJ-45 cable kit** (kit lists the
+  ID-5100 explicitly). One box covers Phase 2 RX + Phase 3 TX-audio/PTT at
+  radio-appropriate levels. Wiring facts locked while choosing:
+  - **RX tap = [SP1]** ([SP2] is the CI-V port now). SP1 carries the A+B mix and
+    plugging it **disables the internal speaker** → Y-split SP1: one leg to a small
+    cabin speaker, one leg (through a 10–20 dB pad) to the Digirig.
+  - **TX audio = mic pin 6** (electret level, 8 V bias adjacent) + **PTT = pin 4**
+    via the kit's RJ-45 leg — the manual has no line-in anywhere; the DATA jack is
+    serial-only. CI-V PTT remains the primary keying path.
+  - **Watch-item: ground-loop hum** (Pi + radio share van 12 V ground). Check the
+    Digirig revision's isolation; escalation path = inline isolator on the speaker
+    leg, then DRA-series/SignaLink.
+  - Level stability synergy: the recorder can **pin AF via `POST /api/radio/level`**
+    (1.5b) before capture for reproducible record levels.
+- [x] Pick + order the USB audio interface (see Q4 above).
+- [ ] Wire it when it arrives: SP1 Y-split + RJ-45 leg, `arecord` smoke test.
 - [ ] `radio_transmissions` schema (R4) + a squelch/VOX-gated recorder process
       (standalone, like the logger), writing audio files + GPS-snapped rows.
 - [ ] Map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.
@@ -190,5 +213,6 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
 - **Q2 — Hamlib backend reality. RESOLVED (1a).** Freq/mode/S-meter(RAWSTR)/PTT/DCD/
   tones/duplex available; memory + get-VFO + scan + split + info unavailable. See 1a.
 - **Q3 — service name. RESOLVED (R6).** `radio-control`.
-- **Q4 — Phase 2 audio hardware** (cheap CM108 dongle vs a proper interface) and **Q5 —
-  Phase 3 PTT method** — defer to those phases.
+- **Q4 — Phase 2 audio hardware. RESOLVED (2026-07-02).** Digirig Mobile + Icom RJ-45
+  cable kit (ordered) — see Phase 2. **Q5 — Phase 3 PTT method:** CI-V PTT (proven in
+  dump_caps) is primary; the Digirig's RJ-45 PTT line is the hardware fallback.
