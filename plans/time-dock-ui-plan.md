@@ -2,7 +2,9 @@
 
 **Status: Phases 1–4 landed + deployed (2026-07-02); next: Phase 5.**
 Phase 4 notes: rail panels default closed and reset on remount (a clean map each
-visit); legend chips sit under the top-left annotations cluster.
+visit); legend chips sit under the top-left annotations cluster. Revised in
+review: Data layers (🛰) and Map style (🎨) are separate rail buttons — not one
+Layers panel with a collapsed style group (unrelated tasks).
 Landed beyond plan: a Go Live nav button (reset to Live · Last 24h, history
 cleared) — shown whenever the axis is frozen.
 Phase 2 notes: wheel commits go through `zoomTo` (one history entry per gesture
