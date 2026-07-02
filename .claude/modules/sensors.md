@@ -44,10 +44,17 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   and **closes the connection when parked** so the bus sleeps and volume is bounded to
   drive-time. Polls a mutable per-PID rate table (all 1 Hz in Phase 1), publishing a
   full-snapshot to `sensors/van/obd` with the `.../status` LWT; saturation (target vs
-  actual cycle) surfaces in the heartbeat. **Trap: the file is `obd_reader.py`, not
+  actual cycle) surfaces in the heartbeat. Each parked wake also **classifies the
+  physical link** and publishes it retained on `.../status` (transitions only, loop-owned
+  à la Victron): `no_adapter` (serial/ELM unreachable — USB unplugged), `no_car` (ELM
+  answers but reads <6 V — adapter out of the OBD socket; python-OBD's own `AT RV` check),
+  `online` (socket powered). Ingest lands it in `sensors.status`, `/api/status` serves it
+  as `obd_link`, and the Home Van card renders the faults — so an unplugged cable is
+  never mistaken for "engine off". **Trap: the file is `obd_reader.py`, not
   `obd.py`** — `obd.py` shadows the `obd` library on a script-form run (circular
-  self-import → startup crash). python-OBD's engine-off ERROR/WARNING chatter is dropped
-  by a logging `Filter` so a parked van stays quiet in the journal. `--fake` mode for
+  self-import → startup crash). python-OBD's probe-time ERROR/WARNING chatter (engine
+  off, port missing, socket disconnected) is dropped by a logging `Filter` so a parked
+  van stays quiet in the journal — the heartbeat's `link=`/`voltage=` carry the signal. `--fake` mode for
   desk testing. **Bus access:** the OBD port's diagnostic CAN is physically isolated by
   the FCA Security Gateway — two adapters (BAFX clone, then the genuine EX) `CAN ERROR`ed
   through it, and OBDLink's AutoAuth unlock is online + app-locked, unfit for a headless
@@ -158,7 +165,8 @@ Topics (`mqttbus/topics.py`):
 
 ```
 sensors/<node>/<type>           # readings (JSON)
-sensors/<node>/<type>/status    # retained LWT: "online" / "offline"
+sensors/<node>/<type>/status    # retained health flag (LWT: "offline"); free-form per
+                                # stream — all use online/offline, OBD adds no_adapter/no_car
 alarms/<rule_id>                # retained alarm state (alarms not built yet)
 ```
 

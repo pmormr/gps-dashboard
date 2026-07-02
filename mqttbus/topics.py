@@ -8,8 +8,12 @@ browser client all agree on the shape without re-implementing string splitting.
 Taxonomy::
 
     sensors/<node>/<type>           # readings (JSON payload)
-    sensors/<node>/<type>/status    # LWT, retained: "online" / "offline"
+    sensors/<node>/<type>/status    # retained health flag (LWT: "offline")
     alarms/<rule_id>                # alarm state, retained: "active" / "cleared"
+
+Status payloads are free-form per stream (ingest stores them verbatim in
+``sensors.status``): every reader uses ``online``/``offline``, and the OBD reader
+adds physical-link states (``no_adapter``/``no_car`` — see ``sensors/obd_reader.py``).
 
 ``<node>`` is a short unique name (usually the physical location: ``cabin``,
 ``exterior``); ``<type>`` is the sensor type (``bme680``). The ``(node, type)``

@@ -92,7 +92,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### API Endpoints
 
-- `GET /api/status` — Home glance: one aggregate read (latest fix + mode, Victron SOC/solar/load, OBD when the engine was recently on, cabin IAQ/temp, GNSS sat count/fix health, systemd service states); backs the SPA Home view
+- `GET /api/status` — Home glance: one aggregate read (latest fix + mode, Victron SOC/solar/load, OBD when the engine was recently on + the OBD link state `obd_link`, cabin IAQ/temp, GNSS sat count/fix health, systemd service states); backs the SPA Home view
 - `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated: every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`; stops also carry `dwell_start`/`dwell_end`/`radius` (the frontend renders them as dwell-interval blocks on the slider and selects them by interval overlap).
 - `GET /api/points/latest` — single most-recent **raw** fix (the live position dot reads raw `gps_points`, not the processed tier, so it tracks the true current fix)
 - `GET /api/annotations` — list every annotation; `point_count` is NULL for point bookmarks, integer for ranges

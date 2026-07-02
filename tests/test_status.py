@@ -55,6 +55,7 @@ def test_status_empty_db(client):
 
     for domain in ('location', 'gnss', 'house', 'cabin', 'van'):
         assert data[domain] is None
+    assert data['obd_link'] is None  # obd stream never registered
     assert 'now' in data
     assert data['ntp'] == {'synced': True}
 
@@ -77,6 +78,19 @@ def test_status_latest_values(client):
     assert data['house']['pv_power'] == 320.0
     assert data['cabin']['temp_c'] == 22.4
     assert data['van']['rpm'] == 1850.0
+
+
+def test_status_obd_link(client):
+    """The van OBD stream's registry status rides along as ``obd_link``."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO sensors (node, type, first_seen, status) VALUES ('van', 'obd', ?, ?)",
+        (now_canonical(), 'no_adapter'),
+    )
+    conn.commit()
+    data = client.get('/api/status').get_json()
+
+    assert data['obd_link'] == 'no_adapter'
 
 
 def test_status_returns_most_recent(client):

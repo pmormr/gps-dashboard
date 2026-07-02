@@ -184,7 +184,8 @@ def publisher_session(
 
     On enter: build the reading/status topics, make a client with a retained
     ``offline`` LWT, register an ``on_connect`` that publishes ``online`` (unless
-    ``announce_online`` is False — Victron flips its status from the loop instead),
+    ``announce_online`` is False — the Victron and OBD readers own their status from
+    the loop instead: source freshness and physical link state respectively),
     then connect and start the network loop. On exit (including Ctrl+C or an error):
     publish a retained ``offline``, briefly drain, and stop/disconnect.
 

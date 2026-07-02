@@ -37,6 +37,16 @@
     alt?: string
     sub: string
     dim: boolean
+    // Renders the sub-line in the warning color (a fault, not just stale data).
+    warn?: boolean
+  }
+
+  // OBD stream faults (from the sensors registry via /api/status). These take
+  // precedence over reading staleness: an unplugged cable is not "engine off".
+  const OBD_LINK_FAULTS: Record<string, string> = {
+    no_adapter: 'OBD adapter unplugged (USB)',
+    no_car: 'adapter not in OBD socket',
+    offline: 'OBD reader offline',
   }
 
   const r0 = (n: number | null | undefined): string =>
@@ -100,7 +110,10 @@
       })
     }
 
-    if (!s.van) {
+    const obdFault = s.obd_link ? OBD_LINK_FAULTS[s.obd_link] : undefined
+    if (obdFault) {
+      cards.push({ name: 'Van', metric: '—', sub: obdFault, dim: false, warn: true })
+    } else if (!s.van) {
       cards.push({ name: 'Van', metric: '—', sub: 'no OBD', dim: true })
     } else if (age(s.van.timestamp) > MAX_AGE.van) {
       cards.push({ name: 'Van', metric: 'Off', sub: 'engine', dim: false })
@@ -139,7 +152,7 @@
     <div class="card" class:dim={c.dim}>
       <div class="card-metric">{c.metric}{#if c.alt}<span class="alt">{c.alt}</span>{/if}</div>
       <div class="card-name">{c.name}</div>
-      <div class="card-sub muted">{c.sub}</div>
+      <div class="card-sub" class:muted={!c.warn} class:warn-text={c.warn}>{c.sub}</div>
     </div>
   {/each}
 </div>
@@ -174,6 +187,10 @@
 
   .err-text {
     color: var(--err);
+  }
+
+  .warn-text {
+    color: var(--warn);
   }
 
   .health {

@@ -53,6 +53,24 @@ def _latest(conn: sqlite3.Connection, table: str, cols: list[str]) -> dict | Non
     return dict(row) if row else None
 
 
+def _obd_link(conn: sqlite3.Connection) -> str | None:
+    """Return the van OBD stream's link state from the sensors registry.
+
+    The OBD reader publishes its physical-link classification on the retained
+    status topic (``online`` / ``no_adapter`` / ``no_car``; ``offline`` = reader
+    process down), which ingest lands in ``sensors.status``. None when the stream
+    has never registered.
+
+    Args:
+        conn: Open SQLite connection.
+
+    Returns:
+        The registry status string, or None.
+    """
+    row = conn.execute("SELECT status FROM sensors WHERE type = 'obd' LIMIT 1").fetchone()
+    return row['status'] if row else None
+
+
 def _ntp_synced() -> bool | None:
     """Best-effort chrony sync state for the health strip.
 
@@ -82,6 +100,7 @@ def status() -> Response:
             ),
             'cabin': _latest(conn, 'bme680_readings', ['temp_c', 'humidity_pct', 'iaq']),
             'van': _latest(conn, 'obd_readings', ['rpm', 'coolant_c', 'speed_kph']),
+            'obd_link': _obd_link(conn),
             'services': [{'name': s, 'state': proc.service_state(s)} for s in _STATUS_SERVICES],
             'ntp': {'synced': _ntp_synced()},
         }

@@ -7,6 +7,14 @@ current-values snapshot to ``sensors/van/obd``, registering a retained LWT on
 The ingest subscriber writes each snapshot into ``obd_readings`` (one row per
 cycle, complete) — see ``mqttbus/ingest.py`` and ``api/sensor_schema.py``.
 
+Beyond ``online``/``offline``, the retained status also carries the **physical
+link state** so an unplugged cable is distinguishable from a parked van: each
+parked wake classifies the link (``no_adapter`` — serial/ELM unreachable, the USB
+side is unplugged; ``no_car`` — the ELM answers but reads < 6 V battery voltage,
+so the adapter is out of the OBD socket; ``online`` — socket powered) and
+publishes transitions. Like the Victron reader, the loop owns the status topic
+(``announce_online=False``) so a broker reconnect can't stomp the retained state.
+
 Two design points define this reader:
 
 * **Single serial owner, no queue.** The ELM327 is a blocking, half-duplex,
@@ -43,6 +51,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from typing import Literal, Protocol
 
 import obd
 
@@ -50,6 +59,13 @@ from common.timefmt import now_canonical
 from sensors.runner import Heartbeat, add_publisher_args, bounded_step, publisher_session
 
 SENSOR_TYPE = 'obd'
+
+#: Physical-link classification published (retained) on the stream's status topic.
+#: ``offline`` (process dead, via LWT) completes the vocabulary but is never a
+#: probe result. python-OBD's ELM327 init already measures battery voltage
+#: (``AT RV``): < 6 V leaves it at ``ELM_CONNECTED`` — the out-of-socket signature,
+#: since the OBDLink EX is USB-powered and reads ~0 V off the car.
+LinkState = Literal['no_adapter', 'no_car', 'online']
 
 # Full-snapshot publish cadence and per-PID baseline period (all PIDs currently
 # share this rate). The poll loop targets one snapshot per BASELINE_PERIOD_S.
@@ -162,22 +178,36 @@ class ObdReader:
         self._fast = fast
         self._conn: object | None = None
 
-    def connect(self) -> bool:
-        """Open the connection if needed; return whether the ECU is reachable.
+    def probe(self) -> LinkState:
+        """Open the connection if needed and classify the physical link.
+
+        Maps python-OBD's connect-time status: ``NOT_CONNECTED`` (port missing /
+        ELM silent) → ``no_adapter``; ``ELM_CONNECTED`` (ELM answered but its
+        ``AT RV`` battery-voltage check read < 6 V) → ``no_car``; anything further
+        (``OBD_CONNECTED``/``CAR_CONNECTED``) → ``online``. Only ``online`` keeps
+        the connection open — whether the ECUs answer PIDs is :meth:`pollable`.
 
         Returns:
-            True if a connection to the car is established (``CAR_CONNECTED``).
+            The link classification for this wake.
         """
         if self._conn is not None:
-            return True
+            return 'online'
         conn = obd.OBD(
             portstr=self._port, baudrate=self._baud, protocol=self._protocol, fast=self._fast
         )
-        if conn.status() == obd.OBDStatus.CAR_CONNECTED:
-            self._conn = conn
-            return True
-        conn.close()
-        return False
+        status = conn.status()
+        if status == obd.OBDStatus.NOT_CONNECTED:
+            conn.close()
+            return 'no_adapter'
+        if status == obd.OBDStatus.ELM_CONNECTED:
+            conn.close()
+            return 'no_car'
+        self._conn = conn
+        return 'online'
+
+    def pollable(self) -> bool:
+        """Return whether the ECUs negotiated a protocol (``CAR_CONNECTED``)."""
+        return self._conn is not None and self._conn.status() == obd.OBDStatus.CAR_CONNECTED  # type: ignore[attr-defined]
 
     def voltage(self) -> float | None:
         """Return the adapter-measured voltage (ATRV), or None if not connected."""
@@ -231,8 +261,12 @@ class FakeReader:
         self._values = dict(self._BASELINES)
         self._start = time.monotonic()
 
-    def connect(self) -> bool:
-        """Always 'connected' — the fake car is always present."""
+    def probe(self) -> LinkState:
+        """Always ``online`` — the fake car is always plugged in."""
+        return 'online'
+
+    def pollable(self) -> bool:
+        """Always pollable — the fake ECUs always answer."""
         return True
 
     def voltage(self) -> float | None:
@@ -253,29 +287,51 @@ class FakeReader:
         """No-op; the fake holds no resources."""
 
 
-def engine_running(reader: ObdReader | FakeReader) -> bool:
-    """Return whether the engine is running (alternator voltage above threshold)."""
-    voltage = reader.voltage()
-    return voltage is not None and voltage >= VOLTAGE_THRESHOLD_V
+class Reader(Protocol):
+    """The reader surface :func:`poll_loop` drives (real, fake, or test stub)."""
+
+    def probe(self) -> LinkState:
+        """Open the connection if needed and classify the physical link."""
+
+    def pollable(self) -> bool:
+        """Return whether the ECUs answer PIDs (``CAR_CONNECTED``)."""
+
+    def voltage(self) -> float | None:
+        """Return the adapter-measured battery voltage, or None."""
+
+    def poll(self, spec: PidSpec) -> float | None:
+        """Query one PID, returning its scalar value or None."""
+
+    def close(self) -> None:
+        """Close the connection so the CAN bus can sleep."""
+
+
+def _volts(voltage: float | None) -> str:
+    """Format a voltage for the heartbeat line (``n/a`` when unreadable)."""
+    return f'{voltage:.1f}V' if voltage is not None else 'n/a'
 
 
 def poll_loop(
-    reader: ObdReader | FakeReader,
+    reader: Reader,
     client: object,
     reading_topic: str,
+    status_topic: str,
     once: bool,
 ) -> None:
     """Run the engine-gated poll/publish loop until interrupted.
 
-    Parked: connection closed, wake every ``WAKE_INTERVAL_S`` to check for a running
-    engine. Running: poll each PID at its due time, publish the full current-values
-    snapshot each cycle (fast channels fresh, slow channels last-read), and drop back
-    to parked after ``OFF_DEBOUNCE_CYCLES`` sub-threshold cycles.
+    Parked: connection closed, wake every ``WAKE_INTERVAL_S`` to classify the link
+    and check for a running engine. Running: poll each PID at its due time, publish
+    the full current-values snapshot each cycle (fast channels fresh, slow channels
+    last-read), and drop back to parked after ``OFF_DEBOUNCE_CYCLES`` sub-threshold
+    cycles. The link classification publishes retained on ``status_topic`` on
+    transitions only, so an unplugged cable is visible without flapping the broker.
 
     Args:
         reader: The serial (or fake) reader; the sole owner of the connection.
         client: The connected paho MQTT client.
         reading_topic: ``sensors/<node>/obd`` to publish snapshots to.
+        status_topic: ``sensors/<node>/obd/status`` for the retained link state.
         once: Publish a single snapshot (once running) and return — for testing.
     """
     current: dict[str, float | None] = {spec.column: None for spec in PID_SPECS}
@@ -283,16 +339,23 @@ def poll_loop(
     hb = Heartbeat()
     state = 'parked'
     off_streak = 0
+    link: LinkState | None = None
 
     while True:
         if state == 'parked':
-            if reader.connect() and engine_running(reader):
+            probed = reader.probe()
+            if probed != link:
+                client.publish(status_topic, probed, qos=1, retain=True)  # type: ignore[attr-defined]
+                print(f'link: {probed}', flush=True)
+                link = probed
+            voltage = reader.voltage() if probed == 'online' else None
+            if voltage is not None and voltage >= VOLTAGE_THRESHOLD_V and reader.pollable():
                 state = 'running'
                 off_streak = 0
                 print('engine running — polling', flush=True)
             else:
                 reader.close()
-                hb.maybe_emit(state=state, voltage='n/a')
+                hb.maybe_emit(state=state, link=probed, voltage=_volts(voltage))
                 time.sleep(WAKE_INTERVAL_S)
                 continue
 
@@ -327,8 +390,7 @@ def poll_loop(
         # requested rate — the backpressure signal surfaced in the heartbeat.
         if cycle_s > BASELINE_PERIOD_S:
             hb.bump('saturated')
-        volts = f'{voltage:.1f}V' if voltage is not None else 'n/a'
-        hb.maybe_emit(state=state, voltage=volts)
+        hb.maybe_emit(state=state, link=link, voltage=_volts(voltage))
 
         if once:
             return
@@ -370,16 +432,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-class _EngineOffFilter(logging.Filter):
-    """Drop python-OBD's benign engine-off connect chatter.
+class _ProbeNoiseFilter(logging.Filter):
+    """Drop python-OBD's expected probe chatter.
 
-    The engine-gated reader deliberately polls the adapter while the engine may be
-    off, and python-OBD logs that expected condition at ERROR/WARNING on every parked
-    wake ("ignition is off", "unable to connect", "No connection to car"). Those
-    specific messages are normal here; any other python-OBD record passes through.
+    The engine-gated reader deliberately probes the adapter every parked wake, and
+    python-OBD logs each expected outcome at ERROR/WARNING: engine off ("ignition is
+    off", "unable to connect", "No connection to car"), USB unplugged ("could not
+    open port"), and the adapter out of the OBD socket ("OBD2 socket disconnected").
+    The reader classifies and reports all of these itself (link transitions + the
+    heartbeat's ``link=``), so the per-wake repeats are noise; any other python-OBD
+    record passes through.
     """
 
-    _BENIGN = ('ignition is off', 'unable to connect', 'No connection to car')
+    _BENIGN = (
+        'ignition is off',
+        'unable to connect',
+        'No connection to car',
+        'could not open port',
+        'OBD2 socket disconnected',
+    )
 
     def filter(self, record: logging.LogRecord) -> bool:
         """Return False for the known engine-off messages, True otherwise."""
@@ -387,15 +458,16 @@ class _EngineOffFilter(logging.Filter):
         return not any(snippet in message for snippet in self._BENIGN)
 
 
-def _quiet_obd_engine_off_logging() -> None:
-    """Attach :class:`_EngineOffFilter` to python-OBD's handler.
+def _quiet_obd_probe_logging() -> None:
+    """Attach :class:`_ProbeNoiseFilter` to python-OBD's handler.
 
     python-OBD adds its own stderr handler at import; the filter goes on the handler
     (not the logger) so it catches records propagating up from ``obd.elm327`` /
-    ``obd.obd``. Parked observability comes from our own heartbeat (state + voltage).
+    ``obd.obd``. Parked observability comes from our own heartbeat (state + link +
+    voltage) and the once-per-transition link log line.
     """
     obd_logger = logging.getLogger('obd')
-    noise_filter = _EngineOffFilter()
+    noise_filter = _ProbeNoiseFilter()
     for handler in obd_logger.handlers:
         handler.addFilter(noise_filter)
 
@@ -407,18 +479,18 @@ def main() -> int:
         Process exit code: 0 on graceful shutdown.
     """
     args = parse_args()
-    _quiet_obd_engine_off_logging()
+    _quiet_obd_probe_logging()
     reader: ObdReader | FakeReader = (
         FakeReader() if args.fake else ObdReader(args.port, args.baud, args.protocol, args.fast)
     )
     started = f'OBD reader started (node={args.node}, fake={args.fake})'
-    with publisher_session(args.node, SENSOR_TYPE, started_msg=started) as (
+    with publisher_session(args.node, SENSOR_TYPE, started_msg=started, announce_online=False) as (
         client,
         reading_topic,
-        _status,
+        status_topic,
     ):
         try:
-            poll_loop(reader, client, reading_topic, args.once)
+            poll_loop(reader, client, reading_topic, status_topic, args.once)
         except KeyboardInterrupt:
             print('OBD reader stopped', flush=True)
         finally:

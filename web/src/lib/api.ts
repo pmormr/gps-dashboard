@@ -56,6 +56,9 @@ export interface Status {
   house: HouseReading | null
   cabin: CabinReading | null
   van: VanReading | null
+  /** OBD stream health from the sensors registry: online / no_adapter / no_car /
+   * offline (reader down) / unknown; null when the stream never registered. */
+  obd_link: string | null
   services: ServiceState[]
   ntp: { synced: boolean | null } | null
 }
