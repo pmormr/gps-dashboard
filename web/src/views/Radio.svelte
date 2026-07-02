@@ -27,12 +27,13 @@
     { v: 'plus', l: '+' },
     { v: 'minus', l: '−' },
   ]
-  // The rig's three TX power steps as normalized Hamlib RFPOWER values (the CI-V
-  // power meter anchors: 26=LOW, 77=MID, 255=HIGH).
+  // The rig's three TX power steps as normalized Hamlib RFPOWER values, captured
+  // live 2026-07-02: sets snap to 42/128/213 (÷255). These are the *setting*
+  // steps — the CI-V power-meter scale (26/77/255) is a different axis.
   const RF_POWERS = [
-    { v: 26 / 255, l: 'Low' },
-    { v: 77 / 255, l: 'Mid' },
-    { v: 1, l: 'High' },
+    { v: 42 / 255, l: 'Low' },
+    { v: 128 / 255, l: 'Mid' },
+    { v: 213 / 255, l: 'High' },
   ]
 
   let s = $state<RadioStatus | null>(null)

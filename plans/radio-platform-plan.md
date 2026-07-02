@@ -144,22 +144,24 @@ rigctld's `send_cmd` passthrough for what the backend lacks (**R7**: raw CI-V go
 Source of truth for raw commands: the CI-V command table in the vendored manual
 (`reference/ID-5100_ENG_CD_3.txt`, "Remote jack (CI-V) information", §13-17).
 
-- [ ] **1.5a — calibrated S-meter.** The manual pins the scale: RAWSTR `0000=S0,
-      0170=S9` (confirmed live — the rig read exactly 170 on a strong signal). Render
-      real S-units (linear S0–S9, `S9+` above 170 with an S9 tick on the bar) instead
-      of the raw `/255` readout. Drop `strength_db` from `/api/radio/status` — it's
-      Hamlib's generic Icom table, not ID-5100-calibrated, and misleading next to a
-      real scale; dropping it also saves one CI-V transaction per poll.
-- [ ] **1.5b — volume + squelch (+ RF power) controls.** Hamlib levels `AF`/`SQL`
-      (get+set, normalized 0..1) added to status + a new `POST /api/radio/level`
-      (`{level: af|sql|rfpower, value: 0..1}`); sliders on `/radio` with the same
-      don't-clobber-while-editing guard as tone/offset.
-- [ ] **1.5c — deterministic band select.** `POST /api/radio/band {band: a|b}` via raw
-      CI-V cmd `07 D0/D1` (set the A/B band as Main). We still can't *read* the active
-      band (no get-VFO), but an explicit set converts "the API follows whatever band
-      was last tapped" into "the app pins the band first." Validate live whether
-      Hamlib's `set_vfo Main/Sub` maps to the same frames; prefer raw `07 D0/D1` for
-      pinned semantics either way. Requires `send_cmd` support in `api/rigctld.py`.
+- [x] **1.5a — calibrated S-meter — DONE (2026-07-02).** RAWSTR `0000=S0, 0170=S9`
+      per the manual (confirmed live — a strong signal read exactly 170). `/radio`
+      renders real S-units (linear S0–S9, `S9+` above, S9 tick) via `web/src/lib/
+      radio.ts`; `strength_db` dropped from `/api/radio/status` (Hamlib's generic
+      Icom table, not ID-5100-calibrated; also one less CI-V transaction per poll).
+- [x] **1.5b — volume + squelch + RF power — DONE (2026-07-02).** `AF`/`SQL`/`RFPOWER`
+      in status (`levels`) + `POST /api/radio/level`; sliders + a Low/Mid/High TX-power
+      segment on `/radio`. Live findings: **RFPOWER sets snap to 42/128/213 (÷255)** —
+      the setting steps, distinct from the CI-V power-meter scale (26/77/255) — and
+      **AF/SQL are per-band** (switching Main bands changes what the levels read; the
+      2 s poll re-syncs the sliders, so no UI handling needed).
+- [x] **1.5c — deterministic band select — DONE (2026-07-02).** `POST /api/radio/band
+      {band: a|b}` sends raw CI-V `07 D0/D1` through `Rigctld.send_civ` (R7). Live
+      wire-format capture: `send_cmd` replies put the `RPRT` terminator on the
+      ``Reply:`` line (unlike every other command), so `send_civ` parses it directly
+      — pinned in `tests/test_rigctld.py`. Verified live: pinning B/A flips what
+      `get_freq` reads (and explained the Phase-1h "mystery freq change": the
+      touchscreen had switched Main to the B band).
 - [ ] **1.5d — D-STAR heard log (mini-phase).** Poll "Read DV RX call signs"
       (cmd `20 02`) through rigctld and log every station heard: new table
       `radio_dstar_heard(id, timestamp, ur_call, my_call, rpt1, rpt2, ...)`,
