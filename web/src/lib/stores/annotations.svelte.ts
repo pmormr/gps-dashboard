@@ -117,8 +117,9 @@ class AnnotationsStore {
 
   /**
    * Reframe the global window so the annotation is in view. Range → an explicit
-   * `range`; point → keep the current window size centred on its time (`around`),
-   * with a pending pan so the map recentres once points land.
+   * `range` (a saved window restores exactly); point → an explicit range of the
+   * current window size centred on its time, with a pending pan so the map
+   * recentres once points land.
    */
   jumpTo(ann: Annotation): void {
     if (ann.end_time) {
@@ -127,7 +128,8 @@ class AnnotationsStore {
     } else {
       const ts = new Date(ann.start_time)
       this.pendingPan = ts
-      selection.setPicker({ mode: 'around', anchor: ts, live: false })
+      const half = selection.range.windowMs / 2
+      selection.setRange(new Date(ts.getTime() - half), new Date(ts.getTime() + half))
     }
   }
 

@@ -3,16 +3,18 @@
  *
  * Every historical-window read in the app takes a `start`/`end` (canonical ms-UTC
  * is uniform across tiers), so one window drives many consumers. This store is
- * that single window: the Graylog-style picker state (mode/anchor/window/live, the
- * *fetch* window) plus the sub-window *brush* within the loaded window. Consumers
- * react to `range` (refetch their own data) and `brush` (highlight the sub-window);
- * the map is the first consumer (see Timeline.svelte), sensors/globe adopt later.
+ * that single window — the picker state (mode/anchor/window/live, the *fetch*
+ * window) — plus a zoom history so drag-to-zoom anywhere can step back out.
+ * The window is the only time object (time-dock plan): consumers react to
+ * `range` and refetch; Map and Trends share the same axis.
  *
  * `live` is a mode of the axis — anchor follows now and a 30s tick makes `range`
- * recompute so consumers refresh. Ported from the imperative TimePicker singleton.
+ * recompute so consumers refresh. `zoomTo` forces live off (it's a `setRange`),
+ * but the pushed snapshot preserves `live: true`, so `back()` out of a zoom
+ * *resumes* Live — intended.
  */
 
-export type Mode = 'last' | 'around' | 'range'
+export type Mode = 'last' | 'range'
 
 /** The derived fetch window for the current picker state. */
 export interface Range {
@@ -23,13 +25,7 @@ export interface Range {
   windowMs: number
 }
 
-/** A sub-window brush within the loaded window (ms epoch). */
-export interface Brush {
-  loMs: number
-  hiMs: number
-}
-
-/** A snapshot of the picker fields — enough to restore a window verbatim (zoom-out). */
+/** A snapshot of the picker fields — enough to restore a window verbatim (back()). */
 export interface PickerState {
   mode: Mode
   anchor: Date | null
@@ -41,6 +37,8 @@ export interface PickerState {
 
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000
 const POLL_MS = 30 * 1000
+// widen() cap — a year still reaches an all-history view in a few doublings.
+const MAX_WINDOW_MS = 365 * 24 * 60 * 60 * 1000
 
 /** Preset windows shown as chips in the picker. */
 export const PRESETS: { label: string; ms: number }[] = [
@@ -52,7 +50,7 @@ export const PRESETS: { label: string; ms: number }[] = [
   { label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
 ]
 
-class SelectionStore {
+export class SelectionStore {
   // Picker state — the source of truth for the fetch window.
   mode = $state<Mode>('last')
   anchor = $state<Date | null>(null)
@@ -66,12 +64,8 @@ class SelectionStore {
   private tick = $state(0)
   private pollTimer: number | undefined
 
-  // The loaded window (set when a fetch lands) — the strip domain + brush bounds.
-  loadedFrom = $state<number | null>(null)
-  loadedTo = $state<number | null>(null)
-  // The brush sub-window within the loaded window (mirrors the TimeStrip handles).
-  brushLo = $state<number | null>(null)
-  brushHi = $state<number | null>(null)
+  // Zoom history — picker snapshots pushed by `zoomTo`, popped by `back`.
+  private zoomStack = $state<PickerState[]>([])
 
   constructor() {
     this.updatePolling()
@@ -95,20 +89,11 @@ class SelectionStore {
     } else {
       nowMs = this.anchor?.getTime() ?? Date.now()
     }
-    if (this.mode === 'last') {
-      return {
-        from: new Date(nowMs - this.windowMs),
-        to: new Date(nowMs),
-        live: this.live,
-        mode: 'last',
-        windowMs: this.windowMs,
-      }
-    }
     return {
-      from: new Date(nowMs - this.windowMs / 2),
-      to: new Date(nowMs + this.windowMs / 2),
-      live: false,
-      mode: 'around',
+      from: new Date(nowMs - this.windowMs),
+      to: new Date(nowMs),
+      live: this.live,
+      mode: 'last',
       windowMs: this.windowMs,
     }
   }
@@ -125,19 +110,9 @@ class SelectionStore {
     }
   }
 
-  /** The current brush, or null before the first load. */
-  get brush(): Brush | null {
-    return this.brushLo != null && this.brushHi != null
-      ? { loMs: this.brushLo, hiMs: this.brushHi }
-      : null
-  }
-
-  /** Whether the brush is a strict sub-range of the loaded window. */
-  get isSubRange(): boolean {
-    if (this.loadedFrom == null || this.loadedTo == null || this.brushLo == null || this.brushHi == null) {
-      return false
-    }
-    return this.brushLo > this.loadedFrom || this.brushHi < this.loadedTo
+  /** Whether `back()` has a window to step out to. */
+  get canGoBack(): boolean {
+    return this.zoomStack.length > 0
   }
 
   /** Human label for the picker trigger. */
@@ -147,12 +122,9 @@ class SelectionStore {
       return `${fmtAnchor(this.from)} → ${fmtAnchor(this.to)}`
     }
     const win = fmtDuration(this.windowMs)
-    if (this.mode === 'last') {
-      return this.live
-        ? `Live · Last ${win}`
-        : `Last ${win} ending ${fmtAnchor(this.anchor ?? new Date())}`
-    }
-    return `Around ${fmtAnchor(this.anchor ?? new Date())} ±${fmtDuration(this.windowMs / 2)}`
+    return this.live
+      ? `Live · Last ${win}`
+      : `Last ${win} ending ${fmtAnchor(this.anchor ?? new Date())}`
   }
 
   /** Apply a picker change (live is forced off outside `last`); restarts polling. */
@@ -174,26 +146,70 @@ class SelectionStore {
     this.updatePolling()
   }
 
-  /** Jump to an explicit range (zoom-to-range, use-marks). */
+  /** Jump to an explicit range (absolute picker jump, use-marks, annotation jump). */
   setRange(from: Date, to: Date): void {
     this.setPicker({ mode: 'range', from, to, live: false })
   }
 
-  /** Record the window a fetch loaded, resetting the brush to the full window. */
-  setLoaded(fromMs: number, toMs: number): void {
-    this.loadedFrom = fromMs
-    this.loadedTo = toMs
-    this.brushLo = fromMs
-    this.brushHi = toMs
+  /** Narrow to a sub-window (drag-zoom), pushing the current window onto the history. */
+  zoomTo(from: Date, to: Date): void {
+    this.zoomStack = [...this.zoomStack, this.pickerState]
+    this.setRange(from, to)
   }
 
-  /** Update the brush sub-window (from the TimeStrip). */
-  setBrush(loMs: number, hiMs: number): void {
-    this.brushLo = loMs
-    this.brushHi = hiMs
+  /** Step back out to the window before the last `zoomTo`. No-op on an empty stack. */
+  back(): void {
+    const prev = this.zoomStack.at(-1)
+    if (!prev) return
+    this.zoomStack = this.zoomStack.slice(0, -1)
+    this.setPicker(prev)
+  }
+
+  /** Pop the whole history — restore the window before the first `zoomTo`. */
+  resetZoom(): void {
+    const base = this.zoomStack[0]
+    if (!base) return
+    this.zoomStack = []
+    this.setPicker(base)
+  }
+
+  /**
+   * Move the window by one window-width. Shifting back leaves Live (the anchor
+   * freezes); shifting forward while Live is a no-op — the window already ends
+   * at now.
+   */
+  shift(dir: -1 | 1): void {
+    if (this.live && dir === 1) return
+    const { from, to, windowMs } = this.range
+    const newFrom = new Date(from.getTime() + dir * windowMs)
+    const newTo = new Date(to.getTime() + dir * windowMs)
+    if (this.mode === 'range') this.setRange(newFrom, newTo)
+    else this.setPicker({ mode: 'last', anchor: newTo, live: false })
+  }
+
+  /**
+   * Double the window around its center, capped at a year. Live keeps following
+   * now (the window just extends further back — half a live window in the future
+   * would be empty).
+   */
+  widen(): void {
+    const { from, to, windowMs } = this.range
+    const newW = Math.min(windowMs * 2, MAX_WINDOW_MS)
+    if (newW === windowMs) return
+    if (this.live) {
+      this.setPicker({ mode: 'last', windowMs: newW, live: true })
+      return
+    }
+    const centerMs = (from.getTime() + to.getTime()) / 2
+    if (this.mode === 'range') {
+      this.setRange(new Date(centerMs - newW / 2), new Date(centerMs + newW / 2))
+    } else {
+      this.setPicker({ mode: 'last', anchor: new Date(centerMs + newW / 2), windowMs: newW, live: false })
+    }
   }
 
   private updatePolling(): void {
+    if (typeof window === 'undefined') return // non-DOM (unit tests) — no live poll
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
       this.pollTimer = undefined

@@ -7,7 +7,7 @@
 
   import { getSensors, getSensorSeries } from '../lib/api'
   import type { SensorSeriesResponse, SensorsResponse } from '../lib/api'
-  import { selection, type PickerState } from '../lib/stores/selection.svelte'
+  import { selection } from '../lib/stores/selection.svelte'
   import { DOMAIN_LABELS, metricKeysFor, metricMeta, orderedSensors } from '../lib/sensors'
   import TimePicker from './TimePicker.svelte'
 
@@ -41,27 +41,14 @@
   let error = $state<string | null>(null)
 
   // ── Drag-to-zoom: each region select narrows the global window (the Map follows
-  // the same axis); the stack of prior windows lets us step back out. ──
-  let zoomStack = $state<PickerState[]>([])
-
+  // the same axis); the store's zoom history lets us step back out. ──
   function zoomIn(fromMs: number, toMs: number): void {
-    zoomStack = [...zoomStack, selection.pickerState]
-    selection.setRange(new Date(fromMs), new Date(toMs))
-  }
-
-  function zoomOut(): void {
-    if (zoomStack.length === 0) return
-    const prev = zoomStack[zoomStack.length - 1]
-    zoomStack = zoomStack.slice(0, -1)
-    selection.setPicker(prev)
+    selection.zoomTo(new Date(fromMs), new Date(toMs))
   }
 
   /** Double-click on the chart — pop straight back to the pre-zoom window. */
   function resetZoom(): void {
-    if (zoomStack.length === 0) return
-    const base = zoomStack[0]
-    zoomStack = []
-    selection.setPicker(base)
+    selection.resetZoom()
   }
 
   /** Chartable channels for a sensor as `[address, label, color]`, picker order. */
@@ -201,8 +188,8 @@
     <input type="checkbox" bind:checked={showBand} />
     Min/max band
   </label>
-  {#if zoomStack.length > 0}
-    <button class="zoom-out" onclick={zoomOut} title="Step back to the previous window (or double-click the chart to reset)">
+  {#if selection.canGoBack}
+    <button class="zoom-out" onclick={() => selection.back()} title="Step back to the previous window (or double-click the chart to reset)">
       ⊖ Zoom out
     </button>
   {/if}

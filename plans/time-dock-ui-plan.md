@@ -1,6 +1,7 @@
 # Time Dock + Map Chrome Rework
 
-**Status: planning complete (2026-07-02) — ready to execute, starting Phase 1.**
+**Status: Phase 1 landed (2026-07-02) — next: Phase 2. Don't deploy before Phase 2
+lands (Phases 1–2 ship together).**
 Execute phases in order; Phases 1–2 are one deployable unit (the picker and strip
 change together — don't ship one without the other). Every UI phase ends with
 `npm run check` + Vitest, a rebuild of `static/dist/`, and a commit.

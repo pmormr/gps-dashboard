@@ -68,9 +68,7 @@
   cursor: default;
 }
 
-.timepicker-card input[type='datetime-local'],
-.timepicker-card input[type='number'],
-.timepicker-card select {
+.timepicker-card input[type='datetime-local'] {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -148,30 +146,6 @@
   gap: 10px;
 }
 
-.timepicker-modes {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 4px;
-  background: var(--surface-2);
-  border-radius: 6px;
-  padding: 3px;
-}
-.timepicker-modes button {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.timepicker-modes button.active {
-  background: var(--surface);
-  color: var(--text);
-}
-
 .timepicker-presets {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
@@ -209,23 +183,6 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.timepicker-anchor-row,
-.timepicker-window-row {
-  display: flex;
-  gap: 6px;
-}
-.timepicker-anchor-row input {
-  flex: 1;
-  min-width: 0;
-}
-.timepicker-window-row input {
-  width: 70px;
-}
-.timepicker-window-row select {
-  flex: 1;
-  min-width: 0;
-}
-
 .timepicker-live-row {
   flex-direction: row !important;
   align-items: center;
@@ -235,10 +192,6 @@
   text-transform: none;
   padding: 4px 0;
   cursor: pointer;
-}
-.timepicker-live-row.disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 .timepicker-live-row input[type='checkbox'] {
   accent-color: var(--accent);

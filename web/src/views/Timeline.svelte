@@ -72,16 +72,16 @@
     return best
   }
 
-  // Render the current brush: trail/map, the count, the Zoom/Create gating, and
-  // the store's brush (for other axis consumers). followMap fits on initial load.
+  // Render the current brush: trail/map, the count, and the Zoom/Create gating.
+  // Map-local only — the store no longer carries a brush (the strip's two-handle
+  // brush dies entirely in time-dock Phase 2). followMap fits on initial load.
   function renderRange(followMap: boolean): void {
     const sel = strip?.getSelection()
-    if (!sel || !view) return
-    selection.setBrush(sel.loMs, sel.hiMs)
+    if (!sel || !view || !lastRange) return
     startLabel = windowLabel(sel.loMs)
     endLabel = windowLabel(sel.hiMs)
     const pts = pointsInRange(sel.loMs, sel.hiMs)
-    const isSub = selection.isSubRange
+    const isSub = sel.loMs > lastRange.from.getTime() || sel.hiMs < lastRange.to.getTime()
     view.showTrack(pts, { fitBounds: followMap, showEndpoints: isSub && pts.length > 1 })
     selCount = pts.length
     canZoom = isSub
@@ -150,7 +150,6 @@
     hasData = true
     // The axis is the requested window, not the data extent (S1): empty leading/
     // trailing time stays visible; data renders onto it via the TimeStrip canvas.
-    selection.setLoaded(from.getTime(), to.getTime())
     strip?.setData({ startMs: from.getTime(), endMs: to.getTime(), points: allPoints })
     renderRange(!isLiveTick)
     // A point annotation was just clicked: recentre on its nearest fix now that
