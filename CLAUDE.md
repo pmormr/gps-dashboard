@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`, `time-dock-ui`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`); **active/in-flight** plans live in `plans/` (`obd-platform`, `motion-imu`, `radio-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -128,7 +128,7 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### Basemaps & Terrain
 
-A single MapLibre map (`MapView`, `web/src/lib/map.ts`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The unified **Layers panel** (base map + labels + 3D terrain + drone + phone history) drives the map directly. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
+A single MapLibre map (`MapView`, `web/src/lib/map.ts`) renders two basemaps plus a terrain DEM: **vector OSM** (default — an immutable `northamerica.pmtiles` served at `/tiles/osm.pmtiles`, rendered client-side), **raster USGS** (online proxy + offline disk cache at `/tiles/<layer>/{z}/{x}/{y}.png`), and a **Terrarium terrain DEM** (`/tiles/terrain.pmtiles`) MapLibre drapes the basemap on for 3D. The map's right icon rail drives it directly — **Map style** (base map + labels + 3D terrain) and **Data layers** (drone + phone history) are separate rail panels. See **`.claude/modules/basemaps.md`** for archive paths/env, tile route + cache mechanics, draping, and the precache/terrain-build tooling.
 
 ### GPS Logger Detail
 
@@ -208,15 +208,15 @@ gps-dashboard/
 │       │   ├── geo.ts          # pure geo/format helpers
 │       │   ├── map.ts          # MapView MapLibre façade (npm maplibre/pmtiles)
 │       │   ├── mapHost.ts      # persistent keep-alive map host (alive across routes)
-│       │   ├── timestrip.ts    # canvas sub-range timeline island (density + stops + brush)
+│       │   ├── timestrip.ts    # canvas timeline island (density + stops + drag-to-zoom)
 │       │   ├── labels.ts       # POI/label GL-style controls (vector base)
 │       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
 │       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
-│       │   └── stores/         # selection (global time axis) · annotations · layers (map-local)
-│       └── views/              # Home, Map (+Timeline/TimePicker/Layers/Marks/Inspect/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
+│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local)
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/tile-error.png

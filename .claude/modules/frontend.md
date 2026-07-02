@@ -38,11 +38,18 @@ desktop.
   aggregate read: latest fix + mode, Victron SOC/solar/load, OBD if engine recently on,
   cabin IAQ/temp, GNSS sat count/fix health, systemd service states); 5 s poll, per-domain
   staleness.
-- **Stores** (`web/src/lib/stores/`) — `selection.svelte.ts` is the **global time axis**
-  (`{mode,from,to,live,brush}` + a 30 s live tick): every historical-window read takes the
-  same canonical-ms-UTC `start`/`end`, so one window can drive many consumers (the map is
-  consumer #1; Systems/globe can opt in later). `annotations.svelte.ts` and
-  `layers.svelte.ts` are **map-local** (curated places / data-on-map) — not global.
+- **Stores** (`web/src/lib/stores/`) — `selection.svelte.ts` is the **global time axis**:
+  the window (`mode: last|range`, anchor/from/to, live + a 30 s live tick) **is the only
+  time object** (the old sub-window brush and `around` mode are gone — time-dock rework,
+  2026-07). It also owns the **zoom history** (`zoomTo` pushes / `back` pops / `resetZoom`;
+  backing out of a zoom taken from Live *resumes* Live), nav helpers (`shift(±1)`,
+  `widen()` — 2× around center, capped `MAX_WINDOW_MS` = 1 y), and `goLive()` (reset to
+  Live · Last 24h, history cleared). `track.svelte.ts` is the **shared window fetch**
+  (`/api/points` → points/truncated/status + `hoverMs` + viewport `bbox`), dedup'd by
+  window — driven by the mounted TimeDock, consumed by the map trail and the density lane.
+  `annotations.svelte.ts` is **axis-level** (named windows: list + jump reachable from Map
+  and Trends; only the pin/polyline rendering + `pendingPan` stay map-side).
+  `layers.svelte.ts` is **map-local** (data-on-map).
 
 ## Map view (`/map`)
 
@@ -53,40 +60,55 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   touches MapLibre). `mapHost.ts` keeps the `#map` element **alive across routes** as a
   body-level singleton translated off-screen off-route (never `display:none`, which blanks
   the WebGL buffer). Basemaps + terrain DEM draping live in **`.claude/modules/basemaps.md`**.
-- **Timeline** (`Timeline.svelte` + `TimePicker.svelte`) — the Selection-axis chrome. The
-  Graylog-style picker (Last / Around / From→To, preset chips, Live) writes the `selection`
-  store; an effect refetches `/api/points` for the window. The sub-range **`timestrip.ts`**
-  is a kept-imperative canvas island (one draw pass: density-coverage fill + red stop-dwell
-  blocks + annotation bands/ticks + dim mask + two-handle brush; pointer/touch drag·pan·tap
-  + keyboard; hover tooltips). Its axis is the **requested window**, not the data extent.
-  **Zoom to Range** promotes the brush to a tighter fetch window (more detail —
-  `/api/points` is size-aware decimated). Stops select by dwell-interval overlap.
-- **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) — drawer
-  (side desktop / bottom sheet mobile) lists points + ranges; click jumps the global window
-  (range → `range`, point → `around`) and pans to the nearest fix; ✎ edit / × delete; per-
-  range fuel economy lazy-filled from `/api/obd/economy`. Map overlays: cyan range
-  polylines, amber point pins, constant-size red stop dots; matching strip bands/ticks.
-  **Create Range** (brush ≥2 pts) and **📍 Bookmark Here** (Live only, latest fix) create
-  annotations. **⊕ FAB** recenters on the latest raw fix.
-- **Marks** (`MarksPanel.svelte`) — persisted live range-construction (Mark Start/End →
-  Use Marks reframes the window). Panel-local state (no store — no other consumer).
-- **Inspect window** (`InspectPanel.svelte`) — a collapsible chrome panel of derived
-  stats for the *current Selection window* (duration, GPS distance, avg-moving/max speed,
-  fuel + MPG, moving/idle time), from `GET /api/obd/economy`. Generalizes the per-saved-
-  range fuel-economy readout (AnnotationsDrawer) to any scrubbed window; fetches only while
-  open. Shows GPS distance even with no OBD coverage.
-- **Layers** (`Layers.svelte` + store, `labels.ts`) — one panel folding in base map
-  (OSM vector / USGS raster + refresh), **labels** (POI categories / density / minor
-  streets, vector-only — `labels.ts` drives the Protomaps GL style), **3D terrain**
-  (toggle + exaggeration), **drone** (toggle + legend; `drone.ts` lazily imports
-  `overlay3d.ts` — a three.js custom MapLibre layer floating tracks at MSL altitude), and
-  **phone history** (toggle + mode legend; `phone.ts` color-by-mode breadcrumb + visit pins,
-  refetched on the global time selection while on). The drone subsystem is in
-  **`.claude/modules/drone.md`**; phone in **`.claude/modules/phone.md`**.
+- **TimeDock** (`TimeDock.svelte` + `TimePicker.svelte`) — the **shared** Selection-axis
+  chrome (rendered by Map as the bottom overlay and by Trends above its chart — one
+  interaction grammar on one axis): picker trigger, nav cluster (`◀ ⊖ ▶`, `↩` when
+  history is non-empty, LIVE pill / Go-Live button), the strip, status, and the action
+  row (**💾 Save window** = name the current window → a range annotation, works with zero
+  points; **📍 Bookmark Here**, Live only). The picker popover is compact: preset chips +
+  Live toggle commit immediately, From→To is the one staged edit, and a **Saved windows**
+  section lists annotations with jump-on-click. The nav cluster is right-anchored with
+  width-reserved slots (status is the flex spacer) so repeated ◀/↩ taps never chase a
+  moving button. The dock drives `track.ensure(range)` — one fetch per window change.
+- **TimeStrip** (`timestrip.ts`) — the kept-imperative canvas island, now **drag-to-zoom**
+  (Trends semantics everywhere; no brush): drag = rubber-band → `zoomTo`; wheel = zoom
+  around cursor (preview redraws per step, store commit — and the refetch — debounced
+  ~200 ms); double-click/Backspace = `back()`; ←/→ shift; +/− zoom; annotation bands/
+  ticks are **click-to-jump** (a 250 ms delayed-click guard lets double-click stay
+  "back"). One draw pass: density-coverage fill + red stop-dwell blocks + annotation
+  bands/ticks + the rubber-band. Its axis is the **requested window**, not the data
+  extent, and it always renders — an empty window stays navigable. Hover emits
+  `track.hoverMs` (the map's ghost dot) + tooltips.
+- **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🛰 **Data
+  layers** (`DataLayers.svelte`: drone + phone toggles), 🎨 **Map style**
+  (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, labels via `labels.ts`,
+  3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
+  Marks reframes the window; panel-local state), 📊 **Inspect** (`InspectPanel.svelte`:
+  derived window stats from `GET /api/obd/economy` — duration/distance/speeds/fuel/MPG/
+  moving/idle; fetches only while mounted = open). Exclusive-open; desktop = anchored
+  card, mobile = bottom sheet; defaults closed. Below a separator, **⛶ viewport filter**:
+  a mode toggle passing the map bbox into the shared `/api/points` fetch so the strip's
+  density shows only time spent in view ("when was I ever at this campsite") — updates on
+  moveend, suppresses refit (no fit→move→refetch loop), resets on toggle-off/route leave.
+  Drone/phone **legends are on-map chips** under the top-left annotations cluster, shown
+  only while that layer is on. Drone: `drone.ts` lazily imports `overlay3d.ts` (three.js
+  tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb + visit pins, following the
+  window. Subsystems: **`.claude/modules/drone.md`**, **`.claude/modules/phone.md`**.
+- **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) —
+  annotations are **named windows** (pure time metadata; any tier replays against the
+  bounds). Drawer (side desktop / bottom sheet mobile) is the management UI: list, ✎ edit
+  / × delete, per-range fuel economy lazy-filled from `/api/obd/economy`. Jumps restore
+  the window (range → exact; point → current width centred on it) and pan to the nearest
+  fix. Map overlays: cyan range polylines, amber point pins; matching strip bands/ticks
+  (both click-to-jump). Annotations button + **⊕ FAB** (recenter on latest raw fix) stay
+  top-left. **Hover-scrub:** hovering the strip shows a ghost dot at that moment's
+  position (`track.hoverMs` → binary-search nearest fix → a DOM marker).
 
-**View behavior.** Default Live, last 24h. The map re-centers only when Live is on or an
-annotation/⊕ is clicked — otherwise free pan/zoom (browsing ≠ navigation). Decimation is
-server-side + size-aware (C17): the client always asks `limit=20000`.
+**View behavior.** Default Live, last 24h. The map re-centers only on a fresh (non-live-
+tick, non-bbox) window load or an annotation/⊕ click — otherwise free pan/zoom (browsing
+≠ navigation). Returning to the Map tab does not refetch or refit (the store dedups; the
+camera keeps your place). Decimation is server-side + size-aware (C17): the client always
+asks `limit=20000`.
 
 ## Other views
 
@@ -96,10 +118,12 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
   (`Gpsd.svelte`, `GET /api/gpsd/status`), and **ntp** (`Ntp.svelte`, `GET /api/ntp`).
 - **Trends** (`Trends.svelte`, `/trends` under Systems) — the configurable trend-graph
   explorer: a registry-driven metric picker over any sensor channel, overlaid on one
-  bucketed/aligned chart (`GET /api/sensors/series`), scoped by the global Selection axis
-  (drag-to-zoom drives `setRange`), with smoothing, a min/max band, and localStorage
-  presets. LayerCake chart, dynamic-imported as its own chunk. Replaces the retired legacy
-  `/sensors`. Detail in **`plans/sensor-graphing-plan.md`**.
+  bucketed/aligned chart (`GET /api/sensors/series`), with smoothing, a min/max band, and
+  localStorage presets. Renders the **shared TimeDock** above the chart (same axis +
+  strip as the Map — chart drag-zoom goes through `selection.zoomTo`, double-click
+  `resetZoom`; the dock's density lane shows GPS activity as context). LayerCake chart,
+  dynamic-imported as its own chunk. Replaces the retired legacy `/sensors`. Detail in
+  **`plans/sensor-graphing-plan.md`**.
 - **Docs** (`Docs.svelte`) — browses the synced `paul-network-docs` Obsidian vault
   (`GET /api/docs/{tree,file}`). Two-pane: a file tree + the rendered markdown. `docs.ts`
   is the render seam — markdown-it (raw HTML disabled, so no sanitizer dep), **lazy**
@@ -115,19 +139,31 @@ server-side + size-aware (C17): the client always asks `limit=20000`.
 
 ## Deferred
 
-- **Layers (Axis 2) continuation** — trail color-by (speed/elevation/sensor channel),
-  sensor overlays on the map, stops-as-a-layer toggle. Built onto the `Layers.svelte` panel
-  + the `timestrip.ts` density lane (the multi-channel handoff S4 left open). *(The
-  Selection-synced chart is done — the Trends view; the divorced legacy `/sensors` +
-  vendored uPlot were retired.)*
+**Flagged follow-ups (2026-07-02 review of the time-dock rework — discuss before acting):**
+
+- **Drone flights should follow the time window.** The drone overlay is standalone (all
+  flights at once); it should scope to the Selection window like the phone layer does
+  (`/api/drone/flights` already takes `start`/`end`).
+- **Auto-zoom should include enabled data layers.** The map's fitBounds covers only the
+  GPS trail; when drone/phone layers are on, their bounds should extend the fit so a
+  window's aerial/phone data isn't off-screen.
+
+**Longer-standing:**
+
+- **Time-dock leftovers** — stop-dwell-block click → zoom to its dwell (the delayed-click
+  guard now makes it feasible); Trends' mobile dock collapse (picker+nav only) if vertical
+  space hurts; wheel commits currently push one history entry per gesture pause (make them
+  replace if ↩-unwinding feels noisy); multi-source density lanes (phone/drone/OBD ticks);
+  the dock on more views (shell-level).
+- **Data-layers continuation (was Layers Axis 2)** — trail color-by (speed/elevation/
+  sensor channel), sensor overlays on the map, stops-as-a-layer toggle. Built onto
+  `DataLayers.svelte` + the `timestrip.ts` density lane.
 - **Marks (Axis 3) continuation** — mark *types* (campsite / fuel / scenic / repair); and
   **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
-  curated mark (denoise **Phase 6**, see `.claude/modules/processor.md`). *(The
-  "inspect this window" panel — generalizing the per-range fuel-economy readout to any
-  Selection — is built: `InspectPanel.svelte`, above. Window **energy** from Victron is
-  the remaining stat, deferred until the power-integration endpoint lands.)*
+  curated mark (denoise **Phase 6**, see `.claude/modules/processor.md`). *(Window
+  **energy** from Victron is the remaining Inspect stat, deferred until the
+  power-integration endpoint lands.)*
 - **Vendored `static/vendor/{maplibre,pmtiles}` retirement** — blocked on the standalone
   `static/dev-terrain.html` dev tool (script-tag loads, can't use npm); retire with it.
 - Richer trail rendering (direction chevrons, head dot); per-annotation elevation/speed
-  charts; the Selection axis graduating to shell-level chrome (global picker + per-source
-  density lanes).
+  charts.
