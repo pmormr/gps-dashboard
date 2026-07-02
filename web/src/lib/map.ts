@@ -289,6 +289,12 @@ export const MapView = (() => {
   let dronePopup: Popup | null = null
   let phonePopup: Popup | null = null
 
+  // Hover-scrub ghost dot (a DOM marker — survives style swaps) + moveend
+  // subscribers (the viewport-filter toggle). Callbacks are stashed in a set so
+  // consumers can subscribe before/after init; init wires the single listener.
+  let ghostMarker: Marker | null = null
+  const moveEndCbs = new Set<() => void>()
+
   function rangeFC(): FeatureCollection {
     return { type: 'FeatureCollection', features: rangeFeatures }
   }
@@ -604,6 +610,7 @@ export const MapView = (() => {
     wireRangeTooltip(map)
     wireDronePopup(map)
     wirePhonePopup(map)
+    map.on('moveend', () => moveEndCbs.forEach((cb) => cb()))
     applyBasemap(currentLayer)
   }
 
@@ -712,6 +719,41 @@ export const MapView = (() => {
     if (phoneVisitData.features.length === 0 && phonePopup) phonePopup.remove()
   }
 
+  // ── Hover-scrub ghost dot (time → space; time-dock Phase 5) ──
+
+  function setGhost(lat: number, lon: number): void {
+    if (!map) return
+    if (!ghostMarker) {
+      const el = document.createElement('div')
+      el.className = 'map-ghost-dot'
+      ghostMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([lon, lat])
+        .addTo(map)
+    } else {
+      ghostMarker.setLngLat([lon, lat])
+    }
+  }
+
+  function clearGhost(): void {
+    ghostMarker?.remove()
+    ghostMarker = null
+  }
+
+  /** The current viewport as a `/api/points` bbox string (W,S,E,N); null pre-init. */
+  function getBbox(): string | null {
+    if (!map) return null
+    const b = map.getBounds()
+    return `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`
+  }
+
+  function onMoveEnd(cb: () => void): void {
+    moveEndCbs.add(cb)
+  }
+
+  function offMoveEnd(cb: () => void): void {
+    moveEndCbs.delete(cb)
+  }
+
   function fitTo(points: MapPoint[]): void {
     if (!map || !points.length) return
     const b = new maplibregl.LngLatBounds()
@@ -785,6 +827,11 @@ export const MapView = (() => {
     showDroneTracks,
     clearDroneTracks,
     setPhoneData,
+    setGhost,
+    clearGhost,
+    getBbox,
+    onMoveEnd,
+    offMoveEnd,
     setTerrainEnabled,
     setExaggeration,
     getTerrainEnabled,

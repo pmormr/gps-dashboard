@@ -49,6 +49,27 @@
     openPanel = openPanel === id ? null : id
   }
 
+  // Viewport filter (time-dock Phase 5): while on, the shared track fetch carries
+  // the map bbox, so the strip's density shows only time spent in view ("when was
+  // I ever at this campsite"). Updates on moveend; resets on toggle-off/unmount.
+  let bboxFilter = $state(false)
+
+  function onMoved(): void {
+    if (view) track.bbox = view.getBbox()
+  }
+
+  function toggleBboxFilter(): void {
+    if (!view) return
+    bboxFilter = !bboxFilter
+    if (bboxFilter) {
+      track.bbox = view.getBbox()
+      view.onMoveEnd(onMoved)
+    } else {
+      view.offMoveEnd(onMoved)
+      track.bbox = null
+    }
+  }
+
   // On-map legend chips (swatch colors mirror DRONE_COLORS in map.ts and
   // MODE_COLORS in phone.ts) — shown only while that layer is on.
   const DRONE_LEGEND = [
@@ -71,6 +92,11 @@
     annotations.reload()
     return () => {
       cancelled = true
+      if (bboxFilter) {
+        view?.offMoveEnd(onMoved)
+        track.bbox = null
+      }
+      view?.clearGhost()
       hide?.()
     }
   })
@@ -108,6 +134,35 @@
     }
     return best
   }
+
+  /** Nearest loaded point by time — binary search over the canonical (fixed-width
+   * ms-UTC, lexicographically ordered) timestamps, cheap enough for hover-rate calls. */
+  function nearestByTimeFast(points: TrackPoint[], ms: number): TrackPoint | null {
+    if (!points.length) return null
+    const iso = new Date(ms).toISOString()
+    let lo = 0
+    let hi = points.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (points[mid].timestamp < iso) lo = mid + 1
+      else hi = mid
+    }
+    const after = points[lo]
+    const before = points[lo - 1]
+    if (!before) return after
+    const dAfter = Math.abs(new Date(after.timestamp).getTime() - ms)
+    const dBefore = Math.abs(new Date(before.timestamp).getTime() - ms)
+    return dBefore <= dAfter ? before : after
+  }
+
+  // Hover-scrub (time → space): a ghost dot at the hovered strip moment's position.
+  $effect(() => {
+    if (!view) return
+    const ms = track.hoverMs
+    const p = ms != null ? nearestByTimeFast(track.points, ms) : null
+    if (p) view.setGhost(p.lat, p.lon)
+    else view.clearGhost()
+  })
 
   // Trail follows the shared track store. `refit` is false on live continuations
   // (the anchor sliding forward) so the camera stays put.
@@ -205,6 +260,14 @@
         onclick={() => toggleRail(r.id)}
       >{r.icon}</button>
     {/each}
+    <div class="map-rail-sep"></div>
+    <button
+      type="button"
+      class:active={bboxFilter}
+      title="Filter time density to the current map view"
+      aria-label="Filter time density to the current map view"
+      onclick={toggleBboxFilter}
+    >⛶</button>
   </div>
 
   {#if openPanel}

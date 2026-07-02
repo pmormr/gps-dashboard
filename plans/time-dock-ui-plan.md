@@ -1,6 +1,8 @@
 # Time Dock + Map Chrome Rework
 
-**Status: Phases 1–4 landed + deployed (2026-07-02); next: Phase 5.**
+**Status: ALL PHASES (1–5) landed + deployed (2026-07-02).** Once Phase 5 is
+verified on the van, fold the durable bits into `.claude/modules/frontend.md`
+and drop this plan (the Follow-ups section below moves with it).
 Phase 4 notes: rail panels default closed and reset on remount (a clean map each
 visit); legend chips sit under the top-left annotations cluster. Revised in
 review: Data layers (🛰) and Map style (🎨) are separate rail buttons — not one
@@ -152,6 +154,15 @@ Consumers:
   was I ever at this campsite" (space → time). API already supports it.
 - Deferred beyond this plan: multi-source density lanes (phone/drone/OBD ticks),
   shell-level dock on more views.
+
+## Follow-ups (flagged in review, 2026-07-02 — discuss before acting)
+
+- **Drone flights should follow the time window.** Today the drone overlay is
+  standalone (all flights at once); it should scope to the Selection window like
+  the phone layer does (`/api/drone/flights` already takes `start`/`end`).
+- **Auto-zoom should include enabled data layers.** The map's fitBounds covers
+  only the GPS trail; when drone/phone layers are on, their bounds should extend
+  the fit so a window's aerial/phone data isn't off-screen.
 
 ## Verification
 

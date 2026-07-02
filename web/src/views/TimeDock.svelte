@@ -59,9 +59,14 @@
       onBack: () => selection.back(),
       onAnnotationClick: (a) =>
         annotations.jumpTo({ start_time: a.start_time, end_time: a.end_time ?? null }),
+      // Hover-scrub (time → space): the map's ghost-dot effect reads this.
+      onHover: (ms) => (track.hoverMs = ms),
     })
     annotations.reload()
-    return () => strip?.destroy()
+    return () => {
+      track.hoverMs = null
+      strip?.destroy()
+    }
   })
 
   // One fetch per window change, shared by every consumer (also fires on each

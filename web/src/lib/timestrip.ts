@@ -37,6 +37,8 @@ export interface TimeStripActions {
   onBack(): void
   /** Single-click on an annotation band/tick — jump to that window. Optional. */
   onAnnotationClick?(a: StripAnnotation): void
+  /** Hover moved to this time (null = left the strip / started a drag). Optional. */
+  onHover?(ms: number | null): void
 }
 
 export interface TimeStripHandle {
@@ -242,6 +244,7 @@ export function mountTimeStrip(
       /* not capturable — non-fatal */
     }
     hideTooltip()
+    actions.onHover?.(null)
     e.preventDefault()
   }
 
@@ -363,6 +366,7 @@ export function mountTimeStrip(
   function updateHover(px: number): void {
     if (!view()) return
     const ms = msOfX(px)
+    actions.onHover?.(clampMs(ms))
     let text: string | null = null
     for (const p of points) {
       if (p.kind !== 'stop' || !p.dwell_start || !p.dwell_end) continue
@@ -406,11 +410,16 @@ export function mountTimeStrip(
     if (tooltip) tooltip.classList.add('hidden')
   }
 
+  function onPointerLeave(): void {
+    hideTooltip()
+    actions.onHover?.(null)
+  }
+
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
   canvas.addEventListener('pointercancel', onPointerUp)
-  canvas.addEventListener('pointerleave', hideTooltip)
+  canvas.addEventListener('pointerleave', onPointerLeave)
   canvas.addEventListener('wheel', onWheel, { passive: false })
   canvas.addEventListener('dblclick', onDblClick)
   canvas.addEventListener('keydown', onKeyDown)
@@ -435,7 +444,7 @@ export function mountTimeStrip(
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)
       canvas.removeEventListener('pointercancel', onPointerUp)
-      canvas.removeEventListener('pointerleave', hideTooltip)
+      canvas.removeEventListener('pointerleave', onPointerLeave)
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('dblclick', onDblClick)
       canvas.removeEventListener('keydown', onKeyDown)
