@@ -119,10 +119,10 @@ via a generic three.js overlay, not a flat drape:
 ## Decisions / traps
 
 - **Natural key is `(model_code, first_fix_utc)`, not serial** — no DJI model
-  exposes a serial in telemetry. (The retired plan's "Codebase touchpoints" said
-  `(serial, start_utc)`; that was superseded before Phase 1 landed.)
+  exposes a serial in telemetry. (An earlier draft keyed on `(serial, start_utc)`;
+  superseded before anything landed.)
 - **RW thinning is horizontal-only** — a near-vertical climb collapses
-  (altitude-loss limitation carried from Phase 1). Revisit 3D thinning now that
+  (a known altitude-loss limitation). Revisit 3D thinning now that
   altitude actually renders, if the loss becomes visible.
 - **Terrain-exaggeration registration:** tracks float at `abs_alt × exaggeration`
   (per-line `scale.z`/`position.z`, mirrored in `pick`) so they stay registered

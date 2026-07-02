@@ -11,7 +11,7 @@ itself** (CPU temp, load, memory, disk, uptime, throttle flags — the platform 
 reports on its own health). Adding a stream is a spec entry, not a new pipeline.
 
 This module documents the sensor platform — what has **landed** and what's still open.
-Phases 0–2 (schema + broker + ingest + the first remote ESP32 node) are in, plus a
+The foundation (schema + broker + ingest + the first remote ESP32 node) is in, plus a
 DB-backed **`/sensors` viewer** (current values + trend charts) that delivers the
 live-readout value without the blocked WS transport. Still open: *live* (push) readouts
 over MQTT-over-WS, alarms, and correlation UX.
@@ -75,12 +75,12 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   `/sensors` read route) — a new stream is a spec entry, not an ingest code branch.
   Persistent session + QoS-1 so a restart loses nothing. Heartbeat with a
   dropped-reading reason breakdown, logger-style.
-- **Alarm subscriber** — Phase 4, not built yet (`mqttbus/alarms.py`).
+- **Alarm subscriber** — planned, not built yet (`mqttbus/alarms.py`).
 - **Web app** (`api/routes/sensors.py`) — `/api/sensors`, `/api/sensors/<id>/readings`,
   and the bucketed `/api/sensors/series` JSON. Read-only, DB-backed (no MQTT): the SPA's
   Systems (current values) and Trends (charts) views consume these. This is the non-live
-  half of Phase 3; it sidesteps the broker websockets blocker entirely.
-- **Browser (live)** — Phase 3 push path via MQTT-over-WS, **blocked:** the Pi's
+  half of the live-readout goal; it sidesteps the broker websockets blocker entirely.
+- **Browser (live)** — the planned push path via MQTT-over-WS, **blocked:** the Pi's
   mosquitto (Debian bookworm, 2.0.11 arm64) is built *without* libwebsockets, so a
   `:9001` `protocol websockets` listener makes the broker refuse to start —
   `deploy/mosquitto.conf` stays tcp `:1883` only. Resolve by rebuilding mosquitto with
@@ -97,7 +97,7 @@ source of truth for the topic taxonomy (build/parse, no broker dependency).
 Sensor tables live in `gps_history.db` alongside GPS — see `api/db.py` `init_db`:
 `sensors` (registry, keyed `UNIQUE(node, type)`), `bme680_readings`, `obd_readings`,
 `victron_readings`, `system_readings`, and the `alarm_rules` / `alarm_events` tables
-(created now, exercised in Phase 4). All
+(created now, exercised when alarms land). All
 timestamps go through `api.db.canonical_timestamp` so they join cleanly against
 `gps_points`. FKs are logical/unenforced, matching the trips↔points style. Each
 per-type table's columns are declared once in `api/sensor_schema.py` `READING_TABLES`,
@@ -120,7 +120,8 @@ engine + absolute load, throttle, coolant/intake/ambient temps, MAP, barometric,
 level, voltage, run-time, short/long fuel trims both banks, commanded equivalence
 ratio) plus a nullable `fuel_rate_lph`. Fuel rate is **NULL by design**: the Pentastar
 is speed-density (no MAF `0110`) and exposes no native fuel-rate `015E`, so it's derived
-from absolute load + RPM + λ in Phase 4 (validated against a tank-to-tank fill-up). The
+from absolute load + RPM + λ at read time (calibration against a tank-to-tank fill-up is
+pending — see `plans/obd-platform-plan.md`). The
 column set is the `READING_TABLES` spec, not hand-written SQL.
 
 `victron_readings` is the wide table for the house-power stream — battery (SoC, voltage,
@@ -138,7 +139,7 @@ Topics (`mqttbus/topics.py`):
 ```
 sensors/<node>/<type>           # readings (JSON)
 sensors/<node>/<type>/status    # retained LWT: "online" / "offline"
-alarms/<rule_id>                # retained alarm state (Phase 4)
+alarms/<rule_id>                # retained alarm state (alarms not built yet)
 ```
 
 `<node>` is a short unique name, usually a physical location (`cabin`) or subsystem
@@ -164,7 +165,7 @@ post-receive hook enumerates the reader units to restart; a newly added unit lik
 `sensor-pi` needs adding to that list on the Pi, plus a one-time `systemctl enable --now
 sensor-pi`.)
 
-One-time Pi setup (broker install, enabling units) is in the plan's Phase 1 section.
+One-time Pi setup is installing mosquitto and enabling the units.
 `mosquitto` + `mqtt-ingest` run on the Pi and ingest whatever publishes. The
 `sensor-bme680` service stays **disabled** — the BME680 moved to the ESPHome node, so
 the Pi-attached reader has no hardware (and the CM5 GPIO I2C bus is still off).
@@ -181,7 +182,8 @@ The ESP32 node is flashed from a dev host, not the Pi:
 `uv tool run esphome run firmware/cabin-bme680.yaml` (first flash over USB, OTA after;
 copy `firmware/secrets.yaml.example` → `secrets.yaml` first). See `firmware/README.md`.
 
-**Offline:** mosquitto is a local broker; MQTT.js will be vendored (Phase 3); the ESP32
+**Offline:** mosquitto is a local broker; MQTT.js will be vendored when the live push
+path lands; the ESP32
 NTP-syncs off the Pi and talks only to the local broker. Nothing here reaches the
 internet at runtime. Installing mosquitto/`paho-mqtt` and **building the ESPHome
 firmware** (ESP-IDF toolchain + BSEC2) are online prep steps, same as tile pre-caching.

@@ -55,7 +55,7 @@ App runs at `http://192.168.42.178:5000`.
 ### Processes
 
 - **Logger** (`logger/gps_logger.py`) — standalone script, no Flask. Reads from gpsd via TCP socket on `localhost:2947`. The only writer of raw (`gps_points` + `receiver_metadata`); position writes are motion-gated (5 Hz moving / ~1 Hz parked).
-- **Processor** (`processor/gps_processor.py`) — standalone, no Flask. Tails raw `gps_points` by a persisted id cursor and derives the processed tier (`track_points` + `track_events`) the frontend reads. Idempotent and fully rebuildable from raw; never writes raw. Enabled-gated service. (Phase 3: online denoise — software static-hold stops (accuracy-weighted mean) + Reumann–Witkam moving simplification + per-fix accuracy gating, emitting `stop_start`/`stop_end` events; the cursor advances only to finalized emits, so an open dwell and the open moving segment stay provisional. Phase 4: the frontend now reads it — `/api/points` serves `track_points`. See `.claude/modules/processor.md`.)
+- **Processor** (`processor/gps_processor.py`) — standalone, no Flask. Tails raw `gps_points` by a persisted id cursor and derives the processed tier (`track_points` + `track_events`) the frontend reads. Idempotent and fully rebuildable from raw; never writes raw. Enabled-gated service. (Online denoise — software static-hold stops (accuracy-weighted mean) + Reumann–Witkam moving simplification + per-fix accuracy gating, emitting `stop_start`/`stop_end` events; the cursor advances only to finalized emits, so an open dwell and the open moving segment stay provisional. The frontend reads it — `/api/points` serves `track_points`. See `.claude/modules/processor.md`.)
 - **Web app** (`api/app.py`) — Flask, read-heavy. Serves the frontend, JSON API, tile proxy, and status pages.
 
 ### Data Model
@@ -68,7 +68,7 @@ SQLite (`gps_history.db`). Core GPS tables:
 
 Processed/denoise tier — derived from raw by `gps-processor`, fully rebuildable (see `.claude/modules/processor.md`):
 
-- `track_points(...)` — the denoised/simplified points the frontend reads via `/api/points` (`kind` `track`|`stop`, `n_raw`, `importance`, `accuracy`, stop `dwell_*`/`radius`, `src_raw_id`). Phase 3 collapses each parked dwell to one accuracy-weighted point and simplifies moving segments (Reumann–Witkam, `importance` = perpendicular deviation).
+- `track_points(...)` — the denoised/simplified points the frontend reads via `/api/points` (`kind` `track`|`stop`, `n_raw`, `importance`, `accuracy`, stop `dwell_*`/`radius`, `src_raw_id`). The processor collapses each parked dwell to one accuracy-weighted point and simplifies moving segments (Reumann–Witkam, `importance` = perpendicular deviation).
 - `track_events(...)` — processor-emitted events (stop start/end, mode transitions, …); distinct from the user-curated `annotations`.
 - `receiver_metadata(id, timestamp, hdop, vdop, pdop, nsat_used, nsat_seen)` — SKY-sourced DOP + sat counts, written by the logger on a ~5 s throttle; standalone telemetry, not joined into the position path.
 - `processing_state(key, value)` — the processor's `last_committed_raw_id` cursor.
@@ -93,8 +93,8 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 ### API Endpoints
 
 - `GET /api/status` — Home glance: one aggregate read (latest fix + mode, Victron SOC/solar/load, OBD when the engine was recently on, cabin IAQ/temp, GNSS sat count/fix health, systemd service states); backs the SPA Home view
-- `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated (C17): every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`; stops also carry `dwell_start`/`dwell_end`/`radius` (the frontend renders them as dwell-interval blocks on the slider and selects them by interval overlap).
-- `GET /api/points/latest` — single most-recent **raw** fix (the live position dot reads raw `gps_points`, not the processed tier, so it tracks the true current fix — C13)
+- `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated: every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`; stops also carry `dwell_start`/`dwell_end`/`radius` (the frontend renders them as dwell-interval blocks on the slider and selects them by interval overlap).
+- `GET /api/points/latest` — single most-recent **raw** fix (the live position dot reads raw `gps_points`, not the processed tier, so it tracks the true current fix)
 - `GET /api/annotations` — list every annotation; `point_count` is NULL for point bookmarks, integer for ranges
 - `POST /api/annotations` — create annotation; omit (or pass null) `end_time` for a point bookmark
 - `PATCH /api/annotations/:id` — edit name, notes, or bounds (including transitioning point↔range)
@@ -331,7 +331,7 @@ uv run pytest tests/test_simplify.py   # one module
 `pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers the load-bearing pure logic and the API read paths:
 
 - **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
-- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation (C17), `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader (`/api/docs/*`: tree, file fetch, traversal/non-`.md` rejection).
+- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation, `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader (`/api/docs/*`: tree, file fetch, traversal/non-`.md` rejection).
 - **Backtest tools** — the pure helpers in `passes_validate` and `tle_validate`.
 
 ### Linting & formatting

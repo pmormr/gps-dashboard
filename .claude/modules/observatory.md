@@ -5,7 +5,7 @@ beyond the live `/skyplot`. Same capture → derive → serve → render split a
 rest of the app: the logger captures per-SV az/el, `common/` does the orbital
 geometry, the API serves it on-demand, and three views render it.
 
-## Capture (Phase 1)
+## Capture
 
 The logger writes a `sat_observations(timestamp, gnssid, svid, az, el, snr, used,
 health)` row per positioned satellite from each SKY message, on its own ~60s

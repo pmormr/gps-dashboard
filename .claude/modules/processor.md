@@ -43,7 +43,7 @@ endpoints (low count, low importance), sharp turns emit high-importance vertices
 Accuracy gating applies here too.
 
 Net: sparse simplified vertices while driving + one collapsed point per stop, each
-weighted so the renderer and the size-aware decimator (`/api/points`, C17) can rank them.
+weighted so the renderer and the size-aware decimator (`/api/points`) can rank them.
 
 ## Tuning knobs
 
@@ -63,38 +63,38 @@ The starting values below were validated against a real drive — no changes nee
 
 ## Traps
 
-- **Live current-position dot reads raw, not the processed tier (C13):**
+- **Live current-position dot reads raw, not the processed tier:**
   `/api/points/latest` serves raw `gps_points`, so a stop row converging over its first
   minute never disturbs the marker; trail/history reads `track_points`.
-- **Keep `idx_gps_points_timestamp` (C21):** the processor's own cursor is rowid-based
+- **Keep `idx_gps_points_timestamp`:** the processor's own cursor is rowid-based
   and needs no index, but `/api/points/latest`, `/gpsd`, `precache`, and
   `annotations.point_count` still range/order raw *by timestamp* — dropping it
   full-scans a multi-million-row table.
-- **Deploy: the processor is enabled-gated (C24):** the post-receive hook installs all
+- **Deploy: the processor is enabled-gated:** the post-receive hook installs all
   `deploy/*.service` units on a `deploy/` change and restarts `gps-processor` when
   enabled — no manual hook edit (the unit list is no longer hardcoded). The one-time
   Pi-side step is `systemctl enable gps-processor` (like `mqtt-ingest`); until then it
   stays dormant. It resumes from its cursor, so restart is always safe.
-- **Timestamps are wall-clock `now()` at ms precision (C23):** the Pi clock is chrony
+- **Timestamps are wall-clock `now()` at ms precision:** the Pi clock is chrony
   PPS-disciplined stratum-1, so `now()` *is* GPS-quality time and stays monotonic with
   `id` (the determinism anchor). The processor still clamps negative dwell/`dt` to 0 as
   insurance against a rare chrony step / pre-PPS-lock boot.
 
 ## Eliminated / deferred pathways
 
-- **Receiver hardware static-hold** (`CFG-MOT-*`) — rejected (C6): trips the freeze
+- **Receiver hardware static-hold** (`CFG-MOT-*`) — rejected: trips the freeze
   watchdog, reverts on power loss (the baud/config saga), lossy at source. The
   automotive dynamic model stays.
 - **Accuracy-weighted Kalman over the whole track** — deferred; stop-collapse +
   simplification covers the pain without Kalman tuning overhead. Revisit if residual
   moving jitter matters.
-- **Smooth-zoom LOD (Visvalingam effective-area)** — deferred; C17 ranks by the
+- **Smooth-zoom LOD (Visvalingam effective-area)** — deferred; the decimator ranks by the
   single-level RW deviation. A batch Visvalingam pass would give nested multi-level
   importance for pop-free zoom; swappable for free later (idempotent → just a rebuild).
 - **Historical per-satellite capture** — deferred; the live skyplot reads gpsd SKY
   directly (no schema). A `satellite_observations` table would be ~100M+ rows/yr and
   speculative; `receiver_metadata` stays summary-only (DOP + sat counts).
-- **Retroactive cleanup of historical raw** — out of scope (C5); raw is preserved so a
+- **Retroactive cleanup of historical raw** — out of scope; raw is preserved so a
   rebuild is always possible.
 - **RTK sub-meter** — out of scope (needs a correction stream + base/NTRIP; off-grid
   incompatible). ~1–2 m hAcc is the M9N floor; denser sampling sharpens *relative* track

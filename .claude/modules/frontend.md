@@ -107,7 +107,7 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
 **View behavior.** Default Live, last 24h. The map re-centers only on a fresh (non-live-
 tick, non-bbox) window load or an annotation/⊕ click — otherwise free pan/zoom (browsing
 ≠ navigation). Returning to the Map tab does not refetch or refit (the store dedups; the
-camera keeps your place). Decimation is server-side + size-aware (C17): the client always
+camera keeps your place). Decimation is server-side + size-aware: the client always
 asks `limit=20000`.
 
 ## Other views
@@ -155,12 +155,12 @@ asks `limit=20000`.
   space hurts; wheel commits currently push one history entry per gesture pause (make them
   replace if ↩-unwinding feels noisy); multi-source density lanes (phone/drone/OBD ticks);
   the dock on more views (shell-level).
-- **Data-layers continuation (was Layers Axis 2)** — trail color-by (speed/elevation/
+- **Data-layers continuation** — trail color-by (speed/elevation/
   sensor channel), sensor overlays on the map, stops-as-a-layer toggle. Built onto
   `DataLayers.svelte` + the `timestrip.ts` density lane.
-- **Marks (Axis 3) continuation** — mark *types* (campsite / fuel / scenic / repair); and
+- **Marks continuation** — mark *types* (campsite / fuel / scenic / repair); and
   **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
-  curated mark (denoise **Phase 6**, see `.claude/modules/processor.md`). *(Window
+  curated mark (deferred from the denoise work; see `.claude/modules/processor.md`). *(Window
   **energy** from Victron is the remaining Inspect stat, deferred until the
   power-integration endpoint lands.)*
 - **Vendored `static/vendor/{maplibre,pmtiles}` retirement** — blocked on the standalone
