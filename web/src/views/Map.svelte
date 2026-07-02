@@ -14,8 +14,9 @@
   import './annotations.css'
   import AnnotationForm from './AnnotationForm.svelte'
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
+  import DataLayers from './DataLayers.svelte'
   import InspectPanel from './InspectPanel.svelte'
-  import Layers from './Layers.svelte'
+  import MapStyle from './MapStyle.svelte'
   import MarksPanel from './MarksPanel.svelte'
   import TimeDock from './TimeDock.svelte'
 
@@ -31,10 +32,13 @@
   let drawerOpen = $state(false)
 
   // The right icon rail (time-dock Phase 4): exclusive-open panels — opening one
-  // closes the rest. Default closed (a clean map); resets on remount.
-  type RailPanel = 'layers' | 'marks' | 'inspect'
+  // closes the rest. Default closed (a clean map); resets on remount. Data layers
+  // and map style are separate buttons — overlay toggles and basemap styling
+  // aren't related tasks.
+  type RailPanel = 'data' | 'style' | 'marks' | 'inspect'
   const RAIL: { id: RailPanel; icon: string; label: string }[] = [
-    { id: 'layers', icon: '🗺', label: 'Layers' },
+    { id: 'data', icon: '🛰', label: 'Data layers' },
+    { id: 'style', icon: '🎨', label: 'Map style' },
     { id: 'marks', icon: '🚩', label: 'Marks' },
     { id: 'inspect', icon: '📊', label: 'Inspect window' },
   ]
@@ -210,8 +214,10 @@
         <button type="button" aria-label="Close panel" onclick={() => (openPanel = null)}>✕</button>
       </div>
       <div class="rail-card-body">
-        {#if openPanel === 'layers'}
-          <Layers {view} />
+        {#if openPanel === 'data'}
+          <DataLayers {view} />
+        {:else if openPanel === 'style'}
+          <MapStyle {view} />
         {:else if openPanel === 'marks'}
           <MarksPanel />
         {:else}
