@@ -120,23 +120,20 @@ The buildable phase. Order roughly top-to-bottom.
       structure-tree additions, Offline-Constraint note (Hamlib + udev rules are manual
       online installs the deploy hook skips).
 
-**REMAINING before Phase 1 is fully closed (needs the cable physically on the Pi):**
-- [ ] **1h — live on-Pi validation.** Move the CI-V cable to the Pi, install the udev rule
-      (`sudo cp deploy/99-icom-civ.rules /etc/udev/rules.d/ && sudo udevadm control --reload`),
-      `sudo systemctl enable --now radio-control`, then confirm the exact ExecStart talks to
-      the rig (validate `-C civaddr=0x8C` — drop it if the backend default already matches).
-      Verify `/api/radio/status` reads live freq/mode/RAWSTR and a set round-trips.
-- [ ] **1i — deploy-hook stanza.** Add the enabled-gated restart block to the Pi's
-      `post-receive` hook (before the `# Drone home-sync timer:` block) so a future
-      `radio-control` unit change redeploys when enabled:
-      ```bash
-      if echo "$CHANGED" | grep -qE "^deploy/radio-control"; then
-        if systemctl is-enabled --quiet radio-control 2>/dev/null; then
-          sudo systemctl restart radio-control && echo "Radio control restarted" \
-            || echo "WARNING: radio-control restart failed"
-        fi
-      fi
-      ```
+- [x] **1h — live on-Pi validation — DONE (2026-07-02).** Cable on the Pi's USB + the
+      radio's [SP2] jack; udev rule installed (`/dev/icom-civ → ttyACM0`); service enabled.
+      `/api/radio/status` reads live freq/mode/RAWSTR and a freq set round-trips via the
+      API. Findings: **`-C civaddr=0x8C` was redundant** (the model-3071 backend defaults
+      to 0x8C — verified by reading the rig without the flag; dropped from the unit), and
+      **rigctld defers the serial open until a client connects**, so the enabled unit runs
+      cleanly even before the cable is plugged in (the API degrades to `online:false`).
+      Testing note: with no get-VFO, the API reads/sets whichever band is *active* on the
+      touchscreen — tapping the other band changes what the API sees.
+- [x] **1i — deploy-hook stanza — DONE (2026-07-02).** Enabled-gated restart block added
+      to the Pi's `post-receive` hook (before the drone-sync block), same gate pattern as
+      OBD/Victron; validated end-to-end by pushing the 1h unit change.
+
+**Phase 1 is fully closed** — control plane deployed, enabled, and live-validated.
 
 ## Phase 2 — Transmission recording (needs a USB audio dongle)
 

@@ -8,8 +8,9 @@
 #   (plug the cable into the radio's [SP2] jack)
 #   sudo systemctl enable --now radio-control
 #
-# The on-radio probe confirmed 19200 baud / CI-V address 0x8C. Phase-1 task 1d must
-# validate this exact ExecStart live (run it by hand once) before relying on the unit.
+# Live-validated against the rig 2026-07-02: 19200 baud confirmed; no civaddr flag
+# needed (the model-3071 backend defaults to the rig's 0x8C). rigctld defers the
+# serial open until a client connects, so the unit runs cleanly before plug-in.
 [Unit]
 Description=rigctld (Icom ID-5100A CI-V control)
 After=network.target
@@ -17,7 +18,7 @@ After=network.target
 [Service]
 Type=simple
 User=pmorgan
-ExecStart=/usr/bin/rigctld -m 3071 -r /dev/icom-civ -s 19200 -T 127.0.0.1 -t 4532 -C civaddr=0x8C
+ExecStart=/usr/bin/rigctld -m 3071 -r /dev/icom-civ -s 19200 -T 127.0.0.1 -t 4532
 Restart=always
 RestartSec=5
 StandardOutput=journal
