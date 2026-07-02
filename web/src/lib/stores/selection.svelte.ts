@@ -37,8 +37,9 @@ export interface PickerState {
 
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000
 const POLL_MS = 30 * 1000
-// widen() cap — a year still reaches an all-history view in a few doublings.
-const MAX_WINDOW_MS = 365 * 24 * 60 * 60 * 1000
+// Window cap for widen() and the strip's wheel zoom-out — a year still reaches an
+// all-history-ish view in a few doublings, and back() steps out of it instantly.
+export const MAX_WINDOW_MS = 365 * 24 * 60 * 60 * 1000
 
 /** Preset windows shown as chips in the picker. */
 export const PRESETS: { label: string; ms: number }[] = [

@@ -1,19 +1,22 @@
 /**
- * TimeStrip — the map view's sub-range timeline, rendered entirely in one canvas
- * (mapview-redesign S5). It owns a continuous wall-clock window domain and a
- * two-handle brush, and draws every layer in one pass: point-density coverage
- * (S4), stop dwell blocks, annotation range bands + point ticks, a dimmed mask
- * over the unselected time, and the two drag handles. Pointer Events drive the
- * brush (drag a handle to resize, drag the middle to pan, tap empty track to jump
- * the nearest handle); arrow keys nudge it. All times are ms since epoch.
+ * TimeStrip — the Selection window's timeline lane, rendered entirely in one
+ * canvas. It draws the window's layers in one pass — point-density coverage
+ * (S4), stop dwell blocks, annotation range bands + point ticks — and turns
+ * direct manipulation into Selection-axis actions (time-dock Phase 2): drag a
+ * rubber-band to zoom, wheel to zoom around the cursor (preview per step,
+ * commit debounced so each notch doesn't refetch), double-click/Backspace to
+ * step back out, ←/→ to shift, +/− to zoom. There is no local sub-selection —
+ * the window is the only time object; every gesture commits through the
+ * actions the mounting view wires to the Selection store.
  *
- * Island form: `mountTimeStrip(canvas, tooltip)` scopes to the passed elements
- * (no getElementById) and returns the control surface + a `destroy`. Kept
- * imperative — it's a custom canvas widget, not reactive UI; the Svelte timeline
- * drives it via setData/getSelection/onBrush.
+ * Island form: `mountTimeStrip(canvas, tooltip, actions)` scopes to the passed
+ * elements (no getElementById) and returns the control surface + a `destroy`.
+ * Kept imperative — it's a custom canvas widget, not reactive UI. All times are
+ * ms since epoch.
  */
 
 import type { TrackPoint } from './geo'
+import { MAX_WINDOW_MS } from './stores/selection.svelte'
 
 /** An annotation band/tick the strip overlays (the relevant subset). */
 export interface StripAnnotation {
@@ -22,52 +25,89 @@ export interface StripAnnotation {
   name?: string
 }
 
+/** Selection-axis actions the strip's gestures commit through. */
+export interface TimeStripActions {
+  /** Rubber-band release / wheel commit / `+` — jump to an explicit window. */
+  onZoom(loMs: number, hiMs: number): void
+  /** `−` — widen around center (the store caps the width). */
+  onWiden(): void
+  /** ←/→ — move by one window-width. */
+  onShift(dir: -1 | 1): void
+  /** Double-click / Backspace — step back out of the last zoom. */
+  onBack(): void
+}
+
 export interface TimeStripHandle {
   setData(d: { startMs: number; endMs: number; points: TrackPoint[]; annotations?: StripAnnotation[] }): void
   setAnnotations(anns: StripAnnotation[]): void
-  getSelection(): { loMs: number; hiMs: number } | null
-  onBrush(fn: () => void): void
   destroy(): void
 }
 
-const HIT_PX = 20 // touch hit half-width around a handle
-const EDGE = 12 // inset so full-extent handles sit off the canvas edge
 const GAP_CAP_MS = 15 * 60 * 1000 // density coverage gap cap (S4)
 const PAD_TOP = 5 // top lane: annotation bands + ticks
 const PAD_BOT = 4 // bottom lane: stop dwell blocks
+const MIN_SPAN_MS = 60 * 1000 // wheel/keyboard zoom-in floor
+const DRAG_PX = 4 // pointer travel below this is a click, not a rubber-band
+const MIN_ZOOM_MS = 1000 // ignore degenerate rubber-bands
+const WHEEL_IDLE_MS = 200 // wheel commit debounce (preview redraws per step)
+
+/**
+ * Scale a domain around an anchor time by `factor` (>1 widens), holding the
+ * anchor's position fixed and clamping the span. Pure — the wheel-zoom math.
+ */
+export function zoomDomain(
+  d: { startMs: number; endMs: number },
+  anchorMs: number,
+  factor: number,
+  minSpanMs: number = MIN_SPAN_MS,
+  maxSpanMs: number = MAX_WINDOW_MS,
+): { startMs: number; endMs: number } {
+  const span = d.endMs - d.startMs
+  const newSpan = Math.min(maxSpanMs, Math.max(minSpanMs, span * factor))
+  const frac = span > 0 ? (anchorMs - d.startMs) / span : 0.5
+  const startMs = anchorMs - frac * newSpan
+  return { startMs, endMs: startMs + newSpan }
+}
 
 /** Mount the strip onto a canvas (+ optional tooltip el) and return its controls. */
 export function mountTimeStrip(
   canvas: HTMLCanvasElement,
   tooltip: HTMLElement | null,
+  actions: TimeStripActions,
 ): TimeStripHandle {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D
   let domain: { startMs: number; endMs: number } | null = null
-  let sel: { loMs: number; hiMs: number } | null = null
+  // Wheel preview — drawn immediately per step, committed (one refetch) on idle.
+  let pending: { startMs: number; endMs: number } | null = null
   let points: TrackPoint[] = []
   let annotations: StripAnnotation[] = []
-  let drag: { mode: 'lo' | 'hi' | 'pan'; startX: number; startLo: number; startHi: number } | null =
-    null
-  const listeners: (() => void)[] = []
+  let drag: { startX: number; curX: number; moved: boolean } | null = null
+  let wheelTimer: number | undefined
 
   canvas.tabIndex = 0
-  canvas.setAttribute('role', 'slider')
-  canvas.setAttribute('aria-label', 'Time selection')
+  canvas.setAttribute(
+    'aria-label',
+    'Timeline — drag to zoom, scroll to zoom, double-click to go back',
+  )
 
-  // ── geometry ──
+  // ── geometry (against the preview domain while one is pending) ──
+  const view = (): { startMs: number; endMs: number } | null => pending ?? domain
   const cssW = (): number => canvas.clientWidth
   const cssH = (): number => canvas.clientHeight
-  const plotW = (): number => Math.max(1, cssW() - 2 * EDGE)
-  const span = (): number => (domain ? domain.endMs - domain.startMs : 0)
   function xOfMs(ms: number): number {
-    const s = span()
-    return s > 0 && domain ? EDGE + ((ms - domain.startMs) / s) * plotW() : EDGE
+    const v = view()
+    if (!v) return 0
+    const s = v.endMs - v.startMs
+    return s > 0 ? ((ms - v.startMs) / s) * cssW() : 0
   }
   function msOfX(px: number): number {
-    return domain ? domain.startMs + ((px - EDGE) / plotW()) * span() : 0
+    const v = view()
+    if (!v) return 0
+    return v.startMs + (px / Math.max(1, cssW())) * (v.endMs - v.startMs)
   }
   function clampMs(ms: number): number {
-    return domain ? Math.max(domain.startMs, Math.min(domain.endMs, ms)) : ms
+    const v = view()
+    return v ? Math.max(v.startMs, Math.min(v.endMs, ms)) : ms
   }
 
   function fmtDur(mins: number): string {
@@ -91,23 +131,22 @@ export function mountTimeStrip(
     canvas.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
-    if (!domain || !sel || span() <= 0 || w < 1) return
-    drawDensity(w, h)
-    drawStops(w, h)
-    drawAnnotations(w, h)
-    drawSelection(w, h)
-    drawHandles(w, h)
+    const v = view()
+    if (!v || v.endMs <= v.startMs || w < 1) return
+    drawDensity(w, h, v)
+    drawStops(h, v)
+    drawAnnotations(v)
+    drawRubberBand(h)
   }
 
-  function drawDensity(w: number, h: number): void {
-    if (!domain) return
+  function drawDensity(w: number, h: number, v: { startMs: number; endMs: number }): void {
     const cols = Math.max(1, Math.floor(w))
     const counts = new Float64Array(cols)
     const covered = new Uint8Array(cols)
     const colOf = (ms: number): number => Math.min(cols - 1, Math.max(0, Math.round(xOfMs(ms))))
     const fillCols = (loMs: number, hiMs: number): void => {
-      const a = colOf(Math.max(loMs, domain!.startMs))
-      const b = colOf(Math.min(hiMs, domain!.endMs))
+      const a = colOf(Math.max(loMs, v.startMs))
+      const b = colOf(Math.min(hiMs, v.endMs))
       for (let c = a; c <= b; c++) covered[c] = 1
     }
     let prev: number | null = null
@@ -118,7 +157,7 @@ export function mountTimeStrip(
         continue
       }
       const ms = new Date(p.timestamp).getTime()
-      if (ms < domain.startMs || ms > domain.endMs) {
+      if (ms < v.startMs || ms > v.endMs) {
         prev = null
         continue
       }
@@ -142,112 +181,57 @@ export function mountTimeStrip(
     }
   }
 
-  function drawStops(_w: number, h: number): void {
-    if (!domain) return
+  function drawStops(h: number, v: { startMs: number; endMs: number }): void {
     ctx.fillStyle = 'rgba(239, 68, 68, 0.85)'
     for (const p of points) {
       if (p.kind !== 'stop' || !p.dwell_start || !p.dwell_end) continue
       const sMs = new Date(p.dwell_start).getTime()
       const eMs = new Date(p.dwell_end).getTime()
-      if (eMs < domain.startMs || sMs > domain.endMs) continue
-      const x0 = xOfMs(Math.max(sMs, domain.startMs))
-      const x1 = xOfMs(Math.min(eMs, domain.endMs))
+      if (eMs < v.startMs || sMs > v.endMs) continue
+      const x0 = xOfMs(Math.max(sMs, v.startMs))
+      const x1 = xOfMs(Math.min(eMs, v.endMs))
       ctx.fillRect(x0, h - PAD_BOT, Math.max(1.5, x1 - x0), PAD_BOT)
     }
   }
 
-  function drawAnnotations(_w: number, _h: number): void {
-    if (!domain) return
+  function drawAnnotations(v: { startMs: number; endMs: number }): void {
     for (const a of annotations) {
       const sMs = new Date(a.start_time).getTime()
       if (a.end_time) {
         const eMs = new Date(a.end_time).getTime()
-        if (eMs < domain.startMs || sMs > domain.endMs) continue
-        const x0 = xOfMs(Math.max(sMs, domain.startMs))
-        const x1 = xOfMs(Math.min(eMs, domain.endMs))
+        if (eMs < v.startMs || sMs > v.endMs) continue
+        const x0 = xOfMs(Math.max(sMs, v.startMs))
+        const x1 = xOfMs(Math.min(eMs, v.endMs))
         ctx.fillStyle = 'rgba(34, 211, 238, 0.65)'
         ctx.fillRect(x0, 0, Math.max(1.5, x1 - x0), 3)
       } else {
-        if (sMs < domain.startMs || sMs > domain.endMs) continue
+        if (sMs < v.startMs || sMs > v.endMs) continue
         ctx.fillStyle = '#f59e0b'
         ctx.fillRect(xOfMs(sMs) - 1, 0, 2, PAD_TOP + 4)
       }
     }
   }
 
-  function drawSelection(w: number, h: number): void {
-    if (!sel) return
-    const xLo = xOfMs(sel.loMs)
-    const xHi = xOfMs(sel.hiMs)
-    const x0 = EDGE
-    const x1 = w - EDGE
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)'
-    if (xLo > x0) ctx.fillRect(x0, 0, xLo - x0, h)
-    if (xHi < x1) ctx.fillRect(xHi, 0, x1 - xHi, h)
+  function drawRubberBand(h: number): void {
+    if (!drag || !drag.moved) return
+    const x0 = Math.min(drag.startX, drag.curX)
+    const x1 = Math.max(drag.startX, drag.curX)
+    ctx.fillStyle = 'rgba(59, 130, 246, 0.25)'
+    ctx.fillRect(x0, 0, x1 - x0, h)
     ctx.fillStyle = 'rgba(59, 130, 246, 0.9)'
-    const selW = Math.max(1, xHi - xLo)
-    ctx.fillRect(xLo, 0, selW, 1.5)
-    ctx.fillRect(xLo, h - 1.5, selW, 1.5)
-  }
-
-  function drawHandles(_w: number, h: number): void {
-    if (!sel) return
-    const knobW = 8
-    const knobH = 14
-    const knobY = (h - knobH) / 2
-    for (const ms of [sel.loMs, sel.hiMs]) {
-      const x = xOfMs(ms)
-      ctx.fillStyle = '#3b82f6'
-      ctx.fillRect(x - 1, 0, 2, h)
-      roundRect(x - knobW / 2, knobY, knobW, knobH, 3)
-      ctx.fillStyle = '#3b82f6'
-      ctx.fill()
-      ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 1.5
-      ctx.stroke()
-    }
-  }
-
-  function roundRect(x: number, y: number, w: number, h: number, r: number): void {
-    ctx.beginPath()
-    ctx.moveTo(x + r, y)
-    ctx.arcTo(x + w, y, x + w, y + h, r)
-    ctx.arcTo(x + w, y + h, x, y + h, r)
-    ctx.arcTo(x, y + h, x, y, r)
-    ctx.arcTo(x, y, x + w, y, r)
-    ctx.closePath()
+    ctx.fillRect(x0, 0, 1.5, h)
+    ctx.fillRect(x1 - 1.5, 0, 1.5, h)
   }
 
   // ── interaction ──
-  function localX(e: PointerEvent): number {
+  function localX(e: { clientX: number }): number {
     return e.clientX - canvas.getBoundingClientRect().left
   }
 
-  function targetAtX(px: number): 'lo' | 'hi' | 'pan' | null {
-    if (!sel) return null
-    const xLo = xOfMs(sel.loMs)
-    const xHi = xOfMs(sel.hiMs)
-    const dLo = Math.abs(px - xLo)
-    const dHi = Math.abs(px - xHi)
-    if (dLo <= HIT_PX && dLo <= dHi) return 'lo'
-    if (dHi <= HIT_PX) return 'hi'
-    if (px > xLo && px < xHi) return 'pan'
-    return null
-  }
-
   function onPointerDown(e: PointerEvent): void {
-    if (!domain || !sel) return
+    if (!view()) return
     const px = localX(e)
-    let mode = targetAtX(px)
-    if (mode === null) {
-      const ms = clampMs(msOfX(px))
-      mode = Math.abs(px - xOfMs(sel.loMs)) <= Math.abs(px - xOfMs(sel.hiMs)) ? 'lo' : 'hi'
-      if (mode === 'lo') sel.loMs = Math.min(ms, sel.hiMs)
-      else sel.hiMs = Math.max(ms, sel.loMs)
-      draw()
-      emit()
-    }
-    drag = { mode, startX: px, startLo: sel.loMs, startHi: sel.hiMs }
+    drag = { startX: px, curX: px, moved: false }
     try {
       canvas.setPointerCapture(e.pointerId)
     } catch {
@@ -258,53 +242,84 @@ export function mountTimeStrip(
   }
 
   function onPointerMove(e: PointerEvent): void {
-    if (!domain || !sel) return
     const px = localX(e)
     if (!drag) {
       updateHover(px)
       return
     }
-    const ms = clampMs(msOfX(px))
-    if (drag.mode === 'lo') {
-      sel.loMs = Math.min(ms, sel.hiMs)
-    } else if (drag.mode === 'hi') {
-      sel.hiMs = Math.max(ms, sel.loMs)
-    } else {
-      const dMs = msOfX(px) - msOfX(drag.startX)
-      const width = drag.startHi - drag.startLo
-      let lo = drag.startLo + dMs
-      let hi = drag.startHi + dMs
-      if (lo < domain.startMs) {
-        lo = domain.startMs
-        hi = lo + width
-      }
-      if (hi > domain.endMs) {
-        hi = domain.endMs
-        lo = hi - width
-      }
-      sel.loMs = lo
-      sel.hiMs = hi
-    }
+    drag.curX = px
+    if (Math.abs(px - drag.startX) >= DRAG_PX) drag.moved = true
     draw()
-    emit()
     e.preventDefault()
   }
 
   function onPointerUp(e: PointerEvent): void {
     if (!drag) return
+    const d = drag
     drag = null
     try {
       canvas.releasePointerCapture(e.pointerId)
     } catch {
       /* non-fatal */
     }
+    draw()
+    if (!d.moved) return
+    const lo = clampMs(msOfX(Math.min(d.startX, d.curX)))
+    const hi = clampMs(msOfX(Math.max(d.startX, d.curX)))
+    if (hi - lo >= MIN_ZOOM_MS) actions.onZoom(lo, hi)
+  }
+
+  function onWheel(e: WheelEvent): void {
+    const v = view()
+    if (!v) return
+    e.preventDefault()
+    // ~1.16× per mouse notch (deltaY ≈ 100); smooth for pixel-delta trackpads.
+    pending = zoomDomain(v, msOfX(localX(e)), Math.pow(1.0015, e.deltaY))
+    draw()
+    if (wheelTimer) clearTimeout(wheelTimer)
+    wheelTimer = window.setTimeout(commitWheel, WHEEL_IDLE_MS)
+  }
+
+  function commitWheel(): void {
+    wheelTimer = undefined
+    if (!pending) return
+    const p = pending
+    // Adopt the preview as the domain now; the commit's refetch lands via setData.
+    domain = p
+    pending = null
+    actions.onZoom(p.startMs, p.endMs)
+  }
+
+  function onDblClick(e: MouseEvent): void {
+    e.preventDefault()
+    actions.onBack()
+  }
+
+  function onKeyDown(e: KeyboardEvent): void {
+    const v = view()
+    if (!v) return
+    let handled = true
+    if (e.key === 'ArrowLeft') {
+      actions.onShift(-1)
+    } else if (e.key === 'ArrowRight') {
+      actions.onShift(1)
+    } else if (e.key === '+' || e.key === '=') {
+      const span = v.endMs - v.startMs
+      const half = Math.max(span / 2, MIN_SPAN_MS) / 2
+      const c = (v.startMs + v.endMs) / 2
+      actions.onZoom(c - half, c + half)
+    } else if (e.key === '-' || e.key === '_') {
+      actions.onWiden()
+    } else if (e.key === 'Backspace') {
+      actions.onBack()
+    } else {
+      handled = false
+    }
+    if (handled) e.preventDefault()
   }
 
   function updateHover(px: number): void {
-    if (!domain) return
-    const mode = targetAtX(px)
-    canvas.style.cursor =
-      mode === 'lo' || mode === 'hi' ? 'ew-resize' : mode === 'pan' ? 'grab' : 'crosshair'
+    if (!view()) return
     const ms = msOfX(px)
     let text: string | null = null
     for (const p of points) {
@@ -345,81 +360,37 @@ export function mountTimeStrip(
     if (tooltip) tooltip.classList.add('hidden')
   }
 
-  function onKeyDown(e: KeyboardEvent): void {
-    if (!domain || !sel) return
-    const step = span() * 0.02
-    const width = sel.hiMs - sel.loMs
-    let handled = true
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      const dir = e.key === 'ArrowRight' ? 1 : -1
-      if (e.shiftKey) {
-        sel.hiMs = Math.max(sel.loMs, clampMs(sel.hiMs + dir * step))
-      } else {
-        let lo = sel.loMs + dir * step
-        let hi = sel.hiMs + dir * step
-        if (lo < domain.startMs) {
-          lo = domain.startMs
-          hi = lo + width
-        }
-        if (hi > domain.endMs) {
-          hi = domain.endMs
-          lo = hi - width
-        }
-        sel.loMs = lo
-        sel.hiMs = hi
-      }
-    } else if (e.key === 'Home') {
-      sel.loMs = domain.startMs
-      sel.hiMs = domain.startMs + width
-    } else if (e.key === 'End') {
-      sel.hiMs = domain.endMs
-      sel.loMs = domain.endMs - width
-    } else {
-      handled = false
-    }
-    if (handled) {
-      draw()
-      emit()
-      e.preventDefault()
-    }
-  }
-
-  function emit(): void {
-    listeners.forEach((fn) => fn())
-  }
-
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
   canvas.addEventListener('pointercancel', onPointerUp)
   canvas.addEventListener('pointerleave', hideTooltip)
+  canvas.addEventListener('wheel', onWheel, { passive: false })
+  canvas.addEventListener('dblclick', onDblClick)
   canvas.addEventListener('keydown', onKeyDown)
   window.addEventListener('resize', draw)
 
   return {
     setData({ startMs, endMs, points: pts, annotations: anns }) {
       domain = { startMs, endMs }
+      pending = null // a landed fetch supersedes any wheel preview
       points = pts || []
       if (anns !== undefined) annotations = anns || []
-      sel = { loMs: startMs, hiMs: endMs }
       draw()
     },
     setAnnotations(anns) {
       annotations = anns || []
       draw()
     },
-    getSelection() {
-      return sel ? { loMs: sel.loMs, hiMs: sel.hiMs } : null
-    },
-    onBrush(fn) {
-      listeners.push(fn)
-    },
     destroy() {
+      if (wheelTimer) clearTimeout(wheelTimer)
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)
       canvas.removeEventListener('pointercancel', onPointerUp)
       canvas.removeEventListener('pointerleave', hideTooltip)
+      canvas.removeEventListener('wheel', onWheel)
+      canvas.removeEventListener('dblclick', onDblClick)
       canvas.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', draw)
     },

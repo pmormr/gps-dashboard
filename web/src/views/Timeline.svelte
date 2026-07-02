@@ -10,12 +10,14 @@
   import './timeline.css'
   import TimePicker from './TimePicker.svelte'
 
-  // The Selection-axis chrome (ported from timeline.js): the window picker, the
-  // TimeStrip brush, and the trail render for the selection. Drives the
-  // kept-imperative TimeStrip via setData/getSelection/onBrush and the map via the
-  // passed MapView façade (`view` is a prop so this component never imports map.ts
-  // — that would pull MapLibre into the main bundle). It also renders the
-  // annotation overlays (pins/range bands + strip ticks) against the loaded points.
+  // The Selection-axis chrome: the window picker + nav cluster, the TimeStrip
+  // (drag-to-zoom — every gesture commits to the Selection store), and the trail
+  // render for the window. The trail always renders the full window — there is no
+  // sub-selection (time-dock Phase 2). Drives the kept-imperative TimeStrip via
+  // setData/actions and the map via the passed MapView façade (`view` is a prop so
+  // this component never imports map.ts — that would pull MapLibre into the main
+  // bundle). It also renders the annotation overlays (pins/range bands + strip
+  // ticks) against the loaded points.
   let { view }: { view?: typeof MapViewType } = $props()
 
   let canvas: HTMLCanvasElement
@@ -25,11 +27,6 @@
   let allPoints = $state<TrackPoint[]>([])
   let status = $state('')
   let empty = $state('')
-  let hasData = $state(false)
-  let selCount = $state(0)
-  let canZoom = $state(false)
-  let canCreate = $state(false)
-  let isLive = $state(false)
   let bookmarked = $state(false)
   let startLabel = $state('')
   let endLabel = $state('')
@@ -42,18 +39,6 @@
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    })
-  }
-
-  // A moving vertex is an instant; a stop spans its dwell interval (match by
-  // overlap), so brushing inside a long park selects "parked here" (S2).
-  function pointsInRange(loMs: number, hiMs: number): TrackPoint[] {
-    return allPoints.filter((p) => {
-      if (p.kind === 'stop' && p.dwell_start && p.dwell_end) {
-        return new Date(p.dwell_end).getTime() >= loMs && new Date(p.dwell_start).getTime() <= hiMs
-      }
-      const t = new Date(p.timestamp).getTime()
-      return t >= loMs && t <= hiMs
     })
   }
 
@@ -70,22 +55,6 @@
       }
     }
     return best
-  }
-
-  // Render the current brush: trail/map, the count, and the Zoom/Create gating.
-  // Map-local only — the store no longer carries a brush (the strip's two-handle
-  // brush dies entirely in time-dock Phase 2). followMap fits on initial load.
-  function renderRange(followMap: boolean): void {
-    const sel = strip?.getSelection()
-    if (!sel || !view || !lastRange) return
-    startLabel = windowLabel(sel.loMs)
-    endLabel = windowLabel(sel.hiMs)
-    const pts = pointsInRange(sel.loMs, sel.hiMs)
-    const isSub = sel.loMs > lastRange.from.getTime() || sel.hiMs < lastRange.to.getTime()
-    view.showTrack(pts, { fitBounds: followMap, showEndpoints: isSub && pts.length > 1 })
-    selCount = pts.length
-    canZoom = isSub
-    canCreate = pts.length >= 2
   }
 
   // Re-draw the annotation overlays (map pins for points, range bands for ranges)
@@ -117,7 +86,6 @@
   async function loadRange(range: Range): Promise<void> {
     if (!view) return
     const { from, to, live } = range
-    isLive = live
     // Live re-emits (anchor sliding forward) are continuations — don't refit each tick.
     const isLiveTick =
       !!lastRange &&
@@ -126,6 +94,8 @@
       lastRange.mode === range.mode &&
       lastRange.windowMs === range.windowMs
     lastRange = range
+    startLabel = windowLabel(from.getTime())
+    endLabel = windowLabel(to.getTime())
     status = 'Loading…'
     empty = ''
     const token = ++fetchToken
@@ -139,19 +109,16 @@
     if (token !== fetchToken) return // superseded by a newer window
     allPoints = data.points
     status = `${allPoints.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}`
+    // The axis is the requested window, not the data extent (S1) — and it always
+    // renders, even with zero points: an empty-density strip is still navigable
+    // and its annotation bands stay reachable.
+    strip?.setData({ startMs: from.getTime(), endMs: to.getTime(), points: allPoints })
     if (!allPoints.length) {
-      hasData = false
-      empty = 'No GPS points for this range'
+      empty = 'No GPS points for this window'
       view.clearTrack()
-      canZoom = false
-      canCreate = false
       return
     }
-    hasData = true
-    // The axis is the requested window, not the data extent (S1): empty leading/
-    // trailing time stays visible; data renders onto it via the TimeStrip canvas.
-    strip?.setData({ startMs: from.getTime(), endMs: to.getTime(), points: allPoints })
-    renderRange(!isLiveTick)
+    view.showTrack(allPoints, { fitBounds: !isLiveTick })
     // A point annotation was just clicked: recentre on its nearest fix now that
     // the reframed window's points have landed.
     if (annotations.pendingPan) {
@@ -161,19 +128,10 @@
     }
   }
 
-  // Narrow the loaded window to the brush and re-fetch — same vertex budget over a
-  // smaller window yields more detail.
-  function zoomToRange(): void {
-    const sel = strip?.getSelection()
-    if (!sel || sel.hiMs <= sel.loMs) return
-    selection.setRange(new Date(sel.loMs), new Date(sel.hiMs))
-  }
-
-  // Open the create form for the current brush (≥2 points → a range annotation).
-  function createRange(): void {
-    const sel = strip?.getSelection()
-    if (!sel || !canCreate) return
-    annotations.openCreate(new Date(sel.loMs).toISOString(), new Date(sel.hiMs).toISOString())
+  // Name the current window — a range annotation is a saved window (time-dock plan).
+  function saveWindow(): void {
+    const r = selection.range
+    annotations.openCreate(r.from.toISOString(), r.to.toISOString())
   }
 
   async function bookmarkHere(): Promise<void> {
@@ -188,8 +146,12 @@
   }
 
   onMount(() => {
-    strip = mountTimeStrip(canvas, tooltip)
-    strip.onBrush(() => renderRange(false))
+    strip = mountTimeStrip(canvas, tooltip, {
+      onZoom: (loMs, hiMs) => selection.zoomTo(new Date(loMs), new Date(hiMs)),
+      onWiden: () => selection.widen(),
+      onShift: (dir) => selection.shift(dir),
+      onBack: () => selection.back(),
+    })
     return () => strip?.destroy()
   })
 
@@ -211,30 +173,41 @@
 <div class="timeline">
   <div class="tl-time-row">
     <TimePicker />
+    <div class="tl-nav">
+      <button type="button" title="Back one window (←)" onclick={() => selection.shift(-1)}>◀</button>
+      <button type="button" title="Widen ×2 (−)" onclick={() => selection.widen()}>⊖</button>
+      <button
+        type="button"
+        title="Forward one window (→)"
+        disabled={selection.live}
+        onclick={() => selection.shift(1)}
+      >▶</button>
+      {#if selection.canGoBack}
+        <button type="button" title="Back to the previous window (Backspace)" onclick={() => selection.back()}>↩</button>
+      {/if}
+      {#if selection.live}<span class="tl-live">LIVE</span>{/if}
+    </div>
     <span class="tl-status">{status}</span>
   </div>
 
-  <div class="tl-strip-wrap" class:hidden={!hasData}>
+  <div class="tl-strip-wrap">
     <div class="tl-strip-canvas-wrap">
       <canvas class="tl-strip" bind:this={canvas}></canvas>
       <div class="tl-strip-tooltip hidden" bind:this={tooltip}></div>
     </div>
     <div class="tl-slider-labels">
       <span>{startLabel}</span>
-      <span class="muted">{selCount} points selected</span>
+      <span class="muted">{empty || 'drag to zoom · double-click to go back'}</span>
       <span>{endLabel}</span>
     </div>
   </div>
 
-  {#if empty}<p class="tl-empty muted">{empty}</p>{/if}
-
   <div class="tl-bottom-actions">
-    <button class="btn-secondary" disabled={!canZoom} onclick={zoomToRange}>Zoom to Range</button>
-    {#if isLive}
+    {#if selection.live}
       <button class="btn-secondary" disabled={bookmarked} onclick={bookmarkHere}>
         {bookmarked ? '✓ Bookmarked' : '📍 Bookmark Here'}
       </button>
     {/if}
-    <button class="btn-primary" disabled={!canCreate} onclick={createRange}>Create Range</button>
+    <button class="btn-secondary" onclick={saveWindow}>💾 Save window</button>
   </div>
 </div>

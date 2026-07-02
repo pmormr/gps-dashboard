@@ -1,7 +1,10 @@
 # Time Dock + Map Chrome Rework
 
-**Status: Phase 1 landed (2026-07-02) — next: Phase 2. Don't deploy before Phase 2
-lands (Phases 1–2 ship together).**
+**Status: Phases 1–2 landed (2026-07-02) — deployable; next: Phase 3.**
+Phase 2 notes: the stop-dwell-block click→zoom nice-to-have was deferred (it
+collides with double-click = back; revisit with a delayed-click guard if wanted).
+Wheel commits go through `zoomTo` (one history entry per gesture pause) so
+double-click backs out of wheel zooms too.
 Execute phases in order; Phases 1–2 are one deployable unit (the picker and strip
 change together — don't ship one without the other). Every UI phase ends with
 `npm run check` + Vitest, a rebuild of `static/dist/`, and a commit.

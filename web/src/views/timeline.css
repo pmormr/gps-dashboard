@@ -29,11 +29,47 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap; /* phone: the nav cluster wraps under the picker */
 }
 
 .tl-status {
   color: var(--text-dim);
   font-size: 12px;
+}
+
+/* ── nav cluster (shift / widen / back) next to the picker ── */
+.tl-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tl-nav button {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tl-nav button:hover:not(:disabled) {
+  background: var(--border);
+}
+.tl-nav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tl-live {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
 }
 
 /* ── buttons + inputs (timeline-scoped) ── */
@@ -235,9 +271,6 @@
   flex-direction: column;
   gap: 4px;
 }
-.tl-strip-wrap.hidden {
-  display: none;
-}
 .tl-strip-canvas-wrap {
   position: relative;
 }
@@ -287,12 +320,6 @@
 }
 .tl-slider-labels > :last-child {
   text-align: right;
-}
-
-.tl-empty {
-  font-size: 13px;
-  text-align: center;
-  padding: 4px 0;
 }
 
 .tl-bottom-actions {
