@@ -185,7 +185,13 @@
       {#if selection.canGoBack}
         <button type="button" title="Back to the previous window (Backspace)" onclick={() => selection.back()}>↩</button>
       {/if}
-      {#if selection.live}<span class="tl-live">LIVE</span>{/if}
+      {#if selection.live}
+        <span class="tl-live">LIVE</span>
+      {:else}
+        <button type="button" class="tl-golive" title="Go live — last 24h" onclick={() => selection.goLive()}>
+          ⦿ LIVE
+        </button>
+      {/if}
     </div>
     <span class="tl-status">{status}</span>
   </div>

@@ -62,6 +62,17 @@ describe('zoom history', () => {
     expect(store.range).toEqual(before)
   })
 
+  it('goLive() resets to Live · Last 24h and clears the history', () => {
+    store.zoomTo(new Date('2026-07-01T00:00:00Z'), new Date('2026-07-01T12:00:00Z'))
+    store.shift(-1)
+    store.goLive()
+    expect(store.live).toBe(true)
+    expect(store.mode).toBe('last')
+    expect(store.windowMs).toBe(DAY)
+    expect(store.canGoBack).toBe(false)
+    expect(store.range.to).toEqual(NOW)
+  })
+
   it('resetZoom() restores the window before the first zoom and clears the stack', () => {
     store.zoomTo(new Date('2026-07-01T00:00:00Z'), new Date('2026-07-01T12:00:00Z'))
     store.zoomTo(new Date('2026-07-01T02:00:00Z'), new Date('2026-07-01T04:00:00Z'))

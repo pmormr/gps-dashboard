@@ -152,6 +152,19 @@ export class SelectionStore {
     this.setPicker({ mode: 'range', from, to, live: false })
   }
 
+  /** One-tap reset to the default view: Live · Last 24h, zoom history cleared. */
+  goLive(): void {
+    this.zoomStack = []
+    this.setPicker({
+      mode: 'last',
+      windowMs: DEFAULT_WINDOW_MS,
+      anchor: null,
+      from: null,
+      to: null,
+      live: true,
+    })
+  }
+
   /** Narrow to a sub-window (drag-zoom), pushing the current window onto the history. */
   zoomTo(from: Date, to: Date): void {
     this.zoomStack = [...this.zoomStack, this.pickerState]

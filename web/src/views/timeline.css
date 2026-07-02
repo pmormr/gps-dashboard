@@ -71,6 +71,14 @@
   border: 1px solid var(--accent);
   border-radius: 999px;
 }
+.tl-nav button.tl-golive {
+  color: var(--accent);
+  border-color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+}
 
 /* ── buttons + inputs (timeline-scoped) ── */
 .tl-overlay .btn-primary,
