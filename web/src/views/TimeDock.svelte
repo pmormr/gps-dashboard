@@ -87,8 +87,12 @@
 </script>
 
 <div class="timeline">
+  <!-- Status is the flexible spacer *before* the nav, and the ↩/LIVE slots are
+       width-reserved — so the cluster's buttons never shift when the point count,
+       history, or live state changes (repeated ◀/↩ taps land on the same spot). -->
   <div class="tl-time-row">
     <TimePicker {placement} />
+    <span class="tl-status">{track.status}</span>
     <div class="tl-nav">
       <button type="button" title="Back one window (←)" onclick={() => selection.shift(-1)}>◀</button>
       <button type="button" title="Widen ×2 (−)" onclick={() => selection.widen()}>⊖</button>
@@ -98,9 +102,13 @@
         disabled={selection.live}
         onclick={() => selection.shift(1)}
       >▶</button>
-      {#if selection.canGoBack}
-        <button type="button" title="Back to the previous window (Backspace)" onclick={() => selection.back()}>↩</button>
-      {/if}
+      <button
+        type="button"
+        class="tl-back"
+        class:tl-slot-hidden={!selection.canGoBack}
+        title="Back to the previous window (Backspace)"
+        onclick={() => selection.back()}
+      >↩</button>
       {#if selection.live}
         <span class="tl-live">LIVE</span>
       {:else}
@@ -109,7 +117,6 @@
         </button>
       {/if}
     </div>
-    <span class="tl-status">{track.status}</span>
   </div>
 
   <div class="tl-strip-wrap">
