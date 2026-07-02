@@ -135,6 +135,40 @@ The buildable phase. Order roughly top-to-bottom.
 
 **Phase 1 is fully closed** — control plane deployed, enabled, and live-validated.
 
+## Phase 1.5 — Control-plane enrichment (CI-V only, no new hardware)
+
+Approved 2026-07-02 after the Phase 1 close-out. Everything here rides the existing
+rigctld daemon — Hamlib levels the API doesn't expose yet, plus raw CI-V frames via
+rigctld's `send_cmd` passthrough for what the backend lacks (**R7**: raw CI-V goes
+*through* rigctld, never a second serial client, preserving daemon-owns-the-port).
+Source of truth for raw commands: the CI-V command table in the vendored manual
+(`reference/ID-5100_ENG_CD_3.txt`, "Remote jack (CI-V) information", §13-17).
+
+- [ ] **1.5a — calibrated S-meter.** The manual pins the scale: RAWSTR `0000=S0,
+      0170=S9` (confirmed live — the rig read exactly 170 on a strong signal). Render
+      real S-units (linear S0–S9, `S9+` above 170 with an S9 tick on the bar) instead
+      of the raw `/255` readout. Drop `strength_db` from `/api/radio/status` — it's
+      Hamlib's generic Icom table, not ID-5100-calibrated, and misleading next to a
+      real scale; dropping it also saves one CI-V transaction per poll.
+- [ ] **1.5b — volume + squelch (+ RF power) controls.** Hamlib levels `AF`/`SQL`
+      (get+set, normalized 0..1) added to status + a new `POST /api/radio/level`
+      (`{level: af|sql|rfpower, value: 0..1}`); sliders on `/radio` with the same
+      don't-clobber-while-editing guard as tone/offset.
+- [ ] **1.5c — deterministic band select.** `POST /api/radio/band {band: a|b}` via raw
+      CI-V cmd `07 D0/D1` (set the A/B band as Main). We still can't *read* the active
+      band (no get-VFO), but an explicit set converts "the API follows whatever band
+      was last tapped" into "the app pins the band first." Validate live whether
+      Hamlib's `set_vfo Main/Sub` maps to the same frames; prefer raw `07 D0/D1` for
+      pinned semantics either way. Requires `send_cmd` support in `api/rigctld.py`.
+- [ ] **1.5d — D-STAR heard log (mini-phase).** Poll "Read DV RX call signs"
+      (cmd `20 02`) through rigctld and log every station heard: new table
+      `radio_dstar_heard(id, timestamp, ur_call, my_call, rpt1, rpt2, ...)`,
+      GPS-joinable at read time by timestamp (the OBD convention — no stored lat/lon).
+      Standalone enabled-gated poller service (`radio-heard`), direct-to-DB like the
+      logger (events don't fit the MQTT readings pipeline). `GET /api/radio/heard`
+      + a recent-stations card on `/radio`. Extension (not in scope): D-PRS positions
+      of heard stations (cmd `20 03`) → map pins.
+
 ## Phase 2 — Transmission recording (needs a USB audio dongle)
 
 - [ ] Pick + wire a USB audio interface (RX audio off the speaker jack).

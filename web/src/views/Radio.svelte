@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
 
   import { getRadioStatus, postRadio, type RadioStatus } from '../lib/api'
+  import { RAWSTR_S9, sMeter } from '../lib/radio'
 
   // Standard CTCSS tones (Hz) the ID-5100 supports (from dump_caps).
   const CTCSS_TONES = [
@@ -26,13 +27,24 @@
     { v: 'plus', l: '+' },
     { v: 'minus', l: '−' },
   ]
+  // The rig's three TX power steps as normalized Hamlib RFPOWER values (the CI-V
+  // power meter anchors: 26=LOW, 77=MID, 255=HIGH).
+  const RF_POWERS = [
+    { v: 26 / 255, l: 'Low' },
+    { v: 77 / 255, l: 'Mid' },
+    { v: 1, l: 'High' },
+  ]
 
   let s = $state<RadioStatus | null>(null)
   let freqInput = $state<number | null>(null)
   let ctcss = $state(100)
   let offsetKhz = $state(600)
+  let afPct = $state(0)
+  let sqlPct = $state(0)
   let editingTone = $state(false)
   let editingOffset = $state(false)
+  let editingAf = $state(false)
+  let editingSql = $state(false)
 
   let toastMsg = $state('')
   let toastErr = $state(false)
@@ -56,6 +68,8 @@
       if (next.online) {
         if (!editingTone && next.ctcss_tone_hz != null) ctcss = next.ctcss_tone_hz
         if (!editingOffset && next.rptr_offset_hz != null) offsetKhz = next.rptr_offset_hz / 1000
+        if (!editingAf && next.levels?.af != null) afPct = Math.round(next.levels.af * 100)
+        if (!editingSql && next.levels?.sql != null) sqlPct = Math.round(next.levels.sql * 100)
       }
     } catch {
       s = { online: false, error: 'Could not reach the server' }
@@ -85,6 +99,12 @@
       sh === 'simplex' ? { shift: sh } : { shift: sh, offset_hz: Math.round(offsetKhz * 1000) }
     )
 
+  const setBand = (b: string): Promise<void> => write('/api/radio/band', { band: b })
+  const setLevel = (level: string, value: number): Promise<void> =>
+    write('/api/radio/level', { level, value })
+  const rfActive = (v: number): boolean =>
+    s?.online === true && s.levels?.rfpower != null && Math.abs(s.levels.rfpower - v) < 0.05
+
   function onToneFreqChange(): void {
     if (s?.tone_mode && s.tone_mode !== 'off') applyTone(s.tone_mode)
   }
@@ -102,8 +122,8 @@
     if (toastTimer) clearTimeout(toastTimer)
   })
 
-  const fillPct = (raw: number | null | undefined): number => Math.min(100, ((raw ?? 0) / 255) * 100)
   const freqMhz = (hz: number | undefined): string => (hz == null ? '—' : (hz / 1e6).toFixed(3))
+  const smeter = $derived(s?.online ? sMeter(s.rawstr) : null)
 </script>
 
 <header class="page-head">
@@ -132,10 +152,13 @@
     <div class="flag tx" class:on={s?.online && s.ptt}><span class="dot"></span>TX</div>
   </div>
   <div class="smeter">
-    <div class="track"><div class="fill" style="width:{s?.online ? fillPct(s.rawstr) : 0}%"></div></div>
+    <div class="track">
+      <div class="fill" style="width:{smeter?.pct ?? 0}%"></div>
+      <div class="s9-tick" style="left:{(RAWSTR_S9 / 255) * 100}%"></div>
+    </div>
     <div class="smeter-label">
       <span>S-meter</span>
-      <span>{s?.online && s.rawstr != null ? `${Math.round(s.rawstr)} / 255` : '—'}</span>
+      <span>{smeter ? `${smeter.label} (${Math.round(s!.rawstr!)})` : '—'}</span>
     </div>
   </div>
 </div>
@@ -158,6 +181,45 @@
   <div class="seg">
     {#each MODES as m (m.v)}
       <button class:active={s?.online && s.mode === m.v} onclick={() => setMode(m.v)}>{m.l}</button>
+    {/each}
+  </div>
+  <div class="sub-label">Band</div>
+  <div class="seg">
+    <button onclick={() => setBand('a')}>A → main</button>
+    <button onclick={() => setBand('b')}>B → main</button>
+  </div>
+  <div class="note">
+    The rig can't report which band is active, so pin it here before tuning — the radio's
+    touchscreen can change it silently.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Levels</div>
+  <div class="sub-label">Volume — {afPct}%</div>
+  <input
+    type="range"
+    min="0"
+    max="100"
+    bind:value={afPct}
+    onpointerdown={() => (editingAf = true)}
+    onpointerup={() => (editingAf = false)}
+    onchange={() => setLevel('af', afPct / 100)}
+  />
+  <div class="sub-label">Squelch — {sqlPct}%</div>
+  <input
+    type="range"
+    min="0"
+    max="100"
+    bind:value={sqlPct}
+    onpointerdown={() => (editingSql = true)}
+    onpointerup={() => (editingSql = false)}
+    onchange={() => setLevel('sql', sqlPct / 100)}
+  />
+  <div class="sub-label">TX power</div>
+  <div class="seg">
+    {#each RF_POWERS as p (p.l)}
+      <button class:active={rfActive(p.v)} onclick={() => setLevel('rfpower', p.v)}>{p.l}</button>
     {/each}
   </div>
 </div>
@@ -303,11 +365,20 @@
     margin-top: 14px;
   }
   .track {
+    position: relative;
     height: 12px;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
+  }
+  .s9-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--text-dim);
+    opacity: 0.6;
   }
   .fill {
     height: 100%;
@@ -342,6 +413,13 @@
   input:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  input[type='range'] {
+    padding: 0;
+    height: 28px;
+    accent-color: var(--accent);
+    border: none;
+    background: none;
   }
   button {
     background: var(--surface-2);

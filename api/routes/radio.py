@@ -34,6 +34,15 @@ TONE_MODES: dict[str, tuple[bool, bool]] = {
 SHIFT_TO_RIG = {'simplex': 'None', 'plus': '+', 'minus': '-'}
 RIG_TO_SHIFT = {'None': 'simplex', '+': 'plus', '-': 'minus'}
 
+# Settable levels (normalized 0..1) → the Hamlib level name. The whitelist keeps
+# ``set_level`` from forwarding arbitrary names to the rig.
+LEVELS = {'af': 'AF', 'sql': 'SQL', 'rfpower': 'RFPOWER'}
+
+# CI-V cmd 07 D0/D1: make the A/B band the Main band (manual §13-17). Raw frames —
+# the Hamlib backend has no band-targeting model. Set-only: the active band is still
+# unreadable (no get-VFO), but an explicit set pins it before any read/write.
+BAND_SELECT = {'a': b'\x07\xd0', 'b': b'\x07\xd1'}
+
 
 def _err(message: str, status: int):
     """A ``({'error': ...}, status)`` JSON tuple for a bad request."""
@@ -77,7 +86,7 @@ def status():
             freq = rig.get_freq()
             mode, passband = rig.get_mode()
             rawstr = rig.get_level('RAWSTR')
-            strength = rig.get_level('STRENGTH')
+            levels = {key: rig.get_level(name) for key, name in LEVELS.items()}
             tone_tenths = rig.get_ctcss_tone()
             tone_mode = _tone_mode(rig.get_func('TONE'), rig.get_func('TSQL'))
             shift = rig.get_rptr_shift()
@@ -94,7 +103,7 @@ def status():
             'mode': mode,
             'passband_hz': passband,
             'rawstr': rawstr,
-            'strength_db': strength,
+            'levels': levels,
             'tone_mode': tone_mode,
             'ctcss_tone_hz': round(tone_tenths / 10.0, 1) if tone_tenths else None,
             'rptr_shift': RIG_TO_SHIFT.get(shift or 'None', 'simplex'),
@@ -113,6 +122,29 @@ def set_freq():
     if not isinstance(hz, (int, float)) or isinstance(hz, bool) or hz <= 0:
         return _err("'hz' must be a positive number", 400)
     return _apply(lambda rig: rig.set_freq(int(hz)))
+
+
+@radio_bp.post('/api/radio/band')
+def set_band():
+    """Make the A or B band the Main band. Body: ``{"band": a|b}``."""
+    data = request.get_json(silent=True) or {}
+    band = data.get('band')
+    if band not in BAND_SELECT:
+        return _err(f"'band' must be one of {tuple(BAND_SELECT)}", 400)
+    return _apply(lambda rig: rig.send_civ(BAND_SELECT[band]))
+
+
+@radio_bp.post('/api/radio/level')
+def set_level():
+    """Set a rig level. Body: ``{"level": af|sql|rfpower, "value": <0..1>}``."""
+    data = request.get_json(silent=True) or {}
+    level = data.get('level')
+    if level not in LEVELS:
+        return _err(f"'level' must be one of {tuple(LEVELS)}", 400)
+    value = data.get('value')
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 1:
+        return _err("'value' must be a number in 0..1", 400)
+    return _apply(lambda rig: rig.set_level(LEVELS[level], float(value)))
 
 
 @radio_bp.post('/api/radio/mode')

@@ -152,6 +152,33 @@ def test_set_func_encodes_bool():
     assert sock.sent == ['+\\set_func TONE 1\n']
 
 
+def test_set_level_wire_format():
+    sock = FakeSocket({'set_level AF 0.35': 'set_level: AF 0.35\nRPRT 0\n'})
+    rig = Rigctld()
+    rig._sock = sock  # type: ignore[assignment]
+    rig.set_level('AF', 0.35)
+    assert sock.sent == ['+\\set_level AF 0.35\n']
+
+
+def test_send_civ_wire_format():
+    # Reply format captured live against the ID-5100 (2026-07-02): the RPRT
+    # terminator rides on the "Reply:" line, unlike every other command.
+    cmd = 'send_cmd \\0xfe\\0xfe\\0x8c\\0xe0\\0x07\\0xd0\\0xfd'
+    sock = FakeSocket({cmd: f'{cmd.split(" ", 1)[0]}: {cmd.split(" ", 1)[1]}\nReply: RPRT 0\n'})
+    rig = Rigctld()
+    rig._sock = sock  # type: ignore[assignment]
+    rig.send_civ(b'\x07\xd0')
+    assert sock.sent == [f'+\\{cmd}\n']
+
+
+def test_send_civ_raises_on_rprt_error():
+    cmd = 'send_cmd \\0xfe\\0xfe\\0x8c\\0xe0\\0x07\\0xd0\\0xfd'
+    rig = make_rig({cmd: 'send_cmd: ...\nReply: RPRT -9\n'})
+    with pytest.raises(RigctldError) as exc:
+        rig.send_civ(b'\x07\xd0')
+    assert exc.value.rprt == -9
+
+
 def test_setter_raises_on_rprt_error():
     rig = make_rig({'set_freq 99': 'set_freq: 99\nRPRT -1\n'})
     with pytest.raises(RigctldError) as exc:

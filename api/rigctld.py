@@ -156,6 +156,41 @@ class Rigctld:
             raise RigctldError(f'rigctld {cmd!r} failed (RPRT {reply.rprt})', rprt=reply.rprt)
         return reply
 
+    def send_civ(self, payload: bytes, addr: int = 0x8C, ctrl: int = 0xE0) -> None:
+        """Send a raw CI-V frame through rigctld's ``send_cmd`` passthrough.
+
+        For commands the Hamlib backend doesn't model (R7 in
+        ``plans/radio-platform-plan.md``) — the payload is the command/sub-command/
+        data bytes from the manual's CI-V table, wrapped here in the
+        ``FE FE <addr> <ctrl> ... FD`` envelope. ``send_cmd`` replies differ from
+        every other command: the ``RPRT`` terminator rides on the ``Reply:`` line
+        (captured live 2026-07-02), so this parses the code directly instead of
+        via :func:`parse_reply`.
+
+        Args:
+            payload: Command, sub-command, and data bytes (no envelope).
+            addr: The rig's CI-V address.
+            ctrl: The controller's CI-V address.
+
+        Raises:
+            RigctldError: On a transport error or a non-zero ``RPRT``.
+        """
+        if self._sock is None:
+            raise RigctldError('send_civ() called outside a "with Rigctld()" block')
+        frame = bytes((0xFE, 0xFE, addr, ctrl)) + payload + b'\xfd'
+        arg = ''.join(f'\\0x{b:02x}' for b in frame)
+        try:
+            self._sock.sendall(f'+\\send_cmd {arg}\n'.encode())
+            raw = self._read_reply()
+        except OSError as exc:
+            raise RigctldError(f'rigctld I/O error on send_cmd: {exc}') from exc
+        idx = raw.find('RPRT ')
+        if idx == -1:
+            raise RigctldError('no RPRT terminator in rigctld reply')
+        rprt = int(raw[idx + 5 :].split(None, 1)[0])
+        if rprt != 0:
+            raise RigctldError(f'rigctld send_cmd failed (RPRT {rprt})', rprt=rprt)
+
     # --- reads (degrade to None for capabilities the ID-5100 backend lacks) ---
 
     def get_freq(self) -> int:
@@ -207,6 +242,10 @@ class Rigctld:
         return (r.fields.get('PTT') == '1') if r.rprt == 0 else None
 
     # --- writes (raise on any non-zero RPRT) ---
+
+    def set_level(self, name: str, value: float) -> None:
+        """Set a numeric level (e.g. ``AF``, ``SQL``, ``RFPOWER``), normalized 0..1."""
+        self.command(f'set_level {name} {value:g}')
 
     def set_freq(self, hz: int) -> None:
         """Tune the active VFO to ``hz``."""

@@ -281,7 +281,7 @@ export interface RadioStatus {
   mode?: string
   passband_hz?: number
   rawstr?: number | null
-  strength_db?: number | null
+  levels?: { af?: number | null; sql?: number | null; rfpower?: number | null }
   tone_mode?: string
   ctcss_tone_hz?: number | null
   rptr_shift?: string

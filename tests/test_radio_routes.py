@@ -33,7 +33,7 @@ class FakeRig:
         return 'FM', 15000
 
     def get_level(self, name: str) -> float | None:
-        return 142.0 if name == 'RAWSTR' else None
+        return {'RAWSTR': 142.0, 'AF': 0.4, 'SQL': 0.25, 'RFPOWER': 1.0}.get(name)
 
     def get_func(self, name: str) -> bool | None:
         return False
@@ -76,6 +76,12 @@ class FakeRig:
     def set_rptr_offs(self, hz: int) -> None:
         self._write('set_rptr_offs', hz)
 
+    def set_level(self, name: str, value: float) -> None:
+        self._write('set_level', name, value)
+
+    def send_civ(self, payload: bytes) -> None:
+        self._write('send_civ', payload)
+
 
 def _patch_rig(monkeypatch, **kwargs) -> None:
     monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: FakeRig(**kwargs))
@@ -90,9 +96,37 @@ def test_status_online(client, monkeypatch):
     assert data['freq_hz'] == 146520000
     assert data['mode'] == 'FM'
     assert data['rawstr'] == 142.0
-    assert data['strength_db'] is None  # not exposed by the ID-5100 backend
+    assert 'strength_db' not in data  # Hamlib's generic table, not ID-5100-calibrated
+    assert data['levels'] == {'af': 0.4, 'sql': 0.25, 'rfpower': 1.0}
     assert data['ctcss_tone_hz'] == 100.0  # 1000 tenths → 100.0 Hz
     assert data['rptr_shift'] == 'plus'
+
+
+def test_set_band_sends_civ_frame(client, monkeypatch):
+    fake = FakeRig()
+    monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: fake)
+    resp = client.post('/api/radio/band', json={'band': 'b'})
+    assert resp.status_code == 200
+    assert fake.calls == [('send_civ', b'\x07\xd1')]
+
+
+def test_set_band_rejects_unknown(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    assert client.post('/api/radio/band', json={'band': 'c'}).status_code == 400
+
+
+def test_set_level_ok(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    resp = client.post('/api/radio/level', json={'level': 'af', 'value': 0.35})
+    assert resp.status_code == 200
+    assert resp.get_json()['ok'] is True
+
+
+def test_set_level_rejects_unknown_name_and_range(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    assert client.post('/api/radio/level', json={'level': 'ptt', 'value': 1}).status_code == 400
+    assert client.post('/api/radio/level', json={'level': 'af', 'value': 1.5}).status_code == 400
+    assert client.post('/api/radio/level', json={'level': 'af', 'value': True}).status_code == 400
 
 
 def test_status_offline_when_daemon_unreachable(client, monkeypatch):
