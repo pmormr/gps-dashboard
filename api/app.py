@@ -2,7 +2,7 @@ import os
 
 from flask import Flask, abort, send_file
 
-from api.db import get_connection, init_db, migrate
+from api.db import get_connection, init_db
 from api.routes.annotations import annotations_bp
 from api.routes.docs import docs_bp
 from api.routes.drone import drone_bp
@@ -24,7 +24,6 @@ def create_app():
 
     conn = get_connection()
     init_db(conn)
-    migrate(conn)
 
     app.register_blueprint(points_bp)
     app.register_blueprint(sensors_bp)

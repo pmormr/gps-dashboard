@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from api.db import canonical_timestamp, get_connection, init_db, migrate
+from api.db import canonical_timestamp, get_connection, init_db
 from api.sensor_schema import READING_TABLES
 from common.humidity import with_derived_humidity
 from mqttbus import topics
@@ -254,7 +254,6 @@ def main() -> int:
     """
     conn = get_connection()
     init_db(conn)
-    migrate(conn)
     stats = IngestStats()
 
     client = make_client(CLIENT_ID, clean_session=False)

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from api.db import init_db, migrate
+from api.db import init_db
 from mqttbus import topics
 from mqttbus.ingest import IngestStats, record_reading
 
@@ -28,7 +28,6 @@ def conn() -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(':memory:')
     connection.row_factory = sqlite3.Row
     init_db(connection)
-    migrate(connection)
     yield connection
     connection.close()
 

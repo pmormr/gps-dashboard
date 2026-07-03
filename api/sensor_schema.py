@@ -3,7 +3,7 @@
 Single source of truth for "which SQLite table and which metric columns back each
 sensor type". Both the MQTT ingest **writer** (``mqttbus/ingest.py``) and the
 read/display **routes** (``api/routes/sensors.py``) drive off this map, so adding a
-sensor stream is one schema migration (the table in ``api.db``) plus one entry
+sensor stream is one table (in ``api.db``) plus one entry
 here — the write path, registry, latest-reading, history, and charts all follow.
 
 Lives under ``api`` (not ``mqttbus``) to keep the dependency direction one-way:

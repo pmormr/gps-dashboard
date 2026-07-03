@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from api.db import get_connection, init_db, migrate, now_canonical
+from api.db import get_connection, init_db, now_canonical
 
 # Motion-gated raw write cadence: full nav rate while moving, throttled to
 # ~1 Hz while parked. Parked 5 Hz is correlated bloat the processor's static hold
@@ -374,7 +374,6 @@ def main() -> None:
     """Run the logger loop, reconnecting to gpsd on any failure."""
     conn = get_connection()
     init_db(conn)
-    migrate(conn)
 
     print('GPS logger started', flush=True)
     last_log_time = 0.0

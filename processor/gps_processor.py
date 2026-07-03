@@ -792,7 +792,7 @@ def run(conn: sqlite3.Connection, rebuild: bool) -> None:
         conn: Open SQLite connection.
         rebuild: When True, truncate the processed tier and reprocess from id 0.
     """
-    init_db(conn)  # create-only; raw-data migrations stay owned by logger/app
+    init_db(conn)
     cursor = 0 if rebuild else get_cursor(conn)
     if rebuild:
         set_cursor(conn, 0)

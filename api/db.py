@@ -28,7 +28,6 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    _maybe_rename_trips_to_annotations(conn)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS gps_points (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +36,13 @@ def init_db(conn: sqlite3.Connection) -> None:
             lon       REAL NOT NULL,
             speed     REAL,
             altitude  REAL,
-            track     REAL
+            track     REAL,
+            epx       REAL,
+            epy       REAL,
+            epv       REAL,
+            eps       REAL,
+            climb     REAL,
+            mode      INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_gps_points_timestamp
             ON gps_points(timestamp);
@@ -474,197 +479,3 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON phone_activities(start_time);
     """)
     conn.commit()
-
-
-def _maybe_rename_trips_to_annotations(conn: sqlite3.Connection) -> None:
-    """Rename the legacy ``trips`` table to ``annotations`` and drop NOT NULL on
-    ``end_time`` so a NULL value marks a point-in-time annotation.
-
-    SQLite has no ALTER COLUMN, so the swap is a CREATE-INSERT-DROP-rename
-    dance. Idempotent: only fires when ``trips`` still exists. Runs at the top
-    of ``init_db`` so the subsequent ``CREATE TABLE IF NOT EXISTS annotations``
-    becomes a no-op.
-
-    Args:
-        conn: Open SQLite connection.
-    """
-    has_trips = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='trips'"
-    ).fetchone()
-    if not has_trips:
-        return
-    conn.executescript("""
-        CREATE TABLE annotations (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL,
-            start_time TEXT NOT NULL,
-            end_time   TEXT,
-            notes      TEXT DEFAULT ''
-        );
-        INSERT INTO annotations (id, name, start_time, end_time, notes)
-            SELECT id, name, start_time, end_time, notes FROM trips;
-        DROP TABLE trips;
-        CREATE INDEX IF NOT EXISTS idx_annotations_start_time
-            ON annotations(start_time);
-    """)
-    conn.commit()
-    print('Migration: renamed trips → annotations (end_time now nullable)')
-
-
-def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
-    """Add any columns absent from ``table`` (idempotent schema migration).
-
-    ``init_db`` uses ``CREATE TABLE IF NOT EXISTS``, which leaves an already-created
-    table untouched, so new columns on an existing DB (e.g. the Pi's) need an
-    explicit ``ALTER TABLE``. Existing columns are skipped, so this is safe to run
-    on every startup.
-
-    Args:
-        conn: Open SQLite connection.
-        table: Table name (a trusted literal, not user input).
-        columns: Mapping of column name to its SQL type/declaration.
-    """
-    existing = {row['name'] for row in conn.execute(f'PRAGMA table_info({table})')}
-    added = [name for name in columns if name not in existing]
-    for name in added:
-        conn.execute(f'ALTER TABLE {table} ADD COLUMN {name} {columns[name]}')
-    if added:
-        conn.commit()
-        print(f'Migration: added {table} column(s): {", ".join(added)}')
-
-
-def _backfill_derived_humidity(conn: sqlite3.Connection) -> None:
-    """One-shot backfill of the derived comfort columns on existing bme680 rows.
-
-    Runs only when :func:`migrate` has just added at least one of the columns
-    (so steady-state startups pay nothing); recomputing an already-filled
-    column is idempotent. Computed in Python — SQLite's ``exp``/``ln`` math
-    functions are a compile-time option we can't rely on across builds.
-    """
-    from common.humidity import absolute_humidity_gm3, dew_point_c, heat_index_c
-
-    rows = conn.execute(
-        'SELECT id, temp_c, humidity_pct FROM bme680_readings '
-        'WHERE temp_c IS NOT NULL AND humidity_pct IS NOT NULL'
-    ).fetchall()
-    conn.executemany(
-        'UPDATE bme680_readings '
-        'SET dew_point_c = ?, abs_humidity_gm3 = ?, heat_index_c = ? WHERE id = ?',
-        [
-            (
-                dew_point_c(r['temp_c'], r['humidity_pct']),
-                absolute_humidity_gm3(r['temp_c'], r['humidity_pct']),
-                heat_index_c(r['temp_c'], r['humidity_pct']),
-                r['id'],
-            )
-            for r in rows
-        ],
-    )
-    conn.commit()
-    print(f'Migration: backfilled derived humidity on {len(rows)} bme680 row(s)')
-
-
-def migrate(conn: sqlite3.Connection) -> None:
-    _add_missing_columns(
-        conn,
-        'bme680_readings',
-        {
-            'iaq': 'REAL',
-            'iaq_accuracy': 'INTEGER',
-            'co2_equivalent': 'REAL',
-            'breath_voc_equivalent': 'REAL',
-        },
-    )
-
-    # Derived comfort channels (dew point, absolute humidity, heat index),
-    # computed at ingest from temp_c/humidity_pct (common/humidity.py).
-    # Backfill gated on any column add so each addition backfills exactly once.
-    derived = {'dew_point_c': 'REAL', 'abs_humidity_gm3': 'REAL', 'heat_index_c': 'REAL'}
-    bme_cols = {row['name'] for row in conn.execute('PRAGMA table_info(bme680_readings)')}
-    _add_missing_columns(conn, 'bme680_readings', derived)
-    if not derived.keys() <= bme_cols:
-        _backfill_derived_humidity(conn)
-
-    # Per-fix accuracy/quality fields from gpsd TPV, for accuracy-weighted denoise
-    # and richer analysis. Existing rows get NULL.
-    _add_missing_columns(
-        conn,
-        'gps_points',
-        {
-            'epx': 'REAL',
-            'epy': 'REAL',
-            'epv': 'REAL',
-            'eps': 'REAL',
-            'climb': 'REAL',
-            'mode': 'INTEGER',
-        },
-    )
-
-    # Morse radio die temperature, added after the stream went live (the mt7621 SoC
-    # has no temp sensor; the MM8108 reports its own via morse_cli stats).
-    _add_missing_columns(conn, 'openwrt_readings', {'halow_temp_c': 'REAL'})
-
-    # RPC2-sourced Dahua metrics, added after the fleet stream went live: the
-    # legacy CGI 501s host metrics and SMART, but the WebUI's JSON API serves
-    # them (see sensors/dahua_rpc.py).
-    _add_missing_columns(
-        conn,
-        'nvr_readings',
-        {
-            'hdd_temp_c': 'REAL',
-            'hdd_realloc_sectors': 'INTEGER',
-            'hdd_power_on_h': 'INTEGER',
-            'cpu_pct': 'REAL',
-            'mem_used_pct': 'REAL',
-        },
-    )
-    _add_missing_columns(
-        conn,
-        'camera_readings',
-        {'cpu_pct': 'REAL', 'mem_used_pct': 'REAL', 'uptime_s': 'REAL'},
-    )
-
-    # One-time, idempotent: widen whole-second timestamps to fixed-width ms
-    # (``...SSZ`` → ``...SS.000Z``). canonical_timestamp now emits ms everywhere,
-    # so any range-compared table left at whole-second width would reintroduce the
-    # ``'.'`` < ``'Z'`` ordering hazard (a whole-second row sorts *after* its ms
-    # sibling). Annotations re-normalize below via canonical_timestamp; these tables
-    # need a direct rewrite. The gps_points pass is a full-table UPDATE that briefly
-    # holds the WAL write lock against the live logger (busy_timeout=30000 covers it).
-    for table in ('gps_points', 'bme680_readings', 'marks'):
-        widened = conn.execute(
-            f"UPDATE {table} SET timestamp = substr(timestamp, 1, 19) || '.000Z' "
-            "WHERE length(timestamp) = 20 AND timestamp NOT LIKE '%.%'"
-        ).rowcount
-        if widened:
-            conn.commit()
-            print(f'Migration: widened {widened} {table} timestamp(s) to ms')
-
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='location_history'"
-    ).fetchone()
-    if row is not None:
-        count = conn.execute('SELECT COUNT(*) FROM location_history').fetchone()[0]
-        conn.execute('DROP TABLE location_history')
-        conn.commit()
-        print(f'Migration: dropped legacy location_history table ({count} rows)')
-
-    deleted = conn.execute('DELETE FROM gps_points WHERE lat = 0 AND lon = 0').rowcount
-    conn.commit()
-    if deleted:
-        print(f'Migration: deleted {deleted} null-island gps_points rows')
-
-    normalized = 0
-    rows = conn.execute('SELECT id, start_time, end_time FROM annotations').fetchall()
-    for row in rows:
-        new_start = canonical_timestamp(row['start_time'])
-        new_end = canonical_timestamp(row['end_time']) if row['end_time'] else None
-        if new_start != row['start_time'] or new_end != row['end_time']:
-            conn.execute(
-                'UPDATE annotations SET start_time = ?, end_time = ? WHERE id = ?',
-                (new_start, new_end, row['id']),
-            )
-            normalized += 1
-    if normalized:
-        conn.commit()
-        print(f'Migration: normalized timestamps on {normalized} annotation(s)')

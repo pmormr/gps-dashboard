@@ -1,13 +1,10 @@
 """Tests for the derived moisture channels (``common/humidity.py``).
 
 Anchors the Magnus math to textbook values, exercises the None/out-of-range
-guards, and covers the two integration surfaces: the payload enricher the
-ingest uses and the one-shot historical backfill in ``api.db.migrate``.
+guards, and covers the payload enricher the ingest uses.
 """
 
 from __future__ import annotations
-
-import sqlite3
 
 import pytest
 
@@ -83,31 +80,3 @@ def test_with_derived_humidity_handles_absent_or_bad_inputs() -> None:
     assert with_derived_humidity({'temp_c': 'hot', 'humidity_pct': 50.0})['dew_point_c'] is None
     sent = with_derived_humidity({'temp_c': 20.0, 'humidity_pct': 50.0, 'dew_point_c': 1.0})
     assert sent['dew_point_c'] == 1.0
-
-
-def test_migration_backfills_existing_rows() -> None:
-    """A pre-migration DB gets its bme680 rows backfilled exactly once."""
-    from api.db import init_db, migrate
-
-    conn = sqlite3.connect(':memory:')
-    conn.row_factory = sqlite3.Row
-    init_db(conn)
-    migrate(conn)
-    # Simulate a pre-migration DB: drop the derived columns, insert history.
-    for col in ('dew_point_c', 'abs_humidity_gm3', 'heat_index_c'):
-        conn.execute(f'ALTER TABLE bme680_readings DROP COLUMN {col}')
-    conn.execute(
-        'INSERT INTO bme680_readings (sensor_id, timestamp, temp_c, humidity_pct) '
-        "VALUES (1, '2026-07-01T00:00:00.000Z', 20.0, 50.0), "
-        "(1, '2026-07-01T00:00:30.000Z', NULL, 50.0)"
-    )
-    migrate(conn)
-
-    filled, empty = conn.execute(
-        'SELECT dew_point_c, abs_humidity_gm3, heat_index_c FROM bme680_readings ORDER BY id'
-    ).fetchall()
-    assert filled['dew_point_c'] == pytest.approx(9.26, abs=0.05)
-    assert filled['abs_humidity_gm3'] == pytest.approx(8.6, abs=0.1)
-    assert filled['heat_index_c'] == pytest.approx(19.4, abs=0.1)
-    assert empty['dew_point_c'] is None
-    conn.close()
