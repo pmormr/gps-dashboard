@@ -48,38 +48,73 @@ polling is a direct LAN reach — fully offline-compatible, no tunneling.
 
 ## Phases
 
-### Phase 0 — Probe & lock the schema  *(read-only; run on the Pi)*
-The exact metric→source mapping has real unknowns (HaLow RSSI command under the Morse
-driver; whether mt7621 exposes a thermal zone; exact Dahua CGI endpoint shapes). Resolve
-them with two Phase-0 probe tools before freezing any columns — the project's established
-habit (`tools/obd_probe.py`, `tools/civ_probe.py`).
+### Phase 0 — Probe & lock the schema  *(DONE 2026-07-02)*
+Both probe tools landed and ran against the live fleet: `tools/openwrt_probe.py`
+(one-SSH-round-trip source survey, marker-parsed sections) and `tools/dahua_probe.py`
+(digest-auth CGI survey, NVR + 4 cams). Re-run either any time to re-verify a source.
 
-- `tools/openwrt_probe.py` — SSH to a target, dump candidate sources (`/proc/loadavg`,
-  `/proc/meminfo`, `/proc/uptime`, `/proc/net/dev`, thermal zones, `iw`/morse station
-  dump, `/tmp/dhcp.leases`, conntrack count, WAN ping) and print what's available.
-- `tools/dahua_probe.py` — digest-auth GET the candidate CGI endpoints (storage/HDD,
-  recording state, channel/camera state, system info) and print the raw responses.
+**Router findings (van-edge):**
+- The Morse driver serves **standard nl80211**: `iw dev wlan0 station dump` gives
+  per-station signal/bitrate/MCS/retries; `iwinfo wlan0 info` gives device-level
+  Signal/Noise; `iwinfo wlan0 assoclist` gives per-station SNR. No vendor CLI needed
+  (`/sbin/morse_cli` exists but is not required).
+- **No temperature source** — mt7621 exposes no thermal zone and no hwmon. Column out.
+- `ubus call system info` (note: `ubus call <path> <method>`, space-separated) returns
+  pre-parsed JSON: load, memory, root/tmp fs. `ubus call network.interface.wan status`
+  gives WAN up/uptime/device. Interfaces of interest in `/proc/net/dev`: `wan`,
+  `wlan0` (HaLow), `br-lan`.
+- Leases, conntrack count/max, and WAN ping (avg RTT ~43 ms via Starlink) all parse.
 
-**Output:** confirmed column sets for each table → fills in Phases 1–2.
+**Dahua findings (fleet, FW 4.003/2.800):**
+- The **NVR redirects HTTP→HTTPS with a self-signed cert** — poll with digest auth +
+  `verify=False`. Cameras answer plain HTTP.
+- `getUpTime`/`getMemoryInfo`/`getCPUUsage` are **not implemented on any device**
+  (501/400). No uptime/host-resource columns anywhere.
+- NVR: `storageDevice.cgi getDeviceAllInfo` works (per-partition `IsError`, device
+  `State=Success`; used==total always under loop recording — used bytes carry no
+  signal). `LogicDeviceManager getCameraState` is **501**; the live camera-down signal
+  is `eventManager getEventIndexes&code=VideoLoss` ("No Events" = all channels up,
+  else the down channel indexes). `getCameraAll` + `ChannelTitle` give the
+  channel→camera identity map.
+- Cameras: identity (`getSystemInfo`), clock (`getCurrentTime`), and `RecordMode`
+  config serve; nothing else does. Per-camera columns are lean by construction.
 
 ### Phase 1 — OpenWrt router stream
-- `api/db.py`: `openwrt_readings` table (columns from Phase 0).
+Locked columns for `openwrt_readings` (all NULLable; one row per poll per node):
+`load_1m` · `mem_available_pct` · `uptime_s` (reboot sawtooth) · `wan_up` (0/1 enum,
+ubus) · `wan_rx_kbps`/`wan_tx_kbps` (delta on `wan`) · `halow_rx_kbps`/`halow_tx_kbps`
+(delta on `wlan0`) · `halow_stations` · `halow_rssi_dbm`/`halow_noise_dbm` (iwinfo
+info) · `halow_tx_mbps`/`halow_rx_mbps` (assoclist bitrates — the bridge link) ·
+`dhcp_leases` · `conntrack_count` · `wan_ping_ms` (NULL when unreachable; the
+internet-actually-works signal, distinct from `wan_up`).
+
+- `api/db.py`: `openwrt_readings` table.
 - `api/sensor_schema.py`: `READING_TABLES['openwrt']` + `METRIC_META` rows.
-- `sensors/openwrt_reader.py`: SSH single-target reader, delta-state throughput,
+- `sensors/openwrt_reader.py`: SSH single-target reader (one `sh -s` round-trip per
+  poll, marker parsing like the probe), delta-state throughput,
   `--host/--node/--fake/--once`. Reuses `sensors/runner.py`.
-- `deploy/sensor-openwrt.service` (enabled-gated — needs the SSH key). Add to the
-  post-receive restart list.
-- One-time Pi setup: generate + authorize the SSH key on van-edge; enable the unit.
-- Validate against van-edge.
+- `deploy/sensor-openwrt.service` (enabled-gated). Add to the post-receive restart list.
+- ~~SSH key setup~~ **done 2026-07-02**: the Pi's ed25519 key is authorized on
+  van-edge (`/etc/dropbear/authorized_keys`) and verified.
+- Validate against van-edge; enable the unit.
 
 ### Phase 2 — Dahua fleet stream
-- `api/db.py`: `nvr_readings` + `camera_readings` tables (columns from Phase 0).
+Locked columns. `nvr_readings` (node `van-nvr`): `hdd_ok` (0/1 from `State=Success`) ·
+`hdd_err_partitions` (count of `IsError=true`) · `channels_video_loss` (count from the
+VideoLoss index list; 0 = all recording) · `clock_offset_s` (getCurrentTime − Pi
+clock). `camera_readings` (nodes `van-cam-front/-blind-left/-blind-right/-rear`):
+`online` (0/1 — poll answered; a down cam publishes `online=0`, other columns NULL) ·
+`clock_offset_s` · `record_mode` (enum 0=auto/1=manual/2=off).
+
+- `api/db.py`: `nvr_readings` + `camera_readings` tables.
 - `api/sensor_schema.py`: `READING_TABLES['nvr']`/`['camera']` + `METRIC_META` rows.
-- `sensors/dahua_reader.py`: HTTP-CGI fleet reader (NVR + N cams → multi-node publish),
-  digest auth, secret from `/etc/default/gps-dahua`, `--fake/--once`.
-- Multi-stream publisher support in `sensors/runner.py` (see Open questions).
+- `sensors/dahua_reader.py`: HTTP-CGI fleet reader (NVR + 4 cams → multi-node publish),
+  digest auth + `verify=False`, secret from `/etc/default/gps-dahua`, `--fake/--once`.
+- Multi-stream publisher support in `sensors/runner.py` (decided: one process, N
+  streams — see Open questions).
 - `deploy/sensor-dahua.service` (enabled-gated — needs the secret). Add to restart list.
-- One-time Pi setup: create `/etc/default/gps-dahua`; enable the unit.
+- One-time Pi setup: create `/etc/default/gps-dahua` (root:root 600,
+  `GPS_DAHUA_PASSWORD=…`); enable the unit.
 - Validate against the fleet.
 
 ### Phase 3 — Presentation & tests
@@ -88,14 +123,13 @@ habit (`tools/obd_probe.py`, `tools/civ_probe.py`).
   guard (already enforced by the existing test), ingest of the new types.
 - Fold the durable bits into `.claude/modules/sensors.md`; drop this plan.
 
-## Open questions
-- **Multi-stream publisher shape.** `run_simple_publisher` is one-topic. For the Dahua
-  fleet, either extend `runner.py` with a `run_multi_publisher` (one process, N sessions)
-  or run one unit per device. Leaning multi-publisher (one connection story, fewer
-  units) — decide after Phase 0 confirms the per-device column sets.
-- **HaLow link metrics.** Whether per-station RSSI/MCS is reachable under the Morse
-  driver, and in what form — Phase 0 answers this. If unavailable, fall back to
-  associated-station count only.
-- **NVR vs per-camera camera health.** Camera online/offline is derivable from the NVR
-  in one shot; per-camera uptime needs hitting each cam. Phase 0 shows what each source
-  gives, then decide whether cameras are their own nodes or NVR-derived channels.
+## Open questions — all resolved by Phase 0 (2026-07-02)
+- **Multi-stream publisher shape** → extend `runner.py` with a multi-publisher (one
+  `dahua_reader` process, 5 nodes/topics). The per-device column sets are so lean that
+  one-unit-per-device would be all overhead.
+- **HaLow link metrics** → fully available via standard `iw`/`iwinfo`; the
+  station-count-only fallback is moot.
+- **NVR vs per-camera camera health** → both, cheaply: cameras are their own nodes
+  (direct poll gives clock/record-mode, and poll success *is* the online signal); the
+  NVR contributes `channels_video_loss` as the recording-side cross-check (a cam can
+  be pingable yet not delivering video).
