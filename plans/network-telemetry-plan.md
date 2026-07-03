@@ -108,7 +108,16 @@ internet-actually-works signal, distinct from `wan_up`).
   van-edge (`/etc/dropbear/authorized_keys`) and verified.
 - Validate against van-edge; enable the unit.
 
-### Phase 2 — Dahua fleet stream
+### Phase 2 — Dahua fleet stream  *(DONE 2026-07-02 — live on the Pi)*
+Built, deployed, validated against the fleet, `sensor-dahua` enabled with the secret
+in `/etc/default/gps-dahua`: all five streams (`van-nvr` + 4 cams) publish through
+the new `run_fleet_publisher` (one session **per stream** — an MQTT LWT is
+per-connection) and land in `nvr_readings`/`camera_readings` every 60 s. One
+post-validation fix: `getCurrentTime` returns **TZ-local** time (NVR −4 h, cams
+−5 h — the fleet's TZ config is inconsistent; vault's NVR-TZ=UTC note is wrong), so
+`clock_offset_s` folds to the nearest whole hour and reads true NTP drift (~+3 s
+fleet-wide vs the Pi's stratum-1 clock).
+
 Locked columns. `nvr_readings` (node `van-nvr`): `hdd_ok` (0/1 from `State=Success`) ·
 `hdd_err_partitions` (count of `IsError=true`) · `channels_video_loss` (count from the
 VideoLoss index list; 0 = all recording) · `clock_offset_s` (getCurrentTime − Pi
