@@ -180,6 +180,39 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_system_time
             ON system_readings(timestamp);
 
+        -- OpenWrt router telemetry (network infrastructure as a sensor), ingested
+        -- over MQTT like the other streams. Published by sensors/openwrt_reader.py
+        -- (one SSH round-trip per snapshot; node = the router's vault hostname, e.g.
+        -- van-edge). wan_up is a 0/1 enum; *_kbps are reader-side counter deltas
+        -- (NULL on the first poll and across a router reboot); wan_ping_ms is NULL
+        -- when the internet is unreachable — distinct from wan_up (interface state).
+        -- Column set mirrors api/sensor_schema.py's 'openwrt' metrics.
+        CREATE TABLE IF NOT EXISTS openwrt_readings (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id       INTEGER NOT NULL,
+            timestamp       TEXT NOT NULL,
+            load_1m         REAL,
+            mem_used_pct    REAL,
+            uptime_s        REAL,
+            wan_up          INTEGER,
+            wan_rx_kbps     REAL,
+            wan_tx_kbps     REAL,
+            wan_ping_ms     REAL,
+            halow_rx_kbps   REAL,
+            halow_tx_kbps   REAL,
+            halow_stations  INTEGER,
+            halow_rssi_dbm  REAL,
+            halow_noise_dbm REAL,
+            halow_tx_mbps   REAL,
+            halow_rx_mbps   REAL,
+            dhcp_leases     INTEGER,
+            conntrack_count INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_openwrt_sensor_time
+            ON openwrt_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_openwrt_time
+            ON openwrt_readings(timestamp);
+
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id   INTEGER,

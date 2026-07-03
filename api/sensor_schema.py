@@ -101,6 +101,27 @@ READING_TABLES: dict[str, ReadingTable] = {
             'vebus_mode',
         ],
     },
+    'openwrt': {
+        'table': 'openwrt_readings',
+        'metrics': [
+            'load_1m',
+            'mem_used_pct',
+            'uptime_s',
+            'wan_up',
+            'wan_rx_kbps',
+            'wan_tx_kbps',
+            'wan_ping_ms',
+            'halow_rx_kbps',
+            'halow_tx_kbps',
+            'halow_stations',
+            'halow_rssi_dbm',
+            'halow_noise_dbm',
+            'halow_tx_mbps',
+            'halow_rx_mbps',
+            'dhcp_leases',
+            'conntrack_count',
+        ],
+    },
     'system': {
         'table': 'system_readings',
         'metrics': [
@@ -247,6 +268,8 @@ _VEBUS_STATE = {
 }
 #: vebus/Mode.
 _VEBUS_MODE = {1: 'Charger only', 2: 'Inverter only', 3: 'On', 4: 'Off'}
+#: OpenWrt WAN logical-interface state (ubus network.interface.wan "up").
+_WAN_STATE = {0: 'Down', 1: 'Up'}
 #: vcgencmd get_throttled bitmask. Low bits are currently-active; bits 16+ are the
 #: sticky "has occurred since boot" flags. The 0 key is the all-clear label.
 _THROTTLED_BITS = {
@@ -334,6 +357,22 @@ METRIC_META: dict[str, MetricMeta] = {
     'throttled': _m(
         'Throttled', dec=0, chart=False, group='compute', codec='bitmask', codes=_THROTTLED_BITS
     ),
+    # OpenWrt router node (van-edge; multi-target later). load_1m / mem_used_pct /
+    # uptime_s are shared with the Pi 'system' stream above. wan_up is interface
+    # state; wan_ping_ms is the internet-actually-works signal (NULL when dark).
+    'wan_up': _m('WAN', dec=0, chart=False, group='wan', codec='enum', codes=_WAN_STATE),
+    'wan_rx_kbps': _m('WAN down', 'kbps', dec=0, color=_BLUE, group='wan'),
+    'wan_tx_kbps': _m('WAN up', 'kbps', dec=0, color=_PURPLE, group='wan'),
+    'wan_ping_ms': _m('Ping', 'ms', dec=0, color=_GREEN, group='wan'),
+    'halow_rssi_dbm': _m('HaLow RSSI', 'dBm', dec=0, color=_AMBER, group='halow'),
+    'halow_noise_dbm': _m('HaLow noise', 'dBm', dec=0, chart=False, group='halow'),
+    'halow_rx_kbps': _m('HaLow rx', 'kbps', dec=0, color=_CYAN, group='halow'),
+    'halow_tx_kbps': _m('HaLow tx', 'kbps', dec=0, color=_ORANGE, group='halow'),
+    'halow_rx_mbps': _m('Link rx rate', 'Mbps', dec=1, chart=False, group='halow'),
+    'halow_tx_mbps': _m('Link tx rate', 'Mbps', dec=1, chart=False, group='halow'),
+    'halow_stations': _m('Stations', dec=0, chart=False, group='halow'),
+    'dhcp_leases': _m('DHCP leases', dec=0, color=_YELLOW, group='lan'),
+    'conntrack_count': _m('Conntrack', dec=0, color=_RED, group='lan'),
     'disk_root_pct': _m(
         'Disk (root)', '%', dec=0, color=_PURPLE, y_range=[0, 100], group='storage'
     ),

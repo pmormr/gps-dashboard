@@ -1,0 +1,27 @@
+# OpenWrt router reader (network infra as a sensor): SSH-poll van-edge → MQTT.
+# Enabled-gated like sensor-obd/sensor-victron — stays disabled until the Pi's SSH
+# key is authorized on the target router, so a host without the grant never
+# crash-loops. No secret file: auth is the Pi user's ~/.ssh/id_ed25519, which is
+# why HOME must be set explicitly (systemd does not populate it for User= units).
+# An unreachable router is a dropped reading, not a crash — the reader keeps
+# polling through router reboots.
+[Unit]
+Description=OpenWrt reader (van-edge SSH poll → MQTT publisher)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=HOME=/home/pmorgan
+Environment=GPS_SENSOR_NODE=van-edge
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/openwrt_reader.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -20,14 +20,11 @@ Run on the Pi (the production vantage point)::
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
 
 from common.cli import run_cli
-
-BEGIN_MARK = '### PROBE BEGIN'
-END_MARK = '### PROBE END'
+from sensors.openwrt_reader import build_remote_script, parse_marked_sections
 
 #: Candidate telemetry sources, each a named BusyBox-sh snippet run on the target.
 #: Order is the print order. Every snippet must terminate on its own (no
@@ -84,24 +81,6 @@ SECTIONS: dict[str, str] = {
 }
 
 
-def build_remote_script(sections: dict[str, str]) -> str:
-    """Assemble the single remote sh script with parse markers around each section.
-
-    Args:
-        sections: Section name → snippet, in print order.
-
-    Returns:
-        A shell script emitting ``BEGIN name`` / ``END name rc=N`` marker lines
-        around each snippet's combined stdout+stderr.
-    """
-    parts = []
-    for name, snippet in sections.items():
-        parts.append(
-            f'echo "{BEGIN_MARK} {name}"\n( {snippet} ) 2>&1\necho "{END_MARK} {name} rc=$?"'
-        )
-    return '\n'.join(parts) + '\n'
-
-
 def run_remote(host: str, user: str, script: str, timeout: float) -> str:
     """Run the assembled script on the target over one SSH round-trip.
 
@@ -138,27 +117,6 @@ def run_remote(host: str, user: str, script: str, timeout: float) -> str:
             f"(BatchMode is on — authorize this host's key first: ssh-copy-id {user}@{host})"
         )
     return proc.stdout
-
-
-def parse_sections(output: str) -> dict[str, tuple[int, str]]:
-    """Split marker-wrapped remote output back into per-section results.
-
-    Args:
-        output: The remote combined output.
-
-    Returns:
-        Section name → ``(rc, body)``; sections missing from the output (SSH cut
-        short) are absent.
-    """
-    results: dict[str, tuple[int, str]] = {}
-    pattern = re.compile(
-        rf'^{re.escape(BEGIN_MARK)} (\S+)\n(.*?)^{re.escape(END_MARK)} \1 rc=(\d+)$',
-        re.DOTALL | re.MULTILINE,
-    )
-    for match in pattern.finditer(output):
-        name, body, rc = match.group(1), match.group(2), int(match.group(3))
-        results[name] = (rc, body.rstrip('\n'))
-    return results
 
 
 def print_report(names: list[str], results: dict[str, tuple[int, str]]) -> None:
@@ -211,7 +169,7 @@ def main() -> int:
 
     print(f'probing {args.user}@{args.host} ({len(sections)} sections, one SSH round-trip) ...')
     output = run_remote(args.host, args.user, build_remote_script(sections), args.timeout)
-    results = parse_sections(output)
+    results = parse_marked_sections(output)
     print_report(names, results)
     return 0
 
