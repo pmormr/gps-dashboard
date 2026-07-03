@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 
 from api.db import canonical_timestamp, get_connection, init_db, migrate
 from api.sensor_schema import READING_TABLES
+from common.humidity import with_derived_humidity
 from mqttbus import topics
 from mqttbus.client import KEEPALIVE_SECONDS, broker_host, broker_port, make_client
 
@@ -159,6 +160,10 @@ def record_reading(
     receipt_iso = canonical_timestamp(receipt_dt.isoformat())
     sensor_id = ensure_sensor(conn, topic.node, topic.type, receipt_iso)
     ts = resolve_timestamp(payload, receipt_dt, stats)
+    # Derived moisture channels: the node sends temp/RH; dew point and absolute
+    # humidity are computed here so the columns are queryable like any metric.
+    if topic.type == 'bme680':
+        payload = with_derived_humidity(payload)
     metrics = spec['metrics']
     columns = ', '.join(['sensor_id', 'timestamp', *metrics])
     placeholders = ', '.join(['?'] * (len(metrics) + 2))

@@ -75,6 +75,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             timestamp             TEXT NOT NULL,
             temp_c                REAL,
             humidity_pct          REAL,
+            dew_point_c           REAL,
+            abs_humidity_gm3      REAL,
             pressure_hpa          REAL,
             gas_ohms              REAL,
             iaq                   REAL,
@@ -530,6 +532,34 @@ def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str
         print(f'Migration: added {table} column(s): {", ".join(added)}')
 
 
+def _backfill_derived_humidity(conn: sqlite3.Connection) -> None:
+    """One-shot backfill of the derived moisture columns on existing bme680 rows.
+
+    Runs only when :func:`migrate` has just added the columns (so steady-state
+    startups pay nothing). Computed in Python — SQLite's ``exp``/``ln`` math
+    functions are a compile-time option we can't rely on across builds.
+    """
+    from common.humidity import absolute_humidity_gm3, dew_point_c
+
+    rows = conn.execute(
+        'SELECT id, temp_c, humidity_pct FROM bme680_readings '
+        'WHERE temp_c IS NOT NULL AND humidity_pct IS NOT NULL'
+    ).fetchall()
+    conn.executemany(
+        'UPDATE bme680_readings SET dew_point_c = ?, abs_humidity_gm3 = ? WHERE id = ?',
+        [
+            (
+                dew_point_c(r['temp_c'], r['humidity_pct']),
+                absolute_humidity_gm3(r['temp_c'], r['humidity_pct']),
+                r['id'],
+            )
+            for r in rows
+        ],
+    )
+    conn.commit()
+    print(f'Migration: backfilled derived humidity on {len(rows)} bme680 row(s)')
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     _add_missing_columns(
         conn,
@@ -541,6 +571,18 @@ def migrate(conn: sqlite3.Connection) -> None:
             'breath_voc_equivalent': 'REAL',
         },
     )
+
+    # Derived moisture channels (dew point + absolute humidity), computed at
+    # ingest from temp_c/humidity_pct (common/humidity.py). Backfill gated on
+    # the column add so it runs exactly once per DB.
+    bme_cols = {row['name'] for row in conn.execute('PRAGMA table_info(bme680_readings)')}
+    _add_missing_columns(
+        conn,
+        'bme680_readings',
+        {'dew_point_c': 'REAL', 'abs_humidity_gm3': 'REAL'},
+    )
+    if 'dew_point_c' not in bme_cols:
+        _backfill_derived_humidity(conn)
 
     # Per-fix accuracy/quality fields from gpsd TPV, for accuracy-weighted denoise
     # and richer analysis. Existing rows get NULL.

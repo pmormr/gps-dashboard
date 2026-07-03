@@ -1,15 +1,17 @@
 # Cabin BME680 air-quality node (Seeed XIAO ESP32-C6 + Adafruit BME680).
 #
 # Runs Bosch BSEC2 on-device for a calibrated IAQ index, then publishes one
-# combined JSON reading to the gps-dashboard sensor taxonomy so the Pi's
-# mqttbus/ingest.py writes it straight into bme680_readings, unchanged.
+# combined JSON reading to the gps-dashboard sensor taxonomy for the Pi's
+# mqttbus/ingest.py to write into bme680_readings.
 #
 #   reading topic : sensors/cabin/bme680            (retained JSON, every 30s)
 #   status topic  : sensors/cabin/bme680/status     (retained online/offline = LWT)
 #
-# Payload keys are the bme680_readings column names (the ingest contract):
+# Payload keys are bme680_readings column names (the ingest contract):
 #   ts, temp_c, humidity_pct, pressure_hpa, gas_ohms,
 #   iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent
+# The dew_point_c / abs_humidity_gm3 columns are NOT sent — ingest derives
+# them from temp_c + humidity_pct (common/humidity.py).
 #
 # Flashing (online prep step; runtime is fully offline on the van LAN):
 #   uv tool run esphome run firmware/cabin-bme680.yaml   # first flash over USB, then OTA

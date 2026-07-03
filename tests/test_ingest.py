@@ -46,6 +46,23 @@ def test_records_bme680_reading(conn: sqlite3.Connection) -> None:
     assert conn.execute("SELECT 1 FROM sensors WHERE node = 'cabin' AND type = 'bme680'").fetchone()
 
 
+def test_bme680_derives_moisture_channels(conn: sqlite3.Connection) -> None:
+    """Ingest fills dew_point_c/abs_humidity_gm3 from temp+RH; NULL when inputs absent."""
+    topic = topics.SensorTopic(node='cabin', type='bme680', kind='reading')
+    record_reading(
+        conn, topic, {'ts': TS, 'temp_c': 20.0, 'humidity_pct': 50.0}, RECEIPT, IngestStats()
+    )
+    record_reading(conn, topic, {'ts': TS, 'temp_c': 20.0}, RECEIPT, IngestStats())
+
+    full, partial = conn.execute(
+        'SELECT dew_point_c, abs_humidity_gm3 FROM bme680_readings ORDER BY id'
+    ).fetchall()
+    assert full['dew_point_c'] == pytest.approx(9.26, abs=0.05)
+    assert full['abs_humidity_gm3'] == pytest.approx(8.6, abs=0.1)
+    assert partial['dew_point_c'] is None
+    assert partial['abs_humidity_gm3'] is None
+
+
 def test_records_obd_reading(conn: sqlite3.Connection) -> None:
     """An obd payload lands in obd_readings; the wide column set maps correctly."""
     topic = topics.SensorTopic(node='van', type='obd', kind='reading')
@@ -109,8 +126,7 @@ def test_records_nvr_and_camera_readings(conn: sqlite3.Connection) -> None:
     cam = conn.execute('SELECT * FROM camera_readings').fetchone()
     assert cam['online'] == 0 and cam['record_mode'] is None
     nodes = {
-        r['node']
-        for r in conn.execute("SELECT node FROM sensors WHERE type IN ('nvr', 'camera')")
+        r['node'] for r in conn.execute("SELECT node FROM sensors WHERE type IN ('nvr', 'camera')")
     }
     assert nodes == {'van-nvr', 'van-cam-front'}
 
