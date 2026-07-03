@@ -40,6 +40,10 @@ class LayersStore {
   attractions = $state(false)
   attractionsStatus = $state('')
   attractionKinds = $state<Set<AttractionKind>>(new Set(KIND_META.map((m) => m.kind)))
+  // A zoom queued by another view ("Show on map" in Attractions) for Map.svelte
+  // to consume once the engine is mounted — the engine may not exist yet when
+  // the navigation happens.
+  pendingZoom = $state<{ lat: number; lon: number; zoom: number } | null>(null)
 
   /** Whether the vector basemap (which alone has labels) is active. */
   get isVector(): boolean {

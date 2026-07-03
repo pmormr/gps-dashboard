@@ -21,7 +21,6 @@
   import InspectPanel from './InspectPanel.svelte'
   import MapStyle from './MapStyle.svelte'
   import MarksPanel from './MarksPanel.svelte'
-  import NearbyPanel from './NearbyPanel.svelte'
   import TimeDock from './TimeDock.svelte'
 
   // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
@@ -39,11 +38,10 @@
   // closes the rest. Default closed (a clean map); resets on remount. Data layers
   // and map style are separate buttons — overlay toggles and basemap styling
   // aren't related tasks.
-  type RailPanel = 'data' | 'style' | 'nearby' | 'marks' | 'inspect'
+  type RailPanel = 'data' | 'style' | 'marks' | 'inspect'
   const RAIL: { id: RailPanel; icon: string; label: string }[] = [
     { id: 'data', icon: '🛰', label: 'Data layers' },
     { id: 'style', icon: '🎨', label: 'Map style' },
-    { id: 'nearby', icon: '🧭', label: 'Nearby attractions' },
     { id: 'marks', icon: '🚩', label: 'Marks' },
     { id: 'inspect', icon: '📊', label: 'Inspect window' },
   ]
@@ -138,6 +136,15 @@
       .catch((err) => {
         layers.phoneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
       })
+  })
+
+  // A zoom queued by the Attractions view's "Show on map" — consume it once the
+  // engine is up.
+  $effect(() => {
+    if (!view || !layers.pendingZoom) return
+    const { lat, lon, zoom } = layers.pendingZoom
+    layers.pendingZoom = null
+    view.zoomTo(lat, lon, zoom)
   })
 
   // Attractions overlay follows the *viewport*: refetch when the toggle, the kind
@@ -331,8 +338,6 @@
           <DataLayers {view} />
         {:else if openPanel === 'style'}
           <MapStyle {view} />
-        {:else if openPanel === 'nearby'}
-          <NearbyPanel {view} onOpen={(id) => (attractionId = id)} />
         {:else if openPanel === 'marks'}
           <MarksPanel />
         {:else}

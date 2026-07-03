@@ -2,7 +2,14 @@ import type { Point } from 'geojson'
 import { describe, expect, it } from 'vitest'
 
 import type { Attraction, AttractionKind } from './api'
-import { attractionsToFC, KIND_META, kindMeta, kindsAtZoom, MIN_DETAIL_ZOOM } from './attractions'
+import {
+  attractionsToFC,
+  KIND_META,
+  kindMeta,
+  kindsAtZoom,
+  MIN_DETAIL_ZOOM,
+  stripHtml,
+} from './attractions'
 
 function row(overrides: Partial<Attraction> = {}): Attraction {
   return {
@@ -69,6 +76,24 @@ describe('attractionsToFC', () => {
   it('colors differ across kinds (legend readability)', () => {
     const colors = new Set(KIND_META.map((m) => m.color))
     expect(colors.size).toBe(KIND_META.length)
+  })
+})
+
+describe('stripHtml', () => {
+  it('drops tags and normalizes whitespace', () => {
+    expect(stripHtml('<p>Join a ranger</p>\n<p>at the  <b>overlook</b>.</p>')).toBe(
+      'Join a ranger at the overlook.',
+    )
+  })
+
+  it('decodes the common entities', () => {
+    expect(stripHtml('Trails &amp; Rails &#39;26 &lt;free&gt;&nbsp;event')).toBe(
+      "Trails & Rails '26 <free> event",
+    )
+  })
+
+  it('passes plain text through', () => {
+    expect(stripHtml('No markup here.')).toBe('No markup here.')
   })
 })
 

@@ -602,6 +602,15 @@ export function getAttraction(id: number): Promise<Attraction & { details: Attra
   return getJSON<Attraction & { details: AttractionDetails }>(`/api/attractions/${id}`)
 }
 
+/** One event with parsed details and its full occurrence list. */
+export function getAttractionEvent(
+  id: number,
+): Promise<AttractionEvent & { details: Record<string, unknown> }> {
+  return getJSON<AttractionEvent & { details: Record<string, unknown> }>(
+    `/api/attractions/events/${id}`,
+  )
+}
+
 /** Event occurrences in a calendar-date window (`YYYY-MM-DD`), grouped per event. */
 export function getAttractionEvents(opts: {
   start?: string

@@ -63,6 +63,25 @@ export function attractionsToFC(rows: Attraction[]): FeatureCollection {
   return { type: 'FeatureCollection', features }
 }
 
+/**
+ * Flatten NPS rich-text to plain text: drop tags, decode the common entities,
+ * collapse whitespace. Event descriptions arrive as HTML; the app renders them
+ * as text rather than injecting source-controlled markup.
+ */
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/ ([.,;:!?])/g, '$1')
+    .trim()
+}
+
 function emptyFC(): FeatureCollection {
   return { type: 'FeatureCollection', features: [] }
 }

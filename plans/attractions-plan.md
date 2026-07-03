@@ -72,16 +72,19 @@ unless a laptop-push path proves necessary later. Key via `NPS_API_KEY` env.
      (they're real POIs — waysides, monuments), discuss before acting.
    - Key: `NPS_API_KEY` via `--api-key` → env → `/etc/default/gps-attractions` (in place on
      the Pi, root:pmorgan 640).
-2. **Frontend** — DONE 2026-07-03 (`web/src/lib/attractions.ts` controller,
-   `NearbyPanel.svelte`, `AttractionSheet.svelte`; live import verified on the Pi the same
-   day). Implementation facts:
+2. **Frontend** — DONE 2026-07-03, restructured same day into **map = waypoints only,
+   Attractions = its own nav destination** (live import verified on the Pi). Facts:
    - The map layer is **viewport-driven, not time-windowed** (moveend refetch, stale-token
      guard) with a zoom gate: below z6 only parks render. Kind colors/icons live in
-     `KIND_META` (attractions.ts); pins are one domain-free circle layer in map.ts.
-   - 🧭 Nearby rail panel: one bbox fetch (~±0.5°) around the live fix (map-center
-     fallback), client-side haversine sort, top 50. Pin clicks and Nearby rows share the
-     detail sheet; the always-on age banner escalates to a warning past 45 days.
-   - Still a rail panel, not a nav destination — promote only if it earns it.
+     `KIND_META` (attractions.ts); pins are one domain-free circle layer in map.ts. Pin
+     click → `AttractionSheet.svelte`, a thin container over the shared
+     `AttractionDetail.svelte`.
+   - `/attractions` (`Attractions.svelte`): master-detail browser — Places/Events modes,
+     server-`q` search, kind chips, Near me ↔ Everywhere anchor (~±1° around the live
+     fix, haversine-sorted); browse state survives tab switches
+     (`stores/attractions.svelte.ts`); "Show on map" queues `layers.pendingZoom` and
+     navigates. Event descriptions are HTML → flattened by `stripHtml` (attractions.ts).
+   - The always-on data-age banner escalates to a warning past 45 days.
 3. **RIDB facilities** — parse the full export (facilities + hours + activities, not the
    100k individual campsites) into the same `attractions` table, `source='ridb'`.
 4. **Deferred / optional** — OSM POI extract for non-federal coverage; tour-audio + thumbnail

@@ -1,11 +1,11 @@
 # Frontend
 
 **Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
-`static/dist/` (committed) and served by Flask. A persistent nav shell with six
-top-level destinations (**Home · Map · Systems · Docs · Sky · Radio**); the map is one
-tab among several, not the privileged single view it once was. Mobile-first (the primary
-client is a phone over the van's WiFi): a bottom tab bar on phones, a left sidebar on
-desktop.
+`static/dist/` (committed) and served by Flask. A persistent nav shell with seven
+top-level destinations (**Home · Map · Attractions · Systems · Docs · Sky · Radio**); the
+map is one tab among several, not the privileged single view it once was. Mobile-first
+(the primary client is a phone over the van's WiFi): a bottom tab bar on phones, a left
+sidebar on desktop.
 
 ## Build & serve
 
@@ -82,9 +82,7 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   layers** (`DataLayers.svelte`: drone + phone + attractions toggles, the latter with a
   per-kind filter), 🎨 **Map style**
   (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, labels via `labels.ts`,
-  3D terrain + exaggeration), 🧭 **Nearby** (`NearbyPanel.svelte`: attractions
-  distance-sorted around the live fix — map-center fallback — tap → detail sheet),
-  🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
+  3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
   Marks reframes the window; panel-local state), 📊 **Inspect** (`InspectPanel.svelte`:
   derived window stats from `GET /api/obd/economy` — duration/distance/speeds/fuel/MPG/
   moving/idle; fetches only while mounted = open). Exclusive-open; desktop = anchored
@@ -96,11 +94,11 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   cluster, shown only while that layer is on. Drone: `drone.ts` lazily imports
   `overlay3d.ts` (three.js tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb +
   visit pins, following the window; attractions: `attractions.ts` per-kind pins —
-  **viewport-driven** (moveend refetch, parks-only below z6), *not* time-windowed, with
-  pin clicks/Nearby rows opening `AttractionSheet.svelte` (hours, tour stops/transcripts,
-  the park's next-30-days events, the always-on data-age banner). Subsystems:
-  **`.claude/modules/drone.md`**, **`.claude/modules/phone.md`**;
-  attractions tier: **`plans/attractions-plan.md`**.
+  **viewport-driven** (moveend refetch, parks-only below z6), *not* time-windowed. The
+  map's attractions role is **waypoints only**: pin click → `AttractionSheet.svelte`, a
+  thin container over the shared `AttractionDetail.svelte`; browsing/search lives in the
+  Attractions destination. Subsystems: **`.claude/modules/drone.md`**,
+  **`.claude/modules/phone.md`**; attractions tier: **`plans/attractions-plan.md`**.
 - **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) —
   annotations are **named windows** (pure time metadata; any tier replays against the
   bounds). Drawer (side desktop / bottom sheet mobile) is the management UI: list, ✎ edit
@@ -119,6 +117,16 @@ asks `limit=20000`.
 
 ## Other views
 
+- **Attractions** (`Attractions.svelte`, `/attractions`) — the "where do we go next"
+  browser over the attractions tier; the map keeps only waypoints. Master-detail
+  (email-client) layout: a list pane (Places / Events modes, server-`q` name search
+  debounced, kind chips, **Near me** ↔ **Everywhere** anchor toggle — live fix,
+  distance-sorted, ~±1°) beside a detail pane rendering the shared
+  `AttractionDetail.svelte` / `EventDetail.svelte` (also used by the map sheet). Desktop
+  shows both panes; mobile shows one (list → detail with back). Browse state is a module
+  singleton (`stores/attractions.svelte.ts`) so the session survives tab switches;
+  "Show on map" queues `layers.pendingZoom`, enables the pins layer, and navigates —
+  Map.svelte consumes the zoom once the engine is up.
 - **Systems** (`Systems.svelte`) — consolidated house/van/cabin telemetry from
   `/api/sensors` + `METRIC_META` (grouped, unit-converted, per-section liveness).
   Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below), **gpsd**

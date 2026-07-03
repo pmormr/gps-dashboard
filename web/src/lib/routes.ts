@@ -1,5 +1,6 @@
 import type { Component } from 'svelte'
 
+import Attractions from '../views/Attractions.svelte'
 import Docs from '../views/Docs.svelte'
 import Globe from '../views/Globe.svelte'
 import Gpsd from '../views/Gpsd.svelte'
@@ -27,6 +28,7 @@ export interface RouteDef {
 export const routes: RouteDef[] = [
   { path: '/', component: Home, tab: '/' },
   { path: '/map', component: Map, tab: '/map' },
+  { path: '/attractions', component: Attractions, tab: '/attractions' },
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/docs', component: Docs, tab: '/docs', prefix: true },
   { path: '/sky', component: Sky, tab: '/sky' },
@@ -52,6 +54,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { label: 'Home', icon: '◉', to: '/' },
   { label: 'Map', icon: '🗺️', to: '/map' },
+  { label: 'Attractions', icon: '🏞️', to: '/attractions' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
