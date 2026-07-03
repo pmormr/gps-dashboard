@@ -227,12 +227,13 @@ gps-dashboard/
 │       │   ├── labels.ts       # POI/label GL-style controls (vector base)
 │       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
 │       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
+│       │   ├── attractions.ts  # attractions overlay: per-kind pin builders + viewport-driven sync (z6 gate)
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
 │       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Nearby/AttractionSheet/Marks/Inspect/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/tile-error.png

@@ -79,9 +79,12 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   extent, and it always renders — an empty window stays navigable. Hover emits
   `track.hoverMs` (the map's ghost dot) + tooltips.
 - **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🛰 **Data
-  layers** (`DataLayers.svelte`: drone + phone toggles), 🎨 **Map style**
+  layers** (`DataLayers.svelte`: drone + phone + attractions toggles, the latter with a
+  per-kind filter), 🎨 **Map style**
   (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, labels via `labels.ts`,
-  3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
+  3D terrain + exaggeration), 🧭 **Nearby** (`NearbyPanel.svelte`: attractions
+  distance-sorted around the live fix — map-center fallback — tap → detail sheet),
+  🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
   Marks reframes the window; panel-local state), 📊 **Inspect** (`InspectPanel.svelte`:
   derived window stats from `GET /api/obd/economy` — duration/distance/speeds/fuel/MPG/
   moving/idle; fetches only while mounted = open). Exclusive-open; desktop = anchored
@@ -89,10 +92,15 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   a mode toggle passing the map bbox into the shared `/api/points` fetch so the strip's
   density shows only time spent in view ("when was I ever at this campsite") — updates on
   moveend, suppresses refit (no fit→move→refetch loop), resets on toggle-off/route leave.
-  Drone/phone **legends are on-map chips** under the top-left annotations cluster, shown
-  only while that layer is on. Drone: `drone.ts` lazily imports `overlay3d.ts` (three.js
-  tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb + visit pins, following the
-  window. Subsystems: **`.claude/modules/drone.md`**, **`.claude/modules/phone.md`**.
+  Drone/phone/attractions **legends are on-map chips** under the top-left annotations
+  cluster, shown only while that layer is on. Drone: `drone.ts` lazily imports
+  `overlay3d.ts` (three.js tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb +
+  visit pins, following the window; attractions: `attractions.ts` per-kind pins —
+  **viewport-driven** (moveend refetch, parks-only below z6), *not* time-windowed, with
+  pin clicks/Nearby rows opening `AttractionSheet.svelte` (hours, tour stops/transcripts,
+  the park's next-30-days events, the always-on data-age banner). Subsystems:
+  **`.claude/modules/drone.md`**, **`.claude/modules/phone.md`**;
+  attractions tier: **`plans/attractions-plan.md`**.
 - **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) —
   annotations are **named windows** (pure time metadata; any tier replays against the
   bounds). Drawer (side desktop / bottom sheet mobile) is the management UI: list, ✎ edit
