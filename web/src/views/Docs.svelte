@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
 
   import { getDocFile, getDocsTree, putDocFile } from '../lib/api'
   import {
@@ -163,6 +164,23 @@
     navOpen = false
   }
 
+  // Manually-collapsed tree dirs (default = expanded, so a fresh tree is fully open).
+  const collapsed = new SvelteSet<string>()
+
+  function toggleDir(path: string): void {
+    if (!collapsed.delete(path)) collapsed.add(path)
+  }
+
+  // Deep links and in-doc navigation must never land on a hidden file: expand
+  // every ancestor dir of the active doc.
+  $effect(() => {
+    const path = docPath
+    if (!path) return
+    for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) {
+      collapsed.delete(path.slice(0, i))
+    }
+  })
+
   const label = (name: string): string => name.replace(/\.md$/, '')
 </script>
 
@@ -188,8 +206,15 @@
       {#snippet nodes(items: DocNode[], depth: number)}
         {#each items as node (node.path)}
           {#if node.type === 'dir'}
-            <div class="tree-dir" style="padding-left: {depth * 12 + 10}px">{node.name}</div>
-            {@render nodes(node.children ?? [], depth + 1)}
+            <button
+              class="tree-dir"
+              style="padding-left: {depth * 12 + 10}px"
+              onclick={() => toggleDir(node.path)}>
+              <span class="chev" class:open={!collapsed.has(node.path)}>▸</span>{node.name}
+            </button>
+            {#if !collapsed.has(node.path)}
+              {@render nodes(node.children ?? [], depth + 1)}
+            {/if}
           {:else}
             <button
               class="tree-file"
@@ -293,12 +318,30 @@
   }
 
   .tree-dir {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-dim);
     padding: 10px 0 4px;
+  }
+  .tree-dir:hover {
+    color: var(--text);
+  }
+  .chev {
+    display: inline-block;
+    transition: transform 0.12s;
+  }
+  .chev.open {
+    transform: rotate(90deg);
   }
 
   .tree-file {

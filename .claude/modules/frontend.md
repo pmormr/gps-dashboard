@@ -135,8 +135,9 @@ asks `limit=20000`.
   "No data in this range" overlay instead of a silent blank plot. Replaces the retired
   legacy `/sensors`.
 - **Docs** (`Docs.svelte`) — browses **and edits** the synced `paul-network-docs` Obsidian
-  vault (`GET/PUT /api/docs/file`, `GET /api/docs/tree`). Two-pane: a file tree + the
-  rendered markdown. `docs.ts` is the render seam — markdown-it (raw HTML disabled, so no
+  vault (`GET/PUT /api/docs/file`, `GET /api/docs/tree`). Two-pane: a collapsible file
+  tree (dirs toggle, default expanded; the active doc's ancestors auto-expand so deep
+  links never land hidden) + the rendered markdown. `docs.ts` is the render seam — markdown-it (raw HTML disabled, so no
   sanitizer dep), **lazy** mermaid for diagrams (its own dynamic chunk, loaded only on docs
   with a `mermaid` block), and relative-`.md` link resolution → in-app `/docs/<path>`
   navigation (the route is `prefix`-matched in `router.svelte.ts` so
