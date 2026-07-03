@@ -1,0 +1,29 @@
+# Dahua fleet reader (recording infra as a sensor): CGI-poll the NVR + cameras →
+# multi-node MQTT (one process, five streams: van-nvr + van-cam-*).
+# Enabled-gated like sensor-victron — stays disabled until the secret exists, so a
+# host without it never crash-loops (the reader exits 2 without the password).
+#
+# The shared WebUI password is the one secret and MUST stay out of git: put
+#   GPS_DAHUA_PASSWORD=...
+# in /etc/default/gps-dahua on the Pi (root-owned, chmod 600). The leading '-'
+# makes the file optional so the unit still loads when it is absent — configure
+# it before enabling.
+[Unit]
+Description=Dahua fleet reader (NVR + cameras CGI poll → MQTT publisher)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+EnvironmentFile=-/etc/default/gps-dahua
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/dahua_reader.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

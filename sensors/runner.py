@@ -10,6 +10,10 @@ table:
 * :func:`publisher_session` — the connect/teardown lifecycle as a context manager.
 * :func:`run_simple_publisher` — a full read→publish→heartbeat loop for the simple
   fixed-interval readers (BME680 and any future plain sensor).
+* :func:`run_fleet_publisher` — the multi-stream variant for one reader feeding
+  several nodes (the Dahua fleet): one process, one session **per stream**, since
+  an MQTT LWT is per-connection — a shared client could flip only one stream's
+  status to ``offline`` on an ungraceful death, leaving the rest stale-online.
 * :class:`Heartbeat` — an interval-gated counter line (a stall names its own cause).
 * :func:`bounded_step` / :func:`bounded_walk` — the bounded random walk the
   ``--fake`` sources drift on.
@@ -23,6 +27,7 @@ stays pure transport and has no dependency back on this framework.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import random
@@ -50,6 +55,13 @@ class SimpleSensor(Protocol):
 
     def read(self) -> Reading | None:
         """Return one reading (metric→value), or None if no fresh data."""
+
+
+class FleetSensor(Protocol):
+    """A fixed-interval multi-node source for :func:`run_fleet_publisher`."""
+
+    def read(self) -> Mapping[str, Reading | None]:
+        """Return node → reading for one poll cycle (None = drop that node's cycle)."""
 
 
 def default_node(default: str) -> str:
@@ -226,6 +238,59 @@ def publisher_session(
         time.sleep(0.2)
         client.loop_stop()
         client.disconnect()
+
+
+def run_fleet_publisher(
+    sensor: FleetSensor,
+    *,
+    streams: Mapping[str, str],
+    interval: float,
+    once: bool,
+    started_msg: str | None = None,
+) -> None:
+    """Read→publish a whole fleet on a fixed interval until interrupted.
+
+    The multi-stream sibling of :func:`run_simple_publisher`: one process holds a
+    :func:`publisher_session` per stream (each with its own client and LWT — see
+    the module docstring for why they can't share one), reads the fleet in one
+    call, and publishes each node's snapshot to its own topic. A node whose
+    reading is None this cycle is a drop for that node only.
+
+    Args:
+        sensor: The fleet source; ``read`` returns node → reading (or None).
+        streams: Node → sensor type, one entry per published stream. Every key
+            ``sensor.read`` returns must be present here.
+        interval: Seconds between fleet reads.
+        once: Publish a single fleet reading and return (for testing).
+        started_msg: A line to print once connected, or None.
+    """
+    hb = Heartbeat()
+    with contextlib.ExitStack() as stack:
+        sessions: dict[str, tuple[mqtt.Client, str]] = {}
+        for node, sensor_type in streams.items():
+            client, reading_topic, _status = stack.enter_context(
+                publisher_session(node, sensor_type)
+            )
+            sessions[node] = (client, reading_topic)
+        if started_msg:
+            print(started_msg, flush=True)
+        try:
+            while True:
+                for node, reading in sensor.read().items():
+                    if reading is None:
+                        hb.bump('dropped')
+                        continue
+                    client, reading_topic = sessions[node]
+                    payload = {'ts': now_canonical(), **reading}
+                    client.publish(reading_topic, json.dumps(payload), qos=1, retain=True)
+                    hb.bump('published')
+                if once:
+                    time.sleep(0.2)
+                    return
+                hb.maybe_emit(streams=len(sessions))
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            print('fleet reader stopped', flush=True)
 
 
 def run_simple_publisher(

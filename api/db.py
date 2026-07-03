@@ -214,6 +214,45 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_openwrt_time
             ON openwrt_readings(timestamp);
 
+        -- Dahua NVR health (recording infrastructure as a sensor), ingested over
+        -- MQTT like the other streams. Published by sensors/dahua_reader.py (one
+        -- fleet process, node van-nvr). hdd_ok is a 0/1 enum from the storage
+        -- State field; channels_video_loss counts channels the NVR flags as not
+        -- delivering video (0 = all recording); clock_offset_s is device clock
+        -- minus Pi clock (NTP sanity). An unreachable NVR is a dropped reading,
+        -- not a row. Column set mirrors api/sensor_schema.py's 'nvr' metrics.
+        CREATE TABLE IF NOT EXISTS nvr_readings (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id           INTEGER NOT NULL,
+            timestamp           TEXT NOT NULL,
+            hdd_ok              INTEGER,
+            hdd_err_partitions  INTEGER,
+            channels_video_loss INTEGER,
+            clock_offset_s      REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_nvr_sensor_time
+            ON nvr_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_nvr_time
+            ON nvr_readings(timestamp);
+
+        -- Dahua camera health, one node per camera (van-cam-*), published by the
+        -- same fleet process. online is a 0/1 enum — poll answered; a down camera
+        -- still writes a row (online=0, other columns NULL) so outages chart.
+        -- record_mode is the camera's RecordMode config enum (0 auto / 1 manual /
+        -- 2 off). Column set mirrors api/sensor_schema.py's 'camera' metrics.
+        CREATE TABLE IF NOT EXISTS camera_readings (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id      INTEGER NOT NULL,
+            timestamp      TEXT NOT NULL,
+            online         INTEGER,
+            clock_offset_s REAL,
+            record_mode    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_camera_sensor_time
+            ON camera_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_camera_time
+            ON camera_readings(timestamp);
+
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id   INTEGER,

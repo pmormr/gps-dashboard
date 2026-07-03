@@ -14,7 +14,13 @@ from collections.abc import Iterator
 import pytest
 
 from sensors import runner
-from sensors.runner import Heartbeat, bounded_step, bounded_walk, run_simple_publisher
+from sensors.runner import (
+    Heartbeat,
+    bounded_step,
+    bounded_walk,
+    run_fleet_publisher,
+    run_simple_publisher,
+)
 
 
 class StubClient:
@@ -74,6 +80,42 @@ def test_heartbeat_emits_then_resets(capsys: pytest.CaptureFixture[str]) -> None
     assert hb.maybe_emit(state='running') is True
     second = capsys.readouterr().out
     assert 'published=' not in second  # counters reset after the previous emit
+
+
+class FleetOfTwo:
+    """A fleet source with one live node and one dropped node."""
+
+    def read(self) -> dict[str, dict[str, float | None] | None]:
+        """Return the fixed fleet reading."""
+        return {'van-nvr': {'hdd_ok': 1}, 'van-cam-front': None}
+
+
+def test_run_fleet_publisher_per_stream_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each stream gets its own session; a None reading drops only that node."""
+    stubs: dict[str, StubClient] = {}
+
+    @contextlib.contextmanager
+    def fake_session(
+        node: str, sensor_type: str, *, started_msg: str | None = None, announce_online: bool = True
+    ) -> Iterator[tuple[StubClient, str, str]]:
+        stub = stubs.setdefault(node, StubClient())
+        yield stub, f'sensors/{node}/{sensor_type}', f'sensors/{node}/{sensor_type}/status'
+
+    monkeypatch.setattr(runner, 'publisher_session', fake_session)
+    run_fleet_publisher(
+        FleetOfTwo(),
+        streams={'van-nvr': 'nvr', 'van-cam-front': 'camera'},
+        interval=0.0,
+        once=True,
+    )
+
+    assert set(stubs) == {'van-nvr', 'van-cam-front'}  # a session per stream regardless
+    assert len(stubs['van-cam-front'].published) == 0  # dropped node published nothing
+    topic, raw = stubs['van-nvr'].published[0]
+    assert topic == 'sensors/van-nvr/nvr'
+    payload = json.loads(raw)
+    assert set(payload) == {'ts', 'hdd_ok'}
+    assert payload['hdd_ok'] == 1
 
 
 def test_run_simple_publisher_emits_one_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:

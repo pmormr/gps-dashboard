@@ -123,6 +123,23 @@ READING_TABLES: dict[str, ReadingTable] = {
             'conntrack_count',
         ],
     },
+    'nvr': {
+        'table': 'nvr_readings',
+        'metrics': [
+            'hdd_ok',
+            'hdd_err_partitions',
+            'channels_video_loss',
+            'clock_offset_s',
+        ],
+    },
+    'camera': {
+        'table': 'camera_readings',
+        'metrics': [
+            'online',
+            'clock_offset_s',
+            'record_mode',
+        ],
+    },
     'system': {
         'table': 'system_readings',
         'metrics': [
@@ -271,6 +288,12 @@ _VEBUS_STATE = {
 _VEBUS_MODE = {1: 'Charger only', 2: 'Inverter only', 3: 'On', 4: 'Off'}
 #: OpenWrt WAN logical-interface state (ubus network.interface.wan "up").
 _WAN_STATE = {0: 'Down', 1: 'Up'}
+#: Dahua storage State field, collapsed to a 0/1 health flag.
+_HDD_STATE = {0: 'Fault', 1: 'OK'}
+#: Camera poll reachability (the camera answered its CGI poll).
+_ONLINE_STATE = {0: 'Offline', 1: 'Online'}
+#: Dahua RecordMode config enum.
+_RECORD_MODE = {0: 'Auto', 1: 'Manual', 2: 'Off'}
 #: vcgencmd get_throttled bitmask. Low bits are currently-active; bits 16+ are the
 #: sticky "has occurred since boot" flags. The 0 key is the all-clear label.
 _THROTTLED_BITS = {
@@ -375,6 +398,16 @@ METRIC_META: dict[str, MetricMeta] = {
     'halow_temp_c': _m('Radio temp', '°C', dec=0, color=_RED, convert='c_to_f', group='halow'),
     'dhcp_leases': _m('DHCP leases', dec=0, color=_YELLOW, group='lan'),
     'conntrack_count': _m('Conntrack', dec=0, color=_RED, group='lan'),
+    # Dahua fleet (NVR + cameras). clock_offset_s is shared by both device
+    # classes (device clock − Pi clock; the cams NTP-sync from the NVR).
+    'hdd_ok': _m('HDD', dec=0, chart=False, group='recording', codec='enum', codes=_HDD_STATE),
+    'hdd_err_partitions': _m('HDD errors', dec=0, chart=False, group='recording'),
+    'channels_video_loss': _m('Video loss', dec=0, color=_RED, group='recording'),
+    'clock_offset_s': _m('Clock offset', 's', dec=1, chart=False, group='health'),
+    'online': _m('Camera', dec=0, chart=False, group='health', codec='enum', codes=_ONLINE_STATE),
+    'record_mode': _m(
+        'Record mode', dec=0, chart=False, group='recording', codec='enum', codes=_RECORD_MODE
+    ),
     'disk_root_pct': _m(
         'Disk (root)', '%', dec=0, color=_PURPLE, y_range=[0, 100], group='storage'
     ),

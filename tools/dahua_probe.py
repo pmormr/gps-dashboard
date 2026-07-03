@@ -29,32 +29,13 @@ import urllib3
 from requests.auth import HTTPDigestAuth
 
 from common.cli import run_cli
+from sensors.dahua_reader import FLEET, Device
 
 # The NVR redirects HTTP→HTTPS with a self-signed cert; these are LAN devices,
 # so skip verification rather than pinning.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TRUNCATE_CHARS = 2000
-
-
-@dataclass(frozen=True)
-class Device:
-    """One fleet member to probe."""
-
-    node: str
-    host: str
-    is_nvr: bool
-
-
-#: The active Dahua fleet (vault hostnames). Hikvision cams (.55/.56) are out
-#: of scope — different API (ISAPI), not recording.
-FLEET: tuple[Device, ...] = (
-    Device('van-nvr', '192.168.42.50', is_nvr=True),
-    Device('van-cam-front', '192.168.42.51', is_nvr=False),
-    Device('van-cam-blind-left', '192.168.42.52', is_nvr=False),
-    Device('van-cam-blind-right', '192.168.42.53', is_nvr=False),
-    Device('van-cam-rear', '192.168.42.54', is_nvr=False),
-)
 
 
 @dataclass(frozen=True)
