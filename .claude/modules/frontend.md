@@ -25,8 +25,7 @@ desktop.
   bundle stays small (~44 kB gz): `map` (MapLibre, ~283 kB gz), `globe` + `overlay3d` share
   a `three` chunk (~125 kB gz, lazy), and the Trends chart is its own ~10 kB gz LayerCake
   chunk. The basemap **data** assets (`static/vendor/basemap/` style/glyphs/sprite) stay
-  served as static files. `static/vendor/{maplibre,pmtiles}` are retained only for the
-  standalone `static/dev-terrain.html` dev tool.
+  served as static files.
 
 ## Shell, routing, state
 
@@ -180,7 +179,5 @@ asks `limit=20000`.
   curated mark (deferred from the denoise work; see `.claude/modules/processor.md`). *(Window
   **energy** from Victron is the remaining Inspect stat, deferred until the
   power-integration endpoint lands.)*
-- **Vendored `static/vendor/{maplibre,pmtiles}` retirement** — blocked on the standalone
-  `static/dev-terrain.html` dev tool (script-tag loads, can't use npm); retire with it.
 - Richer trail rendering (direction chevrons, head dot); per-annotation elevation/speed
   charts.

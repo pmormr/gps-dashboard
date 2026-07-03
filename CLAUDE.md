@@ -224,10 +224,8 @@ gps-dashboard/
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/tile-error.png
-│   ├── dev-terrain.html        # standalone terrain-preview dev tool (vendored maplibre/pmtiles)
 │   └── vendor/
 │       ├── basemap/            # Protomaps style.json + glyphs + sprite (data, served as-is)
-│       └── maplibre/, pmtiles/ # legacy: dev-terrain.html only (the SPA uses npm); retire with it
 ├── tools/
 │   ├── precache.py
 │   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)

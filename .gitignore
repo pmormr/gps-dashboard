@@ -1,5 +1,4 @@
 gps_history.db
-static/dev-*.html
 
 # Python
 __pycache__/
