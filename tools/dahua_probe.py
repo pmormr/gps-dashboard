@@ -25,9 +25,14 @@ import os
 from dataclasses import dataclass
 
 import requests
+import urllib3
 from requests.auth import HTTPDigestAuth
 
 from common.cli import run_cli
+
+# The NVR redirects HTTP→HTTPS with a self-signed cert; these are LAN devices,
+# so skip verification rather than pinning.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TRUNCATE_CHARS = 2000
 
@@ -80,10 +85,17 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint('storage', '/cgi-bin/storageDevice.cgi?action=getDeviceAllInfo'),
     # Recording mode per channel (config; the state complement is camera_state).
     Endpoint('record_mode', '/cgi-bin/configManager.cgi?action=getConfig&name=RecordMode'),
-    # NVR's own view of every channel — the one-shot camera online/offline source.
+    # NVR's own view of every channel. getCameraState is 501 on this firmware;
+    # the live camera-down signal is the VideoLoss event-index list ("No Events"
+    # = all up), and getCameraAll is the identity/config table.
     Endpoint(
-        'camera_state',
-        '/cgi-bin/LogicDeviceManager.cgi?action=getCameraState&uniqueChannels[0]=-1',
+        'video_loss',
+        '/cgi-bin/eventManager.cgi?action=getEventIndexes&code=VideoLoss',
+        nvr_only=True,
+    ),
+    Endpoint(
+        'camera_all',
+        '/cgi-bin/LogicDeviceManager.cgi?action=getCameraAll',
         nvr_only=True,
     ),
     Endpoint(
@@ -111,7 +123,7 @@ def fetch(
     """
     url = f'http://{device.host}{endpoint.path}'
     try:
-        resp = session.get(url, timeout=timeout)
+        resp = session.get(url, timeout=timeout, verify=False)
     except requests.RequestException as exc:
         return type(exc).__name__, str(exc)
     if resp.status_code == 200:
