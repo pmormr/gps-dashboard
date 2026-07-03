@@ -13,11 +13,14 @@ from sensors.dahua_reader import (
     FLEET_STREAMS,
     DahuaFleetSensor,
     FakeDahuaFleetSensor,
+    mem_used_pct_from,
     parse_clock_offset_s,
     parse_record_mode,
     parse_storage,
     parse_video_loss,
+    smart_metrics,
 )
+from sensors.dahua_rpc import password_digest
 
 # Captured 2026-07-02 by tools/dahua_probe.py against the live fleet (trimmed).
 STORAGE_OK = """\
@@ -87,8 +90,20 @@ BODIES = {
 }
 
 
+# RPC2-sourced metrics, stubbed at the method boundary so tests never touch
+# the network (a real RPC2 attempt would dial LAN addresses).
+RPC_NVR = {
+    'cpu_pct': 6,
+    'mem_used_pct': 43.1,
+    'hdd_temp_c': 48.0,
+    'hdd_realloc_sectors': 0,
+    'hdd_power_on_h': 22376,
+}
+RPC_CAM = {'cpu_pct': 15, 'mem_used_pct': 53.6, 'uptime_s': 169692}
+
+
 def _patch_fetch(sensor: DahuaFleetSensor, down_hosts: set[str]) -> None:
-    """Stub the CGI fetch: fixture bodies, with connection errors for down hosts."""
+    """Stub the CGI fetch + RPC2 metrics; connection errors for down hosts."""
 
     def fake_fetch(host: str, path: str) -> str | None:
         if host in down_hosts:
@@ -99,6 +114,8 @@ def _patch_fetch(sensor: DahuaFleetSensor, down_hosts: set[str]) -> None:
         return None
 
     sensor._fetch = fake_fetch  # type: ignore[method-assign]
+    sensor._rpc_nvr_metrics = lambda device: dict(RPC_NVR)  # type: ignore[method-assign]
+    sensor._rpc_camera_metrics = lambda device: dict(RPC_CAM)  # type: ignore[method-assign]
 
 
 def test_fleet_read_all_up() -> None:
@@ -114,11 +131,15 @@ def test_fleet_read_all_up() -> None:
     assert nvr['channels_video_loss'] == 0
     assert nvr['clock_offset_s'] is not None
 
+    assert nvr['hdd_temp_c'] == 48.0
+    assert nvr['cpu_pct'] == 6
+
     cam = readings['van-cam-front']
     assert cam is not None
     assert set(cam) == set(READING_TABLES['camera']['metrics'])
     assert cam['online'] == 1
     assert cam['record_mode'] == 0
+    assert cam['uptime_s'] == 169692
 
 
 def test_fleet_read_camera_down_is_a_row() -> None:
@@ -127,7 +148,10 @@ def test_fleet_read_camera_down_is_a_row() -> None:
     _patch_fetch(sensor, down_hosts=down)
     readings = sensor.read()
     rear = readings['van-cam-rear']
-    assert rear == {'online': 0, 'clock_offset_s': None, 'record_mode': None}
+    assert rear is not None
+    assert rear['online'] == 0
+    assert set(rear) == set(READING_TABLES['camera']['metrics'])
+    assert all(rear[k] is None for k in rear if k != 'online')
     front = readings['van-cam-front']
     assert front is not None and front['online'] == 1
 
@@ -139,6 +163,35 @@ def test_fleet_read_nvr_down_is_dropped() -> None:
     assert readings['van-nvr'] is None
     cam = readings['van-cam-front']
     assert cam is not None and cam['online'] == 1
+
+
+# Live SMART attributes from the NVR's /dev/sda (trimmed to the parsed IDs).
+SMART_VALUES = [
+    {'Current': 100, 'ID': 5, 'Name': 'Reallocated Sector Count', 'Raw': '0'},
+    {'Current': 75, 'ID': 9, 'Name': 'Power On Hours Count', 'Raw': '22376'},
+    {'Current': 48, 'ID': 194, 'Name': 'Temperature', 'Raw': '48', 'Worst': 68},
+]
+
+
+def test_smart_metrics() -> None:
+    assert smart_metrics(SMART_VALUES) == (48.0, 0, 22376)
+    assert smart_metrics([]) == (None, None, None)
+    assert smart_metrics([{'ID': 194, 'Raw': 'n/a'}]) == (None, None, None)
+
+
+def test_mem_used_pct_from() -> None:
+    # Live NVR reply: 654 MB total, 372 MB free → ~43.1 % used.
+    assert mem_used_pct_from({'free': 372264960.0, 'total': 653996032.0}) == 43.1
+    assert mem_used_pct_from({}) is None
+    assert mem_used_pct_from({'total': 0, 'free': 0}) is None
+
+
+def test_password_digest_is_deterministic() -> None:
+    # Known-answer vector: MD5(user:realm:pw) uppercased, re-hashed with the nonce.
+    digest = password_digest('admin', 'Login to abc', '12345', 'secret')
+    assert digest == password_digest('admin', 'Login to abc', '12345', 'secret')
+    assert len(digest) == 32 and digest == digest.upper()
+    assert digest != password_digest('admin', 'Login to abc', '54321', 'secret')
 
 
 @pytest.mark.parametrize('node', sorted(FLEET_STREAMS))

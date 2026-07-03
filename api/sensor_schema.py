@@ -128,7 +128,12 @@ READING_TABLES: dict[str, ReadingTable] = {
         'metrics': [
             'hdd_ok',
             'hdd_err_partitions',
+            'hdd_temp_c',
+            'hdd_realloc_sectors',
+            'hdd_power_on_h',
             'channels_video_loss',
+            'cpu_pct',
+            'mem_used_pct',
             'clock_offset_s',
         ],
     },
@@ -136,6 +141,9 @@ READING_TABLES: dict[str, ReadingTable] = {
         'table': 'camera_readings',
         'metrics': [
             'online',
+            'cpu_pct',
+            'mem_used_pct',
+            'uptime_s',
             'clock_offset_s',
             'record_mode',
         ],
@@ -402,6 +410,10 @@ METRIC_META: dict[str, MetricMeta] = {
     # classes (device clock − Pi clock; the cams NTP-sync from the NVR).
     'hdd_ok': _m('HDD', dec=0, chart=False, group='recording', codec='enum', codes=_HDD_STATE),
     'hdd_err_partitions': _m('HDD errors', dec=0, chart=False, group='recording'),
+    'hdd_temp_c': _m('HDD temp', '°C', dec=0, color=_ORANGE, convert='c_to_f', group='recording'),
+    'hdd_realloc_sectors': _m('Realloc sectors', dec=0, chart=False, group='recording'),
+    'hdd_power_on_h': _m('HDD hours', 'h', dec=0, chart=False, group='recording'),
+    'cpu_pct': _m('CPU', '%', dec=0, color=_BLUE, y_range=[0, 100], group='compute'),
     'channels_video_loss': _m('Video loss', dec=0, color=_RED, group='recording'),
     'clock_offset_s': _m('Clock drift', 's', dec=1, chart=False, group='health'),
     'online': _m('Camera', dec=0, chart=False, group='health', codec='enum', codes=_ONLINE_STATE),

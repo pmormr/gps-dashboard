@@ -228,7 +228,12 @@ def init_db(conn: sqlite3.Connection) -> None:
             timestamp           TEXT NOT NULL,
             hdd_ok              INTEGER,
             hdd_err_partitions  INTEGER,
+            hdd_temp_c          REAL,
+            hdd_realloc_sectors INTEGER,
+            hdd_power_on_h      INTEGER,
             channels_video_loss INTEGER,
+            cpu_pct             REAL,
+            mem_used_pct        REAL,
             clock_offset_s      REAL
         );
         CREATE INDEX IF NOT EXISTS idx_nvr_sensor_time
@@ -246,6 +251,9 @@ def init_db(conn: sqlite3.Connection) -> None:
             sensor_id      INTEGER NOT NULL,
             timestamp      TEXT NOT NULL,
             online         INTEGER,
+            cpu_pct        REAL,
+            mem_used_pct   REAL,
+            uptime_s       REAL,
             clock_offset_s REAL,
             record_mode    INTEGER
         );
@@ -552,6 +560,26 @@ def migrate(conn: sqlite3.Connection) -> None:
     # Morse radio die temperature, added after the stream went live (the mt7621 SoC
     # has no temp sensor; the MM8108 reports its own via morse_cli stats).
     _add_missing_columns(conn, 'openwrt_readings', {'halow_temp_c': 'REAL'})
+
+    # RPC2-sourced Dahua metrics, added after the fleet stream went live: the
+    # legacy CGI 501s host metrics and SMART, but the WebUI's JSON API serves
+    # them (see sensors/dahua_rpc.py).
+    _add_missing_columns(
+        conn,
+        'nvr_readings',
+        {
+            'hdd_temp_c': 'REAL',
+            'hdd_realloc_sectors': 'INTEGER',
+            'hdd_power_on_h': 'INTEGER',
+            'cpu_pct': 'REAL',
+            'mem_used_pct': 'REAL',
+        },
+    )
+    _add_missing_columns(
+        conn,
+        'camera_readings',
+        {'cpu_pct': 'REAL', 'mem_used_pct': 'REAL', 'uptime_s': 'REAL'},
+    )
 
     # One-time, idempotent: widen whole-second timestamps to fixed-width ms
     # (``...SSZ`` → ``...SS.000Z``). canonical_timestamp now emits ms everywhere,

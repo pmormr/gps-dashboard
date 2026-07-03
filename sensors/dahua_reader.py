@@ -37,6 +37,7 @@ import requests
 import urllib3
 from requests.auth import HTTPDigestAuth
 
+from sensors.dahua_rpc import Rpc2Error, Rpc2Session
 from sensors.runner import Reading, run_fleet_publisher
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -50,6 +51,10 @@ PATH_CURRENT_TIME = '/cgi-bin/global.cgi?action=getCurrentTime'
 PATH_RECORD_MODE = '/cgi-bin/configManager.cgi?action=getConfig&name=RecordMode'
 
 
+#: The NVR's HDD device name for the SMART query (single-disk unit).
+NVR_HDD_NAME = '/dev/sda'
+
+
 @dataclass(frozen=True)
 class Device:
     """One fleet member."""
@@ -57,6 +62,11 @@ class Device:
     node: str
     host: str
     is_nvr: bool
+
+    @property
+    def rpc_base(self) -> str:
+        """The device's RPC2 base URL — the NVR only speaks RPC2 over HTTPS."""
+        return f'{"https" if self.is_nvr else "http"}://{self.host}'
 
 
 #: The active Dahua fleet (vault hostnames). Hikvision cams (.55/.56) are out of
@@ -153,8 +163,51 @@ def parse_record_mode(text: str) -> int | None:
     return None
 
 
+def mem_used_pct_from(info: dict[str, float]) -> float | None:
+    """Compute used-memory percent from an RPC2 ``getMemoryInfo`` reply.
+
+    Args:
+        info: The reply params (``free``/``total`` bytes).
+
+    Returns:
+        Percent used rounded to 0.1, or None when the fields are missing/zero.
+    """
+    total, free = info.get('total'), info.get('free')
+    if not total or free is None:
+        return None
+    return round((1 - free / total) * 100, 1)
+
+
+def smart_metrics(values: list[dict[str, object]]) -> tuple[float | None, int | None, int | None]:
+    """Extract the health columns from an RPC2 ``getSmartValue`` attribute list.
+
+    Args:
+        values: SMART attribute dicts (``ID``/``Name``/``Raw``/…).
+
+    Returns:
+        ``(temp_c, realloc_sectors, power_on_hours)`` from attributes 194/5/9,
+        each None when absent or unparsable.
+    """
+    raw_by_id: dict[object, object] = {v.get('ID'): v.get('Raw') for v in values}
+
+    def as_int(attr_id: int) -> int | None:
+        try:
+            return int(str(raw_by_id[attr_id]))
+        except (KeyError, ValueError):
+            return None
+
+    temp = as_int(194)
+    return (float(temp) if temp is not None else None, as_int(5), as_int(9))
+
+
 class DahuaFleetSensor:
-    """The recording fleet's health, polled device-by-device each read."""
+    """The recording fleet's health, polled device-by-device each read.
+
+    Two protocols per cycle: the legacy CGI for what it serves (storage state,
+    VideoLoss, clock, record mode) and an RPC2 session per device for what it
+    doesn't (CPU/memory everywhere, HDD SMART on the NVR, uptime on cameras).
+    RPC2 failure NULLs its columns without touching the CGI ones.
+    """
 
     def __init__(
         self,
@@ -170,6 +223,7 @@ class DahuaFleetSensor:
         """
         self._fleet = fleet
         self._timeout = timeout
+        self._password = password
         self._session = requests.Session()
         self._session.auth = HTTPDigestAuth('admin', password)
 
@@ -181,6 +235,56 @@ class DahuaFleetSensor:
         """
         resp = self._session.get(f'http://{host}{path}', timeout=self._timeout, verify=False)
         return resp.text if resp.status_code == 200 else None
+
+    def _rpc_nvr_metrics(self, device: Device) -> dict[str, float | int | None]:
+        """RPC2 host + SMART metrics for the NVR; all None on any RPC2 failure."""
+        empty: dict[str, float | int | None] = dict.fromkeys(
+            ('cpu_pct', 'mem_used_pct', 'hdd_temp_c', 'hdd_realloc_sectors', 'hdd_power_on_h')
+        )
+        try:
+            with Rpc2Session(
+                device.rpc_base, 'admin', self._password, timeout=self._timeout
+            ) as rpc:
+                cpu = rpc.call('magicBox.getCPUUsage', {'index': 0})['params']
+                mem = rpc.call('magicBox.getMemoryInfo')['params']
+                handle = rpc.call('devStorage.factory.instance', {'name': NVR_HDD_NAME})['result']
+                values = rpc.call('devStorage.getSmartValue', obj=handle)['params']['values']
+                rpc.call('devStorage.destroy', obj=handle, check=False)
+        except (requests.RequestException, Rpc2Error, KeyError, TypeError, ValueError):
+            return empty
+        temp_c, realloc, power_on_h = smart_metrics(values)
+        return {
+            'cpu_pct': cpu.get('usage'),
+            'mem_used_pct': mem_used_pct_from(mem),
+            'hdd_temp_c': temp_c,
+            'hdd_realloc_sectors': realloc,
+            'hdd_power_on_h': power_on_h,
+        }
+
+    def _rpc_camera_metrics(self, device: Device) -> dict[str, float | int | None]:
+        """RPC2 host metrics for one camera; all None on any RPC2 failure.
+
+        ``getUpTime``'s field names are misleading on this firmware: ``Total``
+        resets on boot (the uptime we want) while ``Last`` accumulates across
+        boots — verified live by ``Total < Last`` with both advancing 1 s/s.
+        """
+        empty: dict[str, float | int | None] = dict.fromkeys(
+            ('cpu_pct', 'mem_used_pct', 'uptime_s')
+        )
+        try:
+            with Rpc2Session(
+                device.rpc_base, 'admin', self._password, timeout=self._timeout
+            ) as rpc:
+                cpu = rpc.call('magicBox.getCPUUsage', {'index': 0})['params']
+                mem = rpc.call('magicBox.getMemoryInfo')['params']
+                uptime = rpc.call('magicBox.getUpTime')['params']['info']
+        except (requests.RequestException, Rpc2Error, KeyError, TypeError, ValueError):
+            return empty
+        return {
+            'cpu_pct': cpu.get('usage'),
+            'mem_used_pct': mem_used_pct_from(mem),
+            'uptime_s': uptime.get('Total'),
+        }
 
     def _read_nvr(self, device: Device) -> Reading | None:
         """Poll the NVR; None (dropped reading) when unreachable."""
@@ -199,22 +303,27 @@ class DahuaFleetSensor:
             'clock_offset_s': (
                 parse_clock_offset_s(current_time, now_utc) if current_time else None
             ),
+            **self._rpc_nvr_metrics(device),
         }
 
     def _read_camera(self, device: Device) -> Reading:
         """Poll one camera; an unreachable camera is an ``online=0`` row."""
+        offline: dict[str, float | int | None] = dict.fromkeys(
+            ('clock_offset_s', 'record_mode', 'cpu_pct', 'mem_used_pct', 'uptime_s')
+        )
         try:
             now_utc = datetime.now(UTC)
             current_time = self._fetch(device.host, PATH_CURRENT_TIME)
             record_mode = self._fetch(device.host, PATH_RECORD_MODE)
         except requests.RequestException:
-            return {'online': 0, 'clock_offset_s': None, 'record_mode': None}
+            return {'online': 0, **offline}
         return {
             'online': 1,
             'clock_offset_s': (
                 parse_clock_offset_s(current_time, now_utc) if current_time else None
             ),
             'record_mode': parse_record_mode(record_mode or ''),
+            **self._rpc_camera_metrics(device),
         }
 
     def read(self) -> dict[str, Reading | None]:
@@ -242,12 +351,20 @@ class FakeDahuaFleetSensor:
                     'hdd_err_partitions': 0,
                     'channels_video_loss': 0,
                     'clock_offset_s': offset,
+                    'cpu_pct': round(random.uniform(4, 12)),
+                    'mem_used_pct': round(random.uniform(40, 50), 1),
+                    'hdd_temp_c': round(random.uniform(42, 52)),
+                    'hdd_realloc_sectors': 0,
+                    'hdd_power_on_h': 22376,
                 }
             else:
                 readings[device.node] = {
                     'online': 1,
                     'clock_offset_s': offset,
                     'record_mode': 0,
+                    'cpu_pct': round(random.uniform(10, 20)),
+                    'mem_used_pct': round(random.uniform(50, 60), 1),
+                    'uptime_s': 170000,
                 }
         return readings
 
