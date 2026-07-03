@@ -8,6 +8,8 @@
  * the engine — it persists its own state across route remounts as a module singleton.
  */
 
+import type { AttractionKind } from '../api'
+import { KIND_META } from '../attractions'
 import { POI_GROUPS, type LabelSettings } from '../labels'
 
 export type BaseLayer = 'osm' | 'usgs'
@@ -32,6 +34,13 @@ class LayersStore {
   phone = $state(false)
   phoneStatus = $state('')
 
+  // Attractions overlay (parks/public-lands POI tier). Viewport-driven, not
+  // time-windowed — Map.svelte refetches it on map movement while it's on.
+  // Kinds default all-on; the zoom gate (attractions.ts) still applies on top.
+  attractions = $state(false)
+  attractionsStatus = $state('')
+  attractionKinds = $state<Set<AttractionKind>>(new Set(KIND_META.map((m) => m.kind)))
+
   /** Whether the vector basemap (which alone has labels) is active. */
   get isVector(): boolean {
     return this.base === 'osm'
@@ -48,6 +57,14 @@ class LayersStore {
     if (on) next.add(group)
     else next.delete(group)
     this.labelGroups = next
+  }
+
+  /** Toggle an attraction kind (reassigns the Set so $state reacts). */
+  toggleAttractionKind(kind: AttractionKind, on: boolean): void {
+    const next = new Set(this.attractionKinds)
+    if (on) next.add(kind)
+    else next.delete(kind)
+    this.attractionKinds = next
   }
 }
 

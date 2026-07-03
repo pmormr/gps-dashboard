@@ -72,3 +72,14 @@
   margin-top: 2px;
 }
 
+
+/* Attractions kind filter (indented under the layer toggle). */
+.attraction-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 4px 22px;
+}
+.attraction-kinds .label-check {
+  gap: 6px;
+}

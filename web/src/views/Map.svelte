@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
+  import { clearAttractions, KIND_META, syncAttractions } from '../lib/attractions'
   import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
@@ -12,12 +13,15 @@
   import { track } from '../lib/stores/track.svelte'
   import './map.css'
   import './annotations.css'
+  import './attractions.css'
   import AnnotationForm from './AnnotationForm.svelte'
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
+  import AttractionSheet from './AttractionSheet.svelte'
   import DataLayers from './DataLayers.svelte'
   import InspectPanel from './InspectPanel.svelte'
   import MapStyle from './MapStyle.svelte'
   import MarksPanel from './MarksPanel.svelte'
+  import NearbyPanel from './NearbyPanel.svelte'
   import TimeDock from './TimeDock.svelte'
 
   // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
@@ -35,10 +39,11 @@
   // closes the rest. Default closed (a clean map); resets on remount. Data layers
   // and map style are separate buttons — overlay toggles and basemap styling
   // aren't related tasks.
-  type RailPanel = 'data' | 'style' | 'marks' | 'inspect'
+  type RailPanel = 'data' | 'style' | 'nearby' | 'marks' | 'inspect'
   const RAIL: { id: RailPanel; icon: string; label: string }[] = [
     { id: 'data', icon: '🛰', label: 'Data layers' },
     { id: 'style', icon: '🎨', label: 'Map style' },
+    { id: 'nearby', icon: '🧭', label: 'Nearby attractions' },
     { id: 'marks', icon: '🚩', label: 'Marks' },
     { id: 'inspect', icon: '📊', label: 'Inspect window' },
   ]
@@ -47,6 +52,18 @@
 
   function toggleRail(id: RailPanel): void {
     openPanel = openPanel === id ? null : id
+  }
+
+  // Attractions detail sheet: the open row id (from a pin click or the Nearby
+  // panel), null = closed.
+  let attractionId = $state<number | null>(null)
+
+  // Attractions overlay: viewport-driven, so map movement (not the time window)
+  // invalidates it. The moveend callback just bumps a revision the sync effect
+  // reads; onMoveEnd's callback set makes the repeated add idempotent.
+  let attractionsRev = $state(0)
+  function onAttractionsMoved(): void {
+    attractionsRev++
   }
 
   // Viewport filter: while on, the shared track fetch carries
@@ -88,6 +105,8 @@
       hide = host.hideMap
       // Re-apply label settings whenever the vector base (re)loads its style.
       hookLabels(mod.MapView, () => layers.labelSettings)
+      // Pin taps open the detail sheet (the engine only hands back the row id).
+      mod.MapView.onAttractionClick((id) => (attractionId = id))
     })
     annotations.reload()
     return () => {
@@ -96,6 +115,7 @@
         view?.offMoveEnd(onMoved)
         track.bbox = null
       }
+      view?.offMoveEnd(onAttractionsMoved)
       view?.clearGhost()
       hide?.()
     }
@@ -117,6 +137,28 @@
       })
       .catch((err) => {
         layers.phoneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+      })
+  })
+
+  // Attractions overlay follows the *viewport*: refetch when the toggle, the kind
+  // filter, or the map camera (attractionsRev) changes. Kinds/rev are only read
+  // while the layer is on, so an off overlay costs nothing per pan.
+  $effect(() => {
+    if (!view) return
+    if (!layers.attractions) {
+      view.offMoveEnd(onAttractionsMoved)
+      clearAttractions(view)
+      return
+    }
+    view.onMoveEnd(onAttractionsMoved)
+    void attractionsRev
+    const kinds = [...layers.attractionKinds]
+    syncAttractions(view, view.getBbox(), view.getZoom(), kinds)
+      .then((label) => {
+        if (label) layers.attractionsStatus = label
+      })
+      .catch((err) => {
+        layers.attractionsStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
       })
   })
 
@@ -228,7 +270,7 @@
     <button class="map-fab" title="Zoom to current location" onclick={zoomToCurrent}>⊕</button>
 
     <!-- On-map legends, visible only while that layer is on. -->
-    {#if layers.drone || layers.phone}
+    {#if layers.drone || layers.phone || layers.attractions}
       <div class="map-legend-chips">
         {#if layers.drone}
           <div class="legend-chip">
@@ -243,6 +285,14 @@
             <span class="legend-chip-icon">📱</span>
             {#each MODE_LEGEND as m (m.group)}
               <span class="legend-chip-item"><span class="legend-swatch" style:background={MODE_COLORS[m.group]}></span>{m.label}</span>
+            {/each}
+          </div>
+        {/if}
+        {#if layers.attractions}
+          <div class="legend-chip">
+            <span class="legend-chip-icon">🏞</span>
+            {#each KIND_META.filter((k) => layers.attractionKinds.has(k.kind)) as k (k.kind)}
+              <span class="legend-chip-item"><span class="legend-swatch" style:background={k.color}></span>{k.label}</span>
             {/each}
           </div>
         {/if}
@@ -281,6 +331,8 @@
           <DataLayers {view} />
         {:else if openPanel === 'style'}
           <MapStyle {view} />
+        {:else if openPanel === 'nearby'}
+          <NearbyPanel {view} onOpen={(id) => (attractionId = id)} />
         {:else if openPanel === 'marks'}
           <MarksPanel />
         {:else}
@@ -297,3 +349,6 @@
 
 <AnnotationsDrawer bind:open={drawerOpen} />
 <AnnotationForm />
+{#if attractionId != null}
+  <AttractionSheet id={attractionId} {view} onClose={() => (attractionId = null)} />
+{/if}

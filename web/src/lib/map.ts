@@ -281,6 +281,11 @@ export const MapView = (() => {
   // feature's `color` by phone.ts, so these layers are domain-free).
   let phonePathData: FeatureCollection = emptyFC()
   let phoneVisitData: FeatureCollection = emptyFC()
+  // Attractions overlay: prebuilt pin GeoJSON (per-kind color baked in by
+  // attractions.ts); clicks hand the feature's row id to the registered callback
+  // (the detail sheet), keeping this layer domain-free too.
+  let attractionData: FeatureCollection = emptyFC()
+  let attractionClickCb: ((id: number) => void) | null = null
   const endpointMarkers: Marker[] = []
   const pinMarkers: Marker[] = []
 
@@ -288,6 +293,7 @@ export const MapView = (() => {
   let rangePopup: Popup | null = null
   let dronePopup: Popup | null = null
   let phonePopup: Popup | null = null
+  let attractionPopup: Popup | null = null
 
   // Hover-scrub ghost dot (a DOM marker — survives style swaps) + moveend
   // subscribers (the viewport-filter toggle). Callbacks are stashed in a set so
@@ -458,6 +464,25 @@ export const MapView = (() => {
         })
       }
 
+      // Attraction pins sit on top of the trail — they're tap targets, and the
+      // track line stays visible between them. Color is data-driven per kind.
+      if (!m.getSource('attractions')) {
+        m.addSource('attractions', { type: 'geojson', data: attractionData })
+      }
+      if (!m.getLayer('attraction-circle')) {
+        m.addLayer({
+          id: 'attraction-circle',
+          type: 'circle',
+          source: 'attractions',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 1.5,
+          },
+        })
+      }
+
       // Drone tracks float at abs_alt as a three.js elevated-track layer (Overlay3D),
       // re-added here since setStyle drops it; onAdd rebuilds its scene from retained
       // data. Null until overlay3d.ts is wired in.
@@ -469,6 +494,7 @@ export const MapView = (() => {
       ;(m.getSource('ann-range') as GeoJSONSource | undefined)?.setData(rangeFC())
       ;(m.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
       ;(m.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
+      ;(m.getSource('attractions') as GeoJSONSource | undefined)?.setData(attractionData)
 
       applyTerrain()
     } catch (e) {
@@ -576,6 +602,28 @@ export const MapView = (() => {
     })
   }
 
+  // Attraction pins: name tooltip on hover, row id to the registered callback on
+  // click (the detail sheet lives in Svelte). Layer-scoped and registered once; a
+  // no-op until the layer exists, like the range tooltip.
+  function wireAttractionInteraction(m: MlMap): void {
+    attractionPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
+    m.on('mouseenter', 'attraction-circle', () => {
+      m.getCanvas().style.cursor = 'pointer'
+    })
+    m.on('mousemove', 'attraction-circle', (e) => {
+      const name = e.features && e.features[0] && (e.features[0].properties.name as string)
+      if (name) attractionPopup!.setLngLat(e.lngLat).setText(name).addTo(m)
+    })
+    m.on('mouseleave', 'attraction-circle', () => {
+      m.getCanvas().style.cursor = ''
+      attractionPopup!.remove()
+    })
+    m.on('click', 'attraction-circle', (e) => {
+      const id = e.features && e.features[0] && (e.features[0].properties.id as number)
+      if (id != null && attractionClickCb) attractionClickCb(id)
+    })
+  }
+
   function setRotationEnabled(on: boolean): void {
     if (!map) return
     const fns = on ? 'enable' : 'disable'
@@ -610,6 +658,7 @@ export const MapView = (() => {
     wireRangeTooltip(map)
     wireDronePopup(map)
     wirePhonePopup(map)
+    wireAttractionInteraction(map)
     map.on('moveend', () => moveEndCbs.forEach((cb) => cb()))
     applyBasemap(currentLayer)
   }
@@ -719,6 +768,20 @@ export const MapView = (() => {
     if (phoneVisitData.features.length === 0 && phonePopup) phonePopup.remove()
   }
 
+  // Replace the attractions overlay with prebuilt pin GeoJSON (built by
+  // attractions.ts). Clearing is setAttractionsData(empty).
+  function setAttractionsData(fc: FeatureCollection): void {
+    attractionData = fc
+    if (!map) return
+    ;(map.getSource('attractions') as GeoJSONSource | undefined)?.setData(attractionData)
+    if (attractionData.features.length === 0 && attractionPopup) attractionPopup.remove()
+  }
+
+  /** Register the attraction-pin click handler (receives the attraction row id). */
+  function onAttractionClick(cb: (id: number) => void): void {
+    attractionClickCb = cb
+  }
+
   // ── Hover-scrub ghost dot (time → space) ──
 
   function setGhost(lat: number, lon: number): void {
@@ -744,6 +807,18 @@ export const MapView = (() => {
     if (!map) return null
     const b = map.getBounds()
     return `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`
+  }
+
+  /** The current zoom level; 0 pre-init. */
+  function getZoom(): number {
+    return map ? map.getZoom() : 0
+  }
+
+  /** The current view center; null pre-init. */
+  function getCenter(): { lat: number; lon: number } | null {
+    if (!map) return null
+    const c = map.getCenter()
+    return { lat: c.lat, lon: c.lng }
   }
 
   function onMoveEnd(cb: () => void): void {
@@ -827,9 +902,13 @@ export const MapView = (() => {
     showDroneTracks,
     clearDroneTracks,
     setPhoneData,
+    setAttractionsData,
+    onAttractionClick,
     setGhost,
     clearGhost,
     getBbox,
+    getZoom,
+    getCenter,
     onMoveEnd,
     offMoveEnd,
     setTerrainEnabled,

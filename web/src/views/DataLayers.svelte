@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { AttractionKind } from '../lib/api'
+  import { KIND_META } from '../lib/attractions'
   import { setDroneEnabled } from '../lib/drone'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers } from '../lib/stores/layers.svelte'
@@ -30,6 +32,18 @@
     layers.phone = on
     layers.phoneStatus = on ? 'Loading…' : ''
   }
+
+  // Attractions are viewport-driven; like phone, the toggle only flips the store —
+  // Map.svelte's effect does the bbox fetch/clear and writes attractionsStatus.
+  function onAttractions(e: Event): void {
+    const on = (e.currentTarget as HTMLInputElement).checked
+    layers.attractions = on
+    layers.attractionsStatus = on ? 'Loading…' : ''
+  }
+
+  function onAttractionKind(kind: AttractionKind, e: Event): void {
+    layers.toggleAttractionKind(kind, (e.currentTarget as HTMLInputElement).checked)
+  }
 </script>
 
 <div class="layers-panel">
@@ -45,5 +59,27 @@
     </label>
     <div class="label-hint">Google Timeline · follows the time window · colored by mode</div>
     {#if layers.phoneStatus}<p class="label-hint">{layers.phoneStatus}</p>{/if}
+  </div>
+  <div class="layers-section">
+    <label class="label-check">
+      <input type="checkbox" checked={layers.attractions} onchange={onAttractions} /> 🏞 Attractions
+    </label>
+    <div class="label-hint">Parks &amp; public lands (NPS) · follows the map view</div>
+    {#if layers.attractions}
+      <div class="attraction-kinds">
+        {#each KIND_META as k (k.kind)}
+          <label class="label-check">
+            <input
+              type="checkbox"
+              checked={layers.attractionKinds.has(k.kind)}
+              onchange={(e) => onAttractionKind(k.kind, e)}
+            />
+            <span class="legend-swatch" style:background={k.color}></span>
+            {k.icon} {k.label}
+          </label>
+        {/each}
+      </div>
+    {/if}
+    {#if layers.attractionsStatus}<p class="label-hint">{layers.attractionsStatus}</p>{/if}
   </div>
 </div>

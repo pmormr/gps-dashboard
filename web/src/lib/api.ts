@@ -484,6 +484,141 @@ export function getPhonePlaces(start: string, end: string): Promise<PhonePlacesR
   return getJSON<PhonePlacesResponse>(`/api/phone/places?${params}`)
 }
 
+// ── Attractions (parks/public-lands POI tier, synced from the NPS API) ──
+
+export type AttractionKind = 'park' | 'thingstodo' | 'tour' | 'visitorcenter' | 'campground'
+
+/** One POI list row (queryable columns + summary teaser; details fetched per-row). */
+export interface Attraction {
+  id: number
+  source: string
+  source_kind: AttractionKind
+  source_id: string
+  park_code: string | null
+  name: string
+  /** Null for the few rows whose kind and park both lack a coordinate. */
+  lat: number | null
+  lon: number | null
+  summary: string | null
+  /** When this row was last synced from its source — the UI wears this age. */
+  synced_at: string
+}
+
+/** A self-guided tour stop; lat/lon joined from the NPS `places` asset at import. */
+export interface TourStop {
+  ordinal: number
+  assetName: string
+  significance: string | null
+  audioTranscript: string | null
+  audioFileUrl: string | null
+  directionsToNextStop: string | null
+  lat: number | null
+  lon: number | null
+}
+
+/** One facility location's hours: a weekday→text map plus dated exceptions. */
+export interface OperatingHours {
+  name?: string
+  description?: string
+  standardHours?: Record<string, string>
+  exceptions?: {
+    name?: string
+    startDate?: string
+    endDate?: string
+    exceptionHours?: Record<string, string>
+  }[]
+}
+
+/**
+ * The trimmed source record (display-only structure). Kind-specific keys pass
+ * through as published — only the fields the detail sheet renders are typed.
+ */
+export interface AttractionDetails {
+  description?: string
+  operatingHours?: OperatingHours[]
+  amenities?: string[]
+  fees?: { cost?: string; title?: string; description?: string }[]
+  stops?: TourStop[]
+  durationMin?: string
+  durationMax?: string
+  durationUnit?: string
+  [key: string]: unknown
+}
+
+export interface AttractionsResponse {
+  attractions: Attraction[]
+  count: number
+  truncated: boolean
+}
+
+/** One expanded event occurrence; park-local calendar date, not the ms-UTC axis. */
+export interface EventOccurrence {
+  date: string
+  time_start: string | null
+  time_end: string | null
+}
+
+/** An event with its matching occurrences (SQLite booleans arrive as 0/1). */
+export interface AttractionEvent {
+  id: number
+  source: string
+  source_id: string
+  park_code: string | null
+  name: string
+  lat: number | null
+  lon: number | null
+  location_text: string | null
+  is_free: number | null
+  needs_reservation: number | null
+  synced_at: string
+  dates: EventOccurrence[]
+}
+
+export interface AttractionEventsResponse {
+  events: AttractionEvent[]
+  count: number
+  truncated: boolean
+}
+
+/** POI list; all filters optional (kinds joined comma-separated, `q` = name substring). */
+export function getAttractions(opts: {
+  bbox?: string
+  kinds?: AttractionKind[]
+  park?: string
+  q?: string
+  limit?: number
+}): Promise<AttractionsResponse> {
+  const params = new URLSearchParams()
+  if (opts.bbox) params.set('bbox', opts.bbox)
+  if (opts.kinds?.length) params.set('kind', opts.kinds.join(','))
+  if (opts.park) params.set('park', opts.park)
+  if (opts.q) params.set('q', opts.q)
+  if (opts.limit != null) params.set('limit', String(opts.limit))
+  return getJSON<AttractionsResponse>(`/api/attractions?${params}`)
+}
+
+/** One POI with its full parsed details (tour stops, hours, amenities, fees). */
+export function getAttraction(id: number): Promise<Attraction & { details: AttractionDetails }> {
+  return getJSON<Attraction & { details: AttractionDetails }>(`/api/attractions/${id}`)
+}
+
+/** Event occurrences in a calendar-date window (`YYYY-MM-DD`), grouped per event. */
+export function getAttractionEvents(opts: {
+  start?: string
+  end?: string
+  bbox?: string
+  park?: string
+  limit?: number
+}): Promise<AttractionEventsResponse> {
+  const params = new URLSearchParams()
+  if (opts.start) params.set('start', opts.start)
+  if (opts.end) params.set('end', opts.end)
+  if (opts.bbox) params.set('bbox', opts.bbox)
+  if (opts.park) params.set('park', opts.park)
+  if (opts.limit != null) params.set('limit', String(opts.limit))
+  return getJSON<AttractionEventsResponse>(`/api/attractions/events?${params}`)
+}
+
 /** Fetch the network-docs file tree (empty when the vault is unconfigured). */
 export function getDocsTree(): Promise<DocsTree> {
   return getJSON<DocsTree>('/api/docs/tree')
