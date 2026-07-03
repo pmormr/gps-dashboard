@@ -125,6 +125,15 @@ clock). `camera_readings` (nodes `van-cam-front/-blind-left/-blind-right/-rear`)
 `online` (0/1 — poll answered; a down cam publishes `online=0`, other columns NULL) ·
 `clock_offset_s` · `record_mode` (enum 0=auto/1=manual/2=off).
 
+**RPC2 extension (2026-07-02, post-launch).** The CGI 501s host metrics/SMART, but
+the WebUI's RPC2 JSON API serves them (`sensors/dahua_rpc.py` — challenge login,
+session id rotates on login, object-style handles; NVR speaks RPC2 over HTTPS only).
+Added: NVR `hdd_temp_c` (SMART 194) / `hdd_realloc_sectors` / `hdd_power_on_h` /
+`cpu_pct` / `mem_used_pct`; cameras `cpu_pct` / `mem_used_pct` / `uptime_s`
+(`getUpTime`'s **Total** resets on boot, **Last** accumulates — names misleading,
+verified live). No camera die-temp exists on these IPC models. First live cycle
+already showed independent camera reboots (uptimes 1.1–2 d apart).
+
 - `api/db.py`: `nvr_readings` + `camera_readings` tables.
 - `api/sensor_schema.py`: `READING_TABLES['nvr']`/`['camera']` + `METRIC_META` rows.
 - `sensors/dahua_reader.py`: HTTP-CGI fleet reader (NVR + 4 cams → multi-node publish),
