@@ -4,6 +4,7 @@ from flask import Flask, abort, send_file
 
 from api.db import get_connection, init_db
 from api.routes.annotations import annotations_bp
+from api.routes.attractions import attractions_bp
 from api.routes.docs import docs_bp
 from api.routes.drone import drone_bp
 from api.routes.globe import globe_bp
@@ -29,6 +30,7 @@ def create_app():
     app.register_blueprint(sensors_bp)
     app.register_blueprint(status_bp)
     app.register_blueprint(annotations_bp)
+    app.register_blueprint(attractions_bp)
     app.register_blueprint(docs_bp)
     app.register_blueprint(drone_bp)
     app.register_blueprint(globe_bp)

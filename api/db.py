@@ -463,6 +463,68 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_phone_visits_start_time
             ON phone_visits(start_time);
 
+        -- Attractions tier — parks/public-lands POIs (self-guided tours, facility
+        -- hours, things to do) synced from online sources by
+        -- tools/import_attractions.py while the Pi has WAN; browsed offline.
+        -- Fully rebuildable (full-replace per source on import). One unified
+        -- table across sources/kinds: columns carry only what queries filter or
+        -- sort on; display-only structure (tour stops, hours, amenities, fees)
+        -- rides in the details JSON. lat/lon nullable — rows without a resolvable
+        -- coordinate simply never match a bbox. See plans/attractions-plan.md.
+        CREATE TABLE IF NOT EXISTS attractions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            source      TEXT NOT NULL,
+            source_kind TEXT NOT NULL,
+            source_id   TEXT NOT NULL,
+            park_code   TEXT,
+            name        TEXT NOT NULL,
+            lat         REAL,
+            lon         REAL,
+            summary     TEXT,
+            details     TEXT NOT NULL,
+            synced_at   TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attractions_source_key
+            ON attractions(source, source_id);
+        CREATE INDEX IF NOT EXISTS idx_attractions_latlon
+            ON attractions(lat, lon);
+        CREATE INDEX IF NOT EXISTS idx_attractions_kind
+            ON attractions(source_kind);
+
+        -- Scheduled park events (ranger programs, guided walks). Kept out of
+        -- attractions: an event is a schedule, not a place. attraction_event_dates
+        -- is the source's pre-expanded occurrence list — one row per date × time
+        -- window, park-local calendar dates as published (NOT the ms-UTC axis),
+        -- so "what's on this week" is one indexed range query.
+        CREATE TABLE IF NOT EXISTS attraction_events (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            source            TEXT NOT NULL,
+            source_id         TEXT NOT NULL,
+            park_code         TEXT,
+            name              TEXT NOT NULL,
+            lat               REAL,
+            lon               REAL,
+            location_text     TEXT,
+            is_free           INTEGER,
+            needs_reservation INTEGER,
+            details           TEXT NOT NULL,
+            synced_at         TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attraction_events_source_key
+            ON attraction_events(source, source_id);
+
+        CREATE TABLE IF NOT EXISTS attraction_event_dates (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id   INTEGER NOT NULL,
+            date       TEXT NOT NULL,
+            time_start TEXT,
+            time_end   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_attraction_event_dates_date
+            ON attraction_event_dates(date, event_id);
+        CREATE INDEX IF NOT EXISTS idx_attraction_event_dates_event
+            ON attraction_event_dates(event_id);
+
         CREATE TABLE IF NOT EXISTS phone_activities (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             start_time    TEXT NOT NULL,

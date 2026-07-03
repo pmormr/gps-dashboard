@@ -84,6 +84,11 @@ Phone location-history tier — the user's Google Timeline export batch-imported
 - `phone_track_points(id, path_id, timestamp, lat, lon, importance, activity_type)` — the thinned breadcrumb (shared Reumann–Witkam); `importance=0` marks segment endpoints; `activity_type` is the covering activity's mode (what the map colors by).
 - `phone_visits(...)` / `phone_activities(...)` — the semantic layer (place visits, trip segments); its own tables, **not** `annotations` (which stays user-curated).
 
+Attractions tier — parks/public-lands POIs + event schedules synced from the NPS API by `tools/import_attractions.py` (run on the Pi while it has WAN; full-replace per source), browsed offline; fully rebuildable (see `plans/attractions-plan.md`):
+
+- `attractions(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at)` — one unified row per POI (`park`|`thingstodo`|`tour`|`visitorcenter`|`campground`; later RIDB/OSM sources). Columns carry only what queries filter on; display-only structure (tour stops + transcripts, operating hours, amenities, fees) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable (kinds without coords fall back to their park's at import).
+- `attraction_events(...)` + `attraction_event_dates(event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
+
 GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
 
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
@@ -111,6 +116,10 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
 - `GET /api/phone/tracks?start=&end=&bbox=&limit=` — phone-history breadcrumb: `phone_paths` overlapping the window (all filters optional), thinned points embedded; segment endpoints always kept, remaining budget filled by top-`importance` interior vertices (`truncated` ⇒ interior loss only)
 - `GET /api/phone/places?start=&end=&bbox=&limit=` — phone semantic layer: visits + activities overlapping the window
+- `GET /api/attractions?bbox=&kind=&park=&q=&limit=` — POI list (queryable columns + `summary` teaser; no details blob), kind comma-separated, `q` = name substring; NULL-coord rows never match a bbox
+- `GET /api/attractions/:id` — one POI with parsed `details` (tour stops, hours, amenities, fees)
+- `GET /api/attractions/events?start=&end=&bbox=&park=&limit=` — event occurrences in a calendar-date window (`YYYY-MM-DD`, park-local — not ms-UTC), grouped per event; `limit` caps occurrences
+- `GET /api/attractions/events/:id` — one event with parsed `details` + full occurrence list. All attractions payloads carry `synced_at` — the UI wears data age, schedule data is never presented as live
 - `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
 - `GET /api/gpsd/status` — read-only gpsd device/version/fix snapshot; backs the Systems → gpsd drill-in (`Gpsd.svelte`)
 - `GET /api/constellation?start=&end=` — logged `sat_observations` reconstructed to 3D ECEF positions (grouped by SV, with each SV's fitted orbit-plane normal); feeds `/globe`. See `.claude/modules/observatory.md`
@@ -161,6 +170,7 @@ gps-dashboard/
 │   └── routes/
 │       ├── points.py
 │       ├── annotations.py
+│       ├── attractions.py      # /api/attractions* (parks/tours/events/hours tier reads)
 │       ├── tiles.py
 │       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
@@ -240,6 +250,7 @@ gps-dashboard/
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
+│   ├── import_attractions.py   # NPS parks/tours/events/hours → attractions tier (plans/attractions-plan.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
