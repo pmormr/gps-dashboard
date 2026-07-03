@@ -112,6 +112,7 @@ def poll_sections(wan_iface: str, halow_iface: str) -> dict[str, str]:
         'wan_status': 'ubus call network.interface.wan status',
         'iwinfo_info': f'iwinfo {halow_iface} info',
         'assoclist': f'iwinfo {halow_iface} assoclist',
+        'radio_temp': f'morse_cli -i {halow_iface} stats | grep "^Temperature"',
         'dhcp_leases': 'wc -l < /tmp/dhcp.leases',
         'conntrack': 'cat /proc/sys/net/netfilter/nf_conntrack_count',
         'ping': f'ping -c 3 -W 2 -q {PING_TARGET}',
@@ -217,6 +218,22 @@ def parse_ping_avg_ms(text: str) -> float | None:
         Average round-trip ms, or None when unreachable / unparsable.
     """
     match = re.search(r'=\s*[\d.]+/([\d.]+)/', text)
+    return float(match.group(1)) if match else None
+
+
+def parse_radio_temp_c(text: str) -> float | None:
+    """Extract the Morse radio die temperature from its grepped stats line.
+
+    The mt7621 SoC has no temp sensor; the MM8108 radio reports its own as
+    ``Temperature (C) : 59`` in ``morse_cli stats``.
+
+    Args:
+        text: The grepped ``Temperature`` line(s).
+
+    Returns:
+        Die temperature in °C, or None (no Morse radio / command absent).
+    """
+    match = re.search(r'Temperature\s*\(C\)\s*:\s*(-?\d+)', text)
     return float(match.group(1)) if match else None
 
 
@@ -346,6 +363,7 @@ class OpenwrtSensor:
             'halow_noise_dbm': noise,
             'halow_tx_mbps': link_tx,
             'halow_rx_mbps': link_rx,
+            'halow_temp_c': parse_radio_temp_c(body('radio_temp')),
             'dhcp_leases': parse_int(body('dhcp_leases')),
             'conntrack_count': parse_int(body('conntrack')),
         }
@@ -367,6 +385,7 @@ class FakeOpenwrtSensor:
         'halow_noise_dbm': -96.0,
         'halow_tx_mbps': 19.5,
         'halow_rx_mbps': 32.5,
+        'halow_temp_c': 59.0,
         'dhcp_leases': 9.0,
         'conntrack_count': 150.0,
     }

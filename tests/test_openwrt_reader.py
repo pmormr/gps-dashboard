@@ -18,6 +18,7 @@ from sensors.openwrt_reader import (
     parse_marked_sections,
     parse_net_dev,
     parse_ping_avg_ms,
+    parse_radio_temp_c,
     parse_wan_up,
     poll_sections,
 )
@@ -58,6 +59,8 @@ round-trip min/avg/max = 36.751/43.140/52.181 ms
 
 WAN_STATUS = '{"up": true, "uptime": 120025, "l3_device": "wan"}'
 
+RADIO_TEMP = 'Temperature (C)                                 : 59'
+
 MEMINFO = 'MemTotal:         249628 kB\nMemAvailable:     144532 kB\n'
 
 
@@ -87,6 +90,13 @@ def test_parse_wan_up() -> None:
     assert parse_wan_up(WAN_STATUS) == 1
     assert parse_wan_up('{"up": false}') == 0
     assert parse_wan_up('Command failed') is None
+
+
+def test_parse_radio_temp() -> None:
+    assert parse_radio_temp_c(RADIO_TEMP) == 59.0
+    # Only the "(C)" row may parse, even if another stats line slips the grep.
+    assert parse_radio_temp_c('Temperature correction (S7.3): 2') is None
+    assert parse_radio_temp_c('') is None
 
 
 def test_scalar_parses() -> None:
@@ -139,6 +149,7 @@ FULL_BODIES = {
     'wan_status': WAN_STATUS,
     'iwinfo_info': IWINFO_INFO,
     'assoclist': ASSOCLIST,
+    'radio_temp': RADIO_TEMP,
     'dhcp_leases': '9',
     'conntrack': '143',
     'ping': PING_OK,
@@ -161,6 +172,7 @@ def test_sensor_read_full_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
     assert reading['halow_stations'] == 1
     assert reading['halow_rx_mbps'] == 32.5
     assert reading['halow_tx_mbps'] == 19.5
+    assert reading['halow_temp_c'] == 59.0
     assert reading['dhcp_leases'] == 9
     assert reading['conntrack_count'] == 143
     # First poll: no previous counters, so throughput is NULL.

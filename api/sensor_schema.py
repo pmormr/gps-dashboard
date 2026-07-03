@@ -118,6 +118,7 @@ READING_TABLES: dict[str, ReadingTable] = {
             'halow_noise_dbm',
             'halow_tx_mbps',
             'halow_rx_mbps',
+            'halow_temp_c',
             'dhcp_leases',
             'conntrack_count',
         ],
@@ -371,6 +372,7 @@ METRIC_META: dict[str, MetricMeta] = {
     'halow_rx_mbps': _m('Link rx rate', 'Mbps', dec=1, chart=False, group='halow'),
     'halow_tx_mbps': _m('Link tx rate', 'Mbps', dec=1, chart=False, group='halow'),
     'halow_stations': _m('Stations', dec=0, chart=False, group='halow'),
+    'halow_temp_c': _m('Radio temp', '°C', dec=0, color=_RED, convert='c_to_f', group='halow'),
     'dhcp_leases': _m('DHCP leases', dec=0, color=_YELLOW, group='lan'),
     'conntrack_count': _m('Conntrack', dec=0, color=_RED, group='lan'),
     'disk_root_pct': _m(

@@ -205,6 +205,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             halow_noise_dbm REAL,
             halow_tx_mbps   REAL,
             halow_rx_mbps   REAL,
+            halow_temp_c    REAL,
             dhcp_leases     INTEGER,
             conntrack_count INTEGER
         );
@@ -507,6 +508,10 @@ def migrate(conn: sqlite3.Connection) -> None:
             'mode': 'INTEGER',
         },
     )
+
+    # Morse radio die temperature, added after the stream went live (the mt7621 SoC
+    # has no temp sensor; the MM8108 reports its own via morse_cli stats).
+    _add_missing_columns(conn, 'openwrt_readings', {'halow_temp_c': 'REAL'})
 
     # One-time, idempotent: widen whole-second timestamps to fixed-width ms
     # (``...SSZ`` → ``...SS.000Z``). canonical_timestamp now emits ms everywhere,
