@@ -14,6 +14,7 @@ import pytest
 from common.humidity import (
     absolute_humidity_gm3,
     dew_point_c,
+    heat_index_c,
     saturation_vapor_pressure_hpa,
     with_derived_humidity,
 )
@@ -38,6 +39,22 @@ def test_absolute_humidity_textbook_values() -> None:
     assert absolute_humidity_gm3(30.0, 100.0) == pytest.approx(30.4, abs=0.5)
 
 
+def test_heat_index_nws_reference_points() -> None:
+    """90 °F/70 % → ~106 °F and 86 °F/100 % → ~112 °F, matching the NWS table."""
+    assert heat_index_c(32.22, 70.0) == pytest.approx(41.1, abs=0.2)
+    assert heat_index_c(30.0, 100.0) == pytest.approx(44.4, abs=0.3)
+
+
+def test_heat_index_below_regression_threshold_tracks_temp() -> None:
+    """Under 80 °F the simple formula applies and stays near air temperature."""
+    assert heat_index_c(25.0, 50.0) == pytest.approx(24.9, abs=0.1)
+
+
+def test_heat_index_low_rh_adjustment() -> None:
+    """The dry-air adjustment kicks in (100 °F/10 % → ~94.1 °F, not 94.8)."""
+    assert heat_index_c(37.78, 10.0) == pytest.approx(34.5, abs=0.2)
+
+
 def test_missing_or_unphysical_inputs_yield_none() -> None:
     """None inputs and RH outside (0, 100] return None rather than raising."""
     assert dew_point_c(None, 50.0) is None
@@ -46,6 +63,8 @@ def test_missing_or_unphysical_inputs_yield_none() -> None:
     assert dew_point_c(20.0, 120.0) is None
     assert absolute_humidity_gm3(None, None) is None
     assert absolute_humidity_gm3(20.0, -5.0) is None
+    assert heat_index_c(None, 50.0) is None
+    assert heat_index_c(20.0, 120.0) is None
 
 
 def test_with_derived_humidity_enriches_payload() -> None:
@@ -54,6 +73,7 @@ def test_with_derived_humidity_enriches_payload() -> None:
     out = with_derived_humidity(payload)
     assert out['dew_point_c'] == pytest.approx(9.26, abs=0.05)
     assert out['abs_humidity_gm3'] == pytest.approx(8.6, abs=0.1)
+    assert out['heat_index_c'] == pytest.approx(19.4, abs=0.1)
     assert 'dew_point_c' not in payload
 
 
@@ -74,8 +94,8 @@ def test_migration_backfills_existing_rows() -> None:
     init_db(conn)
     migrate(conn)
     # Simulate a pre-migration DB: drop the derived columns, insert history.
-    conn.execute('ALTER TABLE bme680_readings DROP COLUMN dew_point_c')
-    conn.execute('ALTER TABLE bme680_readings DROP COLUMN abs_humidity_gm3')
+    for col in ('dew_point_c', 'abs_humidity_gm3', 'heat_index_c'):
+        conn.execute(f'ALTER TABLE bme680_readings DROP COLUMN {col}')
     conn.execute(
         'INSERT INTO bme680_readings (sensor_id, timestamp, temp_c, humidity_pct) '
         "VALUES (1, '2026-07-01T00:00:00.000Z', 20.0, 50.0), "
@@ -84,9 +104,10 @@ def test_migration_backfills_existing_rows() -> None:
     migrate(conn)
 
     filled, empty = conn.execute(
-        'SELECT dew_point_c, abs_humidity_gm3 FROM bme680_readings ORDER BY id'
+        'SELECT dew_point_c, abs_humidity_gm3, heat_index_c FROM bme680_readings ORDER BY id'
     ).fetchall()
     assert filled['dew_point_c'] == pytest.approx(9.26, abs=0.05)
     assert filled['abs_humidity_gm3'] == pytest.approx(8.6, abs=0.1)
+    assert filled['heat_index_c'] == pytest.approx(19.4, abs=0.1)
     assert empty['dew_point_c'] is None
     conn.close()

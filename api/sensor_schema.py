@@ -47,6 +47,7 @@ READING_TABLES: dict[str, ReadingTable] = {
             'humidity_pct',
             'dew_point_c',
             'abs_humidity_gm3',
+            'heat_index_c',
             'pressure_hpa',
             'iaq',
             'iaq_accuracy',
@@ -177,6 +178,7 @@ _AMBER = '#fbbf24'
 _CYAN = '#22d3ee'
 _YELLOW = '#facc15'
 _PINK = '#f472b6'
+_ROSE = '#fb7185'
 _GREY = '#94a3b8'
 
 
@@ -327,13 +329,17 @@ METRIC_META: dict[str, MetricMeta] = {
     # BME680 environmental node.
     'temp_c': _m('Temp', '°C', dec=1, color=_RED, convert='c_to_f', group='environment'),
     'humidity_pct': _m('Humidity', '%', dec=1, color=_BLUE, y_range=[0, 100], group='environment'),
-    # Derived moisture channels — computed from temp_c + humidity_pct at ingest
+    # Derived comfort channels — computed from temp_c + humidity_pct at ingest
     # (common/humidity.py), not sent by the node. Dew point = condensation
-    # threshold; absolute humidity = inside-vs-outside comparable moisture mass.
+    # threshold; absolute humidity = inside-vs-outside comparable moisture mass;
+    # heat index = NWS "feels like" (tracks air temp below ~27 °C by definition).
     'dew_point_c': _m(
         'Dew point', '°C', dec=1, color=_YELLOW, convert='c_to_f', group='environment'
     ),
     'abs_humidity_gm3': _m('Abs humidity', 'g/m³', dec=1, color=_PINK, group='environment'),
+    'heat_index_c': _m(
+        'Heat index', '°C', dec=1, color=_ROSE, convert='c_to_f', group='environment'
+    ),
     'pressure_hpa': _m('Pressure', 'hPa', dec=1, color=_PURPLE, group='environment'),
     'iaq': _m('IAQ', dec=0, color=_GREEN, group='environment'),
     'iaq_accuracy': _m('IAQ acc', '/3', dec=0, chart=False, group='environment'),

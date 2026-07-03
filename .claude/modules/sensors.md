@@ -38,8 +38,9 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   a 30s interval lambda publishes one combined JSON reading to `sensors/cabin/bme680`,
   `utcnow()`-stamped. MQTT birth/will = the `.../status` LWT. See `firmware/README.md`.
   The node sends temp/RH only; ingest derives `dew_point_c` + `abs_humidity_gm3`
-  into the same row (`common/humidity.py`, Magnus) so the physics never lives in
-  firmware and the columns bucket like any metric in `/api/sensors/series`.
+  (Magnus) + `heat_index_c` (NWS Rothfusz) into the same row (`common/humidity.py`)
+  so the physics never lives in firmware and the columns bucket like any metric
+  in `/api/sensors/series`.
 - **BME680 reader** (`sensors/bme680.py`) — the original Pi-attached I2C publisher,
   now kept only as a `--fake` pipeline test harness (the real BME680 moved to the node
   above). Logger ethos: paho auto-reconnect, heartbeat, graceful shutdown.

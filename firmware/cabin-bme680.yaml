@@ -10,8 +10,8 @@
 # Payload keys are bme680_readings column names (the ingest contract):
 #   ts, temp_c, humidity_pct, pressure_hpa, gas_ohms,
 #   iaq, iaq_accuracy, co2_equivalent, breath_voc_equivalent
-# The dew_point_c / abs_humidity_gm3 columns are NOT sent — ingest derives
-# them from temp_c + humidity_pct (common/humidity.py).
+# The dew_point_c / abs_humidity_gm3 / heat_index_c columns are NOT sent —
+# ingest derives them from temp_c + humidity_pct (common/humidity.py).
 #
 # Flashing (online prep step; runtime is fully offline on the van LAN):
 #   uv tool run esphome run firmware/cabin-bme680.yaml   # first flash over USB, then OTA
