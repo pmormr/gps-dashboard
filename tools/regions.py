@@ -29,7 +29,7 @@ class Region:
     def bbox(self) -> tuple[float, float, float, float]:
         """Return the bbox as a `(min_lon, min_lat, max_lon, max_lat)` tuple.
 
-        Convenience for call sites that want to splat into legacy helpers, e.g.
+        Convenience for call sites that want to splat into positional helpers, e.g.
         `tiles_for_bbox(*region.bbox, z)`.
         """
         return (self.min_lon, self.min_lat, self.max_lon, self.max_lat)

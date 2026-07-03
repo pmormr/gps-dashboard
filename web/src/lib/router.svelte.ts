@@ -2,8 +2,8 @@ import { notFoundRoute, routes, type RouteDef } from './routes'
 
 /**
  * Minimal History-API client router. Holds the current path as reactive state
- * and resolves it to a route; no dependency, full control over the (later)
- * keep-the-map-alive pattern. Legacy full-page links bypass it entirely.
+ * and resolves it to a route; no dependency, full control over the
+ * keep-the-map-alive pattern.
  */
 class Router {
   path = $state(window.location.pathname)
