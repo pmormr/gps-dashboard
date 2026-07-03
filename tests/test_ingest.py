@@ -75,6 +75,46 @@ def test_records_victron_reading(conn: sqlite3.Connection) -> None:
     assert registered
 
 
+def test_records_openwrt_reading(conn: sqlite3.Connection) -> None:
+    """An openwrt payload lands in openwrt_readings; enum + delta columns map."""
+    topic = topics.SensorTopic(node='van-edge', type='openwrt', kind='reading')
+    payload = {'ts': TS, 'wan_up': 1, 'halow_rssi_dbm': -54.0, 'halow_temp_c': 59.0}
+    record_reading(conn, topic, payload, RECEIPT, IngestStats())
+
+    row = conn.execute('SELECT * FROM openwrt_readings').fetchone()
+    assert row['wan_up'] == 1
+    assert row['halow_rssi_dbm'] == -54.0
+    assert row['halow_temp_c'] == 59.0
+    assert row['wan_rx_kbps'] is None  # first poll has no delta → NULL
+    registered = conn.execute(
+        "SELECT 1 FROM sensors WHERE node = 'van-edge' AND type = 'openwrt'"
+    ).fetchone()
+    assert registered
+
+
+def test_records_nvr_and_camera_readings(conn: sqlite3.Connection) -> None:
+    """The two Dahua fleet types land in their tables (one process, many nodes)."""
+    nvr_topic = topics.SensorTopic(node='van-nvr', type='nvr', kind='reading')
+    record_reading(
+        conn, nvr_topic, {'ts': TS, 'hdd_ok': 1, 'hdd_temp_c': 48.0}, RECEIPT, IngestStats()
+    )
+    cam_topic = topics.SensorTopic(node='van-cam-front', type='camera', kind='reading')
+    record_reading(
+        conn, cam_topic, {'ts': TS, 'online': 0, 'record_mode': None}, RECEIPT, IngestStats()
+    )
+
+    nvr = conn.execute('SELECT * FROM nvr_readings').fetchone()
+    assert nvr['hdd_ok'] == 1 and nvr['hdd_temp_c'] == 48.0
+    assert nvr['channels_video_loss'] is None
+    cam = conn.execute('SELECT * FROM camera_readings').fetchone()
+    assert cam['online'] == 0 and cam['record_mode'] is None
+    nodes = {
+        r['node']
+        for r in conn.execute("SELECT node FROM sensors WHERE type IN ('nvr', 'camera')")
+    }
+    assert nodes == {'van-nvr', 'van-cam-front'}
+
+
 def test_unknown_type_counted_not_written(conn: sqlite3.Connection) -> None:
     """A reading for an unregistered type increments unknown_type and writes nothing."""
     topic = topics.SensorTopic(node='x', type='mystery', kind='reading')

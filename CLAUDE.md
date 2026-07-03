@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `network-telemetry`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) plus captured device-capability dumps (e.g. the van's supported-PID set) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -88,7 +88,7 @@ GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pas
 
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
 
-The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
+The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
 
@@ -139,7 +139,7 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); the van's bus is reached through a fitted 12+8 FCA Security Gateway bypass harness (bus facts + captured PID set: `.claude/modules/sensors.md`, `reference/obd-supported-pids.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). **The Pi host itself is the fourth stream** — `sensors/system_reader.py` publishes `sensors/pi/system` → `system_readings` (CPU temp/load, memory, root + NVMe disk, uptime, throttle flags) entirely from stdlib `/proc`/`/sys`/`vcgencmd` reads, so the platform reports on its own health. See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
+A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); the van's bus is reached through a fitted 12+8 FCA Security Gateway bypass harness (bus facts + captured PID set: `.claude/modules/sensors.md`, `reference/obd-supported-pids.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). **The Pi host itself is the fourth stream** — `sensors/system_reader.py` publishes `sensors/pi/system` → `system_readings` (CPU temp/load, memory, root + NVMe disk, uptime, throttle flags) entirely from stdlib `/proc`/`/sys`/`vcgencmd` reads, so the platform reports on its own health. **Network infrastructure is the fifth and sixth** — `sensors/openwrt_reader.py` SSH-polls the van-edge router (one `sh -s` round-trip per poll: load/mem, WAN state + throughput + ping, HaLow RSSI/rates/radio-temp, leases, conntrack) into `openwrt_readings`, and `sensors/dahua_reader.py` CGI+RPC2-polls the recording fleet (Dahua NVR + 4 cams — one process, five node streams via `run_fleet_publisher`) into `nvr_readings`/`camera_readings` (HDD health/SMART temp, VideoLoss, per-cam online/CPU/mem/uptime/clock-drift). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
 
 ### Radio Control (CI-V)
 
@@ -190,7 +190,10 @@ gps-dashboard/
 │   ├── bme680.py               # --fake pipeline harness (BME680 now lives on an ESP32 node)
 │   ├── obd_reader.py           # engine-gated OBD-II reader → sensors/van/obd (NOT obd.py — shadows the obd lib)
 │   ├── victron_reader.py       # Victron Venus GX → sensors/house/victron (two brokers; keepalive + staleness watchdog)
-│   └── system_reader.py        # Pi host metrics (cpu/mem/disk/temp/throttle) → sensors/pi/system (stdlib /proc + vcgencmd)
+│   ├── system_reader.py        # Pi host metrics (cpu/mem/disk/temp/throttle) → sensors/pi/system (stdlib /proc + vcgencmd)
+│   ├── openwrt_reader.py       # van-edge router SSH poll → sensors/van-edge/openwrt (one sh -s round-trip per poll)
+│   ├── dahua_reader.py         # Dahua NVR + cams CGI/RPC2 fleet poll → 5 node streams (types nvr + camera)
+│   └── dahua_rpc.py            # minimal Dahua RPC2 JSON client (challenge login, object-style handles)
 ├── mqttbus/                    # broker-side consumers + shared MQTT helpers
 │   ├── topics.py
 │   ├── client.py
@@ -235,6 +238,8 @@ gps-dashboard/
 │   ├── ntp_validate.py
 │   ├── obd_probe.py            # OBD-II connectivity/bring-up probe (kept as a bus diagnostic)
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
+│   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
+│   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
@@ -250,6 +255,8 @@ gps-dashboard/
 │   ├── sensor-obd.service       # enabled-gated OBD reader unit (node van, /dev/ttyUSB0)
 │   ├── sensor-victron.service   # enabled-gated Victron reader unit (node house; secret via /etc/default/gps-victron)
 │   ├── sensor-pi.service        # Pi host-metrics reader unit (node pi; enabled by default — no hardware/secret/gating)
+│   ├── sensor-openwrt.service   # enabled-gated OpenWrt reader unit (node van-edge; auth = Pi SSH key on the router)
+│   ├── sensor-dahua.service     # enabled-gated Dahua fleet reader unit (5 nodes; secret via /etc/default/gps-dahua)
 │   ├── gps-drone-sync.service   # timer-driven DJI footage import (Pi → NAS container)
 │   ├── gps-drone-sync.timer
 │   ├── radio-control.service    # enabled-gated rigctld (Icom ID-5100A CI-V; /dev/icom-civ)

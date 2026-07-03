@@ -2,13 +2,15 @@
 
 Turns the Pi from a GPS-only logger into a centralized data-logging platform: it
 still logs GPS unchanged, and additionally ingests other streams over an MQTT bus into
-the **same** SQLite DB, so GPS↔sensor correlation is a local join. Four streams are
+the **same** SQLite DB, so GPS↔sensor correlation is a local join. Six stream types are
 live: **environmental sensors** (a BME680: temperature, humidity, pressure, gas/VOC),
 **the van itself over OBD-II** (engine RPM/speed/load, temps, fuel — see *OBD-II: the
 van as a sensor* below), **house power over Victron** (a Venus OS GX: battery /
-solar / inverter / AC + DC, bridged from its own MQTT broker), and **the Pi host
-itself** (CPU temp, load, memory, disk, uptime, throttle flags — the platform now
-reports on its own health). Adding a stream is a spec entry, not a new pipeline.
+solar / inverter / AC + DC, bridged from its own MQTT broker), **the Pi host
+itself** (CPU temp, load, memory, disk, uptime, throttle flags), **the van-edge
+router** (OpenWrt/HaLow health over SSH-poll), and **the recording fleet** (Dahua
+NVR + 4 cameras over HTTP CGI + RPC2 — one reader, five node streams). Adding a
+stream is a spec entry, not a new pipeline.
 
 This module documents the sensor platform — what has **landed** and what's still open.
 The foundation (schema + broker + ingest + the first remote ESP32 node) is in, plus a
@@ -87,6 +89,41 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   None for that one metric, so it degrades cleanly off-Pi). Not gated: the Pi is always
   on, so it runs continuously like Victron. `--fake` mode for desk testing. `throttled`
   is stored raw (0 = healthy), a cell like the Victron enum states rather than plotted.
+- **OpenWrt reader** (`sensors/openwrt_reader.py`) — network infra as a sensor:
+  SSH-polls a router (van-edge; multi-target via `--host/--node`, ifaces via
+  `--wan-iface/--halow-iface`) in **one `sh -s` round-trip per 30 s poll** — a fixed
+  BusyBox snippet with marker-wrapped sections, parsed back per section
+  (`tools/openwrt_probe.py` imports the same helpers). Auth is the Pi's SSH key on the
+  router's `/etc/dropbear/authorized_keys` (`BatchMode=yes`: no key → fast fail, never
+  a password hang; the unit sets `HOME` explicitly since systemd doesn't for `User=`).
+  Throughput columns are reader-side `/proc/net/dev` counter deltas (NULL + reseed
+  across a router reboot). HaLow link metrics come from standard `iw`/`iwinfo` (the
+  Morse driver serves nl80211); the radio's die temp comes from `morse_cli stats`,
+  grepped on the router — the **mt7621 SoC has no temp sensor at all** (no thermal
+  zone, no hwmon). `wan_up` (ubus logical-interface state) is distinct from
+  `wan_ping_ms` (NULL = internet dark — signal, not failure, off-grid). Trap: `ubus
+  call <path> <method>` takes path and method as separate args (`ubus call system
+  info`, not `system.info`). `--fake` for desk testing.
+- **Dahua fleet reader** (`sensors/dahua_reader.py`) — the recording fleet as sensors:
+  one process CGI+RPC2-polls the NVR (node `van-nvr`, type `nvr`) and each active
+  camera (`van-cam-*`, type `camera`) every 60 s, publishing five streams through
+  `run_fleet_publisher` — **one MQTT session per stream**, because an LWT is
+  per-connection (a shared client would leave dead streams stale-online). Two device
+  protocols: digest-auth **CGI** for storage state / VideoLoss / clock / record mode,
+  and the WebUI's **RPC2** JSON API (`sensors/dahua_rpc.py`: challenge login, session
+  id **rotates on login**, object-style `factory.instance` handles) for what the CGI
+  501s — CPU/memory everywhere, HDD SMART (temp 194, realloc 5, power-on-hours 9) on
+  the NVR, uptime on cameras. Traps: the NVR redirects HTTP→HTTPS (self-signed —
+  `verify=False`; RPC2 must go **straight to https** or the redirect drops POST
+  bodies); `getCurrentTime` returns **TZ-local** time and the fleet's TZ config is
+  inconsistent, so `clock_offset_s` folds to the nearest whole hour and reads true NTP
+  drift; camera `getUpTime`'s **`Total` resets on boot, `Last` accumulates** (names
+  misleading — verified live); no camera die-temp exists on these IPC models. Failure
+  semantics: a down camera publishes an `online=0` row (outages chart), a down NVR is
+  a dropped reading, and a device's first connection error early-outs its cycle. The
+  shared WebUI password comes from `/etc/default/gps-dahua` (root-owned 600, out of
+  git; the reader exits 2 without it). `--fake` for desk testing;
+  `tools/dahua_probe.py` (imports the fleet table) re-surveys the CGI endpoint set.
 - **Ingest subscriber** (`mqttbus/ingest.py`) — the **only** writer of sensor data.
   Subscribes `sensors/#`, auto-registers sensors, canonicalizes timestamps, inserts
   per-type rows, applies LWT status. The per-type INSERT is **column-driven** off a
@@ -122,7 +159,8 @@ source of truth for the topic taxonomy (build/parse, no broker dependency).
 
 Sensor tables live in `gps_history.db` alongside GPS — see `api/db.py` `init_db`:
 `sensors` (registry, keyed `UNIQUE(node, type)`), `bme680_readings`, `obd_readings`,
-`victron_readings`, `system_readings`, and the `alarm_rules` / `alarm_events` tables
+`victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`,
+`camera_readings`, and the `alarm_rules` / `alarm_events` tables
 (created now, exercised when alarms land). All
 timestamps go through `api.db.canonical_timestamp` so they join cleanly against
 `gps_points`. FKs are logical/unenforced, matching the trips↔points style. Each
@@ -159,6 +197,19 @@ device-level services (`solarcharger`, `vebus`) are matched with the instance se
 wildcarded, since Venus instance numbers aren't stable across reconfigurations. The
 column set is the `READING_TABLES` spec.
 
+`openwrt_readings` is the router stream — load/mem/uptime, WAN state + throughput
+deltas + ping RTT, HaLow RSSI/noise/link rates/station count/radio temp, DHCP leases,
+conntrack. `load_1m`/`mem_used_pct`/`uptime_s` deliberately reuse the Pi `system`
+stream's column names so they share `METRIC_META` rows (it's keyed by column name).
+
+`nvr_readings`/`camera_readings` are the recording-fleet streams — NVR: HDD health
+(`hdd_ok`/`hdd_err_partitions` from CGI; SMART `hdd_temp_c`/`hdd_realloc_sectors`/
+`hdd_power_on_h` via RPC2 — used-bytes carries no signal under loop recording),
+`channels_video_loss` (the NVR-side camera-down signal; `getCameraState` is 501 on
+this firmware), CPU/mem, clock drift. Cameras: `online` (0/1 — poll success),
+CPU/mem/uptime, clock drift, `record_mode` enum. Column sets are the
+`READING_TABLES` spec.
+
 ## Conventions
 
 Topics (`mqttbus/topics.py`):
@@ -184,7 +235,7 @@ times. Fallbacks are counted in the ingest heartbeat.
 
 ## Deploy & ops
 
-Services: `deploy/{mqtt-ingest,sensor-bme680,sensor-obd,sensor-victron,sensor-pi}.service`
+Services: `deploy/{mqtt-ingest,sensor-bme680,sensor-obd,sensor-victron,sensor-pi,sensor-openwrt,sensor-dahua}.service`
 (slot into the existing systemd + post-receive model). The hook copies the new unit
 files and `mosquitto.conf` when `deploy/` changes, restarts `mqtt-ingest` when enabled,
 and restarts the `sensor-*` readers only when `sensors/` changes **and** the unit is
@@ -204,7 +255,12 @@ self-gates on engine state, so it idles cleanly when the van is parked. `sensor-
 (root-owned, `chmod 600` — out of git; create it before enabling, or the GX rejects the
 unauthenticated connection). `sensor-pi` **is enabled** (node `pi`): it needs no
 hardware, secret, or gating (every metric is a local stdlib read), so unlike the other
-readers it just runs continuously.
+readers it just runs continuously. `sensor-openwrt` **is enabled** (node `van-edge`):
+its one-time setup was authorizing the Pi's ed25519 key on van-edge root
+(`/etc/dropbear/authorized_keys`, done 2026-07-02). `sensor-dahua` **is enabled**
+(nodes `van-nvr` + `van-cam-*`): its secret is `/etc/default/gps-dahua`
+(`GPS_DAHUA_PASSWORD=…`, root-owned 600 — creating it is a user-run step in a real
+terminal; the `!` bash-prefix has no TTY for a silent password prompt).
 
 The ESP32 node is flashed from a dev host, not the Pi:
 `uv tool run esphome run firmware/cabin-bme680.yaml` (first flash over USB, OTA after;
