@@ -1,5 +1,5 @@
 # Victron reader (house power as a sensor): Venus OS GX MQTT → MQTT publisher.
-# Enabled-gated like sensor-obd/sensor-bme680 — stays disabled until a GX is on the
+# Enabled-gated like sensor-obd — stays disabled until a GX is on the
 # LAN, so a host without one never crash-loops. Unlike OBD it is NOT engine-gated: the
 # GX runs 24/7, so this reader runs continuously and self-reports the stream offline
 # when the GX goes silent (see the staleness watchdog in victron_reader.py).

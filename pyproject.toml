@@ -10,7 +10,6 @@ dependencies = [
     "httpx>=0.27",
     "click>=8.0",
     "paho-mqtt>=2.1.0",
-    "bme680>=2.0.0",
     "obd>=0.7.3",
 ]
 
@@ -68,7 +67,7 @@ pretty = true
 
 # Untyped third-party libraries (no stubs shipped).
 [[tool.mypy.overrides]]
-module = ["bme680", "obd", "paho.mqtt.*", "sgp4.*"]
+module = ["obd", "paho.mqtt.*", "sgp4.*"]
 ignore_missing_imports = true
 
 # Strict profile for the load-bearing, already-well-typed core. Ratchet items

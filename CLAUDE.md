@@ -23,7 +23,7 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`. When any `deploy/` file changed it reinstalls all unit files into `/etc/systemd/system/`, `daemon-reload`s, and enables the `gps-drone-sync.timer` — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto`/`sensor-bme680` restart only on their own config/source changes; `gps-drone-sync` is a timer-driven oneshot, not restarted. The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`. When any `deploy/` file changed it reinstalls all unit files into `/etc/systemd/system/`, `daemon-reload`s, and enables the `gps-drone-sync.timer` — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` is a timer-driven oneshot, not restarted. The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
@@ -187,7 +187,7 @@ gps-dashboard/
 │   ├── gps_processor.py
 │   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
 ├── sensors/                    # Pi-side sensor readers (publish to the MQTT bus)
-│   ├── bme680.py               # --fake pipeline harness (BME680 now lives on an ESP32 node)
+│   ├── bme680.py               # synthetic pipeline test harness (the live BME680 is the ESP32 node)
 │   ├── obd_reader.py           # engine-gated OBD-II reader → sensors/van/obd (NOT obd.py — shadows the obd lib)
 │   ├── victron_reader.py       # Victron Venus GX → sensors/house/victron (two brokers; keepalive + staleness watchdog)
 │   ├── system_reader.py        # Pi host metrics (cpu/mem/disk/temp/throttle) → sensors/pi/system (stdlib /proc + vcgencmd)
@@ -249,7 +249,6 @@ gps-dashboard/
 │   ├── gps-processor.service
 │   ├── mosquitto.conf
 │   ├── mqtt-ingest.service
-│   ├── sensor-bme680.service
 │   ├── sensor-obd.service       # enabled-gated OBD reader unit (node van, /dev/ttyUSB0)
 │   ├── sensor-victron.service   # enabled-gated Victron reader unit (node house; secret via /etc/default/gps-victron)
 │   ├── sensor-pi.service        # Pi host-metrics reader unit (node pi; enabled by default — no hardware/secret/gating)
@@ -319,8 +318,7 @@ uv run tools/tle_validate.py --db ./gps_snap.db --hours 48 -v   # snapshot: ssh 
 
 # Sensor pipeline (MQTT — needs a broker; PYTHONPATH set so scripts find the packages)
 PYTHONPATH=. uv run mqttbus/ingest.py                       # ingest subscriber
-PYTHONPATH=. uv run sensors/bme680.py --fake --node cabin   # fake publisher — pipeline test harness
-PYTHONPATH=. uv run sensors/bme680.py --node cabin          # (legacy) Pi-attached I2C BME680; the live BME680 is the ESPHome node
+PYTHONPATH=. uv run sensors/bme680.py --node cabin          # fake publisher — pipeline test harness
 
 # Inspect the database
 sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
@@ -356,7 +354,7 @@ uv run ruff format .           # format
 uv run mypy .                  # type check (must be clean)
 ```
 
-`mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`bme680`, `obd`, `paho.mqtt`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
+`mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`obd`, `paho.mqtt`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
 
 ## Offline Constraint
 

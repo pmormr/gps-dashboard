@@ -1,5 +1,5 @@
 # OBD-II reader (the van as a sensor): ELM327 serial → MQTT publisher.
-# Enabled-gated like sensor-bme680 — stays disabled until the adapter is wired and
+# Enabled-gated — stays disabled until the adapter is wired and
 # the van session happens, so a host without OBD never crash-loops. The reader is
 # engine-gated, so it idles cheaply (connection closed) while parked.
 #

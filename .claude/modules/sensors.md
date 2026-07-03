@@ -22,8 +22,9 @@ The first sensor is a **BME680 on a dedicated ESPHome ESP32-C6 node**
 (`firmware/cabin-bme680.yaml`), not Pi-attached: it runs Bosch **BSEC2** on-device for
 a calibrated IAQ index — closed-source C, so it can't run under MicroPython and is
 fiddly on the Pi, but ESPHome's `bme68x_bsec2` component runs it cleanly and also
-gives Wi-Fi/MQTT/NTP/OTA for free. The Pi-side `sensors/bme680.py` reader survives only
-as a `--fake` pipeline test harness.
+gives Wi-Fi/MQTT/NTP/OTA for free. The Pi-side `sensors/bme680.py` script survives only
+as a synthetic pipeline test harness (its I2C hardware path and systemd unit were removed;
+any future BME680-class sensor takes the same ESP-side path).
 
 ## Processes
 
@@ -41,9 +42,10 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   (Magnus) + `heat_index_c` (NWS Rothfusz) into the same row (`common/humidity.py`)
   so the physics never lives in firmware and the columns bucket like any metric
   in `/api/sensors/series`.
-- **BME680 reader** (`sensors/bme680.py`) — the original Pi-attached I2C publisher,
-  now kept only as a `--fake` pipeline test harness (the real BME680 moved to the node
-  above). Logger ethos: paho auto-reconnect, heartbeat, graceful shutdown.
+- **BME680 fake harness** (`sensors/bme680.py`) — a synthetic publisher kept to
+  exercise the broker → ingest → DB pipeline without hardware (the original Pi-attached
+  I2C path and its unit were removed; the real BME680 is the node above). Logger ethos:
+  paho auto-reconnect, heartbeat, graceful shutdown.
 - **OBD reader** (`sensors/obd_reader.py`) — the van as a sensor: a Pi-side python-OBD
   publisher on the OBDLink EX (USB `/dev/ttyUSB0`), **single serial owner**,
   **engine-gated**. It wakes on chassis voltage >13.2 V (alternator charging, debounced)
@@ -239,7 +241,7 @@ times. Fallbacks are counted in the ingest heartbeat.
 
 ## Deploy & ops
 
-Services: `deploy/{mqtt-ingest,sensor-bme680,sensor-obd,sensor-victron,sensor-pi,sensor-openwrt,sensor-dahua}.service`
+Services: `deploy/{mqtt-ingest,sensor-obd,sensor-victron,sensor-pi,sensor-openwrt,sensor-dahua}.service`
 (slot into the existing systemd + post-receive model). The hook copies the new unit
 files and `mosquitto.conf` when `deploy/` changes, restarts `mqtt-ingest` when enabled,
 and restarts the `sensor-*` readers only when `sensors/` changes **and** the unit is
@@ -249,9 +251,7 @@ post-receive hook enumerates the reader units to restart; a newly added unit lik
 sensor-pi`.)
 
 One-time Pi setup is installing mosquitto and enabling the units.
-`mosquitto` + `mqtt-ingest` run on the Pi and ingest whatever publishes. The
-`sensor-bme680` service stays **disabled** — the BME680 moved to the ESPHome node, so
-the Pi-attached reader has no hardware (and the CM5 GPIO I2C bus is still off).
+`mosquitto` + `mqtt-ingest` run on the Pi and ingest whatever publishes.
 `sensor-obd` **is enabled** (node `van`, `/dev/ttyUSB0`): it owns the OBDLink EX and
 self-gates on engine state, so it idles cleanly when the van is parked. `sensor-victron`
 **is enabled** (node `house`): it bridges the always-on Venus GX and runs continuously
