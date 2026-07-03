@@ -93,6 +93,8 @@ Locked columns for `openwrt_readings` (all NULLable; one row per poll per node):
 ubus) · `wan_rx_kbps`/`wan_tx_kbps` (delta on `wan`) · `halow_rx_kbps`/`halow_tx_kbps`
 (delta on `wlan0`) · `halow_stations` · `halow_rssi_dbm`/`halow_noise_dbm` (iwinfo
 info) · `halow_tx_mbps`/`halow_rx_mbps` (assoclist bitrates — the bridge link) ·
+`halow_temp_c` (Morse radio die temp via `morse_cli stats`, added post-launch — the
+mt7621 SoC has no sensor but the MM8108 does) ·
 `dhcp_leases` · `conntrack_count` · `wan_ping_ms` (NULL when unreachable; the
 internet-actually-works signal, distinct from `wan_up`).
 
