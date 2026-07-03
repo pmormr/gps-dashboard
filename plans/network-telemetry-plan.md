@@ -79,7 +79,15 @@ Both probe tools landed and ran against the live fleet: `tools/openwrt_probe.py`
 - Cameras: identity (`getSystemInfo`), clock (`getCurrentTime`), and `RecordMode`
   config serve; nothing else does. Per-camera columns are lean by construction.
 
-### Phase 1 — OpenWrt router stream
+### Phase 1 — OpenWrt router stream  *(DONE 2026-07-02 — live on the Pi)*
+Built, deployed, validated against van-edge, `sensor-openwrt` enabled: rows land in
+`openwrt_readings` every 30 s and `/api/sensors` serves the `van-edge`/`openwrt`
+stream. The reader (`sensors/openwrt_reader.py`) owns the marker build/parse helpers;
+`tools/openwrt_probe.py` imports them. `mem_used_pct` replaced the planned
+`mem_available_pct` so the column shares the Pi system stream's META row (same for
+`load_1m`/`uptime_s`). The post-receive hook gained the `sensor-openwrt` restart
+block (hook lives on the Pi, not in git).
+
 Locked columns for `openwrt_readings` (all NULLable; one row per poll per node):
 `load_1m` · `mem_available_pct` · `uptime_s` (reboot sawtooth) · `wan_up` (0/1 enum,
 ubus) · `wan_rx_kbps`/`wan_tx_kbps` (delta on `wan`) · `halow_rx_kbps`/`halow_tx_kbps`
