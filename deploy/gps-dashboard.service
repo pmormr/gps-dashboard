@@ -12,6 +12,7 @@ Environment=GPS_TILE_CACHE_DIR=/mnt/nvme/cache/tiles
 Environment=GPS_PMTILES_PATH=/mnt/nvme/tiles/northamerica.pmtiles
 Environment=GPS_TERRAIN_PMTILES_PATH=/mnt/nvme/tiles/northamerica-terrain.pmtiles
 Environment=GPS_NETWORK_DOCS_PATH=/mnt/nvme/paul-network-docs
+Environment=GPS_NETWORK_DOCS_GIT_DIR=/mnt/nvme/paul-network-docs.git
 ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python api/app.py
 Restart=always
 RestartSec=5

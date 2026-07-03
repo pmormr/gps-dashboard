@@ -134,13 +134,18 @@ asks `limit=20000`.
   as dots so brief engine-gated bursts stay visible, and an all-null window shows a
   "No data in this range" overlay instead of a silent blank plot. Replaces the retired
   legacy `/sensors`.
-- **Docs** (`Docs.svelte`) — browses the synced `paul-network-docs` Obsidian vault
-  (`GET /api/docs/{tree,file}`). Two-pane: a file tree + the rendered markdown. `docs.ts`
-  is the render seam — markdown-it (raw HTML disabled, so no sanitizer dep), **lazy**
-  mermaid for diagrams (its own dynamic chunk, loaded only on docs with a `mermaid` block),
-  and relative-`.md` link resolution → in-app `/docs/<path>` navigation (the route is
-  `prefix`-matched in `router.svelte.ts` so `/docs/devices/foo.md` deep-links). The vault is
-  read from a separate bare-repo checkout on the Pi — see CLAUDE.md Deployment.
+- **Docs** (`Docs.svelte`) — browses **and edits** the synced `paul-network-docs` Obsidian
+  vault (`GET/PUT /api/docs/file`, `GET /api/docs/tree`). Two-pane: a file tree + the
+  rendered markdown. `docs.ts` is the render seam — markdown-it (raw HTML disabled, so no
+  sanitizer dep), **lazy** mermaid for diagrams (its own dynamic chunk, loaded only on docs
+  with a `mermaid` block), and relative-`.md` link resolution → in-app `/docs/<path>`
+  navigation (the route is `prefix`-matched in `router.svelte.ts` so
+  `/docs/rex/devices/foo.md` deep-links). Edit mode: `docsEditor.ts` wraps CodeMirror 6
+  (**lazy** — its own chunk, loaded on the Edit click), draft preview through the same
+  renderer, saves via `PUT` with the GET's content-hash `ETag` as `If-Match` (409 → the
+  file changed underneath; the server auto-commits — see `api/routes/docs.py`). Edit-only
+  by design: file creation/rename stays a laptop/Obsidian operation. The vault is read from
+  a separate bare-repo checkout on the Pi — see CLAUDE.md Deployment.
 - **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`), plus **globe**
   (`globe.ts`, lazy three.js, PC-only) and **skyplot** (`skyplot.ts`, 2D-canvas) drill-ins.
   The observatory subsystem is in **`.claude/modules/observatory.md`**.

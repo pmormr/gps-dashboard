@@ -32,7 +32,7 @@ App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
 - `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
 - `/mnt/nvme/tiles/northamerica-terrain.pmtiles` — terrain (Mapzen Terrarium) PMTiles archive, ~105 GB (persists across deploys)
-- `/mnt/nvme/paul-network-docs.git` + `/mnt/nvme/paul-network-docs` — the network-docs vault, synced as its **own** bare repo + post-receive checkout (the same pattern as gps-dashboard, but a separate repo). Push from the local `../paul-network-docs` repo with `git push pi main`; the Docs tab reads the checkout via `GPS_NETWORK_DOCS_PATH`. The repo's `.gitignore` keeps secrets/installers out of the sync.
+- `/mnt/nvme/paul-network-docs.git` + `/mnt/nvme/paul-network-docs` — the network-docs vault, synced as its **own** bare repo + post-receive checkout (the same pattern as gps-dashboard, but a separate repo). Push from the local `../paul-network-docs` repo with `git push pi main`; the Docs tab reads the checkout via `GPS_NETWORK_DOCS_PATH` **and edits it** (saves auto-commit onto the bare repo's `main` via `GPS_NETWORK_DOCS_GIT_DIR` — the no-commits-on-the-Pi rule below is gps-dashboard's, not this vault's; `git pull pi main` before pushing from the laptop). The repo's `.gitignore` keeps secrets/installers out of the sync.
 
 **Never commit directly on the Pi.** All commits go local → push to both remotes. Direct Pi commits cause history divergence requiring force-pushes to fix.
 
@@ -119,7 +119,8 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 - `POST /api/radio/freq` · `POST /api/radio/mode` · `POST /api/radio/tone` · `POST /api/radio/repeater` · `POST /api/radio/level` (AF/SQL/RFPOWER, 0..1) · `POST /api/radio/band` (pin A/B as Main — raw CI-V `07 D0/D1` through rigctld's `send_cmd` passthrough; the backend has no band model) — main-band control writes; 502 on a rig refusal, 503 when rigctld is unreachable
 - `GET /api/ntp` — read-only chrony/NTP status (tracking, sources, PPS); backs the Systems → ntp drill-in (`Ntp.svelte`)
 - `GET /api/docs/tree` — markdown file tree of the synced `paul-network-docs` vault (`available:false` when `GPS_NETWORK_DOCS_PATH` is unset/missing → the Docs tab shows an empty state)
-- `GET /api/docs/file?path=` — raw markdown body of one vault file, realpath-confined to the docs root (traversal-safe, `.md` only); the SPA renders it client-side (markdown-it + lazy mermaid)
+- `GET /api/docs/file?path=` — raw markdown body of one vault file, realpath-confined to the docs root (traversal-safe, `.md` only); the SPA renders it client-side (markdown-it + lazy mermaid). `ETag` = content hash, for the editor's concurrency check
+- `PUT /api/docs/file?path=` — overwrite one **existing** vault file (edit-only; creation stays a laptop/Obsidian operation) and auto-commit it (`GPS_NETWORK_DOCS_GIT_DIR` names the git dir — on the Pi, the vault's bare repo with the checkout as detached work tree; falls back to `<vault>/.git`, else saves uncommitted). Requires `If-Match` (428 without; 409 on a stale hash). Pi-side commits are by design for this vault — pull before pushing from the laptop
 
 **SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
@@ -164,7 +165,7 @@ gps-dashboard/
 │       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
 │       ├── phone.py            # /api/phone/{tracks,places} (phone-history map-overlay reads)
-│       ├── docs.py             # /api/docs/* (network-docs vault reader: tree + raw markdown)
+│       ├── docs.py             # /api/docs/* (network-docs vault: tree + raw markdown + edit PUT w/ auto-commit)
 │       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
 │       ├── passes.py           # /api/passes (pass prediction; /passes is SPA-served)
 │       ├── obd.py              # /api/obd* (OBD-II telemetry read)
@@ -219,6 +220,7 @@ gps-dashboard/
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
+│       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
 │       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local)
 │       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
 ├── static/
@@ -335,7 +337,7 @@ uv run pytest tests/test_simplify.py   # one module
 `pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers the load-bearing pure logic and the API read paths:
 
 - **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
-- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation, `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader (`/api/docs/*`: tree, file fetch, traversal/non-`.md` rejection).
+- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation, `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader/editor (`/api/docs/*`: tree, file fetch + ETag, edit PUT with If-Match/auto-commit in both repo layouts, traversal/non-`.md` rejection).
 - **Backtest tools** — the pure helpers in `passes_validate` and `tle_validate`.
 
 ### Linting & formatting

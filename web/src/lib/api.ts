@@ -489,9 +489,41 @@ export function getDocsTree(): Promise<DocsTree> {
   return getJSON<DocsTree>('/api/docs/tree')
 }
 
-/** Fetch one vault file's raw markdown body. */
-export async function getDocFile(path: string): Promise<string> {
+/** One vault file's raw markdown plus the ETag the editor echoes back on save. */
+export interface DocFile {
+  content: string
+  etag: string
+}
+
+/** Fetch one vault file's raw markdown body (+ content-hash ETag). */
+export async function getDocFile(path: string): Promise<DocFile> {
   const resp = await fetch(`/api/docs/file?path=${encodeURIComponent(path)}`)
   if (!resp.ok) throw new Error(`/api/docs/file → ${resp.status}`)
-  return resp.text()
+  return { content: await resp.text(), etag: resp.headers.get('ETag') ?? '' }
+}
+
+/** Result of saving a vault file: whether the edit landed in a git commit. */
+export interface DocSaveResult {
+  committed: boolean
+  etag: string
+}
+
+/**
+ * Overwrite one existing vault file (edit-only; auto-committed server-side).
+ * Throws `'conflict'` on a stale ETag — the file changed since it was loaded.
+ */
+export async function putDocFile(
+  path: string,
+  content: string,
+  etag: string,
+): Promise<DocSaveResult> {
+  const resp = await fetch(`/api/docs/file?path=${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/markdown', 'If-Match': etag },
+    body: content,
+  })
+  if (resp.status === 409) throw new Error('conflict')
+  if (!resp.ok) throw new Error(`/api/docs/file → ${resp.status}`)
+  const body = (await resp.json()) as { committed: boolean }
+  return { committed: body.committed, etag: resp.headers.get('ETag') ?? '' }
 }

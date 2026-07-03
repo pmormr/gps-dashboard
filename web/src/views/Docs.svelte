@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
 
-  import { getDocFile, getDocsTree } from '../lib/api'
+  import { getDocFile, getDocsTree, putDocFile } from '../lib/api'
   import {
     type DocNode,
     type DocsTree,
@@ -9,6 +9,7 @@
     renderMarkdown,
     renderMermaidBlocks,
   } from '../lib/docs'
+  import type { DocEditor } from '../lib/docsEditor'
   import { router } from '../lib/router.svelte'
 
   let treeData = $state<DocsTree | null>(null)
@@ -17,6 +18,17 @@
   let loading = $state(false)
   let contentEl = $state<HTMLDivElement | undefined>()
   let navOpen = $state(false)
+
+  // Edit mode: a CodeMirror editor (lazy module) over the loaded doc's raw source.
+  let editorEl = $state<HTMLDivElement | undefined>()
+  let editing = $state(false)
+  let previewing = $state(false)
+  let saving = $state(false)
+  let saveError = $state<string | null>(null)
+  let saveNotice = $state<string | null>(null)
+  let editor: DocEditor | null = null
+  let docSource = ''
+  let docEtag = ''
 
   // The active doc: an explicit /docs/<path>, else the tree's default once loaded.
   const docPath = $derived(
@@ -40,9 +52,11 @@
     loading = true
     docError = null
     try {
-      const src = await getDocFile(path)
+      const doc = await getDocFile(path)
       if (token !== loadToken) return
-      el.innerHTML = renderMarkdown(src)
+      docSource = doc.content
+      docEtag = doc.etag
+      el.innerHTML = renderMarkdown(doc.content)
       enhanceLinks(el, path, open)
       await renderMermaidBlocks(el)
     } catch (e) {
@@ -58,6 +72,8 @@
     const path = docPath
     const el = contentEl
     if (!el) return
+    closeEditor()
+    saveNotice = null
     if (!path) {
       el.innerHTML = ''
       return
@@ -65,7 +81,84 @@
     void loadDoc(path, el)
   })
 
+  // Losing a dirty draft to a tab close is the one path git can't recover.
+  $effect(() => {
+    if (!editing) return
+    const guard = (e: BeforeUnloadEvent) => {
+      if (editor?.isDirty()) e.preventDefault()
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  })
+
+  function confirmDiscard(): boolean {
+    return !editor?.isDirty() || confirm('Discard unsaved changes?')
+  }
+
+  function closeEditor(): void {
+    editor?.destroy()
+    editor = null
+    editing = false
+    previewing = false
+    saveError = null
+  }
+
+  async function startEdit(): Promise<void> {
+    if (!docPath || editing) return
+    saveNotice = null
+    editing = true // mounts the editor container
+    const { createEditor } = await import('../lib/docsEditor')
+    await tick()
+    if (!editing || !editorEl) return
+    editor = createEditor(editorEl, docSource)
+    editor.focus()
+  }
+
+  function togglePreview(): void {
+    if (!editor || !contentEl) return
+    previewing = !previewing
+    if (previewing) {
+      contentEl.innerHTML = renderMarkdown(editor.getValue())
+      void renderMermaidBlocks(contentEl)
+    }
+  }
+
+  function cancelEdit(): void {
+    if (!confirmDiscard()) return
+    closeEditor()
+    if (contentEl) contentEl.innerHTML = renderMarkdown(docSource)
+    if (contentEl && docPath) enhanceLinks(contentEl, docPath, open)
+    if (contentEl) void renderMermaidBlocks(contentEl)
+  }
+
+  async function saveEdit(): Promise<void> {
+    if (!editor || !docPath || saving) return
+    const draft = editor.getValue()
+    saving = true
+    saveError = null
+    try {
+      const result = await putDocFile(docPath, draft, docEtag)
+      docSource = draft
+      docEtag = result.etag
+      closeEditor()
+      saveNotice = result.committed ? 'Saved · committed' : 'Saved (no repo — not committed)'
+      if (contentEl) {
+        contentEl.innerHTML = renderMarkdown(draft)
+        enhanceLinks(contentEl, docPath, open)
+        void renderMermaidBlocks(contentEl)
+      }
+    } catch (e) {
+      saveError =
+        e instanceof Error && e.message === 'conflict'
+          ? 'This file changed since you opened it (a push or another editor). Copy your draft, reload the doc, and re-apply.'
+          : `Save failed — ${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      saving = false
+    }
+  }
+
   function open(path: string): void {
+    if (editing && !confirmDiscard()) return
     router.navigate(`/docs/${path}`)
     navOpen = false
   }
@@ -110,9 +203,29 @@
     </aside>
 
     <main class="doc">
+      {#if docPath && !loading && !docError}
+        <div class="doc-toolbar">
+          {#if editing}
+            <button class="tool" onclick={togglePreview}>
+              {previewing ? '✎ Editor' : '👁 Preview'}
+            </button>
+            <button class="tool" onclick={cancelEdit} disabled={saving}>Cancel</button>
+            <button class="tool primary" onclick={saveEdit} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          {:else}
+            <button class="tool" onclick={startEdit}>✎ Edit</button>
+            {#if saveNotice}<span class="save-notice">{saveNotice}</span>{/if}
+          {/if}
+        </div>
+      {/if}
       {#if loading}<div class="muted loading">Loading…</div>{/if}
       {#if docError}<div class="banner err">{docError}</div>{/if}
-      <div class="doc-body" bind:this={contentEl}></div>
+      {#if saveError}<div class="banner err">{saveError}</div>{/if}
+      {#if editing}
+        <div class="editor" class:hidden={previewing} bind:this={editorEl}></div>
+      {/if}
+      <div class="doc-body" class:hidden={editing && !previewing} bind:this={contentEl}></div>
     </main>
   </div>
 {:else}
@@ -217,6 +330,55 @@
   }
   .loading {
     margin-bottom: 12px;
+  }
+
+  .doc-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tool {
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tool:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .tool:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .tool.primary {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .save-notice {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .editor {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .editor :global(.cm-editor) {
+    font-size: 14px;
+    max-height: 75vh;
+  }
+  .editor :global(.cm-scroller) {
+    overflow: auto;
+  }
+  .hidden {
+    display: none;
   }
 
   /* Rendered-markdown styles. The body is filled imperatively (innerHTML), so the
