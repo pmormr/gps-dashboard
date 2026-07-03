@@ -66,6 +66,13 @@ def test_parse_clock_offset() -> None:
     assert parse_clock_offset_s('', now) is None
 
 
+def test_parse_clock_offset_folds_out_the_timezone() -> None:
+    # getCurrentTime returns local display time; TZ hours must not read as drift.
+    now = datetime(2026, 7, 3, 2, 21, 5, tzinfo=UTC)
+    assert parse_clock_offset_s('result=2026-07-02 22:21:07', now) == 2.0  # UTC-4, +2 s
+    assert parse_clock_offset_s('result=2026-07-02 21:21:02', now) == -3.0  # UTC-5, -3 s
+
+
 def test_parse_record_mode() -> None:
     assert parse_record_mode(RECORD_MODE) == 0
     assert parse_record_mode('table.RecordMode[0].Mode=2') == 2

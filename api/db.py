@@ -218,8 +218,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- MQTT like the other streams. Published by sensors/dahua_reader.py (one
         -- fleet process, node van-nvr). hdd_ok is a 0/1 enum from the storage
         -- State field; channels_video_loss counts channels the NVR flags as not
-        -- delivering video (0 = all recording); clock_offset_s is device clock
-        -- minus Pi clock (NTP sanity). An unreachable NVR is a dropped reading,
+        -- delivering video (0 = all recording); clock_offset_s is the device's
+        -- NTP drift — folded to the nearest whole hour, since getCurrentTime
+        -- returns TZ-local time. An unreachable NVR is a dropped reading,
         -- not a row. Column set mirrors api/sensor_schema.py's 'nvr' metrics.
         CREATE TABLE IF NOT EXISTS nvr_readings (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,

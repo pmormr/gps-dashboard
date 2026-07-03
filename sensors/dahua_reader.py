@@ -109,25 +109,30 @@ def parse_video_loss(text: str) -> int | None:
 
 
 def parse_clock_offset_s(text: str, now_utc: datetime) -> float | None:
-    """Parse ``getCurrentTime`` and return device clock − Pi clock in seconds.
+    """Parse ``getCurrentTime`` and return the device's clock drift in seconds.
 
-    The fleet's device clocks are UTC (the NVR's TZ is UTC and the cameras
-    NTP-sync from it; the malformed camera TZ strings affect WebUI display
-    only), so the returned wall time compares directly.
+    ``getCurrentTime`` returns the device's *local display time*, and the fleet's
+    TZ settings are inconsistent (live 2026-07-03: NVR −4 h, cameras −5 h vs UTC),
+    so a raw ``device − Pi`` difference measures timezone config, not clock
+    health. Instead the offset is folded to the nearest whole hour: an NTP-synced
+    device reads within seconds of some whole-hour offset; a drifting clock walks
+    away from it. Assumes no :30/:45 timezone — true for this installation.
 
     Args:
         text: A body like ``result=2026-07-02 19:09:25``.
         now_utc: The Pi-side UTC timestamp taken at fetch time.
 
     Returns:
-        Offset in seconds (positive = device ahead), or None on parse failure.
+        Drift from the nearest whole-hour offset in ``[-1800, 1800)`` seconds
+        (positive = device ahead), or None on parse failure.
     """
     _, _, value = text.partition('=')
     try:
         device_dt = datetime.strptime(value.strip(), '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC)
     except ValueError:
         return None
-    return round((device_dt - now_utc).total_seconds(), 1)
+    offset = (device_dt - now_utc).total_seconds()
+    return round((offset + 1800) % 3600 - 1800, 1)
 
 
 def parse_record_mode(text: str) -> int | None:

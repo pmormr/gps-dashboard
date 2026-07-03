@@ -403,7 +403,7 @@ METRIC_META: dict[str, MetricMeta] = {
     'hdd_ok': _m('HDD', dec=0, chart=False, group='recording', codec='enum', codes=_HDD_STATE),
     'hdd_err_partitions': _m('HDD errors', dec=0, chart=False, group='recording'),
     'channels_video_loss': _m('Video loss', dec=0, color=_RED, group='recording'),
-    'clock_offset_s': _m('Clock offset', 's', dec=1, chart=False, group='health'),
+    'clock_offset_s': _m('Clock drift', 's', dec=1, chart=False, group='health'),
     'online': _m('Camera', dec=0, chart=False, group='health', codec='enum', codes=_ONLINE_STATE),
     'record_mode': _m(
         'Record mode', dec=0, chart=False, group='recording', codec='enum', codes=_RECORD_MODE
