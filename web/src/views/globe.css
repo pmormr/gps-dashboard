@@ -241,3 +241,20 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+.globe-island .pop-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--g-border);
+  color: var(--g-muted);
+  font-size: 11px;
+}
+
+.globe-island .pop-foot .obs-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  vertical-align: middle;
+}

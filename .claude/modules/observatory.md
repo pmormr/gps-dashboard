@@ -72,11 +72,11 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
   `static/img/`, offline). The client propagates the server's `orbit` params for
   each SV: a dot at the current position (set SVs on the far side) on a faint
   **instantaneous ring** (the inertial plane rotated into ECEF at the window end,
-  so the dot sits exactly on its ring). Click-to-focus highlights the SV with
-  three bold pulsing `Line2` fat lines: a **white instantaneous great-circle ring**
-  (the idealized orbit) plus the constellation-coloured **full-period propagated
-  path** and **recent trail** — the true ECEF motion, which precesses off the ring
-  as Earth rotates (the dot + trail are sub-segments of the path). **Trails are
+  so the dot sits exactly on its ring). Click-to-focus shows **model vs data**:
+  the constellation-coloured **full-period propagated path** (true ECEF motion,
+  which precesses off the ring as Earth rotates) with a **recent trail** fading in
+  behind the dot — both pulsing `Line2` fat lines — plus static **white dots at
+  the observed samples** (drawn even without a fit). **Trails are
   focus-only by default** (the Trails toggle shows all at once), since each
   precessing path is unreadable in bulk. Observer marker, sight-lines
   (above-horizon only), click-popup. **PC-only** (WebGL).

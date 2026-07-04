@@ -13,11 +13,13 @@
  * orbit can't disagree. Per satellite: a dot at its current position — a set
  * satellite sits on the far side instead of frozen at the horizon — plus a faint
  * instantaneous orbit ring (the inertial plane rotated into ECEF at the window
- * end, so the dot sits on its ring). Clicking a satellite focuses it and draws
- * its full orbit as the propagated ECEF path — not a great-circle ring, because
- * over a period the true path precesses off any static plane; the dot and the
- * brighter recent trail are sub-segments of that same path. Trails are per-focus
- * by default (the Trails toggle shows them all). Without an orbit fit a dot falls
+ * end, so the dot sits on its ring). Clicking a satellite focuses it and shows
+ * the model against its data: the fitted orbit as the coloured full-period
+ * propagated ECEF path (not a great-circle ring — over a period the true path
+ * precesses off any static plane) with a recent trail fading in behind the dot,
+ * plus white dots at every position actually observed in the window. Colour =
+ * fit, white = observations. Trails are per-focus by default (the Trails toggle
+ * shows them all). Without an orbit fit a dot falls
  * back to the last observed sample, and the all-trails view to the observed track
  * split at between-pass gaps so it never chords across the planet. A marker pins
  * the van's location, with sight-lines to the satellites above the horizon. PC
@@ -118,10 +120,10 @@ const TRAIL_MIN_S = 1200 // shortest trail behind a just-seen satellite
 const TRAIL_STEP_S = 120 // trail/path sample cadence (s)
 const TRAIL_MAX_PTS = 128 // cap on trail samples
 
-const FOCUS_RING_W = 4.0 // focused instantaneous great-circle ring width (CSS px); pulses
-const FOCUS_RING_COLOR = 0xffffff // ring is white to stand apart from the coloured path/trail
 const FOCUS_ORBIT_W = 5.0 // focused full-orbit fat-line width (CSS px); pulses
 const FOCUS_TRAIL_W = 8.0 // focused recent-trail fat-line width (CSS px); pulses
+const FOCUS_OBS_SIZE_KM = 340 // focused observed-sample dot size (world km); white = data
+const BG_COLOR = 0x05080f // scene background; the focus trail fades into it
 
 /**
  * Mount the constellation globe into `root` and start rendering.
@@ -152,7 +154,7 @@ export function mountGlobe(root: HTMLElement): () => void {
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x05080f)
+  scene.background = new THREE.Color(BG_COLOR)
 
   const camera = new THREE.PerspectiveCamera(45, w / h, 10, 2_000_000)
   camera.up.set(0, 0, 1) // ECEF north is +Z
@@ -287,6 +289,56 @@ export function mountGlobe(root: HTMLElement): () => void {
     const line = new Line2(geo, mat)
     line.frustumCulled = false
     return line
+  }
+
+  /**
+   * A fat polyline whose colour fades in from the scene background (oldest end)
+   * to `color` (newest end), so it reads as motion trailing the dot rather than
+   * as a second copy of the orbit path underneath it.
+   */
+  function fadeFatLine(
+    points: THREE.Vector3[],
+    color: number,
+    widthPx: number,
+    opacity: number,
+  ): Line2 {
+    const flat: number[] = []
+    const cols: number[] = []
+    const full = new THREE.Color(color)
+    const bg = new THREE.Color(BG_COLOR)
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i]
+      flat.push(p.x, p.y, p.z)
+      const c = bg.clone().lerp(full, points.length > 1 ? i / (points.length - 1) : 1)
+      cols.push(c.r, c.g, c.b)
+    }
+    const geo = new LineGeometry().setPositions(flat)
+    geo.setColors(cols)
+    const res = drawingBufferSize()
+    const mat = new LineMaterial({
+      vertexColors: true,
+      linewidth: widthPx,
+      transparent: true,
+      opacity,
+    })
+    mat.resolution.set(res.x, res.y)
+    const line = new Line2(geo, mat)
+    line.frustumCulled = false
+    return line
+  }
+
+  /** White dots at every position the satellite was actually observed (the fit's input). */
+  function observedDots(samples: SatSample[]): THREE.Points {
+    const geo = new THREE.BufferGeometry().setFromPoints(
+      samples.map((s) => new THREE.Vector3(s.x, s.y, s.z)),
+    )
+    const mat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: FOCUS_OBS_SIZE_KM,
+      transparent: true,
+      opacity: 0.85,
+    })
+    return new THREE.Points(geo, mat)
   }
 
   /** Unix seconds for a sample's canonical timestamp. */
@@ -532,14 +584,6 @@ export function mountGlobe(root: HTMLElement): () => void {
     return greatCircle(nEcef, orbit.radius_km, color, opacity)
   }
 
-  /** Closed point list of a satellite's instantaneous ring at time `t` (for fat lines). */
-  function instantRingPoints(orbit: OrbitFit, t: number): THREE.Vector3[] {
-    const nEcef = rotateZ(orbit.normal[0], orbit.normal[1], orbit.normal[2], -gmstRad(t))
-    const pts = greatCirclePoints(nEcef, orbit.radius_km)
-    pts.push(pts[0].clone()) // close the loop for the fat line
-    return pts
-  }
-
   /** Add the observer marker: a bright dot on the surface plus a short radial spike. */
   function addMarker(obsVec: THREE.Vector3): void {
     const dot = new THREE.Mesh(
@@ -657,15 +701,16 @@ export function mountGlobe(root: HTMLElement): () => void {
   }
 
   /**
-   * Show the info popup for a satellite, and highlight its orbit + recent trail.
+   * Show the info popup for a satellite, and highlight the model against its data.
    *
-   * Focusing a satellite reveals detail the cluttered overview hides: its
-   * full-period orbit drawn as the propagated ECEF path (not a great-circle ring —
-   * the dot and the brighter recent trail are sub-segments of this same curve, so
-   * all three line up exactly, and its precession off the instantaneous ring is
-   * the true Earth-rotation drift). The clean instantaneous ring, the full-period
-   * path, and the thicker recent trail are all bold fat lines that pulse together
-   * (`updateHighlight`). All in the highlight group, cleared on unfocus.
+   * The focus highlight answers two questions: where we calculate the satellite
+   * to orbit (the coloured full-period propagated ECEF path — not a great-circle
+   * ring, because over a period the true path precesses off any static plane —
+   * with a recent trail fading in behind the dot; both pulse), and where we've
+   * actually seen it in the window (static white dots, one per observed sample —
+   * the input the fit came from). Colour = fit, white = observations; the dots
+   * draw even without a fit, so an unfit satellite still shows its passes. All
+   * in the highlight group, cleared on unfocus.
    */
   function showPopup(sat: SatRecord, pos: THREE.Vector3, sx: number, sy: number): void {
     clearGroup(highlightGroup)
@@ -693,37 +738,28 @@ export function mountGlobe(root: HTMLElement): () => void {
           `<div class="pop-row"><span>Azimuth</span><b>${sky.az.toFixed(0)}°</b></div>`
         : '') +
       `<div class="pop-row"><span>Signal</span><b>${signal}</b></div>` +
-      `<div class="pop-row"><span>Observed</span><b>${sat.samples.length} · ${lastSeen}</b></div>`
+      `<div class="pop-row"><span>Observed</span><b>${sat.samples.length} · ${lastSeen}</b></div>` +
+      `<div class="pop-foot">${sat.orbit ? `<span style="color:${hex}">━</span> fitted orbit · ` : 'no orbit fit · '}<span class="obs-dot"></span> observed</div>`
     popupEl.querySelector('.pop-close')?.addEventListener('click', hidePopup)
     popupEl.style.left = Math.min(container.clientWidth - 246, Math.max(8, sx + 14)) + 'px'
     popupEl.style.top = Math.min(container.clientHeight - 210, Math.max(8, sy + 14)) + 'px'
     popupEl.classList.remove('hidden')
 
-    // Focused highlight: the clean instantaneous great-circle ring (white, so it
-    // reads as the idealized orbit), the full-period propagated path, and the
-    // thicker recent trail (both constellation-coloured) — all bold fat lines that
-    // pulse together. The white ring is the tidy orbit circle; the coloured
-    // path/trail are the true ECEF motion, which precesses off it as Earth rotates.
+    // Focused highlight: the coloured full-period propagated path (the fit) with
+    // a recent trail fading in behind the dot, both pulsing, plus static white
+    // dots at the observed samples (the fit's input). Colour = model, white =
+    // data; the observation dots draw even when no orbit could be fit.
     if (sat.orbit) {
-      const ringLine = fatLine(
-        instantRingPoints(sat.orbit, windowEndUnix),
-        FOCUS_RING_COLOR,
-        FOCUS_RING_W,
-        0.5,
-      )
-      ringLine.userData.pulse = { widthBase: FOCUS_RING_W, opacityBase: 0.5 }
-      highlightGroup.add(ringLine)
-
       const period = orbitPeriod(sat.orbit)
       const orbitLine = fatLine(
         orbitPath(sat.orbit, windowEndUnix - period, windowEndUnix, 256),
         meta.color,
         FOCUS_ORBIT_W,
-        0.55,
+        0.4,
       )
-      orbitLine.userData.pulse = { widthBase: FOCUS_ORBIT_W, opacityBase: 0.55 }
+      orbitLine.userData.pulse = { widthBase: FOCUS_ORBIT_W, opacityBase: 0.4 }
       highlightGroup.add(orbitLine)
-      const trailLine = fatLine(
+      const trailLine = fadeFatLine(
         orbitTrail(sat.orbit, windowEndUnix, sampleUnix(latest)),
         meta.color,
         FOCUS_TRAIL_W,
@@ -732,6 +768,7 @@ export function mountGlobe(root: HTMLElement): () => void {
       trailLine.userData.pulse = { widthBase: FOCUS_TRAIL_W, opacityBase: 0.7 }
       highlightGroup.add(trailLine)
     }
+    highlightGroup.add(observedDots(sat.samples))
 
     const halo = new THREE.Mesh(
       new THREE.SphereGeometry(620, 16, 12),
