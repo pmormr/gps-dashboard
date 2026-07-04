@@ -29,7 +29,7 @@ NPS shape notes that drive the code:
 
 RIDB shape notes:
 
-* The export has **no operating-hours table** (the Phase-0 plan assumed one);
+* The export has **no operating-hours table** (an early assumption, eliminated);
   descriptions/directions/fee text/phone are what exists. Facilities carry a
   free-text ``FacilityTypeDescription`` → mapped to our kind vocabulary
   (``campground``/``visitorcenter`` reused; ``facility`` = the generic

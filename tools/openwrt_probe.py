@@ -1,4 +1,4 @@
-"""OpenWrt router probe (Phase 0 of the network-telemetry plan).
+"""OpenWrt router probe (kept as a router diagnostic).
 
 Read-only source survey for the OpenWrt reader stream: SSH to a target router,
 run one fixed remote snippet dumping every candidate telemetry source, and print

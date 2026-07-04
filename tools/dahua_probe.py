@@ -1,4 +1,4 @@
-"""Dahua fleet probe (Phase 0 of the network-telemetry plan).
+"""Dahua fleet probe (kept as a fleet diagnostic).
 
 Read-only CGI survey for the Dahua reader stream: digest-auth GET every
 candidate HTTP-API endpoint on the NVR and each active camera, and print the

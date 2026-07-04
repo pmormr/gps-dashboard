@@ -1,6 +1,6 @@
 <script lang="ts">
   // The trend plot: a LayerCake-composed multi-line chart over a shared x grid.
-  // Owns smoothing, unit→axis assignment (left/right, Phase-1 two-axis cap), and a
+  // Owns smoothing, unit→axis assignment (left/right; capped at two axes by design), and a
   // shared-grid hover read-out. Layers (Line/AxisX/AxisY) read context; the
   // crosshair/tooltip live here as absolute overlays so LayerCake stays pointer-free.
   import { scaleTime } from 'd3-scale'

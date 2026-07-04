@@ -97,9 +97,10 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         -- OBD-II vehicle telemetry (the van as a sensor), ingested over MQTT like
         -- bme680. Wide per-type readings table on the canonical ms grid so rows join
-        -- gps_points/track_points directly. fuel_rate_lph is a reserved placeholder:
-        -- the Pentastar has no 015E PID, so fuel rate is derived in Phase 4 (see the
-        -- OBD plan). Column set mirrors api/sensor_schema.py's 'obd' metrics.
+        -- gps_points/track_points directly. fuel_rate_lph is a reserved placeholder,
+        -- stored NULL: the Pentastar has no 015E PID, so fuel rate is derived at
+        -- read time (common/obd.py, serving /api/obd/economy). Column set mirrors
+        -- api/sensor_schema.py's 'obd' metrics.
         CREATE TABLE IF NOT EXISTS obd_readings (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id             INTEGER NOT NULL,
@@ -290,8 +291,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
 
         -- Processed tier: denoised/simplified points the frontend reads. Derived
-        -- from raw gps_points by gps-processor; fully rebuildable (see the denoise
-        -- plan). kind='stop' rows carry dwell_start/dwell_end/radius.
+        -- from raw gps_points by gps-processor; fully rebuildable (see
+        -- .claude/modules/processor.md). kind='stop' rows carry dwell_start/dwell_end/radius.
         CREATE TABLE IF NOT EXISTS track_points (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp   TEXT NOT NULL,
@@ -375,8 +376,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- Drone telemetry tier — aerial GPS tracks extracted from DJI footage by
         -- tools/import_drone.py (offline batch import, NOT the live MQTT path).
         -- One row per clip; canonical ms-UTC puts drone points on the same time
-        -- axis as gps_points. Rebuildable from the source media. See the drone
-        -- platform plan. media_path is the canonical rex-nas path, NULL when a
+        -- axis as gps_points. Rebuildable from the source media (see
+        -- .claude/modules/drone.md). media_path is the canonical rex-nas path, NULL when a
         -- flight is first imported from an SD card and backfilled by the NAS scan.
         CREATE TABLE IF NOT EXISTS drone_flights (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,7 +394,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             max_lon       REAL NOT NULL,
             imported_at   TEXT NOT NULL
         );
-        -- Natural key (decision 3): no model exposes a serial, so dedup on the
+        -- Natural key: no model exposes a serial, so dedup on the
         -- model code + the first valid fix's ms-UTC. Idempotent re-import and
         -- SD-now/NAS-later convergence both rely on this.
         CREATE UNIQUE INDEX IF NOT EXISTS idx_drone_flights_natural_key
@@ -414,7 +415,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON drone_track_points(timestamp);
 
         -- Phone location-history tier — the user's Google Timeline export,
-        -- imported by tools/import_phone_timeline.py (see the phone-history plan).
+        -- imported by tools/import_phone_timeline.py (see .claude/modules/phone.md).
         -- Derived and fully rebuildable from the export (full-replace each run);
         -- canonical ms-UTC puts phone points on the same axis as gps_points.
         -- phone_paths is one contiguous breadcrumb segment (a Timeline

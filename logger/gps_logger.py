@@ -18,7 +18,7 @@ MOVING_WRITE_INTERVAL_SECONDS = 0.2  # 5 Hz
 PARKED_WRITE_INTERVAL_SECONDS = 1.0  # ~1 Hz
 PARKED_SPEED_MPS = 0.5  # below this Doppler speed, treat as parked
 
-# SKY-sourced receiver telemetry throttle (C9/C22): DOP + sat counts to
+# SKY-sourced receiver telemetry throttle: DOP + sat counts to
 # receiver_metadata, off the position hot-path and at its own cadence.
 RECEIVER_METADATA_INTERVAL_SECONDS = 5
 
@@ -253,7 +253,7 @@ def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerSta
 
             if report.get('class') == 'SKY':
                 sats = report.get('satellites') or []
-                # Receiver telemetry on its own throttle (C9/C22), off the
+                # Receiver telemetry on its own throttle, off the
                 # position path. nSat/uSat when gpsd supplies them, else counted
                 # from the satellite array.
                 if now - stats.last_sky_write >= RECEIVER_METADATA_INTERVAL_SECONDS:

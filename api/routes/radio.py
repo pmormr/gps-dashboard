@@ -2,7 +2,7 @@
 
 Read endpoints poll the rig's live state; write endpoints push freq/mode/tone/
 repeater changes. Everything goes through :mod:`api.rigctld` (rigctld's TCP text
-protocol) — no serial access here. Phase 1 controls the **active main band only**:
+protocol) — no serial access here. Controls the **active main band only**:
 the backend can't read which VFO is active, so a dual-band readout would have to flip
 the radio's active VFO each poll. See ``plans/radio-platform-plan.md`` (R6).
 """

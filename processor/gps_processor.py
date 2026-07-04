@@ -249,7 +249,8 @@ class Stop:
     spread, and dwell are O(1) per fix and bounded in memory even on a multi-day
     stop. The estimate is an accuracy-weighted mean (w = 1/max(eph, floor)^2);
     deterministic and order-independent (a true geometric median is the deferred
-    robustness upgrade — a free swap given C7 rebuilds).
+    robustness upgrade — a free swap, since the processed tier is fully
+    rebuildable from raw).
     """
 
     def __init__(self, fix: Fix) -> None:

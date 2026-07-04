@@ -11,7 +11,7 @@ never a password hang). Throughput columns are reader-side deltas of the
 ``/proc/net/dev`` byte counters — the sensor object carries last-poll state, and
 a negative delta (router reboot / counter reset) yields NULL for that cycle and
 reseeds. The HaLow link columns come from ``iwinfo`` (the Morse driver serves
-standard nl80211 — verified by the Phase-0 probe); on a router without that
+standard nl80211 — verified by tools/openwrt_probe.py); on a router without that
 radio the columns are NULL and the rest of the snapshot stands.
 
 An unreachable router yields no reading (the ``dropped`` heartbeat counter
