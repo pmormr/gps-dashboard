@@ -65,9 +65,6 @@ RIDB:
   days) — schedule data degrades into "verify at the visitor center", never silently
   trusted.
 
-Deployed baseline 2026-07-04: 6,124 NPS + 16,326 RIDB rows (recarea 3,123 · facility
-7,673 · campground 5,141 · visitorcenter 258 · permit 131), 3,433 events.
-
 ## Deferred / parked
 
 - OSM POI extract for non-federal coverage.

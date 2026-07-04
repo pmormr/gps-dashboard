@@ -55,9 +55,8 @@ ssh pmorgan@192.168.42.178 "cd /mnt/nvme/gps-dashboard && \
 ## Data tier
 
 Derived, fully rebuildable from the export. Schema in `api/db.py` `init_db`;
-time columns indexed for the windowed reads. First real import 2026-07-02:
-22,201 paths / 231,290 thinned pts (from 307,753) / 15,435 visits / 13,608
-activities.
+time columns indexed for the windowed reads. (Import-size snapshots live in the
+phone-history memory, not here.)
 
 - `phone_paths` — one row per contiguous `timelinePath` segment: thinning
   never crosses a time gap, and per-segment rows give the frontend polyline

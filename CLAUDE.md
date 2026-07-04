@@ -97,39 +97,25 @@ The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`,
 
 ### API Endpoints
 
-- `GET /api/status` — Home glance: one aggregate read (latest fix + mode, Victron SOC/solar/load, OBD when the engine was recently on + the OBD link state `obd_link`, cabin IAQ/temp, GNSS sat count/fix health, systemd service states); backs the SPA Home view
-- `GET /api/points?start=&end=&limit=&bbox=` — trail/history for a time range, read from the processed tier (`track_points`), size-aware decimated: every `kind='stop'` whose dwell interval overlaps the window is kept, then the remaining `limit` budget (default 5000, max 20000) is filled with the highest-`importance` moving vertices and the result re-sorted by time. `truncated` ⇒ moving vertices were dropped (stops never are). Optional `bbox=W,S,E,N`. Each point carries `kind`/`n_raw`/`importance`/`accuracy`; stops also carry `dwell_start`/`dwell_end`/`radius` (the frontend renders them as dwell-interval blocks on the slider and selects them by interval overlap).
-- `GET /api/points/latest` — single most-recent **raw** fix (the live position dot reads raw `gps_points`, not the processed tier, so it tracks the true current fix)
-- `GET /api/annotations` — list every annotation; `point_count` is NULL for point bookmarks, integer for ranges
-- `POST /api/annotations` — create annotation; omit (or pass null) `end_time` for a point bookmark
-- `PATCH /api/annotations/:id` — edit name, notes, or bounds (including transitioning point↔range)
-- `DELETE /api/annotations/:id`
-- `GET/POST /api/annotations/mark` — read the persisted `start`/`end` marks (restores live range-construction across reloads); POST upserts one with current UTC time
-- `GET /tiles/osm.pmtiles` — vector OSM basemap (single PMTiles archive) served with HTTP range support
-- `GET /tiles/terrain.pmtiles` — terrain DEM (Mapzen Terrarium PNGs in a PMTiles archive) served with HTTP range support; read client-side by MapLibre via `raster-dem` + `encoding: 'terrarium'`
-- `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster tile proxy/cache (USGS); `?refresh=1` serves from cache and fires a background ETag-conditional GET, updating the cache if the tile changed
-- `GET /api/sensors` — sensor registry, each row with its latest reading embedded
-- `GET /api/sensors/:id/readings?start=&end=&limit=` — reading history for the trend chart (defaults to the trailing 24h)
-- `GET /api/sensors/series?metrics=&start=&end=&buckets=` — metric-addressed (`<sensor_id>.<column>`, comma-separated) bucketed multi-metric series backing the Trends charts: avg + min/max per bucket on a dense time grid (nulls = empty buckets), presentation meta from `METRIC_META` riding along
-- `GET /api/obd/economy?start=&end=` — per-window drive summary: speed-density fuel (derived at read time via `common/obd.py`, since `fuel_rate_lph` is stored NULL) integrated over `obd_readings`, divided by the `track_points` path length over the same window, plus `max_speed_kph` and moving/idle/engine-on seconds. Pass an annotation's bounds for per-trip MPG; `calibrated` stays false until a fill-up calibration lands. Backs both the per-range readout (AnnotationsDrawer) and the Map's "inspect this window" panel
-- `GET /api/drone/flights?bbox=&start=&end=&points=` — drone flights whose bounds **overlap** the bbox/time filters (all optional), each with its thinned track embedded (`points=0` for metadata only); the map-overlay read
-- `POST /api/drone/flights` — idempotent drone-flight ingest (the laptop LAN path via `import_drone.py --api`); body carries identity + thinned points, the server derives time bounds/bbox/`n_points` and dedups on the `(model_code, first_fix_utc)` natural key (201 import / 200 skip|backfill)
-- `GET /api/phone/tracks?start=&end=&bbox=&limit=` — phone-history breadcrumb: `phone_paths` overlapping the window (all filters optional), thinned points embedded; segment endpoints always kept, remaining budget filled by top-`importance` interior vertices (`truncated` ⇒ interior loss only)
-- `GET /api/phone/places?start=&end=&bbox=&limit=` — phone semantic layer: visits + activities overlapping the window
-- `GET /api/attractions?bbox=&kind=&park=&q=&limit=` — POI list (queryable columns + `summary` teaser; no details blob), kind comma-separated, `q` = name substring; NULL-coord rows never match a bbox
-- `GET /api/attractions/:id` — one POI with parsed `details` (tour stops, hours, amenities, fees)
-- `GET /api/attractions/events?start=&end=&bbox=&park=&limit=` — event occurrences in a calendar-date window (`YYYY-MM-DD`, park-local — not ms-UTC), grouped per event; `limit` caps occurrences
-- `GET /api/attractions/events/:id` — one event with parsed `details` + full occurrence list. All attractions payloads carry `synced_at` — the UI wears data age, schedule data is never presented as live
-- `GET /api/gpsd/sky` — live satellite constellation straight from gpsd's SKY + TPV (no DB/schema): per-sat az/el/SNR/used/constellation, the full DOP set (h/v/p/x/y/g/t), used/seen counts, plus heading (`track`) and `speed`; feeds the skyplot
-- `GET /api/gpsd/status` — read-only gpsd device/version/fix snapshot; backs the Systems → gpsd drill-in (`Gpsd.svelte`)
-- `GET /api/constellation?start=&end=` — logged `sat_observations` reconstructed to 3D ECEF positions (grouped by SV, with each SV's fitted orbit-plane normal); feeds `/globe`. See `.claude/modules/observatory.md`
-- `GET /api/passes?hours=&mask=&track=1` — predicted upcoming satellite passes (orbit fit from logged az/el → propagate): rise/peak/set + az/el, duration, in-progress, sorted by rise. `mask` is the rise/set elevation (`0` = horizon, valid); `track=1` adds a per-pass `[az,el]` polyline for the skyplot overlay
-- `GET /api/radio/status` — live ID-5100A main-band state via rigctld (freq/mode/`rawstr` S-meter — 0=S0, 170=S9 per the manual — AF/SQL/RFPOWER levels, tone/repeater/DCD/PTT); `online:false` + service state when rigctld is unreachable (cable unplugged or service disabled)
-- `POST /api/radio/freq` · `POST /api/radio/mode` · `POST /api/radio/tone` · `POST /api/radio/repeater` · `POST /api/radio/level` (AF/SQL/RFPOWER, 0..1) · `POST /api/radio/band` (pin A/B as Main — raw CI-V `07 D0/D1` through rigctld's `send_cmd` passthrough; the backend has no band model) — main-band control writes; 502 on a rig refusal, 503 when rigctld is unreachable
-- `GET /api/ntp` — read-only chrony/NTP status (tracking, sources, PPS); backs the Systems → ntp drill-in (`Ntp.svelte`)
-- `GET /api/docs/tree` — markdown file tree of the synced `paul-network-docs` vault (`available:false` when `GPS_NETWORK_DOCS_PATH` is unset/missing → the Docs tab shows an empty state)
-- `GET /api/docs/file?path=` — raw markdown body of one vault file, realpath-confined to the docs root (traversal-safe, `.md` only); the SPA renders it client-side (markdown-it + lazy mermaid). `ETag` = content hash, for the editor's concurrency check
-- `PUT /api/docs/file?path=` — overwrite one **existing** vault file (edit-only; creation stays a laptop/Obsidian operation) and auto-commit it (`GPS_NETWORK_DOCS_GIT_DIR` names the git dir — on the Pi, the vault's bare repo with the checkout as detached work tree; falls back to `<vault>/.git`, else saves uncommitted). Requires `If-Match` (428 without; 409 on a stale hash). Pi-side commits are by design for this vault — pull before pushing from the laptop
+Signatures + purpose only — full request/response behavior lives in the route files (`api/routes/`, docstrings) and the subsystem modules.
+
+- `GET /api/status` — Home glance aggregate (fix, house power, OBD + link state, cabin IAQ, GNSS health, service states)
+- `GET /api/points?start=&end=&limit=&bbox=` — trail/history from the processed tier (`track_points`), size-aware decimated: stops always kept, moving vertices fill the `limit` budget by `importance` (`truncated` ⇒ moving loss only)
+- `GET /api/points/latest` — most-recent **raw** fix (the live dot reads `gps_points`, not the processed tier)
+- `GET/POST/PATCH/DELETE /api/annotations[/:id]` — user-curated bookmarks/ranges (`end_time` NULL = point bookmark)
+- `GET/POST /api/annotations/mark` — persisted `start`/`end` marks (live range construction survives reloads)
+- `GET /tiles/osm.pmtiles` · `GET /tiles/terrain.pmtiles` — vector basemap + terrain DEM archives with HTTP range support (basemaps.md)
+- `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster (USGS) tile proxy/cache; `?refresh=1` background-revalidates (basemaps.md)
+- `GET /api/sensors` · `GET /api/sensors/:id/readings` · `GET /api/sensors/series` — sensor registry, reading history, and the bucketed multi-metric series backing Trends (sensors.md)
+- `GET /api/obd/economy?start=&end=` — per-window drive/fuel summary, derived at read time (`common/obd.py`); pass annotation bounds for per-trip MPG
+- `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
+- `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
+- `GET /api/attractions[/:id]` · `GET /api/attractions/events[/:id]` — POI/event browse reads; event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (attractions.md)
+- `GET /api/gpsd/sky` · `GET /api/gpsd/status` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in)
+- `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
+- `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band}` — ID-5100A readout/control via rigctld, **active main band only**; 502 = rig refusal, 503 = rigctld unreachable
+- `GET /api/ntp` — chrony/NTP status (Systems drill-in)
+- `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
 **SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/attractions` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
@@ -149,7 +135,7 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The SPA's Systems (current values) and Trends (charts) views read the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); the van's bus is reached through a fitted 12+8 FCA Security Gateway bypass harness (bus facts + captured PID set: `.claude/modules/sensors.md`, `reference/obd-supported-pids.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). **The Pi host itself is the fourth stream** — `sensors/system_reader.py` publishes `sensors/pi/system` → `system_readings` (CPU temp/load, memory, root + NVMe disk, uptime, throttle flags) entirely from stdlib `/proc`/`/sys`/`vcgencmd` reads, so the platform reports on its own health. **Network infrastructure is the fifth and sixth** — `sensors/openwrt_reader.py` SSH-polls the van-edge router (one `sh -s` round-trip per poll: load/mem, WAN state + throughput + ping, HaLow RSSI/rates/radio-temp, leases, conntrack) into `openwrt_readings`, and `sensors/dahua_reader.py` CGI+RPC2-polls the recording fleet (Dahua NVR + 4 cams — one process, five node streams via `run_fleet_publisher`) into `nvr_readings`/`camera_readings` (HDD health/SMART temp, VideoLoss, per-cam online/CPU/mem/uptime/clock-drift). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
+A second data stream beyond GPS: sensor readings ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation; GPS logging stays off the bus. Six streams are live, each a reader publishing `sensors/<node>/<type>` through the same ingest into its own `*_readings` table: the cabin BME680 (ESPHome ESP32-C6, BSEC2 IAQ), the van's OBD-II (engine-gated Pi-side reader via an SGW-bypass harness; PID set in `reference/obd-supported-pids.md`), Victron house power, the Pi host itself, the van-edge router (SSH poll), and the Dahua NVR + camera fleet (CGI/RPC2). Adding a stream is a spec entry (`api/sensor_schema.py`), not a new pipeline. The SPA's Systems and Trends views read the ingested data from the DB. See **`.claude/modules/sensors.md`** for per-stream architecture and the remaining roadmap (*live* MQTT-over-WS push readouts + alarms are still planned).
 
 ### Radio Control (CI-V)
 
@@ -350,11 +336,7 @@ uv run pytest                          # full suite
 uv run pytest tests/test_simplify.py   # one module
 ```
 
-`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers the load-bearing pure logic and the API read paths:
-
-- **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`common/timefmt.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
-- **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation, `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader/editor (`/api/docs/*`: tree, file fetch + ETag, edit PUT with If-Match/auto-commit in both repo layouts, traversal/non-`.md` rejection).
-- **Backtest tools** — the pure helpers in `passes_validate` and `tle_validate`.
+`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers three surfaces: the load-bearing pure logic (geometry, timestamps, params, reader/protocol logic), the API read paths via a Flask client against a temp SQLite DB (`tests/conftest.py`), and the backtest tools' pure helpers. The directory is the inventory — keep new load-bearing logic and API reads covered.
 
 ### Linting & formatting
 

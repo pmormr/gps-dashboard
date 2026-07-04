@@ -21,11 +21,10 @@ sidebar on desktop.
   [[offline-constraint-interpretation]] in memory).
 - **Vendoring → npm.** MapLibre, three, pmtiles are npm deps Vite bundles, as are the
   chart deps (LayerCake + d3-scale/d3-shape; the committed bundle is still fully offline).
-  Heavy deps are **dynamic-imported** so each heavy view is its own chunk and the main
-  bundle stays small (~44 kB gz): `map` (MapLibre, ~283 kB gz), `globe` + `overlay3d` share
-  a `three` chunk (~125 kB gz, lazy), and the Trends chart is its own ~10 kB gz LayerCake
-  chunk. The basemap **data** assets (`static/vendor/basemap/` style/glyphs/sprite) stay
-  served as static files.
+  Heavy deps are **dynamic-imported** so each heavy view is its own lazy chunk and the
+  main bundle stays small: `map` (MapLibre), a shared `three` chunk (`globe` +
+  `overlay3d`), and the LayerCake Trends chart. The basemap **data** assets
+  (`static/vendor/basemap/` style/glyphs/sprite) stay served as static files.
 
 ## Shell, routing, state
 
