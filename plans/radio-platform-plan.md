@@ -110,7 +110,8 @@ The buildable phase. Order roughly top-to-bottom.
 - [x] **1d — routes** `api/routes/radio.py` + the client `api/rigctld.py` (split out of
       the route for unit-testing): `/api/radio/status` + `POST /api/radio/{freq,mode,tone,
       repeater}`, `/radio` page. 502 on rig refusal, 503 when rigctld unreachable.
-- [x] **1e — frontend** `templates/radio.html` + `static/js/radio.js`: main-band
+- [x] **1e — frontend** (built pre-SPA; the surface is now `web/src/views/Radio.svelte`
+      + `web/src/lib/radio.ts`): main-band
       freq/mode/S-meter readout + set, CTCSS tone (off/tone/tsql + 50-tone dropdown),
       repeater shift/offset. Mobile-first; Radio added to every standalone-page nav.
 - [x] **1f — tests:** `tests/test_rigctld.py` (parser + getters/setters via a fake socket,

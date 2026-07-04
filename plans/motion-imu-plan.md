@@ -80,7 +80,7 @@ decisions inline.
         ├─ fast:  edge features (RMS/VDV/…)  ────┼─→ processor ─→ road_segments (speed-normalized roughness)
         │         1 Hz feature vector           │   (joins IMU features × GPS speed/position)
         └─ event: threshold raw snippet  ───────┘
-                  → imu_events                       └─→ frontend: /sensors trends + roughness map layer on /
+                  → imu_events                       └─→ frontend: Trends charts + roughness map layer on /map
 ```
 
 ESPHome note: ESPHome's sensor model is **poll-based at human rates** — fine for the
@@ -115,7 +115,8 @@ vibration DSP gets fiddly.
 - **Phase 0 — Bench bring-up.** ESP32 + ICM-20948 over SPI; confirm WHO_AM_I; stream
   raw accel/gyro/mag over serial; validate axes (z = vertical) and ranges. No MQTT.
 - **Phase 1 — Slow channel → platform (delivers the compass).** 1 Hz heading/tilt/g to
-  `sensors/<node>/imu`; add `imu_readings` table + ingest branch; show on `/sensors`;
+  `sensors/<node>/imu`; add an `imu` spec entry (`api/sensor_schema.py` — table +
+  metrics ride the generic ingest); show in Systems/Trends;
   feed the skyplot parked-state glyph. Heading = tilt-compensated magnetometer + GPS-
   `track` auto-cal to start; gyro fusion later.
 - **Phase 2 — High-rate vibration features.** Dedicated FIFO task at 200–500 Hz;
@@ -138,8 +139,8 @@ vibration DSP gets fiddly.
   auto-registers them.
 - **`processor/`** — a new stage joining IMU features × GPS speed/position → roughness
   per segment (rebuildable from raw, same ethos as denoise).
-- **Frontend** — `/sensors` for heading/vibration trends (heading wants a polar/compass
-  widget, not a uPlot line chart); a roughness **map layer** on `/`.
+- **Frontend** — `/trends` for heading/vibration trends (heading wants a polar/compass
+  widget, not a line chart); a roughness **map layer** on `/map` (Data layers panel).
 - **`/skyplot`** — swap the parked-state observer-dot fallback to the compass heading;
   the moving case keeps using `track`.
 - **Firmware** — new **ESP-IDF** motion node (not ESPHome).

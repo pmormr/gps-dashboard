@@ -5,9 +5,13 @@ air-quality streams. Filter applied: **data that changes meaningfully over a
 long drive and is interesting to paint onto a GPS track.** Prices are rough
 (2026) and for the bare module / common breakout. Integration assumes the
 existing path: ESPHome on an ESP32 node → combined JSON over MQTT →
-`mqttbus/ingest.py` → SQLite → `/sensors` chart.
+`mqttbus/ingest.py` → SQLite → Systems/Trends. Adding a stream is a spec entry
+(`api/sensor_schema.py`) plus a reader/node — see `.claude/modules/sensors.md`.
 
-Status: brainstorm only — nothing ordered or scoped yet.
+Status: brainstorm only — nothing below is ordered or scoped. Ideas that landed
+or graduated are pruned from this list: OBD-II shipped as the van stream
+(sensors.md), and the IMU / road-roughness idea grew into its own plan
+(`plans/motion-imu-plan.md`, ICM-20948 ordered).
 
 ## Tier 1 — strongest road-trip payoff
 
@@ -48,22 +52,8 @@ state-of-the-art (adds PM1.0/PM4.0, self-cleaning, ~10-yr life). UART, not I²C.
 
 ## Tier 3 — rich, but more work
 
-- **OBD-II engine data** (ESP32 + ~$5 CAN transceiver, or an ELM327 dongle). MPG,
-  coolant temp on long grades, intake-air temp. Deep dataset, but needs CAN
-  wiring and per-vehicle PID fiddling.
-- **IMU / road-roughness** (MPU6050 ~$4). Derive a road-quality / pothole map and
-  cornering g-forces from accelerometer variance. Cheap HW, high data rate, real
-  processing to make it meaningful.
 - **Road-surface IR temp — MLX90614** (~$12). Non-contact surface temp → black-ice
   warning in winter.
-
-## Software note (applies to any non-BME680 stream)
-`mqttbus/ingest.py` currently writes specifically to `bme680_readings`. Each new
-measurement type needs either its own table or a generalized readings schema,
-plus an ingest topic handler, a registry row, and a `/sensors` chart. Per-sensor
-software cost is mechanical but real — worth making the schema-generalization
-decision deliberately the **first** time a non-BME680 stream lands. The Geiger
-node is the natural forcing function for that.
 
 ## Recommended starting point
 Geiger node first (explicit ask, best map dataset, clean `pulse_counter` job),
