@@ -7,9 +7,10 @@
  * (Map.svelte's moveend subscription) rather than following the Selection window.
  *
  * A zoom gate keeps the whole-country dataset legible: below MIN_DETAIL_ZOOM only
- * parks render (6k pins of trailheads at z4 is soup); every selected kind loads
- * once zoomed past it. Kind colors/icons live here so the chrome (DataLayers
- * legend, Nearby panel, detail sheet) shares them without importing the engine.
+ * the container kinds render (parks + RIDB rec areas — 16k pins of trailheads at
+ * z4 is soup); every selected kind loads once zoomed past it. Kind colors/icons
+ * live here so the chrome (DataLayers legend, Nearby panel, detail sheet) shares
+ * them without importing the engine.
  */
 
 import type { Feature, FeatureCollection, Point } from 'geojson'
@@ -22,10 +23,13 @@ type View = typeof MapViewType
 /** Per-kind presentation, in display order (legend, panel filters, sheet header). */
 export const KIND_META: { kind: AttractionKind; label: string; icon: string; color: string }[] = [
   { kind: 'park', label: 'Parks', icon: '🏞', color: '#10b981' },
+  { kind: 'recarea', label: 'Rec areas', icon: '🌲', color: '#059669' },
   { kind: 'visitorcenter', label: 'Visitor centers', icon: '🏛', color: '#0ea5e9' },
   { kind: 'campground', label: 'Campgrounds', icon: '⛺', color: '#d97706' },
+  { kind: 'facility', label: 'Trailheads & sites', icon: '🚩', color: '#14b8a6' },
   { kind: 'tour', label: 'Self-guided tours', icon: '🎧', color: '#6366f1' },
   { kind: 'thingstodo', label: 'Things to do', icon: '🥾', color: '#eab308' },
+  { kind: 'permit', label: 'Permits', icon: '🎫', color: '#f43f5e' },
 ]
 
 const KIND_BY_KEY = new Map(KIND_META.map((m) => [m.kind, m]))
@@ -35,13 +39,16 @@ export function kindMeta(kind: string): { label: string; icon: string; color: st
   return KIND_BY_KEY.get(kind as AttractionKind) ?? { label: kind, icon: '📍', color: '#94a3b8' }
 }
 
-/** Below this zoom only parks render — the whole-country POI set is soup earlier. */
+/** Below this zoom only containers render — the whole-country POI set is soup earlier. */
 export const MIN_DETAIL_ZOOM = 6
 
-/** The kinds that actually load at a zoom level (parks-only below the gate). */
+/** The container kinds still shown below the zoom gate (parks + their RIDB analogs). */
+const CONTAINER_KINDS: ReadonlySet<AttractionKind> = new Set(['park', 'recarea'])
+
+/** The kinds that actually load at a zoom level (containers-only below the gate). */
 export function kindsAtZoom(kinds: AttractionKind[], zoom: number): AttractionKind[] {
   if (zoom >= MIN_DETAIL_ZOOM) return kinds
-  return kinds.filter((k) => k === 'park')
+  return kinds.filter((k) => CONTAINER_KINDS.has(k))
 }
 
 /** Rows → pin features; rows without a coordinate are skipped (they can't pin). */

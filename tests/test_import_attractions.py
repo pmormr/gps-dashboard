@@ -1,20 +1,26 @@
-"""Unit tests for the NPS attractions importer's pure transforms.
+"""Unit tests for the attractions importer's pure transforms (NPS + RIDB).
 
-Sample records mirror the real API shapes captured in the Phase-0 spike
-(string coordinates, event-level ``times``, tour stops referencing ``places``
-assets); no network.
+Sample records mirror the real source shapes: NPS API records as captured in
+the Phase-0 spike (string coordinates, event-level ``times``, tour stops
+referencing ``places`` assets), RIDB CSV rows as in the full export (all-string
+fields, ``0.0`` null-island coordinates, ALL-CAPS labels); no network, no zip.
 """
 
 from __future__ import annotations
 
 from tools.import_attractions import (
     Attraction,
+    RidbExport,
+    _ridb_label,
     apply_park_fallback,
+    build_ridb_attractions,
     dedupe_by_source_id,
     parse_ampm,
     parse_event,
     parse_facility,
     parse_park,
+    parse_ridb_facility,
+    parse_ridb_recarea,
     parse_thingstodo,
     parse_tour,
     summarize,
@@ -161,3 +167,137 @@ def test_dedupe_by_source_id_keeps_first() -> None:
     b = Attraction('park', 'X', None, 'B', None, None, None, {})
     c = Attraction('park', 'Y', None, 'C', None, None, None, {})
     assert [r.name for r in dedupe_by_source_id([a, b, c])] == ['A', 'C']
+
+
+# --- RIDB ---------------------------------------------------------------------------
+
+
+def _ridb_export() -> RidbExport:
+    """A minimal joined export: one FS rec area with three facilities, one NPS pair."""
+    return RidbExport(
+        recareas=[
+            {
+                'RecAreaID': '1000',
+                'RecAreaName': 'Stanislaus National Forest',
+                'RecAreaDescription': '<p>Big trees.</p>',
+                'RecAreaLatitude': '38.2',
+                'RecAreaLongitude': '-120.0',
+            },
+            {
+                'RecAreaID': '2000',
+                'RecAreaName': 'Rocky Mountain National Park',
+                'RecAreaLatitude': '40.3',
+                'RecAreaLongitude': '-105.7',
+            },
+        ],
+        facilities=[
+            {
+                'FacilityID': '10',
+                'FacilityName': 'West Shore Campground',
+                'FacilityDescription': 'Lakeside sites.',
+                'FacilityTypeDescription': 'Campground',
+                'FacilityLatitude': '38.25',
+                'FacilityLongitude': '-120.05',
+                'Reservable': 'true',
+            },
+            {
+                'FacilityID': '11',
+                'FacilityName': 'CHALK CREEK TRAILHEAD',
+                'FacilityDescription': '',
+                'FacilityTypeDescription': 'Facility',
+                'FacilityLatitude': '0.000000',
+                'FacilityLongitude': '0.000000',
+            },
+            {
+                'FacilityID': '12',
+                'FacilityName': 'Forest Day Pass',
+                'FacilityTypeDescription': 'Activity Pass',
+                'FacilityLatitude': '',
+                'FacilityLongitude': '',
+            },
+            {
+                'FacilityID': '13',
+                'FacilityName': 'Wilderness Permit',
+                'FacilityTypeDescription': 'Permit',
+                'FacilityLatitude': '',
+                'FacilityLongitude': '',
+            },
+            {
+                'FacilityID': '20',
+                'FacilityName': 'Moraine Park Campground',
+                'FacilityTypeDescription': 'Campground',
+                'FacilityLatitude': '40.36',
+                'FacilityLongitude': '-105.6',
+            },
+            {
+                'FacilityID': '14',
+                'FacilityName': '   ',
+                'FacilityTypeDescription': 'Campground',
+                'FacilityLatitude': '38.3',
+                'FacilityLongitude': '-120.1',
+            },
+        ],
+        recarea_orgs={'1000': '131', '2000': '128'},
+        facility_orgs={'10': '131', '11': '131', '12': '131', '13': '131', '20': '128'},
+        org_names={'131': 'FS', '128': 'NPS'},
+        facility_recarea={'10': '1000', '11': '1000', '13': '1000', '20': '2000'},
+        facility_address={'10': ('Bear Valley', 'CA')},
+        recarea_activities={'1000': ['Camping', 'Hiking']},
+        facility_activities={'10': ['Camping']},
+        campsites={'10': {'count': 25, 'equipment': {'RV': 35.0, 'Tent': 0.0}}},
+    )
+
+
+def test_ridb_label_title_cases_but_keeps_rv() -> None:
+    assert _ridb_label('PICKUP CAMPER') == 'Pickup Camper'
+    assert _ridb_label('RV/MOTORHOME') == 'RV/Motorhome'
+    assert _ridb_label('Tent') == 'Tent'
+
+
+def test_parse_ridb_recarea_builds_container_row() -> None:
+    export = _ridb_export()
+    area = parse_ridb_recarea(export.recareas[0], export)
+    assert area.source_kind == 'recarea'
+    assert area.source_id == 'ra:1000'
+    assert area.park_code == '1000'
+    assert (area.lat, area.lon) == (38.2, -120.0)
+    assert area.summary == 'Big trees.'
+    assert area.details['org'] == 'FS'
+    assert area.details['activities'] == ['Camping', 'Hiking']
+    assert 'phone' not in area.details
+
+
+def test_parse_ridb_facility_joins_org_address_activities_campsites() -> None:
+    export = _ridb_export()
+    campground = parse_ridb_facility(
+        export.facilities[0], export, {'1000': 'Stanislaus National Forest'}
+    )
+    assert campground.source_kind == 'campground'
+    assert campground.source_id == 'fac:10'
+    assert campground.park_code == '1000'
+    assert campground.details['org'] == 'FS'
+    assert campground.details['recAreaName'] == 'Stanislaus National Forest'
+    assert (campground.details['city'], campground.details['state']) == ('Bear Valley', 'CA')
+    assert campground.details['reservable'] is True
+    assert campground.details['campsites'] == {
+        'count': 25,
+        'equipment': [{'name': 'RV', 'maxLengthFt': 35.0}, {'name': 'Tent'}],
+    }
+
+
+def test_build_ridb_attractions_excludes_nps_and_products_and_backfills_coords() -> None:
+    rows = build_ridb_attractions(_ridb_export())
+    by_id = {a.source_id: a for a in rows}
+
+    assert 'ra:2000' not in by_id  # NPS rec area excluded
+    assert 'fac:20' not in by_id  # NPS facility excluded
+    assert 'fac:12' not in by_id  # Activity Pass (reservation product) excluded
+    assert 'fac:14' not in by_id  # nameless source junk excluded
+    assert by_id['fac:13'].source_kind == 'permit'  # Permit kept as a planning signal
+
+    trailhead = by_id['fac:11']
+    assert trailhead.source_kind == 'facility'
+    assert (trailhead.lat, trailhead.lon) == (38.2, -120.0)  # 0.0 → rec-area fallback
+
+    permit = by_id['fac:13']
+    assert (permit.lat, permit.lon) == (38.2, -120.0)

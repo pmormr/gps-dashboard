@@ -94,7 +94,15 @@
 
   <div class="attr-meta-line">
     {meta?.label}
-    {#if row.park_code}· {row.park_code.toUpperCase()}{/if}
+    {#if row.details.org}· {row.details.org}{/if}
+    {#if row.details.recAreaName}
+      · {row.details.recAreaName}
+    {:else if row.park_code && !/^\d+$/.test(row.park_code)}
+      · {row.park_code.toUpperCase()}
+    {/if}
+    {#if row.details.city || row.details.state}
+      · {[row.details.city, row.details.state].filter(Boolean).join(', ')}
+    {/if}
     {#if onShowMap && row.lat != null && row.lon != null}
       <button type="button" class="attr-link" onclick={() => onShowMap!(row!.lat!, row!.lon!, 12)}
         >Show on map</button>
@@ -111,6 +119,27 @@
       <div class="attr-chips">
         {#each row.details.amenities as a (a)}<span class="attr-chip">{a}</span>{/each}
       </div>
+    </div>
+  {/if}
+
+  {#if row.details.activities?.length}
+    <div class="attr-section">
+      <h3>Activities</h3>
+      <div class="attr-chips">
+        {#each row.details.activities as a (a)}<span class="attr-chip">{a}</span>{/each}
+      </div>
+    </div>
+  {/if}
+
+  {#if row.details.campsites}
+    <div class="attr-section">
+      <h3>Campsites ({row.details.campsites.count})</h3>
+      <ul class="attr-plain-list">
+        {#each row.details.campsites.equipment as eq (eq.name)}
+          <li>{eq.name}{#if eq.maxLengthFt}&nbsp;— up to {eq.maxLengthFt} ft{/if}</li>
+        {/each}
+      </ul>
+      {#if row.details.stayLimit}<p class="attr-muted">Stay limit: {row.details.stayLimit}</p>{/if}
     </div>
   {/if}
 
@@ -183,6 +212,25 @@
     <div class="attr-section">
       <h3>About</h3>
       <p class="attr-summary">{stripHtml(row.details.description)}</p>
+    </div>
+  {/if}
+
+  {#if row.details.directions}
+    <div class="attr-section">
+      <h3>Directions</h3>
+      <p class="attr-summary">{stripHtml(row.details.directions)}</p>
+    </div>
+  {/if}
+
+  {#if row.details.feeText || row.details.reservable || row.details.phone}
+    <div class="attr-section">
+      <h3>Practical</h3>
+      {#if row.details.feeText}<p class="attr-summary">{stripHtml(row.details.feeText)}</p>{/if}
+      <p class="attr-muted">
+        {#if row.details.reservable}Reservable via recreation.gov (when online){/if}
+        {#if row.details.reservable && row.details.phone}·{/if}
+        {#if row.details.phone}{row.details.phone}{/if}
+      </p>
     </div>
   {/if}
 

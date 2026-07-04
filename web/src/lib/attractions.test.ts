@@ -47,13 +47,13 @@ describe('kindsAtZoom', () => {
     expect(kindsAtZoom(all, 12)).toEqual(all)
   })
 
-  it('keeps only parks below the gate', () => {
-    expect(kindsAtZoom(all, MIN_DETAIL_ZOOM - 1)).toEqual(['park'])
+  it('keeps only the container kinds below the gate', () => {
+    expect(kindsAtZoom(all, MIN_DETAIL_ZOOM - 1)).toEqual(['park', 'recarea'])
   })
 
-  it('is empty below the gate when parks are deselected', () => {
-    const noParks = all.filter((k) => k !== 'park')
-    expect(kindsAtZoom(noParks, 3)).toEqual([])
+  it('is empty below the gate when the containers are deselected', () => {
+    const noContainers = all.filter((k) => k !== 'park' && k !== 'recarea')
+    expect(kindsAtZoom(noContainers, 3)).toEqual([])
   })
 })
 

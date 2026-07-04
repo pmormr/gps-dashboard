@@ -484,9 +484,18 @@ export function getPhonePlaces(start: string, end: string): Promise<PhonePlacesR
   return getJSON<PhonePlacesResponse>(`/api/phone/places?${params}`)
 }
 
-// ── Attractions (parks/public-lands POI tier, synced from the NPS API) ──
+// ── Attractions (parks/public-lands POI tier, synced from the NPS API + RIDB export) ──
 
-export type AttractionKind = 'park' | 'thingstodo' | 'tour' | 'visitorcenter' | 'campground'
+export type AttractionKind =
+  | 'park'
+  | 'thingstodo'
+  | 'tour'
+  | 'visitorcenter'
+  | 'campground'
+  // RIDB (recreation.gov) kinds — the other federal agencies (FS/USACE/BLM/FWS…):
+  | 'recarea' // the park-analog container (forest, lake project, refuge)
+  | 'facility' // the generic place type: trailheads, cabins, boat ramps, day-use sites
+  | 'permit' // permit/timed-entry requirements, kept as planning signals
 
 /** One POI list row (queryable columns + summary teaser; details fetched per-row). */
 export interface Attraction {
@@ -542,6 +551,19 @@ export interface AttractionDetails {
   durationMin?: string
   durationMax?: string
   durationUnit?: string
+  // RIDB fields (normalized at import; all optional — NPS rows never carry them):
+  directions?: string
+  feeText?: string
+  phone?: string
+  org?: string
+  recAreaName?: string
+  city?: string
+  state?: string
+  reservable?: boolean
+  stayLimit?: string
+  activities?: string[]
+  /** Per-campground aggregate; equipment max lengths in feet where length matters. */
+  campsites?: { count: number; equipment: { name: string; maxLengthFt?: number }[] }
   [key: string]: unknown
 }
 

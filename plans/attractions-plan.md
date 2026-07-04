@@ -85,7 +85,25 @@ unless a laptop-push path proves necessary later. Key via `NPS_API_KEY` env.
      (`stores/attractions.svelte.ts`); "Show on map" queues `layers.pendingZoom` and
      navigates. Event descriptions are HTML → flattened by `stripHtml` (attractions.ts).
    - The always-on data-age banner escalates to a warning past 45 days.
-3. **RIDB facilities** — parse the full export (facilities + hours + activities, not the
-   100k individual campsites) into the same `attractions` table, `source='ridb'`.
+3. **RIDB facilities** — DONE 2026-07-03 (`--ridb-zip` mode on the same importer; full-replace
+   of `source='ridb'`; ~16.3k rows: recarea 3,123 · facility 7,673 · campground 5,141 ·
+   visitorcenter 258 · permit 131). Facts that corrected Phase 0:
+   - **The export has no operating-hours table** (the Phase-0 "hours" claim was wrong);
+     descriptions/directions/fee text/phone are what exists.
+   - Kinds: `recarea` (park-analog container; joins `park` below the map's zoom gate) and
+     `facility` (generic trailhead/cabin/boat-ramp type) are new; `campground`/
+     `visitorcenter` reuse the NPS kinds; `permit` = Permit + Timed Entry kept as planning
+     signals. Pure reservation products (Activity Pass, Tree Permit, Ticket Facility, Venue
+     Reservations), NPS-org rows (org 128 — the native source is richer), and nameless
+     source junk are excluded.
+   - RIDB `park_code` = owning `RecAreaID` (numeric — the UI hides numeric park codes and
+     shows `details.recAreaName` instead); facility coords fall back to the rec area's;
+     blank/`0.0` coords are treated as absent.
+   - Individual campsites don't become rows but aggregate per campground into
+     `details.campsites` (site count + per-equipment max vehicle length, ft — the
+     "can my van fit" field). Activities/city/state/org join into details similarly.
+   - Sync path: download the export zip (laptop is fine), `scp` to the Pi over LAN, run
+     `import_attractions.py --ridb-zip` there. Re-download ~seasonally; the export
+     regenerates nightly but facility data drifts slowly.
 4. **Deferred / optional** — OSM POI extract for non-federal coverage; tour-audio + thumbnail
    caching for offline richness; a "today at nearby parks" Home card; per-state parks data.

@@ -247,7 +247,10 @@
                 <span class="nearby-meta">
                   {#if row.distance_m != null}{fmtDistance(row.distance_m)} ·{/if}
                   {kindMeta(row.source_kind).label}
-                  {#if row.park_code}· {row.park_code.toUpperCase()}{/if}
+                  <!-- RIDB park codes are numeric RecArea ids — meaningless raw, so hidden -->
+                  {#if row.park_code && !/^\d+$/.test(row.park_code)}
+                    · {row.park_code.toUpperCase()}
+                  {/if}
                 </span>
                 {#if row.summary}<span class="nearby-teaser">{row.summary}</span>{/if}
               </span>

@@ -1,12 +1,19 @@
-"""Sync NPS attractions (parks, tours, events, hours) into ``gps_history.db``.
+"""Sync attractions sources (NPS API, RIDB export) into ``gps_history.db``.
 
-Online batch importer for the attractions tier (see ``plans/attractions-plan.md``):
-walks the NPS API (``developer.nps.gov``) while the Pi has WAN and full-replaces
-the ``source='nps'`` rows of ``attractions`` / ``attraction_events`` /
-``attraction_event_dates``, so parks, self-guided tours, things to do, facility
-hours, and event schedules are all browsable offline.
+Batch importer for the attractions tier (see ``plans/attractions-plan.md``).
+Two mutually exclusive modes, each full-replacing its own ``source`` slice of
+``attractions`` / ``attraction_events`` / ``attraction_event_dates``:
 
-Shape notes that drive the code:
+* **NPS** (default) — walks the NPS API (``developer.nps.gov``) while the Pi
+  has WAN, so parks, self-guided tours, things to do, facility hours, and
+  event schedules are all browsable offline.
+* **RIDB** (``--ridb-zip``) — parses the RIDB full CSV export
+  (``ridb.recreation.gov/downloads/RIDBFullExport_V1_CSV.zip``, ~245 MB,
+  regenerated ~nightly, no API key) into ``source='ridb'`` rows: the other
+  federal agencies' places (FS/USACE/BLM/FWS… trailheads, campgrounds,
+  visitor centers, rec areas). Offline once the zip is local.
+
+NPS shape notes that drive the code:
 
 * POI endpoints (``parks``/``thingstodo``/``tours``/``visitorcenters``/
   ``campgrounds``) page with ``limit``/``start`` (0-based); ``events`` pages with
@@ -20,14 +27,38 @@ Shape notes that drive the code:
   row. Dates are park-local calendar dates, kept as published — not ms-UTC.
 * The events feed can repeat an id across pages; rows dedupe on the source GUID.
 
-The API key resolves from ``--api-key``, then ``$NPS_API_KEY``, then
+RIDB shape notes:
+
+* The export has **no operating-hours table** (the Phase-0 plan assumed one);
+  descriptions/directions/fee text/phone are what exists. Facilities carry a
+  free-text ``FacilityTypeDescription`` → mapped to our kind vocabulary
+  (``campground``/``visitorcenter`` reused; ``facility`` = the generic
+  trailhead/site type; ``permit`` = Permit + Timed Entry, kept as planning
+  signals). Pure reservation products (Activity Pass, Tree Permit, Ticket
+  Facility, Venue Reservations) are excluded — recreation.gov purchase
+  constructs, not places.
+* NPS-org rows (org id 128, via ``OrgEntities``) are excluded entirely — the
+  richer native NPS source already covers them.
+* Rec areas import as kind ``recarea`` (the park-analog container); for RIDB
+  rows ``park_code`` is the owning ``RecAreaID`` (numeric strings — no
+  collision with NPS alpha codes). Facilities without a coordinate fall back
+  to their rec area's; blank or ``0.0`` coordinates are treated as absent.
+* Individual campsites do NOT become rows; they aggregate per campground into
+  ``details.campsites`` (site count + per-equipment max vehicle length, feet —
+  the "can my van fit" field).
+
+The NPS API key resolves from ``--api-key``, then ``$NPS_API_KEY``, then
 ``/etc/default/gps-attractions`` (the project's usual secret-file pattern), so a
-plain SSH invocation on the Pi needs no env sourcing.
+plain SSH invocation on the Pi needs no env sourcing. RIDB mode needs no key.
 
 Examples::
 
-    # Pi: sync into the live DB (key read from /etc/default/gps-attractions)
+    # Pi: sync NPS into the live DB (key read from /etc/default/gps-attractions)
     GPS_DB_PATH=/mnt/nvme/data/gps_history.db uv run tools/import_attractions.py
+
+    # Pi: import a previously scp'd RIDB export
+    GPS_DB_PATH=/mnt/nvme/data/gps_history.db \\
+        uv run tools/import_attractions.py --ridb-zip /mnt/nvme/data/ridb.zip
 
     # Dev: fetch + report only
     NPS_API_KEY=... uv run tools/import_attractions.py --dry-run
@@ -36,13 +67,17 @@ Examples::
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import re
 import sqlite3
 import sys
 import time
-from dataclasses import dataclass, replace
+import zipfile
+from collections.abc import Iterator
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -514,11 +549,331 @@ def fetch_events(session: requests.Session, api_key: str) -> list[dict[str, Any]
             return rows
 
 
+# --- RIDB (full CSV export) ----------------------------------------------------------
+
+RIDB_SOURCE = 'ridb'
+RIDB_NPS_ORG_ID = '128'
+RIDB_KIND_BY_TYPE = {
+    'Campground': 'campground',
+    'Visitor Center': 'visitorcenter',
+    'Permit': 'permit',
+    'Timed Entry': 'permit',
+}
+RIDB_TYPE_EXCLUDE = frozenset(
+    {'Activity Pass', 'Tree Permit', 'Ticket Facility', 'Venue Reservations'}
+)
+
+
+@dataclass
+class RidbExport:
+    """The joined-up slice of the RIDB export the transform needs.
+
+    Attributes:
+        recareas: Raw ``RecAreas`` records (CSV string fields).
+        facilities: Raw ``Facilities`` records.
+        recarea_orgs: ``RecAreaID → OrgID`` (via ``OrgEntities``).
+        facility_orgs: ``FacilityID → OrgID``.
+        org_names: ``OrgID → abbreviated org name`` (e.g. ``FS``, ``BLM``).
+        facility_recarea: ``FacilityID → RecAreaID`` (first link wins).
+        facility_address: ``FacilityID → (city, state)``.
+        recarea_activities: ``RecAreaID → sorted activity names``.
+        facility_activities: ``FacilityID → sorted activity names``.
+        campsites: ``FacilityID → details.campsites dict`` (count + equipment).
+    """
+
+    recareas: list[dict[str, str]] = field(default_factory=list)
+    facilities: list[dict[str, str]] = field(default_factory=list)
+    recarea_orgs: dict[str, str] = field(default_factory=dict)
+    facility_orgs: dict[str, str] = field(default_factory=dict)
+    org_names: dict[str, str] = field(default_factory=dict)
+    facility_recarea: dict[str, str] = field(default_factory=dict)
+    facility_address: dict[str, tuple[str, str]] = field(default_factory=dict)
+    recarea_activities: dict[str, list[str]] = field(default_factory=dict)
+    facility_activities: dict[str, list[str]] = field(default_factory=dict)
+    campsites: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _ridb_label(name: str) -> str:
+    """Title-case an ALL-CAPS RIDB label, keeping ``RV`` an acronym.
+
+    Args:
+        name: The raw label (e.g. ``'PICKUP CAMPER'``, ``'RV/MOTORHOME'``).
+
+    Returns:
+        The display label (``'Pickup Camper'``, ``'RV/Motorhome'``).
+    """
+    return re.sub(r'\bRv\b', 'RV', name.strip().title())
+
+
+def _ridb_coord(value: str | None) -> float | None:
+    """Coerce a RIDB coordinate; blank and ``0.0`` (Null Island) are absent.
+
+    Args:
+        value: The raw CSV coordinate field.
+
+    Returns:
+        The coordinate in decimal degrees, or None.
+    """
+    coord = _coord(value)
+    return None if coord == 0.0 else coord
+
+
+def _ridb_rows(zf: zipfile.ZipFile, name: str) -> Iterator[dict[str, str]]:
+    """Stream one CSV member of the export as dict rows.
+
+    Args:
+        zf: The open export archive.
+        name: Member name (e.g. ``'Facilities_API_v1.csv'``).
+
+    Yields:
+        One record per CSV row.
+    """
+    with zf.open(name) as raw:
+        yield from csv.DictReader(io.TextIOWrapper(raw, encoding='utf-8-sig', newline=''))
+
+
+def read_ridb_zip(path: Path) -> RidbExport:
+    """Read and join the needed members of the RIDB full export.
+
+    Streams each CSV once; campsites and permitted equipment (the two big
+    member files) collapse to per-campground aggregates on the fly.
+
+    Args:
+        path: The downloaded ``RIDBFullExport_V1_CSV.zip``.
+
+    Returns:
+        The joined export slice.
+    """
+    export = RidbExport()
+    with zipfile.ZipFile(path) as zf:
+        for org in _ridb_rows(zf, 'Organizations_API_v1.csv'):
+            export.org_names[org['OrgID']] = org['OrgAbbrevName'] or org['OrgName']
+        for link in _ridb_rows(zf, 'OrgEntities_API_v1.csv'):
+            target = (
+                export.recarea_orgs if link['EntityType'] == 'Rec Area' else export.facility_orgs
+            )
+            target.setdefault(link['EntityID'], link['OrgID'])
+        for link in _ridb_rows(zf, 'RecAreaFacilities_API_v1.csv'):
+            export.facility_recarea.setdefault(link['FacilityID'], link['RecAreaID'])
+
+        # Physical > Default > Mailing; first of the best rank wins.
+        address_rank = {'Physical': 0, 'Default': 1, 'Mailing': 2}
+        best_rank: dict[str, int] = {}
+        for addr in _ridb_rows(zf, 'FacilityAddresses_API_v1.csv'):
+            rank = address_rank.get(addr['FacilityAddressType'], 3)
+            fac_id = addr['FacilityID']
+            if rank < best_rank.get(fac_id, 4) and (addr['City'] or addr['AddressStateCode']):
+                best_rank[fac_id] = rank
+                export.facility_address[fac_id] = (
+                    addr['City'].strip(),
+                    addr['AddressStateCode'].strip(),
+                )
+
+        activity_names = {
+            a['ActivityID']: _ridb_label(a['ActivityName'])
+            for a in _ridb_rows(zf, 'Activities_API_v1.csv')
+        }
+        activity_sets: dict[tuple[bool, str], set[str]] = {}
+        for act in _ridb_rows(zf, 'EntityActivities_API_v1.csv'):
+            name = act['ActivityDescription'].strip() or activity_names.get(act['ActivityID'], '')
+            if not name:
+                continue
+            key = (act['EntityType'] == 'Rec Area', act['EntityID'])
+            activity_sets.setdefault(key, set()).add(name)
+        for (is_recarea, entity_id), names in activity_sets.items():
+            target_acts = export.recarea_activities if is_recarea else export.facility_activities
+            target_acts[entity_id] = sorted(names)
+
+        site_facility: dict[str, str] = {}
+        for site in _ridb_rows(zf, 'Campsites_API_v1.csv'):
+            site_facility[site['CampsiteID']] = site['FacilityID']
+            agg = export.campsites.setdefault(site['FacilityID'], {'count': 0, 'equipment': {}})
+            agg['count'] += 1
+        for equip in _ridb_rows(zf, 'PermittedEquipment_API_v1.csv'):
+            site_fac = site_facility.get(equip['CampsiteID'])
+            if site_fac is None:
+                continue
+            lengths = export.campsites[site_fac]['equipment']
+            length = _coord(equip['MaxLength']) or 0.0
+            name = _ridb_label(equip['EquipmentName'])
+            lengths[name] = max(lengths.get(name, 0.0), length)
+
+        export.recareas = list(_ridb_rows(zf, 'RecAreas_API_v1.csv'))
+        export.facilities = list(_ridb_rows(zf, 'Facilities_API_v1.csv'))
+    return export
+
+
+def _ridb_details(pairs: dict[str, Any]) -> dict[str, Any]:
+    """Build a details dict, dropping empty CSV values.
+
+    Args:
+        pairs: Candidate key → raw value pairs.
+
+    Returns:
+        The dict with blank/None/empty values removed.
+    """
+    return {k: v for k, v in pairs.items() if v not in (None, '', [], {})}
+
+
+def _campsites_detail(agg: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Shape one campground's campsite aggregate for the details JSON.
+
+    Args:
+        agg: The raw aggregate (``count`` + ``equipment`` name → max length).
+
+    Returns:
+        ``{'count': n, 'equipment': [{'name': …, 'maxLengthFt': …}]}`` with
+        zero lengths omitted (length-irrelevant gear like tents), or None.
+    """
+    if not agg:
+        return None
+    equipment = [
+        {'name': name, **({'maxLengthFt': length} if length else {})}
+        for name, length in sorted(agg['equipment'].items())
+    ]
+    return {'count': agg['count'], 'equipment': equipment}
+
+
+def parse_ridb_recarea(record: dict[str, str], export: RidbExport) -> Attraction:
+    """Transform one ``RecAreas`` record (the park-analog container row).
+
+    Args:
+        record: The raw CSV record.
+        export: The joined export (org + activity lookups).
+
+    Returns:
+        The rec area as an :class:`Attraction` (kind ``recarea``; its own
+        ``RecAreaID`` as ``park_code``, like NPS parks carry their park code).
+    """
+    recarea_id = record['RecAreaID']
+    org_id = export.recarea_orgs.get(recarea_id)
+    details = _ridb_details(
+        {
+            'description': record.get('RecAreaDescription'),
+            'directions': record.get('RecAreaDirections'),
+            'feeText': record.get('RecAreaUseFeeDescription'),
+            'phone': record.get('RecAreaPhone'),
+            'email': record.get('RecAreaEmail'),
+            'reservationUrl': record.get('RecAreaReservationURL'),
+            'mapUrl': record.get('RecAreaMapURL'),
+            'keywords': record.get('Keywords'),
+            'stayLimit': record.get('StayLimit'),
+            'org': export.org_names.get(org_id or ''),
+            'activities': export.recarea_activities.get(recarea_id),
+        }
+    )
+    return Attraction(
+        source_kind='recarea',
+        source_id=f'ra:{recarea_id}',
+        park_code=recarea_id,
+        name=(record.get('RecAreaName') or '').strip(),
+        lat=_ridb_coord(record.get('RecAreaLatitude')),
+        lon=_ridb_coord(record.get('RecAreaLongitude')),
+        summary=summarize(record.get('RecAreaDescription')),
+        details=details,
+    )
+
+
+def parse_ridb_facility(
+    record: dict[str, str], export: RidbExport, recarea_names: dict[str, str]
+) -> Attraction:
+    """Transform one ``Facilities`` record.
+
+    Args:
+        record: The raw CSV record.
+        export: The joined export (org/address/activity/campsite lookups).
+        recarea_names: ``RecAreaID → name`` for the owning-area label.
+
+    Returns:
+        The facility as an :class:`Attraction` (kind via
+        :data:`RIDB_KIND_BY_TYPE`, default ``facility``; coordinates may still
+        need the rec-area fallback).
+    """
+    facility_id = record['FacilityID']
+    org_id = export.facility_orgs.get(facility_id)
+    recarea_id = export.facility_recarea.get(facility_id)
+    city, state = export.facility_address.get(facility_id, ('', ''))
+    details = _ridb_details(
+        {
+            'description': record.get('FacilityDescription'),
+            'directions': record.get('FacilityDirections'),
+            'feeText': record.get('FacilityUseFeeDescription'),
+            'phone': record.get('FacilityPhone'),
+            'email': record.get('FacilityEmail'),
+            'reservationUrl': record.get('FacilityReservationURL'),
+            'mapUrl': record.get('FacilityMapURL'),
+            'adaAccess': record.get('FacilityAdaAccess'),
+            'accessibilityText': record.get('FacilityAccessibilityText'),
+            'keywords': record.get('Keywords'),
+            'stayLimit': record.get('StayLimit'),
+            'reservable': record.get('Reservable') == 'true' or None,
+            'org': export.org_names.get(org_id or ''),
+            'recAreaName': recarea_names.get(recarea_id or ''),
+            'city': city,
+            'state': state,
+            'activities': export.facility_activities.get(facility_id),
+            'campsites': _campsites_detail(export.campsites.get(facility_id)),
+        }
+    )
+    kind = RIDB_KIND_BY_TYPE.get(record.get('FacilityTypeDescription') or '', 'facility')
+    return Attraction(
+        source_kind=kind,
+        source_id=f'fac:{facility_id}',
+        park_code=recarea_id,
+        name=(record.get('FacilityName') or '').strip(),
+        lat=_ridb_coord(record.get('FacilityLatitude')),
+        lon=_ridb_coord(record.get('FacilityLongitude')),
+        summary=summarize(record.get('FacilityDescription')),
+        details=details,
+    )
+
+
+def build_ridb_attractions(export: RidbExport) -> list[Attraction]:
+    """Transform the joined export into attraction rows.
+
+    Excludes NPS-org entities (the native NPS source is richer), pure
+    reservation-product facility types, and nameless rows (a handful of source
+    junk — unbrowsable), then backfills missing facility coordinates from the
+    owning rec area (mirroring the NPS park fallback).
+
+    Args:
+        export: The joined export slice.
+
+    Returns:
+        The ``recarea`` + facility rows, coordinates backfilled where possible.
+    """
+    recareas = [
+        parse_ridb_recarea(r, export)
+        for r in export.recareas
+        if export.recarea_orgs.get(r['RecAreaID']) != RIDB_NPS_ORG_ID
+    ]
+    recarea_names = {r['RecAreaID']: r['RecAreaName'] for r in export.recareas}
+    recarea_coords = {a.park_code: (a.lat, a.lon) for a in recareas if a.lat is not None}
+    facilities = [
+        parse_ridb_facility(r, export, recarea_names)
+        for r in export.facilities
+        if export.facility_orgs.get(r['FacilityID']) != RIDB_NPS_ORG_ID
+        and (r.get('FacilityTypeDescription') or '') not in RIDB_TYPE_EXCLUDE
+    ]
+    facilities = [
+        replace(a, lat=recarea_coords[a.park_code][0], lon=recarea_coords[a.park_code][1])
+        if a.lat is None and a.park_code in recarea_coords
+        else a
+        for a in facilities
+    ]
+    return [a for a in recareas + facilities if a.name]
+
+
 # --- Load --------------------------------------------------------------------------
 
 
-def load(conn: sqlite3.Connection, attractions: list[Attraction], events: list[Event]) -> None:
-    """Full-replace the ``source='nps'`` slice of the attractions tier.
+def load(
+    conn: sqlite3.Connection,
+    attractions: list[Attraction],
+    events: list[Event],
+    source: str = SOURCE,
+) -> None:
+    """Full-replace one source's slice of the attractions tier.
 
     One transaction: the tier is derived and rebuildable, so replace-on-sync is
     the whole idempotency story (mirrors the phone tier).
@@ -527,22 +882,23 @@ def load(conn: sqlite3.Connection, attractions: list[Attraction], events: list[E
         conn: An open, initialized connection.
         attractions: The POI rows.
         events: The event rows with expanded dates.
+        source: The source whose slice to replace (``'nps'``/``'ridb'``).
     """
     now = now_canonical()
     with conn:
         conn.execute(
             'DELETE FROM attraction_event_dates WHERE event_id IN '
             '(SELECT id FROM attraction_events WHERE source = ?)',
-            (SOURCE,),
+            (source,),
         )
-        conn.execute('DELETE FROM attraction_events WHERE source = ?', (SOURCE,))
-        conn.execute('DELETE FROM attractions WHERE source = ?', (SOURCE,))
+        conn.execute('DELETE FROM attraction_events WHERE source = ?', (source,))
+        conn.execute('DELETE FROM attractions WHERE source = ?', (source,))
         conn.executemany(
             'INSERT INTO attractions (source, source_kind, source_id, park_code, name, '
             'lat, lon, summary, details, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 (
-                    SOURCE,
+                    source,
                     a.source_kind,
                     a.source_id,
                     a.park_code,
@@ -562,7 +918,7 @@ def load(conn: sqlite3.Connection, attractions: list[Attraction], events: list[E
                 'location_text, is_free, needs_reservation, details, synced_at) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (
-                    SOURCE,
+                    source,
                     event.source_id,
                     event.park_code,
                     event.name,
@@ -613,6 +969,43 @@ def resolve_api_key(cli_key: str | None, env_file: Path) -> str:
     )
 
 
+def run_ridb(args: argparse.Namespace) -> int:
+    """Parse a local RIDB export zip, transform, and (unless ``--dry-run``) load.
+
+    Args:
+        args: Parsed arguments (``ridb_zip`` set).
+
+    Returns:
+        A process exit code.
+    """
+    import api.db
+
+    zip_path = Path(args.ridb_zip)
+    if not zip_path.exists():
+        print(f'RIDB export not found: {zip_path}', file=sys.stderr)
+        return 1
+    print(f'Reading {zip_path} ...', flush=True)
+    export = read_ridb_zip(zip_path)
+    print(f'  {len(export.recareas)} rec areas, {len(export.facilities)} facilities', flush=True)
+
+    attractions = build_ridb_attractions(export)
+    located = sum(1 for a in attractions if a.lat is not None)
+    by_kind = ', '.join(
+        f'{kind}={sum(1 for a in attractions if a.source_kind == kind)}'
+        for kind in ('recarea', 'facility', 'campground', 'visitorcenter', 'permit')
+    )
+    print(f'Parsed {len(attractions)} attractions ({located} with coordinates): {by_kind}')
+    if args.dry_run:
+        print('Dry run — not writing.', flush=True)
+        return 0
+
+    conn = get_connection()
+    init_db(conn)
+    load(conn, attractions, [], source=RIDB_SOURCE)
+    print(f'Loaded into {api.db.DB_PATH}', flush=True)
+    return 0
+
+
 def run(args: argparse.Namespace) -> int:
     """Fetch every endpoint, transform, and (unless ``--dry-run``) load.
 
@@ -623,6 +1016,9 @@ def run(args: argparse.Namespace) -> int:
         A process exit code.
     """
     import api.db
+
+    if args.ridb_zip:
+        return run_ridb(args)
 
     api_key = resolve_api_key(args.api_key, Path(args.env_file))
     session = requests.Session()
@@ -682,6 +1078,10 @@ def parse_args() -> argparse.Namespace:
         '--env-file',
         default=str(DEFAULT_ENV_FILE),
         help=f'Secret file with NPS_API_KEY=... (default: {DEFAULT_ENV_FILE})',
+    )
+    parser.add_argument(
+        '--ridb-zip',
+        help='Import a local RIDB full CSV export zip (source=ridb) instead of the NPS API',
     )
     parser.add_argument(
         '--dry-run', action='store_true', help='Fetch + report, but do not write the DB'

@@ -84,9 +84,9 @@ Phone location-history tier — the user's Google Timeline export batch-imported
 - `phone_track_points(id, path_id, timestamp, lat, lon, importance, activity_type)` — the thinned breadcrumb (shared Reumann–Witkam); `importance=0` marks segment endpoints; `activity_type` is the covering activity's mode (what the map colors by).
 - `phone_visits(...)` / `phone_activities(...)` — the semantic layer (place visits, trip segments); its own tables, **not** `annotations` (which stays user-curated).
 
-Attractions tier — parks/public-lands POIs + event schedules synced from the NPS API by `tools/import_attractions.py` (run on the Pi while it has WAN; full-replace per source), browsed offline; fully rebuildable (see `plans/attractions-plan.md`):
+Attractions tier — parks/public-lands POIs + event schedules synced by `tools/import_attractions.py` from two sources (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`, downloaded once and scp'd to the Pi — full-replace per source), browsed offline; fully rebuildable (see `plans/attractions-plan.md`):
 
-- `attractions(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at)` — one unified row per POI (`park`|`thingstodo`|`tour`|`visitorcenter`|`campground`; later RIDB/OSM sources). Columns carry only what queries filter on; display-only structure (tour stops + transcripts, operating hours, amenities, fees) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable (kinds without coords fall back to their park's at import).
+- `attractions(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at)` — one unified row per POI (NPS: `park`|`thingstodo`|`tour`|`visitorcenter`|`campground`; RIDB adds `recarea`|`facility`|`permit` for the other federal agencies' places — FS/USACE/BLM/FWS trailheads, campgrounds, rec areas; later OSM). Columns carry only what queries filter on; display-only structure (tour stops + transcripts, operating hours, amenities, fees, per-campground campsite/equipment aggregates) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable (kinds without coords fall back to their park's/rec area's at import). RIDB `park_code` is the owning `RecAreaID` (numeric; the UI shows `details.recAreaName` instead).
 - `attraction_events(...)` + `attraction_event_dates(event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
 
 GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
@@ -251,7 +251,7 @@ gps-dashboard/
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
-│   ├── import_attractions.py   # NPS parks/tours/events/hours → attractions tier (plans/attractions-plan.md)
+│   ├── import_attractions.py   # NPS API + RIDB export → attractions tier (plans/attractions-plan.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
