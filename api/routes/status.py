@@ -1,11 +1,13 @@
 """Status-home aggregate: one read that powers the Van OS Home glance.
 
 Collapses the headline metric of each domain — location, GNSS health, house power
-(Victron), cabin environment (BME680), the van (OBD) — plus systemd service health
-into a single JSON document, so the Home page makes one request instead of fanning
-out to six. Every domain block carries its source ``timestamp`` (and the response a
-server ``now``) so the client decides freshness itself: a parked van, a sleeping
-Victron GX, or an engine that's off all read as *stale*, not as zero.
+(Victron), cabin environment (BME680), the van (OBD), the Pi host, the van-edge
+router, and the recording fleet (NVR + a cameras-online aggregate, never per-cam) —
+plus systemd service health into a single JSON document, so the Home page makes one
+request instead of fanning out per domain. Every domain block carries its source
+``timestamp`` (and the response a server ``now``) so the client decides freshness
+itself: a parked van, a sleeping Victron GX, or an engine that's off all read as
+*stale*, not as zero.
 
 Read-only and schema-light: the per-domain tables always exist (``api.db`` creates
 them), so a domain with no rows yet simply reports ``null``.
@@ -31,6 +33,9 @@ _STATUS_SERVICES = (
     'mqtt-ingest',
     'sensor-victron',
     'sensor-obd',
+    'sensor-pi',
+    'sensor-openwrt',
+    'sensor-dahua',
     'radio-control',
     'chrony',
 )
@@ -71,6 +76,30 @@ def _obd_link(conn: sqlite3.Connection) -> str | None:
     return row['status'] if row else None
 
 
+def _cameras(conn: sqlite3.Connection) -> dict | None:
+    """Return the camera fleet's online/total aggregate, or None with no cams.
+
+    Home shows the fleet headline only, never per-camera cards. Latest row per
+    camera (SQLite's bare-column-with-MAX guarantee picks the max-timestamp row),
+    then counted; ``timestamp`` is the *oldest* of those latest rows, so the fleet
+    reads stale as soon as any camera's stream stops updating.
+
+    Args:
+        conn: Open SQLite connection.
+
+    Returns:
+        ``{timestamp, online, total}``, or None when no camera has ever reported.
+    """
+    row = conn.execute(
+        'SELECT COUNT(*) AS total, SUM(online) AS online, MIN(timestamp) AS timestamp '
+        'FROM (SELECT sensor_id, online, MAX(timestamp) AS timestamp '
+        '      FROM camera_readings GROUP BY sensor_id)'
+    ).fetchone()
+    if not row or row['total'] == 0:
+        return None
+    return {'timestamp': row['timestamp'], 'online': row['online'] or 0, 'total': row['total']}
+
+
 def _ntp_synced() -> bool | None:
     """Best-effort chrony sync state for the health strip.
 
@@ -101,6 +130,18 @@ def status() -> Response:
             'cabin': _latest(conn, 'bme680_readings', ['temp_c', 'humidity_pct', 'iaq']),
             'van': _latest(conn, 'obd_readings', ['rpm', 'coolant_c', 'speed_kph']),
             'obd_link': _obd_link(conn),
+            'pi': _latest(
+                conn,
+                'system_readings',
+                ['cpu_temp_c', 'load_1m', 'mem_used_pct', 'disk_nvme_free_gb', 'throttled'],
+            ),
+            'router': _latest(
+                conn,
+                'openwrt_readings',
+                ['wan_up', 'wan_ping_ms', 'halow_rssi_dbm', 'halow_stations'],
+            ),
+            'nvr': _latest(conn, 'nvr_readings', ['hdd_ok', 'hdd_temp_c', 'channels_video_loss']),
+            'cameras': _cameras(conn),
             'services': [{'name': s, 'state': proc.service_state(s)} for s in _STATUS_SERVICES],
             'ntp': {'synced': _ntp_synced()},
         }

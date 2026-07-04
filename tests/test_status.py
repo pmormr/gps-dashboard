@@ -35,6 +35,28 @@ def _insert_status_rows(ts: str) -> None:
         'VALUES (?, ?, ?, ?, ?)',
         (1, ts, 1850.0, 89.0, 72.0),
     )
+    conn.execute(
+        'INSERT INTO system_readings '
+        '(sensor_id, timestamp, cpu_temp_c, load_1m, mem_used_pct, disk_nvme_free_gb, throttled) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (1, ts, 52.1, 0.4, 31.0, 812.0, 0),
+    )
+    conn.execute(
+        'INSERT INTO openwrt_readings '
+        '(sensor_id, timestamp, wan_up, wan_ping_ms, halow_rssi_dbm, halow_stations) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        (1, ts, 1, 38.0, -62.0, 1),
+    )
+    conn.execute(
+        'INSERT INTO nvr_readings '
+        '(sensor_id, timestamp, hdd_ok, hdd_temp_c, channels_video_loss) VALUES (?, ?, ?, ?, ?)',
+        (1, ts, 1, 41.0, 0),
+    )
+    for sensor_id, online in ((2, 1), (3, 1), (4, 0)):
+        conn.execute(
+            'INSERT INTO camera_readings (sensor_id, timestamp, online) VALUES (?, ?, ?)',
+            (sensor_id, ts, online),
+        )
     conn.commit()
 
 
@@ -53,7 +75,7 @@ def test_status_empty_db(client):
     assert resp.status_code == 200
     data = resp.get_json()
 
-    for domain in ('location', 'gnss', 'house', 'cabin', 'van'):
+    for domain in ('location', 'gnss', 'house', 'cabin', 'van', 'pi', 'router', 'nvr', 'cameras'):
         assert data[domain] is None
     assert data['obd_link'] is None  # obd stream never registered
     assert 'now' in data
@@ -78,6 +100,12 @@ def test_status_latest_values(client):
     assert data['house']['pv_power'] == 320.0
     assert data['cabin']['temp_c'] == 22.4
     assert data['van']['rpm'] == 1850.0
+    assert data['pi']['cpu_temp_c'] == 52.1
+    assert data['pi']['throttled'] == 0
+    assert data['router']['wan_up'] == 1
+    assert data['router']['halow_rssi_dbm'] == -62.0
+    assert data['nvr']['hdd_ok'] == 1
+    assert data['cameras'] == {'timestamp': ts, 'online': 2, 'total': 3}
 
 
 def test_status_obd_link(client):
@@ -91,6 +119,22 @@ def test_status_obd_link(client):
     data = client.get('/api/status').get_json()
 
     assert data['obd_link'] == 'no_adapter'
+
+
+def test_status_cameras_uses_latest_row_per_camera(client):
+    """The fleet aggregate counts each camera's newest row, not stale history."""
+    conn = get_connection()
+    old, new = '2026-06-28T11:00:00.000Z', '2026-06-28T12:00:00.000Z'
+    # Camera 2 recovered (0 → 1); camera 3 went dark (1 → 0).
+    for sensor_id, ts, online in ((2, old, 0), (2, new, 1), (3, old, 1), (3, new, 0)):
+        conn.execute(
+            'INSERT INTO camera_readings (sensor_id, timestamp, online) VALUES (?, ?, ?)',
+            (sensor_id, ts, online),
+        )
+    conn.commit()
+    data = client.get('/api/status').get_json()
+
+    assert data['cameras'] == {'timestamp': new, 'online': 1, 'total': 2}
 
 
 def test_status_returns_most_recent(client):

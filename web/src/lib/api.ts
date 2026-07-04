@@ -43,6 +43,39 @@ export interface VanReading {
   speed_kph: number | null
 }
 
+export interface PiReading {
+  timestamp: string
+  cpu_temp_c: number | null
+  load_1m: number | null
+  mem_used_pct: number | null
+  disk_nvme_free_gb: number | null
+  /** vcgencmd get_throttled bitmask; 0 = healthy. */
+  throttled: number | null
+}
+
+export interface RouterReading {
+  timestamp: string
+  wan_up: number | null
+  wan_ping_ms: number | null
+  halow_rssi_dbm: number | null
+  halow_stations: number | null
+}
+
+export interface NvrReading {
+  timestamp: string
+  hdd_ok: number | null
+  hdd_temp_c: number | null
+  channels_video_loss: number | null
+}
+
+/** Camera-fleet aggregate — Home never shows per-camera detail. */
+export interface CamerasAggregate {
+  /** Oldest of the per-camera latest readings — stale if any camera stream stops. */
+  timestamp: string
+  online: number
+  total: number
+}
+
 export interface ServiceState {
   name: string
   state: string
@@ -59,6 +92,10 @@ export interface Status {
   /** OBD stream health from the sensors registry: online / no_adapter / no_car /
    * offline (reader down) / unknown; null when the stream never registered. */
   obd_link: string | null
+  pi: PiReading | null
+  router: RouterReading | null
+  nvr: NvrReading | null
+  cameras: CamerasAggregate | null
   services: ServiceState[]
   ntp: { synced: boolean | null } | null
 }

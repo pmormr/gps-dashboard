@@ -28,7 +28,17 @@
 
   // Per-domain freshness windows (ms): how old a reading can be before the card
   // reads as stale. The van's is short — a missing recent reading *is* "engine off".
-  const MAX_AGE = { location: 60e3, gnss: 60e3, house: 120e3, cabin: 300e3, van: 30e3 }
+  // pi/router poll at 30 s, the Dahua fleet at 60 s — windows are ~4 missed polls.
+  const MAX_AGE = {
+    location: 60e3,
+    gnss: 60e3,
+    house: 120e3,
+    cabin: 300e3,
+    van: 30e3,
+    pi: 120e3,
+    router: 120e3,
+    recording: 300e3,
+  }
 
   interface Card {
     name: string
@@ -123,6 +133,61 @@
         metric: r0(s.van.rpm),
         sub: `rpm · coolant ${r0(s.van.coolant_c)}°C / ${f0(s.van.coolant_c)}°F`,
         dim: false,
+      })
+    }
+
+    if (!s.pi) {
+      cards.push({ name: 'Pi', metric: '—', sub: 'no data', dim: true })
+    } else {
+      const throttled = (s.pi.throttled ?? 0) !== 0
+      cards.push({
+        name: 'Pi',
+        metric: `${r1(s.pi.cpu_temp_c)}°C`,
+        alt: `${f1(s.pi.cpu_temp_c)}°F`,
+        sub: throttled
+          ? 'throttled — check power/cooling'
+          : `load ${r1(s.pi.load_1m)} · mem ${r0(s.pi.mem_used_pct)}% · NVMe ${r0(s.pi.disk_nvme_free_gb)} GB free`,
+        dim: age(s.pi.timestamp) > MAX_AGE.pi,
+        warn: throttled,
+      })
+    }
+
+    if (!s.router) {
+      cards.push({ name: 'Network', metric: '—', sub: 'no data', dim: true })
+    } else {
+      const wanUp = s.router.wan_up === 1
+      cards.push({
+        name: 'Network',
+        metric: wanUp ? 'Online' : 'No WAN',
+        sub: `ping ${r0(s.router.wan_ping_ms)} ms · HaLow ${r0(s.router.halow_rssi_dbm)} dBm · ${r0(s.router.halow_stations)} sta`,
+        dim: age(s.router.timestamp) > MAX_AGE.router,
+        warn: !wanUp,
+      })
+    }
+
+    // Recording fleet: NVR headline + a cameras-online aggregate (never per-cam).
+    if (!s.nvr && !s.cameras) {
+      cards.push({ name: 'Recording', metric: '—', sub: 'no data', dim: true })
+    } else {
+      const camsDown = s.cameras != null && s.cameras.online < s.cameras.total
+      const hddFault = s.nvr != null && s.nvr.hdd_ok === 0
+      const videoLoss = (s.nvr?.channels_video_loss ?? 0) > 0
+      const subParts = [
+        ...(s.cameras ? ['cams online'] : []),
+        ...(s.nvr
+          ? [
+              hddFault ? 'HDD fault' : `HDD ${r0(s.nvr.hdd_temp_c)}°C`,
+              videoLoss ? `${r0(s.nvr.channels_video_loss)} video loss` : 'no video loss',
+            ]
+          : []),
+      ]
+      const ts = s.cameras?.timestamp ?? s.nvr?.timestamp ?? ''
+      cards.push({
+        name: 'Recording',
+        metric: s.cameras ? `${s.cameras.online}/${s.cameras.total}` : '—',
+        sub: subParts.join(' · '),
+        dim: ts !== '' && age(ts) > MAX_AGE.recording,
+        warn: camsDown || hddFault || videoLoss,
       })
     }
 
