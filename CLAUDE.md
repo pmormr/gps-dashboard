@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`, `db-backup`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`, `attractions`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`, `db-backup`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) plus captured device-capability dumps (e.g. the van's supported-PID set) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -84,7 +84,7 @@ Phone location-history tier — the user's Google Timeline export batch-imported
 - `phone_track_points(id, path_id, timestamp, lat, lon, importance, activity_type)` — the thinned breadcrumb (shared Reumann–Witkam); `importance=0` marks segment endpoints; `activity_type` is the covering activity's mode (what the map colors by).
 - `phone_visits(...)` / `phone_activities(...)` — the semantic layer (place visits, trip segments); its own tables, **not** `annotations` (which stays user-curated).
 
-Attractions tier — parks/public-lands POIs + event schedules synced by `tools/import_attractions.py` from two sources (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`, downloaded once and scp'd to the Pi — full-replace per source), browsed offline; fully rebuildable (see `plans/attractions-plan.md`):
+Attractions tier — parks/public-lands POIs + event schedules synced by `tools/import_attractions.py` from two sources (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`, downloaded once and scp'd to the Pi — full-replace per source), browsed offline; fully rebuildable (see `.claude/modules/attractions.md`):
 
 - `attractions(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at)` — one unified row per POI (NPS: `park`|`thingstodo`|`tour`|`visitorcenter`|`campground`; RIDB adds `recarea`|`facility`|`permit` for the other federal agencies' places — FS/USACE/BLM/FWS trailheads, campgrounds, rec areas; later OSM). Columns carry only what queries filter on; display-only structure (tour stops + transcripts, operating hours, amenities, fees, per-campground campsite/equipment aggregates) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable (kinds without coords fall back to their park's/rec area's at import). RIDB `park_code` is the owning `RecAreaID` (numeric; the UI shows `details.recAreaName` instead).
 - `attraction_events(...)` + `attraction_event_dates(event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
@@ -251,7 +251,7 @@ gps-dashboard/
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
-│   ├── import_attractions.py   # NPS API + RIDB export → attractions tier (plans/attractions-plan.md)
+│   ├── import_attractions.py   # NPS API + RIDB export → attractions tier (.claude/modules/attractions.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)

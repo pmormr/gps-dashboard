@@ -98,7 +98,7 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   map's attractions role is **waypoints only**: pin click → `AttractionSheet.svelte`, a
   thin container over the shared `AttractionDetail.svelte`; browsing/search lives in the
   Attractions destination. Subsystems: **`.claude/modules/drone.md`**,
-  **`.claude/modules/phone.md`**; attractions tier: **`plans/attractions-plan.md`**.
+  **`.claude/modules/phone.md`**; attractions tier: **`.claude/modules/attractions.md`**.
 - **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) —
   annotations are **named windows** (pure time metadata; any tier replays against the
   bounds). Drawer (side desktop / bottom sheet mobile) is the management UI: list, ✎ edit

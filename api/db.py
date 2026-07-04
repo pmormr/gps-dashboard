@@ -470,7 +470,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- table across sources/kinds: columns carry only what queries filter or
         -- sort on; display-only structure (tour stops, hours, amenities, fees)
         -- rides in the details JSON. lat/lon nullable — rows without a resolvable
-        -- coordinate simply never match a bbox. See plans/attractions-plan.md.
+        -- coordinate simply never match a bbox. See .claude/modules/attractions.md.
         CREATE TABLE IF NOT EXISTS attractions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             source      TEXT NOT NULL,

@@ -1,7 +1,7 @@
 /**
  * Attractions overlay controller + pure GeoJSON builders.
  *
- * The map-overlay half of the attractions tier (plans/attractions-plan.md).
+ * The map-overlay half of the attractions tier (.claude/modules/attractions.md).
  * Unlike the trail/phone layers this one is *viewport-driven, not time-windowed* —
  * POIs are static in time, so `syncAttractions` refetches on map movement
  * (Map.svelte's moveend subscription) rather than following the Selection window.

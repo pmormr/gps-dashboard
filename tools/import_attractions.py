@@ -1,6 +1,6 @@
 """Sync attractions sources (NPS API, RIDB export) into ``gps_history.db``.
 
-Batch importer for the attractions tier (see ``plans/attractions-plan.md``).
+Batch importer for the attractions tier (see ``.claude/modules/attractions.md``).
 Two mutually exclusive modes, each full-replacing its own ``source`` slice of
 ``attractions`` / ``attraction_events`` / ``attraction_event_dates``:
 

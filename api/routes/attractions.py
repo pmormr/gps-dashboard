@@ -1,7 +1,7 @@
 """Attractions tier API — nearby-places and event-schedule reads.
 
 The read surface over the tier synced by ``tools/import_attractions.py`` (see
-``plans/attractions-plan.md``). List reads return the queryable columns plus the
+``.claude/modules/attractions.md``). List reads return the queryable columns plus the
 ``summary`` teaser; the full ``details`` JSON (tour stops, operating hours,
 amenities, fees) is fetched per-row by the detail endpoints, so browsing a
 region never drags megabytes of display structure.
