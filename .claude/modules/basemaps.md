@@ -1,12 +1,13 @@
 # Basemaps & Terrain
 
 Two basemaps served two different ways, plus an elevation source for 3D rendering. A
-single `maplibregl.Map` (`MapView`, `static/js/map.js`) renders everything — pure
-MapLibre GL (not Leaflet) so the map can pitch and drape on terrain. A layer dropdown
-in the tab bar switches the active basemap; the 🏔 3D panel toggles terrain draping and
-exaggeration (off = flat 2D, north-up; on unlocks pitch + rotate). The ⚙ Labels panel
-(vector only, `static/js/labels.js`) tunes POI categories, label density, and
-minor-street-name visibility by driving the MapLibre map directly.
+single `maplibregl.Map` (`MapView`, `web/src/lib/map.ts`) renders everything — pure
+MapLibre GL (not Leaflet) so the map can pitch and drape on terrain. The map's right
+icon rail drives it via the **Map style** panel (`web/src/views/MapStyle.svelte`):
+basemap switch, terrain draping + exaggeration (off = flat 2D, north-up; on unlocks
+pitch + rotate), and label tuning (vector only, `web/src/lib/labels.ts` — POI
+categories, label density, minor-street-name visibility) driving the MapLibre map
+directly.
 
 ## OSM — vector (default)
 
@@ -15,14 +16,15 @@ client-side by MapLibre GL. Flask serves it at `GET /tiles/osm.pmtiles` with HTT
 support (`send_file(conditional=True)`); `pmtiles.js` issues range requests for the
 header, directories, and tiles. Path from `$GPS_PMTILES_PATH`
 (`/mnt/nvme/tiles/northamerica.pmtiles` on the Pi; dev fallback
-`~/.cache/gps-dashboard/northamerica.pmtiles`). The MapLibre lib, pmtiles.js, and the
-Protomaps "light" style + full Noto Sans BMP glyphs + sprite are vendored under
-`static/vendor/{maplibre,pmtiles,basemap}` — no CDN at runtime. Crisp overzoom past z15
+`~/.cache/gps-dashboard/northamerica.pmtiles`). MapLibre and pmtiles are npm deps
+bundled into the committed SPA build (`static/dist/`); the Protomaps "light" style +
+full Noto Sans BMP glyphs + sprite are data assets under `static/vendor/basemap/` —
+no CDN at runtime. Crisp overzoom past z15
 is free. The archive is a persistent asset (like the DB), updated only by a full
 re-extract + atomic file replace (see Archive build notes below), never per-tile —
 there is no `?refresh` for vector.
 
-**Trap:** `map.js` loads the style as an object and absolutizes `sprite`/`glyphs`
+**Trap:** `map.ts` loads the style as an object and absolutizes `sprite`/`glyphs`
 against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL
 stays root-relative.
 
@@ -35,8 +37,8 @@ and offline. Route `GET /tiles/<layer>/<z>/<x>/<y>.png`; unknown layer or z past
 layer's max → 400. `api/tile_layers.py` is the raster layer registry (USGS only),
 imported by both the route and `precache.py`. ETags live in sidecar files
 (`<layer>/{z}/{x}/{y}.etag`); `?refresh=1` fires a background `If-None-Match` GET per
-tile and silently updates the cache. The "↻" checkbox in the tab bar enables refresh
-mode — raster only, disabled while the vector base is selected. Tile writes are atomic
+tile and silently updates the cache. The refresh toggle in the Map style panel enables
+refresh mode — raster only, disabled while the vector base is selected. Tile writes are atomic
 (thread-unique `.tmp` then `replace`), so a crash mid-write can never leave a torn PNG.
 
 ## Terrain — Mapzen Terrarium PNG, served as PMTiles

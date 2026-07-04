@@ -55,7 +55,7 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
   `samples` over a window, grouped by SV, **plus each SV's inertial `orbit` fit
   params** (`epoch, radius_km, n, phase0, u, v, normal`; null when unfittable).
   The client propagates those params itself (the ECI/GMST propagator is ported to
-  `globe.js`) so the dot, trail, ring, and focused full-period orbit all come from
+  `web/src/lib/globe.ts`) so the dot, trail, ring, and focused full-period orbit all come from
   **one fit through one model** — there is no second, ECEF-smeared `fit_orbit_normal`
   ring anymore, which is what used to leave dots off their rings. Feeds `/globe`.
 - `GET /api/passes?hours=&mask=&track=1` (`api/routes/passes.py`) — fits each SV
@@ -67,8 +67,8 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
 
 ## Render
 
-- `/globe` (`static/js/globe.js`, `templates/globe.html`) — three.js textured
-  Earth in ECEF (vendored r160, `static/vendor/three/` + Earth textures in
+- `/globe` (`Globe.svelte` + `web/src/lib/globe.ts`) — three.js textured
+  Earth in ECEF (npm three 0.160.1, dynamic-imported; Earth textures in
   `static/img/`, offline). The client propagates the server's `orbit` params for
   each SV: a dot at the current position (set SVs on the far side) on a faint
   **instantaneous ring** (the inertial plane rotated into ECEF at the window end,
@@ -81,10 +81,10 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
   precessing path is unreadable in bulk. Observer marker, sight-lines
   (above-horizon only), click-popup. **PC-only** (WebGL).
   `?demo` synthesises a constellation offline.
-- `/passes` (`static/js/passes.js`, `templates/passes.html`) — phone-friendly
+- `/passes` (alias of `/sky` — `Sky.svelte`) — phone-friendly
   schedule, one card per pass (rise/peak/set + compass azimuths, peak el, live
   countdown), constellation-coloured. Horizon/mask chips, 60s auto-refresh.
-- `/skyplot` **Predicted** toggle — overlays each upcoming pass as a dashed
+- `/skyplot` (`Skyplot.svelte` + `web/src/lib/skyplot.ts`) **Predicted** toggle — overlays each upcoming pass as a dashed
   constellation-coloured az/el arc on the dome (in-progress = forward path to
   set; future = hollow rise marker + name). Honours legend toggles, slow refresh,
   deep-link `?passes`. Fetches `/api/passes?...&track=1`.

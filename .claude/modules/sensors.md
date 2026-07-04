@@ -13,9 +13,10 @@ NVR + 4 cameras over HTTP CGI + RPC2 — one reader, five node streams). Adding 
 stream is a spec entry, not a new pipeline.
 
 This module documents the sensor platform — what has **landed** and what's still open.
-The foundation (schema + broker + ingest + the first remote ESP32 node) is in, plus a
-DB-backed **`/sensors` viewer** (current values + trend charts) that delivers the
-live-readout value without the blocked WS transport. Still open: *live* (push) readouts
+The foundation (schema + broker + ingest + the first remote ESP32 node) is in, plus
+DB-backed readouts in the SPA (**Systems** for current values, **Trends** for charts)
+that deliver the live-readout value without the blocked WS transport. Still open:
+*live* (push) readouts
 over MQTT-over-WS, alarms, and correlation UX.
 
 The first sensor is a **BME680 on a dedicated ESPHome ESP32-C6 node**
@@ -50,7 +51,7 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   publisher on the OBDLink EX (USB `/dev/ttyUSB0`), **single serial owner**,
   **engine-gated**. It wakes on chassis voltage >13.2 V (alternator charging, debounced)
   and **closes the connection when parked** so the bus sleeps and volume is bounded to
-  drive-time. Polls a mutable per-PID rate table (all 1 Hz in Phase 1), publishing a
+  drive-time. Polls a mutable per-PID rate table (all currently 1 Hz), publishing a
   full-snapshot to `sensors/van/obd` with the `.../status` LWT; saturation (target vs
   actual cycle) surfaces in the heartbeat. Each parked wake also **classifies the
   physical link** and publishes it retained on `.../status` (transitions only, loop-owned
@@ -181,9 +182,11 @@ storage-only; `mqttbus` ingest imports it alone, keeping the two concerns apart.
 
 `bme680_readings` carries the BSEC2 outputs alongside the raw channels: `temp_c`,
 `humidity_pct`, `pressure_hpa`, `gas_ohms` (raw resistance) plus `iaq`, `iaq_accuracy`
-(0–3; IAQ is meaningless until ≥1), `co2_equivalent`, `breath_voc_equivalent`. The IAQ
-columns were added by an idempotent `ALTER TABLE` in `db.py` `migrate()` (the Pi's
-table predates them); absent payload keys store NULL.
+(0–3; IAQ is meaningless until ≥1), `co2_equivalent`, `breath_voc_equivalent`. All
+columns live in the `CREATE TABLE` (`api/db.py`) — there is no standing migration
+hook: adding a column to a table that already exists on the Pi means shipping a
+one-shot idempotent `ALTER TABLE` and dropping it once landed (the established
+pattern; see `381460b`). Absent payload keys store NULL.
 
 `obd_readings` is the wide table for the van stream — 18 captured PIDs (RPM, speed,
 engine + absolute load, throttle, coolant/intake/ambient temps, MAP, barometric, fuel

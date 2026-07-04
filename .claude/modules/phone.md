@@ -39,7 +39,7 @@ At import, each track point is tagged with the `activity_type` of the covering
 `activity` interval (`bisect` interval join; ~60% of points covered) — that
 column is what the frontend colors by.
 
-**Transport is scp-then-run (D4):** copy `Timeline.json` to the Pi, run the
+**Transport is scp-then-run:** copy `Timeline.json` to the Pi, run the
 importer there against the live DB. Occasional manual re-export; the export
 lives at `~/Timeline.json` on the Pi after the last run.
 
@@ -59,7 +59,7 @@ time columns indexed for the windowed reads. First real import 2026-07-02:
 22,201 paths / 231,290 thinned pts (from 307,753) / 15,435 visits / 13,608
 activities.
 
-- `phone_paths` — one row per contiguous `timelinePath` segment (D5): thinning
+- `phone_paths` — one row per contiguous `timelinePath` segment: thinning
   never crosses a time gap, and per-segment rows give the frontend polyline
   boundaries for free (the `drone_flights` ↔ `drone_track_points` shape, minus
   media identity).
@@ -100,11 +100,11 @@ layer painting `['get','color']`, a `phone-visit` circle layer + popup, and a
 
 ## Decisions / traps
 
-- **D1 — semantic layer stays in its own tables, NOT `annotations`.**
+- **Semantic layer stays in its own tables, NOT `annotations`.**
   `annotations` is user-curated; auto-dumping 29k Google segments would bury
   them. Visits/activities are a *layer*; promote one to a real annotation by
   hand if wanted.
-- **D2 — full-replace, not incremental.** Google exports are cumulative (each
+- **Full-replace, not incremental.** Google exports are cumulative (each
   export = the whole history), so every run truncates and reloads. No dedup key.
 - **Coords/times are strings** — degree-suffixed coord pairs, ISO-8601 with
   offset; both normalized on the way in (`api.db.canonical_timestamp`).

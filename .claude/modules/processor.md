@@ -71,10 +71,12 @@ The starting values below were validated against a real drive — no changes nee
   `annotations.point_count` still range/order raw *by timestamp* — dropping it
   full-scans a multi-million-row table.
 - **Deploy: the processor is enabled-gated:** the post-receive hook installs all
-  `deploy/*.service` units on a `deploy/` change and restarts `gps-processor` when
-  enabled — no manual hook edit (the unit list is no longer hardcoded). The one-time
-  Pi-side step is `systemctl enable gps-processor` (like `mqtt-ingest`); until then it
-  stays dormant. It resumes from its cursor, so restart is always safe.
+  `deploy/*.service` units on a `deploy/` change (glob — the *install* list isn't
+  hardcoded) and restarts `gps-processor` whenever enabled. Note the hook's *restart*
+  branches are still per-unit blocks — a brand-new service needs its own restart block
+  added to the hook on the Pi (see sensors.md). The one-time Pi-side step is
+  `systemctl enable gps-processor` (like `mqtt-ingest`); until then it stays dormant.
+  It resumes from its cursor, so restart is always safe.
 - **Timestamps are wall-clock `now()` at ms precision:** the Pi clock is chrony
   PPS-disciplined stratum-1, so `now()` *is* GPS-quality time and stays monotonic with
   `id` (the determinism anchor). The processor still clamps negative dwell/`dt` to 0 as

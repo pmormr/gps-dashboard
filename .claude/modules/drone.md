@@ -89,9 +89,10 @@ Derived from the source media, fully rebuildable (re-run the importer). Schema i
   bounds / bbox / `n_points` and dedups on the natural key (**201** import /
   **200** skip|backfill).
 
-## Render — `static/js/drone.js` + the 3D overlay
+## Render — `web/src/lib/drone.ts` + the 3D overlay
 
-The **🚁 Drone panel** on `/` toggles the overlay. On first enable it fetches
+The **Data layers** rail panel on `/map` (`DataLayers.svelte`) toggles the
+overlay. On first enable it fetches
 *all* flights once (tiny dataset, independent of the time picker) and renders the
 `drone-line` layer, colored per model (Mini 5 Pro / Avata 2 / Neo). Click a track
 → popup with model, time span, `abs_alt` range, media path.
@@ -99,7 +100,7 @@ The **🚁 Drone panel** on `/` toggles the overlay. On first enable it fetches
 Tracks **float at flight altitude** (`abs_alt × exaggeration`, sea level fixed)
 via a generic three.js overlay, not a flat drape:
 
-- `static/js/overlay3d.js` (global `Overlay3D`) is a **reusable** elevated-data
+- `web/src/lib/overlay3d.ts` (lazy-imported by `drone.ts`) is a **reusable** elevated-data
   overlay keyed by *group* — `setLines(groupId, lines, {color,width})` /
   `setExaggeration` / `clear` / `pick`. Drones are the first consumer
   (`'drone'`); van tracks (`gps_points.altitude`) and other columns drop in later
@@ -110,9 +111,9 @@ via a generic three.js overlay, not a flat drape:
   stays the basemap/terrain/label/PMTiles engine, this just positions vertices
   via `MercatorCoordinate.fromLngLat([lon,lat], altMeters)`. `abs_alt` is MSL and
   the terrain DEM is MSL, so points float at the correct height for free.
-- Lines are vendored three `Line2` fat-lines (`static/vendor/three/lines/`):
-  `LineMaterial.linewidth` is screen-space px (`resolution` set each render).
-  Picking is **in-overlay** (`Overlay3D.pick` projects vertices through the cached
+- Lines are three.js `Line2` fat-lines (`three/addons/lines/`, npm three 0.160.1
+  dynamic-imported): `LineMaterial.linewidth` is screen-space px (`resolution` set
+  each render). Picking is **in-overlay** (`pick` projects vertices through the cached
   render matrix, nearest-segment screen test) — three.js raycasting is unreliable
   against the matrix-injected camera. The terrain-exaggeration slider max is 8.
 
@@ -127,7 +128,7 @@ via a generic three.js overlay, not a flat drape:
 - **Terrain-exaggeration registration:** tracks float at `abs_alt × exaggeration`
   (per-line `scale.z`/`position.z`, mirrored in `pick`) so they stay registered
   with the DEM as it stretches — they only lined up at exaggeration 1.0 before.
-- **No elevated-line support in vendored MapLibre** — `line-z-offset` /
+- **No elevated-line support in MapLibre** — `line-z-offset` /
   `line-elevation-reference` are confirmed absent from v5.24.0 (the latter is
   Mapbox-only), which is *why* elevation goes through the three.js custom layer.
 - **`gps_status` is a red herring** — the telemetry field doesn't track fix

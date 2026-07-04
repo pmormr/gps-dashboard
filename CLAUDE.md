@@ -23,7 +23,7 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`. When any `deploy/` file changed it reinstalls all unit files into `/etc/systemd/system/`, `daemon-reload`s, and enables the `gps-drone-sync.timer` — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` is a timer-driven oneshot, not restarted. The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` is a timer-driven oneshot, not restarted (its timer is idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
@@ -149,7 +149,7 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The `/sensors` page (current values + trend charts) reads the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); the van's bus is reached through a fitted 12+8 FCA Security Gateway bypass harness (bus facts + captured PID set: `.claude/modules/sensors.md`, `reference/obd-supported-pids.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). **The Pi host itself is the fourth stream** — `sensors/system_reader.py` publishes `sensors/pi/system` → `system_readings` (CPU temp/load, memory, root + NVMe disk, uptime, throttle flags) entirely from stdlib `/proc`/`/sys`/`vcgencmd` reads, so the platform reports on its own health. **Network infrastructure is the fifth and sixth** — `sensors/openwrt_reader.py` SSH-polls the van-edge router (one `sh -s` round-trip per poll: load/mem, WAN state + throughput + ping, HaLow RSSI/rates/radio-temp, leases, conntrack) into `openwrt_readings`, and `sensors/dahua_reader.py` CGI+RPC2-polls the recording fleet (Dahua NVR + 4 cams — one process, five node streams via `run_fleet_publisher`) into `nvr_readings`/`camera_readings` (HDD health/SMART temp, VideoLoss, per-cam online/CPU/mem/uptime/clock-drift). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
+A second data stream beyond GPS: environmental sensors ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation. Broker + ingest + the first remote node are live — a BME680 on an ESPHome ESP32-C6 (`firmware/cabin-bme680.yaml`) running Bosch BSEC2 for a calibrated IAQ index, publishing to `sensors/cabin/bme680`. The SPA's Systems (current values) and Trends (charts) views read the ingested data straight from the DB — see the Frontend section. *Live* (push) browser readouts via MQTT-over-WS and alarms are still planned (the WS transport is blocked on the broker; the DB-backed viewer sidesteps it). GPS logging is untouched and stays off the bus. **The van itself is a second stream on this platform** — a Pi-side OBD-II reader (`sensors/obd_reader.py`) publishes `sensors/van/obd` through the same ingest into `obd_readings` (engine RPM/speed/load/temps/fuel, GPS-joinable for per-trip fuel economy); the van's bus is reached through a fitted 12+8 FCA Security Gateway bypass harness (bus facts + captured PID set: `.claude/modules/sensors.md`, `reference/obd-supported-pids.md`). **House power is the third stream** — `sensors/victron_reader.py` bridges the van's **Victron Venus OS GX** (which exposes the whole system over its own keepalive-driven MQTT broker) into `sensors/house/victron` → `victron_readings` (battery / solar / inverter / AC + DC, GPS-joinable for per-trip energy). **The Pi host itself is the fourth stream** — `sensors/system_reader.py` publishes `sensors/pi/system` → `system_readings` (CPU temp/load, memory, root + NVMe disk, uptime, throttle flags) entirely from stdlib `/proc`/`/sys`/`vcgencmd` reads, so the platform reports on its own health. **Network infrastructure is the fifth and sixth** — `sensors/openwrt_reader.py` SSH-polls the van-edge router (one `sh -s` round-trip per poll: load/mem, WAN state + throughput + ping, HaLow RSSI/rates/radio-temp, leases, conntrack) into `openwrt_readings`, and `sensors/dahua_reader.py` CGI+RPC2-polls the recording fleet (Dahua NVR + 4 cams — one process, five node streams via `run_fleet_publisher`) into `nvr_readings`/`camera_readings` (HDD health/SMART temp, VideoLoss, per-cam online/CPU/mem/uptime/clock-drift). See **`.claude/modules/sensors.md`** for the architecture and remaining roadmap.
 
 ### Radio Control (CI-V)
 
@@ -189,6 +189,8 @@ gps-dashboard/
 │   ├── orbits.py               # inertial-frame orbit fit + propagation + pass finder
 │   ├── satcat.py               # CelesTrak SATCAT metadata fetch/cache (NORAD-keyed) for sat identity
 │   ├── obd.py                  # speed-density fuel-rate derivation + drive integration (read-time, pure)
+│   ├── humidity.py             # derived moisture channels (dew point, absolute humidity, heat index)
+│   ├── timefmt.py              # canonical_timestamp — fixed-width ms-UTC formatter shared across tiers
 │   ├── proc.py                 # subprocess + systemctl (is-active) helpers
 │   ├── checks.py               # PASS/FAIL check-runner for the validate tools
 │   └── cli.py                  # run_cli/run_click — tools' Ctrl+C → "Interrupted." exit 130
@@ -198,6 +200,7 @@ gps-dashboard/
 │   ├── gps_processor.py
 │   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
 ├── sensors/                    # Pi-side sensor readers (publish to the MQTT bus)
+│   ├── runner.py               # shared reader framework (run_simple_publisher/run_fleet_publisher, LWT status, heartbeat)
 │   ├── bme680.py               # synthetic pipeline test harness (the live BME680 is the ESP32 node)
 │   ├── obd_reader.py           # engine-gated OBD-II reader → sensors/van/obd (NOT obd.py — shadows the obd lib)
 │   ├── victron_reader.py       # Victron Venus GX → sensors/house/victron (two brokers; keepalive + staleness watchdog)
@@ -229,14 +232,15 @@ gps-dashboard/
 │       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
 │       │   ├── attractions.ts  # attractions overlay: per-kind pin builders + viewport-driven sync (z6 gate)
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
-│       │   ├── globe.ts, skyplot.ts, sensors.ts            # view renderers/helpers
+│       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts  # view renderers/helpers
+│       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes)
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
 │       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · attractions (browse session)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/AttractionSheet), Attractions (+AttractionDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/AttractionSheet), Attractions (+AttractionDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
-│   ├── img/tile-error.png
+│   ├── img/                    # tile-error.png + the globe's Earth textures
 │   └── vendor/
 │       ├── basemap/            # Protomaps style.json + glyphs + sprite (data, served as-is)
 ├── tools/
@@ -348,7 +352,7 @@ uv run pytest tests/test_simplify.py   # one module
 
 `pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers the load-bearing pure logic and the API read paths:
 
-- **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`api/db.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
+- **Pure logic** — track simplification (`processor/simplify.py`), canonical-timestamp ordering (`common/timefmt.py`), request-param validation (`api/params.py`), the gpsd constellation resolver, the check-runner, the observatory geometry (`common/orbits` fit + propagation, `common/satgeo` az/el→ECEF, `common/satcat` parsing), the logger's SKY-row builder, OBD speed-density fuel derivation (`common/obd`), the OBD/Victron reader logic, the rigctld TCP client, and the MQTT ingest writer.
 - **Flask client against a temp SQLite DB** (`tests/conftest.py`) — `/api/points` size-aware decimation, `/api/constellation`, `/api/passes`, `/api/obd/economy`, the radio routes, and the docs reader/editor (`/api/docs/*`: tree, file fetch + ETag, edit PUT with If-Match/auto-commit in both repo layouts, traversal/non-`.md` rejection).
 - **Backtest tools** — the pure helpers in `passes_validate` and `tle_validate`.
 
@@ -368,7 +372,7 @@ uv run ruff format .           # format
 uv run mypy .                  # type check (must be clean)
 ```
 
-`mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`obd`, `paho.mqtt`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
+`mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`obd`, `paho.mqtt`, `sgp4`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
 
 ## Offline Constraint
 
