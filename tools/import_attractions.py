@@ -262,6 +262,10 @@ def parse_ampm(value: Any) -> str | None:
 def _trim_details(record: dict[str, Any]) -> dict[str, Any]:
     """Copy a source record minus dead-weight keys, with images slimmed to essentials.
 
+    NPS ``activities``/``topics`` arrive as ``{id, name}`` objects; they flatten to
+    sorted name lists so ``details.activities`` has one shape across sources (RIDB
+    already stores plain names, and the UI renders the entries as string chips).
+
     Args:
         record: The raw API record.
 
@@ -276,6 +280,12 @@ def _trim_details(record: dict[str, Any]) -> dict[str, Any]:
             for img in images
             if isinstance(img, dict)
         ]
+    for key in ('activities', 'topics'):
+        values = record.get(key)
+        if isinstance(values, list):
+            details[key] = sorted(
+                {v['name'].strip() for v in values if isinstance(v, dict) and v.get('name')}
+            )
     return details
 
 

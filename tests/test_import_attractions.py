@@ -35,6 +35,11 @@ _PARK = {
     'description': 'Mountains.',
     'relevanceScore': 1.0,
     'images': [{'url': 'https://x/img.jpg', 'title': 'T', 'caption': 'C', 'credit': 'drop-me'}],
+    'activities': [
+        {'id': 'A2', 'name': 'Hiking'},
+        {'id': 'A1', 'name': 'Camping'},
+        {'id': 'A3'},
+    ],
 }
 
 
@@ -46,6 +51,7 @@ def test_parse_park_coerces_string_coords_and_trims_details() -> None:
     assert park.lon == -105.6972879
     assert 'relevanceScore' not in park.details
     assert park.details['images'] == [{'url': 'https://x/img.jpg', 'title': 'T', 'caption': 'C'}]
+    assert park.details['activities'] == ['Camping', 'Hiking']
 
 
 def test_parse_thingstodo_missing_coords_falls_back_to_park() -> None:
