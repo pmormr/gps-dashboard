@@ -10,6 +10,8 @@ export interface LocationReading {
   lat: number
   lon: number
   speed: number | null
+  altitude: number | null
+  track: number | null
   mode: number | null
 }
 
@@ -18,29 +20,44 @@ export interface GnssReading {
   nsat_used: number | null
   nsat_seen: number | null
   hdop: number | null
+  vdop: number | null
   pdop: number | null
 }
 
 export interface HouseReading {
   timestamp: string
   battery_soc: number | null
+  battery_voltage: number | null
+  battery_current: number | null
   battery_power: number | null
+  battery_state: number | null
+  time_to_go_s: number | null
   pv_power: number | null
+  pv_yield_today_kwh: number | null
+  solar_state: number | null
   dc_system_power: number | null
+  ac_consumption_power: number | null
 }
 
 export interface CabinReading {
   timestamp: string
   temp_c: number | null
   humidity_pct: number | null
+  dew_point_c: number | null
+  pressure_hpa: number | null
   iaq: number | null
+  co2_equivalent: number | null
 }
 
 export interface VanReading {
   timestamp: string
   rpm: number | null
-  coolant_c: number | null
   speed_kph: number | null
+  coolant_c: number | null
+  engine_load_pct: number | null
+  fuel_level_pct: number | null
+  voltage_v: number | null
+  ambient_air_c: number | null
 }
 
 export interface PiReading {
@@ -48,7 +65,10 @@ export interface PiReading {
   cpu_temp_c: number | null
   load_1m: number | null
   mem_used_pct: number | null
+  disk_root_pct: number | null
+  disk_nvme_pct: number | null
   disk_nvme_free_gb: number | null
+  uptime_s: number | null
   /** vcgencmd get_throttled bitmask; 0 = healthy. */
   throttled: number | null
 }
@@ -57,8 +77,15 @@ export interface RouterReading {
   timestamp: string
   wan_up: number | null
   wan_ping_ms: number | null
+  wan_rx_kbps: number | null
+  wan_tx_kbps: number | null
   halow_rssi_dbm: number | null
   halow_stations: number | null
+  halow_rx_mbps: number | null
+  halow_tx_mbps: number | null
+  halow_temp_c: number | null
+  dhcp_leases: number | null
+  uptime_s: number | null
 }
 
 export interface NvrReading {
@@ -66,6 +93,9 @@ export interface NvrReading {
   hdd_ok: number | null
   hdd_temp_c: number | null
   channels_video_loss: number | null
+  cpu_pct: number | null
+  mem_used_pct: number | null
+  clock_offset_s: number | null
 }
 
 /** Camera-fleet aggregate — Home never shows per-camera detail. */

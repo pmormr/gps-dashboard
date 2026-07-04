@@ -106,6 +106,10 @@ def test_status_latest_values(client):
     assert data['router']['halow_rssi_dbm'] == -62.0
     assert data['nvr']['hdd_ok'] == 1
     assert data['cameras'] == {'timestamp': ts, 'online': 2, 'total': 3}
+    # Columns the inserts left unset ride along as NULL rather than being dropped.
+    assert data['house']['battery_voltage'] is None
+    assert data['van']['fuel_level_pct'] is None
+    assert data['router']['wan_rx_kbps'] is None
 
 
 def test_status_obd_link(client):
