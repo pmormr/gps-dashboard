@@ -30,6 +30,10 @@ decisions inline.
 | 3 | Position source | **gpsd direct, not the DB** | A live view shouldn't wait on the logger's write path. TPV carries lat/lon, `speed`, `track` (COG), alt, climb, mode in one payload — `common/gpsd.py` already knows how to snapshot it. |
 | 4 | HUD scope (v1) | **Speed + heading + altitude, OBD strip, destination chevron, breadcrumb trail** | All four in the first cut. |
 | 5 | Destinations (v1) | **Attractions + dropped pins** (not annotations) | Annotations are time ranges with no coordinates — "navigate to an annotation" needs a resolve-to-point step. Defer until missed. |
+| 6 | gpsd read pattern (was open A) | **Per-request snapshot, TPV-only fast path** | The receiver runs 5 Hz always (the logger throttles writes, not the module), so the first TPV lands ≤ ~200 ms after WATCH. `query_gpsd()` grows a `want_sky=False` param that returns on the first TPV — no new access mode. A watcher thread would re-implement the logger's reconnect/staleness machinery inside Flask for marginal gain at 1 Hz; revisit only with SSE. |
+| 7 | OBD strip data path (was open C) | **Reuse `/api/status` at ~5 s** | OBD reaches the DB via MQTT ingest anyway — a "live" endpoint wouldn't be fresher than the ingest cadence. The HTTP poll isn't the bottleneck. |
+| 8 | Breadcrumb seed read (was open D) | **New `GET /api/points/recent?minutes=&limit=`** (raw tier, stride-decimated) | Keeps `/api/points`' documented processed-tier contract (importance-budgeted decimation) clean. The trail is cosmetic — stride decimation suffices, no Reumann–Witkam at read time. |
+| 9 | Nav entry | **8th top-level tab** | Crowded on phone bottom tabs but consistent; a driving view deserves top-level reach. Demote to a Map/Home affordance later if it's too tight. |
 
 ---
 
@@ -37,10 +41,7 @@ decisions inline.
 
 | # | Decision | Options | Notes |
 |---|----------|---------|-------|
-| A | gpsd read pattern | Per-request snapshot vs a cached watcher thread in Flask | Snapshot (open socket, one WATCH, close) is simple but chatty at 1 Hz. A background thread holding a persistent gpsd connection and caching the latest TPV is nicer; decide during Phase 1. |
-| B | Camera feel | Zoom curve breakpoints, pitch angle, ease duration | Start ~50° pitch, z16 crawling → z12 highway, tune on the road. What suspends follow (any gesture vs pan only) is part of this. |
-| C | OBD strip data path | Poll `/api/status` (~5 s) vs add OBD to the live endpoint | `/api/status` already aggregates OBD-when-engine-on; coolant/fuel barely change at 5 s. Only live-RPM ambitions would justify more. Lean: reuse `/api/status`. |
-| D | Breadcrumb seed read | New raw-tier read (param or endpoint) vs client-only accumulation | Client accumulation alone means an empty trail on view open. See trap 3. |
+| B | Camera feel | Zoom curve breakpoints, pitch angle, ease duration | Land Phase 2 with named constants in `follow.ts` (start ~50° pitch, z16 crawling → z12 highway, ~1 s ease, any pan/rotate suspends + recenter pill) and tune on the road. |
 
 ---
 
@@ -61,6 +62,14 @@ decisions inline.
    trail would visibly stop short of the van. Seed from raw `gps_points` for the
    trailing window, then extend client-side from live fixes.
 4. **Annotations aren't places.** No coordinates on the row (decision 5).
+5. **Map-host handoff contract.** `MapView` is a keep-alive singleton getting its
+   second consumer. Drive must apply its camera/layers on enter and remove them
+   on leave (and restore a sane camera for Map) — otherwise a pitched, course-up
+   camera or a leftover puck leaks into the history view. The riskiest
+   integration point in the plan; an explicit part of Phase 2.
+6. **Puck vs the existing live dot.** The Map view already renders a live dot
+   from `/api/points/latest`; Drive replaces it on this view. Make sure both
+   mechanisms don't render simultaneously during the handoff.
 
 ---
 
