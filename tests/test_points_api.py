@@ -173,3 +173,70 @@ def test_latest_point_returns_most_recent_raw_fix(client):
     body = client.get('/api/points/latest').get_json()
     assert body['timestamp'] == _ts(12, 40)
     assert body['lat'] == 41.0
+
+
+# ── /api/points/recent (raw-tier breadcrumb seed) ──
+
+
+def _insert_raw_recent(n, *, minutes_ago_start=10, step_s=1):
+    """Insert n raw points ending near now, spaced step_s apart."""
+    from datetime import UTC, datetime, timedelta
+
+    conn = db.get_connection()
+    start = datetime.now(UTC) - timedelta(minutes=minutes_ago_start)
+    for i in range(n):
+        ts = db.canonical_timestamp((start + timedelta(seconds=i * step_s)).isoformat())
+        conn.execute(
+            'INSERT INTO gps_points (timestamp, lat, lon) VALUES (?, ?, ?)',
+            (ts, 40.0 + i * 1e-5, -105.0),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_recent_empty_db(client):
+    body = client.get('/api/points/recent').get_json()
+    assert body['points'] == [] and body['count'] == 0 and body['raw_count'] == 0
+
+
+def test_recent_returns_window_in_time_order(client):
+    _insert_raw_recent(5)
+    body = client.get('/api/points/recent').get_json()
+    assert body['count'] == 5 and body['raw_count'] == 5
+    stamps = [p['timestamp'] for p in body['points']]
+    assert stamps == sorted(stamps)
+
+
+def test_recent_window_filter_excludes_old_points(client):
+    from datetime import UTC, datetime, timedelta
+
+    conn = db.get_connection()
+    old = db.canonical_timestamp((datetime.now(UTC) - timedelta(minutes=90)).isoformat())
+    conn.execute(
+        'INSERT INTO gps_points (timestamp, lat, lon) VALUES (?, ?, ?)', (old, 39.0, -104.0)
+    )
+    conn.commit()
+    conn.close()
+    _insert_raw_recent(3)
+
+    body = client.get('/api/points/recent?minutes=30').get_json()
+    assert body['raw_count'] == 3
+    body_wide = client.get('/api/points/recent?minutes=120').get_json()
+    assert body_wide['raw_count'] == 4
+
+
+def test_recent_stride_decimation_keeps_newest(client):
+    _insert_raw_recent(100)
+    body = client.get('/api/points/recent?limit=10').get_json()
+    assert body['raw_count'] == 100
+    assert body['count'] <= 11  # ceil(100/10)=10 strided + the guaranteed newest
+    # The newest raw fix always survives so the trail reaches the van.
+    conn = db.get_connection()
+    newest = conn.execute('SELECT timestamp FROM gps_points ORDER BY id DESC LIMIT 1').fetchone()
+    conn.close()
+    assert body['points'][-1]['timestamp'] == newest['timestamp']
+
+
+def test_recent_validation(client):
+    assert client.get('/api/points/recent?minutes=abc').status_code == 400
+    assert client.get('/api/points/recent?limit=-5').status_code == 400

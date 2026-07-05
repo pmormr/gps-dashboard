@@ -53,3 +53,57 @@ export function lerpPos(
 export function clamp01(t: number): number {
   return t < 0 ? 0 : t > 1 ? 1 : t
 }
+
+const WINDS = [
+  'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+  'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW',
+]
+
+/** 16-wind compass point for a bearing in degrees true. */
+export function cardinal(deg: number): string {
+  return WINDS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]
+}
+
+/** One Drive-breadcrumb vertex (client-side trail state). */
+export interface Crumb {
+  lat: number
+  lon: number
+  /** Fix time, epoch ms. */
+  t: number
+}
+
+/** Minimum movement before a live fix extends the breadcrumb, metres. */
+export const CRUMB_MIN_METERS = 5
+/** Trail length kept client-side (matches the seed window), ms. */
+export const CRUMB_MAX_AGE_MS = 30 * 60_000
+/** Hard cap on client-held vertices (a 30 min drive at 1 Hz would be 1800). */
+export const CRUMB_MAX_COUNT = 1200
+
+/**
+ * Extend the breadcrumb with a live fix, in place: append only when the van
+ * moved ≥ CRUMB_MIN_METERS (a parked van must not grow a fuzzball), then trim
+ * vertices older than the trail window and enforce the count cap (dropping
+ * every other oldest vertex — the far tail loses fidelity first).
+ *
+ * Returns true when the trail changed (the caller re-renders only then).
+ */
+export function extendCrumbs(
+  crumbs: Crumb[],
+  lat: number,
+  lon: number,
+  t: number,
+  distMeters: (aLat: number, aLon: number, bLat: number, bLon: number) => number,
+): boolean {
+  const last = crumbs.at(-1)
+  if (last && distMeters(last.lat, last.lon, lat, lon) < CRUMB_MIN_METERS) return false
+  crumbs.push({ lat, lon, t })
+  const cutoff = t - CRUMB_MAX_AGE_MS
+  let drop = 0
+  while (drop < crumbs.length - 1 && crumbs[drop].t < cutoff) drop++
+  if (drop > 0) crumbs.splice(0, drop)
+  if (crumbs.length > CRUMB_MAX_COUNT) {
+    const spare = crumbs.splice(0, Math.floor(crumbs.length / 2))
+    crumbs.unshift(...spare.filter((_, i) => i % 2 === 0))
+  }
+  return true
+}

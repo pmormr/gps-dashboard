@@ -124,7 +124,7 @@ asks `limit=20000`.
 ## Drive view (`/drive`)
 
 The "currently driving" view — the shared map engine under driving chrome, phases
-landing per **`plans/drive-view-plan.md`** (Phases 1–2 built 2026-07-05; HUD, OBD strip,
+landing per **`plans/drive-view-plan.md`** (Phases 1–3 built 2026-07-05; OBD strip and
 destination chevron still to come).
 
 - **Live chain** — `/api/gpsd/live` (TPV-only gpsd snapshot; reads gpsd, not the DB) →
@@ -146,6 +146,15 @@ destination chevron still to come).
   the puck, unsubscribes gestures, and eases the camera back to flat/north-up (60° if
   the 3D toggle is on); Map's own track effect refits on remount. Data layers are left
   as the user set them — Drive is the same map with a different camera.
+- **HUD** — a bottom bar (big mph, 16-wind heading + degrees, altitude ft), read from
+  the **raw** fix, not the interpolated pose (interpolation would only add display
+  lag to numbers).
+- **Breadcrumb** — seeded from `GET /api/points/recent` (raw tier — the processed
+  tier's open segment lags the processor cursor and would stop short of the van),
+  then live-extended per fresh fix via `extendCrumbs` (`lib/live.ts`): a 5 m movement
+  gate (a parked van must not grow a fuzzball), 30 min age trim, and an
+  oldest-half decimation at the count cap. Rendered as a puck-blue engine layer
+  (`MapView.setBreadcrumb`) above the red history track, below attraction pins.
 - **Wake lock** — `lib/wakelock.ts`: the real API needs a secure context (absent at
   `http://<LAN-IP>`), so production falls back to a NoSleep-style invisible looping
   video (~1.6 kB `web/src/assets/wakelock.mp4`, Vite-inlined, offline-safe; seek-back

@@ -1,6 +1,8 @@
+from datetime import UTC, datetime, timedelta
+
 from flask import Blueprint, jsonify, request
 
-from api.db import get_connection
+from api.db import canonical_timestamp, get_connection
 from api.params import parse_bbox, parse_limit, parse_time
 
 points_bp = Blueprint('points', __name__)
@@ -29,6 +31,39 @@ def latest_point():
     if row is None:
         return jsonify({'error': 'No GPS data available yet'}), 404
     return jsonify(dict(row))
+
+
+@points_bp.get('/api/points/recent')
+def recent_points():
+    """Raw-tier trailing window — the Drive view's breadcrumb seed.
+
+    Reads raw ``gps_points``, not the processed tier: the open moving segment
+    lags the processor's cursor, so a ``track_points`` trail would visibly stop
+    short of the van. The trail is cosmetic — rows are stride-decimated to the
+    ``limit`` budget (every Nth by insert order, newest fix always kept so the
+    trail reaches the van), not importance-ranked like ``/api/points``.
+    """
+    minutes, err = parse_limit(request.args, default=30, maximum=24 * 60, key='minutes')
+    if err:
+        return err
+    limit, err = parse_limit(request.args, default=500, maximum=5000)
+    if err:
+        return err
+
+    cutoff = canonical_timestamp((datetime.now(UTC) - timedelta(minutes=minutes)).isoformat())
+    conn = get_connection()
+    rows = conn.execute(
+        'SELECT timestamp, lat, lon FROM gps_points WHERE timestamp >= ? ORDER BY id',
+        (cutoff,),
+    ).fetchall()
+
+    stride = max(1, -(-len(rows) // limit))  # ceil(len/limit)
+    points = [dict(r) for r in rows[::stride]]
+    if rows and (len(rows) - 1) % stride != 0:
+        points.append(dict(rows[-1]))
+    return jsonify(
+        {'points': points, 'count': len(points), 'raw_count': len(rows), 'minutes': minutes}
+    )
 
 
 @points_bp.get('/api/points')

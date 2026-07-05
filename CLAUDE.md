@@ -102,6 +102,7 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/status` — Home glance aggregate (fix, house power, OBD + link state, cabin IAQ, GNSS health, service states)
 - `GET /api/points?start=&end=&limit=&bbox=` — trail/history from the processed tier (`track_points`), size-aware decimated: stops always kept, moving vertices fill the `limit` budget by `importance` (`truncated` ⇒ moving loss only)
 - `GET /api/points/latest` — most-recent **raw** fix (the live dot reads `gps_points`, not the processed tier)
+- `GET /api/points/recent?minutes=&limit=` — raw trailing window, stride-decimated (the Drive breadcrumb seed; the processed tier would lag the processor's cursor)
 - `GET/POST/PATCH/DELETE /api/annotations[/:id]` — user-curated bookmarks/ranges (`end_time` NULL = point bookmark)
 - `GET/POST /api/annotations/mark` — persisted `start`/`end` marks (live range construction survives reloads)
 - `GET /tiles/osm.pmtiles` · `GET /tiles/terrain.pmtiles` — vector basemap + terrain DEM archives with HTTP range support (basemaps.md)

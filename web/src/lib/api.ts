@@ -236,6 +236,25 @@ export function getGpsdLive(): Promise<LiveFix> {
   return getJSON<LiveFix>('/api/gpsd/live')
 }
 
+/** One raw-tier trailing-window point (`/api/points/recent`, Drive breadcrumb seed). */
+export interface RecentPoint {
+  timestamp: string
+  lat: number
+  lon: number
+}
+
+export interface RecentPointsResponse {
+  points: RecentPoint[]
+  count: number
+  raw_count: number
+  minutes: number
+}
+
+/** Fetch the raw trailing window, stride-decimated (Drive breadcrumb seed). */
+export function getPointsRecent(minutes: number, limit: number): Promise<RecentPointsResponse> {
+  return getJSON<RecentPointsResponse>(`/api/points/recent?minutes=${minutes}&limit=${limit}`)
+}
+
 /** Per-metric presentation metadata, mirrored from api/sensor_schema.py METRIC_META. */
 export interface MetricMeta {
   label: string

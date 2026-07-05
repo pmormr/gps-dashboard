@@ -120,8 +120,10 @@ before any HUD garnish. Each phase is independently shippable.
   marker, map-aligned rotation); wake lock (API where secure, bundled looping
   video elsewhere); leave-handoff restores a flat/north-up camera. Detail:
   `.claude/modules/frontend.md` § Drive view.
-- **Phase 3 — HUD core + breadcrumb.** Big speed (mph), compass/course, altitude;
-  trailing-window breadcrumb seeded from raw and extended live (settles D).
+- ✅ **Phase 3 — HUD core + breadcrumb** (landed 2026-07-05). Bottom HUD bar (big
+  mph, 16-wind heading, altitude ft) off the raw fix; breadcrumb seeded from the
+  new `GET /api/points/recent` (decision 8) and live-extended (`extendCrumbs`:
+  5 m movement gate, 30 min trim, count-cap decimation).
 - **Phase 4 — OBD strip.** Coolant, RPM, fuel level, fuel rate while the engine is
   on; hidden/dimmed otherwise (settles C).
 - **Phase 5 — Destination chevron.** Destination store (persists across reloads);

@@ -289,6 +289,8 @@ export const MapView = (() => {
 
   // Overlay state, the source of truth re-applied after every style load.
   let trackData: FeatureCollection = emptyFC()
+  // Drive-view breadcrumb: the raw-seeded trailing trail, live-extended.
+  let breadcrumbData: FeatureCollection = emptyFC()
   let rangeFeatures: Feature<LineString>[] = []
   let stopFeatures: Feature<Point>[] = []
   let lastTrackPoints: MapPoint[] = []
@@ -486,6 +488,22 @@ export const MapView = (() => {
         })
       }
 
+      // Drive breadcrumb above the history track/stops (the live trail is the
+      // one that must stay legible while driving), below the attraction pins.
+      // Puck-blue, vs the red history track.
+      if (!m.getSource('breadcrumb')) {
+        m.addSource('breadcrumb', { type: 'geojson', data: breadcrumbData })
+      }
+      if (!m.getLayer('breadcrumb-line')) {
+        m.addLayer({
+          id: 'breadcrumb-line',
+          type: 'line',
+          source: 'breadcrumb',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-opacity': 0.85 },
+        })
+      }
+
       // Attraction pins sit on top of the trail — they're tap targets, and the
       // track line stays visible between them. Color is data-driven per kind.
       if (!m.getSource('attractions')) {
@@ -513,6 +531,7 @@ export const MapView = (() => {
       // Sources are fresh after a style swap — push the current data back in.
       ;(m.getSource('track') as GeoJSONSource | undefined)?.setData(trackData)
       ;(m.getSource('stops') as GeoJSONSource | undefined)?.setData(stopsFC())
+      ;(m.getSource('breadcrumb') as GeoJSONSource | undefined)?.setData(breadcrumbData)
       ;(m.getSource('ann-range') as GeoJSONSource | undefined)?.setData(rangeFC())
       ;(m.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
       ;(m.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
@@ -853,6 +872,31 @@ export const MapView = (() => {
     puckMarker = null
   }
 
+  /** Replace the Drive breadcrumb polyline (pass [] to clear). */
+  function setBreadcrumb(points: { lat: number; lon: number }[]): void {
+    breadcrumbData =
+      points.length < 2
+        ? emptyFC()
+        : {
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: {
+                  type: 'LineString',
+                  coordinates: points.map((p) => [p.lon, p.lat]),
+                },
+                properties: {},
+              },
+            ],
+          }
+    if (map) (map.getSource('breadcrumb') as GeoJSONSource | undefined)?.setData(breadcrumbData)
+  }
+
+  function clearBreadcrumb(): void {
+    setBreadcrumb([])
+  }
+
   /** Hard-set the camera — the follow loop's per-frame move. No easing: the
    * live store already interpolates, and stacked easeTo calls fight each other. */
   function setCamera(pose: CameraPose): void {
@@ -992,6 +1036,8 @@ export const MapView = (() => {
     clearGhost,
     setPuck,
     clearPuck,
+    setBreadcrumb,
+    clearBreadcrumb,
     setCamera,
     easeCamera,
     onUserMove,

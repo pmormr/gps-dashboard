@@ -26,9 +26,70 @@
   color: #fca5a5;
 }
 
+/* HUD bar: pinned to the bottom edge (above the nav), dash-glanceable. */
+.drive-hud {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(15, 23, 42, 0.88);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drive-hud-speed {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+}
+
+.drive-hud-speed .num {
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.drive-hud-speed .unit {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.drive-hud-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 82px;
+}
+
+.drive-hud-cell .k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.drive-hud-cell .v {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .drive-recenter {
   position: absolute;
-  bottom: 24px;
+  bottom: 96px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
