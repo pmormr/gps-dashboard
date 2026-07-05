@@ -1,0 +1,50 @@
+/*
+ * Drive view chrome — floats over the shared map engine (same .map-region
+ * overlay pattern as the Map view). Dash-mounted use: big targets, high
+ * contrast, everything reachable without precision taps.
+ */
+
+.drive-status {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drive-status--bad {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.drive-recenter {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  pointer-events: auto;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.92);
+  border: 1px solid #60a5fa;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.drive-recenter:active {
+  transform: translateX(-50%) scale(0.97);
+}

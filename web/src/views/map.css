@@ -83,6 +83,17 @@
   background: var(--border);
 }
 
+/* Drive-view puck (engine-injected marker element — must be global). A chevron
+   pointing up = heading 0; MapLibre map-aligns the rotation to the live heading. */
+.map-puck {
+  width: 30px;
+  height: 30px;
+  clip-path: polygon(50% 0%, 90% 90%, 50% 72%, 10% 90%);
+  background: #3b82f6;
+  filter: drop-shadow(0 0 5px rgba(59, 130, 246, 0.9));
+  pointer-events: none;
+}
+
 /* Hover-scrub ghost dot (engine-injected marker element — must be global). */
 .map-ghost-dot {
   width: 14px;

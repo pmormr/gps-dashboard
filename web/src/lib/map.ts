@@ -262,6 +262,21 @@ function pinElement(): HTMLDivElement {
   return el
 }
 
+function puckElement(): HTMLDivElement {
+  const el = document.createElement('div')
+  el.className = 'map-puck'
+  return el
+}
+
+/** A camera pose the Drive follow loop hard-sets each frame. */
+export interface CameraPose {
+  lat: number
+  lon: number
+  bearing: number
+  pitch: number
+  zoom: number
+}
+
 export const MapView = (() => {
   let map: MlMap | undefined
   let currentLayer = 'osm'
@@ -300,6 +315,13 @@ export const MapView = (() => {
   // consumers can subscribe before/after init; init wires the single listener.
   let ghostMarker: Marker | null = null
   const moveEndCbs = new Set<() => void>()
+
+  // Drive-view puck (another style-swap-surviving DOM marker) + user-gesture
+  // subscribers. Gesture vs program: user input carries `originalEvent` on
+  // movestart, the follow loop's per-frame jumpTo doesn't — that's what lets
+  // "any pan/zoom suspends follow" coexist with a camera set 60×/s.
+  let puckMarker: Marker | null = null
+  const userMoveCbs = new Set<() => void>()
 
   function rangeFC(): FeatureCollection {
     return { type: 'FeatureCollection', features: rangeFeatures }
@@ -660,6 +682,9 @@ export const MapView = (() => {
     wirePhonePopup(map)
     wireAttractionInteraction(map)
     map.on('moveend', () => moveEndCbs.forEach((cb) => cb()))
+    map.on('movestart', (e) => {
+      if ((e as { originalEvent?: Event }).originalEvent) userMoveCbs.forEach((cb) => cb())
+    })
     applyBasemap(currentLayer)
   }
 
@@ -802,6 +827,65 @@ export const MapView = (() => {
     ghostMarker = null
   }
 
+  // ── Drive view: oriented puck + follow camera ──
+
+  /** Place/update the oriented van puck. Rotation is map-aligned (heading stays
+   * true under a course-up bearing); null heading points north. */
+  function setPuck(lat: number, lon: number, headingDeg: number | null): void {
+    if (!map) return
+    if (!puckMarker) {
+      puckMarker = new maplibregl.Marker({
+        element: puckElement(),
+        anchor: 'center',
+        rotationAlignment: 'map',
+        pitchAlignment: 'map',
+      })
+        .setLngLat([lon, lat])
+        .addTo(map)
+    } else {
+      puckMarker.setLngLat([lon, lat])
+    }
+    puckMarker.setRotation(headingDeg ?? 0)
+  }
+
+  function clearPuck(): void {
+    puckMarker?.remove()
+    puckMarker = null
+  }
+
+  /** Hard-set the camera — the follow loop's per-frame move. No easing: the
+   * live store already interpolates, and stacked easeTo calls fight each other. */
+  function setCamera(pose: CameraPose): void {
+    if (!map) return
+    map.jumpTo({
+      center: [pose.lon, pose.lat],
+      bearing: pose.bearing,
+      pitch: pose.pitch,
+      zoom: pose.zoom,
+    })
+  }
+
+  /** Ease the camera toward a (partial) pose — view enter/leave transitions. */
+  function easeCamera(pose: Partial<CameraPose> & { duration?: number }): void {
+    if (!map) return
+    map.easeTo({
+      ...(pose.lat != null && pose.lon != null ? { center: [pose.lon, pose.lat] as [number, number] } : {}),
+      ...(pose.bearing != null ? { bearing: pose.bearing } : {}),
+      ...(pose.pitch != null ? { pitch: pose.pitch } : {}),
+      ...(pose.zoom != null ? { zoom: pose.zoom } : {}),
+      duration: pose.duration ?? 600,
+    })
+  }
+
+  /** Subscribe to user-initiated camera moves (gesture-suspend for follow). */
+  function onUserMove(cb: () => void): void {
+    userMoveCbs.add(cb)
+  }
+
+  function offUserMove(cb: () => void): void {
+    userMoveCbs.delete(cb)
+  }
+
   /** The current viewport as a `/api/points` bbox string (W,S,E,N); null pre-init. */
   function getBbox(): string | null {
     if (!map) return null
@@ -906,6 +990,12 @@ export const MapView = (() => {
     onAttractionClick,
     setGhost,
     clearGhost,
+    setPuck,
+    clearPuck,
+    setCamera,
+    easeCamera,
+    onUserMove,
+    offUserMove,
     getBbox,
     getZoom,
     getCenter,

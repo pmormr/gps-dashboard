@@ -63,6 +63,9 @@
 
   .nav li {
     flex: 1;
+    /* Flex items default to min-width:auto — a wide label ("Attractions") would
+       refuse to shrink and push the last tab off-screen on phones. */
+    min-width: 0;
   }
 
   .navitem {
@@ -85,6 +88,13 @@
   .navitem .icon {
     font-size: 20px;
     line-height: 1;
+  }
+
+  .navitem .label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .navitem.active {
