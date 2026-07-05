@@ -111,17 +111,17 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
 - `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
 - `GET /api/attractions[/:id]` · `GET /api/attractions/events[/:id]` — POI/event browse reads; event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (attractions.md)
-- `GET /api/gpsd/sky` · `GET /api/gpsd/status` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in)
+- `GET /api/gpsd/sky` · `GET /api/gpsd/status` · `GET /api/gpsd/live` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in) + the Drive view's 1 Hz TPV-only fix poll
 - `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
 - `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band}` — ID-5100A readout/control via rigctld, **active main band only**; 502 = rig refusal, 503 = rigctld unreachable
 - `GET /api/ntp` — chrony/NTP status (Systems drill-in)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/attractions` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/attractions` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
-**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with seven destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Attractions** (`/attractions` — master-detail browser/search over the attractions tier; the map keeps only waypoints) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with eight destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Drive** (`/drive` — follow-camera driving view over the shared map engine; `plans/drive-view-plan.md`) · **Attractions** (`/attractions` — master-detail browser/search over the attractions tier; the map keeps only waypoints) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
 
 ### Basemaps & Terrain
 
@@ -167,7 +167,7 @@ gps-dashboard/
 │       ├── obd.py              # /api/obd* (OBD-II telemetry read)
 │       ├── radio.py            # /api/radio/* (Icom ID-5100A CI-V control via rigctld; /radio is SPA-served)
 │       ├── status.py           # /api/status (Home glance aggregate read)
-│       ├── status_gpsd.py      # /api/gpsd/status + /api/gpsd/sky (Systems → gpsd drill-in + skyplot)
+│       ├── status_gpsd.py      # /api/gpsd/status + /api/gpsd/sky + /api/gpsd/live (gpsd drill-in + skyplot + Drive feed)
 │       └── status_ntp.py       # /api/ntp (Systems → ntp drill-in)
 ├── common/                     # shared core library (imported across api/tools/processor)
 │   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
@@ -219,11 +219,12 @@ gps-dashboard/
 │       │   ├── attractions.ts  # attractions overlay: per-kind pin builders + viewport-driven sync (z6 gate)
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts  # view renderers/helpers
+│       │   ├── live.ts, follow.ts, wakelock.ts  # Drive view: live-fix math · follow-camera policy · screen wake lock
 │       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes)
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
-│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · attractions (browse session)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/AttractionSheet), Attractions (+AttractionDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
+│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · attractions (browse session) · live (1 Hz fix poll + interpolation)
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/AttractionSheet), Drive, Attractions (+AttractionDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures

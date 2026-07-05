@@ -1,11 +1,15 @@
 # Frontend
 
 **Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
-`static/dist/` (committed) and served by Flask. A persistent nav shell with seven
-top-level destinations (**Home · Map · Attractions · Systems · Docs · Sky · Radio**); the
-map is one tab among several, not the privileged single view it once was. Mobile-first
-(the primary client is a phone over the van's WiFi): a bottom tab bar on phones, a left
-sidebar on desktop.
+`static/dist/` (committed) and served by Flask. A persistent nav shell with eight
+top-level destinations (**Home · Map · Drive · Attractions · Systems · Docs · Sky ·
+Radio**); the map is one tab among several, not the privileged single view it once was.
+Mobile-first (the primary client is a phone over the van's WiFi): a bottom tab bar on
+phones, a left sidebar on desktop. (Tab-bar trap: flex items default to
+`min-width:auto`, so a wide label would push the last tab off-screen — `.nav li` sets
+`min-width:0` + label ellipsis. And headless Chrome on macOS floors the window at
+**500 px wide**, cropping `--screenshot` below that — measure via CDP, don't trust
+narrow screenshots.)
 
 ## Build & serve
 
@@ -47,7 +51,10 @@ sidebar on desktop.
   window — driven by the mounted TimeDock, consumed by the map trail and the density lane.
   `annotations.svelte.ts` is **axis-level** (named windows: list + jump reachable from Map
   and Trends; only the pin/polyline rendering + `pendingPan` stay map-side).
-  `layers.svelte.ts` is **map-local** (data-on-map).
+  `layers.svelte.ts` is **map-local** (data-on-map). `live.svelte.ts` is the **live
+  position feed** (Drive view, below): a refcounted 1 Hz `/api/gpsd/live` poll with rAF
+  interpolation between fixes and speed-gated heading (pure math in `lib/live.ts`,
+  Vitest-covered).
 
 ## Map view (`/map`)
 
@@ -113,6 +120,36 @@ tick, non-bbox) window load or an annotation/⊕ click — otherwise free pan/zo
 ≠ navigation). Returning to the Map tab does not refetch or refit (the store dedups; the
 camera keeps your place). Decimation is server-side + size-aware: the client always
 asks `limit=20000`.
+
+## Drive view (`/drive`)
+
+The "currently driving" view — the shared map engine under driving chrome, phases
+landing per **`plans/drive-view-plan.md`** (Phases 1–2 built 2026-07-05; HUD, OBD strip,
+destination chevron still to come).
+
+- **Live chain** — `/api/gpsd/live` (TPV-only gpsd snapshot; reads gpsd, not the DB) →
+  `stores/live.svelte.ts` (1 Hz poll, rAF interpolation one poll-interval behind real
+  time, heading speed-gated at ingest so the camera holds bearing at stoplights) →
+  Drive's follow `$effect`.
+- **Follow camera** — course-up, `FOLLOW_PITCH_DEG`, speed-scaled zoom with slew
+  rate-limiting; all knobs are named constants in `lib/follow.ts` (pure, Vitest), tuned
+  on the road. The loop `jumpTo`s per frame (the store's interpolation *is* the easing);
+  the one `easeTo` is the enter transition, and per-frame sets hold off until it ends
+  (a jumpTo would cancel it).
+- **Gesture suspend** — user input carries `originalEvent` on `movestart`, per-frame
+  jumpTo doesn't; that's how `MapView.onUserMove` tells a pan from the follow loop.
+  Suspend shows a ⌖ Recenter pill; recenter re-eases in.
+- **Puck** — `MapView.setPuck`: a map-rotation-aligned DOM marker (chevron), so it
+  survives style swaps like the ghost dot. The Map view has no live dot to conflict
+  with (its ⊕ FAB is a one-shot read).
+- **Handoff contract** — the engine is a keep-alive singleton: Drive on leave clears
+  the puck, unsubscribes gestures, and eases the camera back to flat/north-up (60° if
+  the 3D toggle is on); Map's own track effect refits on remount. Data layers are left
+  as the user set them — Drive is the same map with a different camera.
+- **Wake lock** — `lib/wakelock.ts`: the real API needs a secure context (absent at
+  `http://<LAN-IP>`), so production falls back to a NoSleep-style invisible looping
+  video (~1.6 kB `web/src/assets/wakelock.mp4`, Vite-inlined, offline-safe; seek-back
+  instead of `loop` — some iOS versions pause tiny looping videos).
 
 ## Other views
 

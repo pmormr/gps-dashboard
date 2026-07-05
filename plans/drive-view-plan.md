@@ -67,9 +67,9 @@ decisions inline.
    on leave (and restore a sane camera for Map) — otherwise a pitched, course-up
    camera or a leftover puck leaks into the history view. The riskiest
    integration point in the plan; an explicit part of Phase 2.
-6. **Puck vs the existing live dot.** The Map view already renders a live dot
-   from `/api/points/latest`; Drive replaces it on this view. Make sure both
-   mechanisms don't render simultaneously during the handoff.
+6. ~~**Puck vs the existing live dot.**~~ Resolved by inspection: the Map view
+   has no persistent live dot — `/api/points/latest` only feeds the one-shot
+   ⊕ recenter FAB. The Drive puck is the only live marker; no conflict.
 
 ---
 
@@ -110,12 +110,16 @@ decisions inline.
 Sequenced so the follow camera — the thing that makes it a *driving* view — lands
 before any HUD garnish. Each phase is independently shippable.
 
-- **Phase 1 — Live feed.** `GET /api/gpsd/live` (TPV: lat/lon, speed, track, alt,
-  climb, mode, fix age) + the `live` store: 1 Hz poll, rAF interpolation between
-  fixes, speed-gated heading, stale/offline state. Settle open decision A here.
-- **Phase 2 — `/drive` + follow camera.** New route on the map host; `follow.ts`
-  (course-up bearing, pitch, speed-scaled zoom, gesture-suspend + recenter pill);
-  oriented puck replacing the plain live dot on this view; wake-lock video trick.
+- ✅ **Phase 1 — Live feed** (landed 2026-07-05). `GET /api/gpsd/live` (TPV-only
+  snapshot, server-computed fix age) + `stores/live.svelte.ts` (1 Hz poll, rAF
+  interpolation, speed-gated heading via pure `lib/live.ts`, stale/offline state).
+- ✅ **Phase 2 — `/drive` + follow camera** (landed 2026-07-05, **road tuning
+  pending**). Route + 8th nav tab; `follow.ts` constants (course-up, 50° pitch,
+  speed-zoom + slew); gesture-suspend (`originalEvent` on movestart distinguishes
+  a real gesture from the per-frame jumpTo) + recenter pill; chevron puck (DOM
+  marker, map-aligned rotation); wake lock (API where secure, bundled looping
+  video elsewhere); leave-handoff restores a flat/north-up camera. Detail:
+  `.claude/modules/frontend.md` § Drive view.
 - **Phase 3 — HUD core + breadcrumb.** Big speed (mph), compass/course, altitude;
   trailing-window breadcrumb seeded from raw and extended live (settles D).
 - **Phase 4 — OBD strip.** Coolant, RPM, fuel level, fuel rate while the engine is
