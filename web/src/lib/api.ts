@@ -211,6 +211,31 @@ export function getGpsdStatus(): Promise<GpsdStatus> {
   return getJSON<GpsdStatus>('/api/gpsd/status')
 }
 
+/** One live fix from `/api/gpsd/live` — the Drive view's 1 Hz poll payload. */
+export interface LiveFix {
+  connected: boolean
+  mode: number
+  fix_label: string
+  lat: number | null
+  lon: number | null
+  /** Doppler ground speed, m/s. */
+  speed: number | null
+  /** Course over ground, degrees true — noise below ~1 m/s (heading gate). */
+  track: number | null
+  /** Altitude (MSL preferred), metres. */
+  alt: number | null
+  /** Vertical speed, m/s. */
+  climb: number | null
+  time: string | null
+  /** Fix age computed server-side, seconds — no client/Pi clock agreement needed. */
+  fix_age_s: number | null
+}
+
+/** Fetch the freshest gpsd fix (TPV-only snapshot; Drive's live feed). */
+export function getGpsdLive(): Promise<LiveFix> {
+  return getJSON<LiveFix>('/api/gpsd/live')
+}
+
 /** Per-metric presentation metadata, mirrored from api/sensor_schema.py METRIC_META. */
 export interface MetricMeta {
   label: string

@@ -136,6 +136,53 @@ def gpsd_status_api():
     return jsonify(_collect())
 
 
+@status_gpsd_bp.get('/api/gpsd/live')
+def gpsd_live():
+    """Freshest gpsd fix, for the Drive view's 1 Hz live poll.
+
+    A TPV-only snapshot (``want_sky=False`` — returns on the first report,
+    ≤ ~200 ms at the receiver's 5 Hz nav rate) with a tight timeout so a dead
+    gpsd fails the poll fast instead of hanging it. Reads gpsd directly, not
+    the DB: the live view must not wait on the logger's write path. ``alt``
+    prefers MSL (the value a driving HUD should show); ``fix_age_s`` is
+    computed server-side so the client needs no clock agreement with the Pi.
+
+    Returns:
+        JSON dict with ``connected``, ``mode``/``fix_label``, ``lat``, ``lon``,
+        ``speed`` (m/s), ``track`` (deg COG), ``alt`` (m), ``climb`` (m/s),
+        ``time`` (TPV ISO time), and ``fix_age_s`` — position fields null
+        without a fix.
+    """
+    gpsd = query_gpsd(timeout=2, want_sky=False)
+    tpv = gpsd['tpv']
+    mode = tpv.get('mode', 0)
+
+    fix_age_s = None
+    tpv_time = tpv.get('time')
+    if tpv_time:
+        try:
+            ts = datetime.fromisoformat(tpv_time.replace('Z', '+00:00'))
+            fix_age_s = round(max(0.0, (datetime.now(UTC) - ts).total_seconds()), 2)
+        except ValueError:
+            pass
+
+    return jsonify(
+        {
+            'connected': gpsd['connected'],
+            'mode': mode,
+            'fix_label': FIX_LABELS.get(mode, 'Unknown'),
+            'lat': tpv.get('lat'),
+            'lon': tpv.get('lon'),
+            'speed': tpv.get('speed'),
+            'track': tpv.get('track'),
+            'alt': tpv.get('altMSL', tpv.get('alt')),
+            'climb': tpv.get('climb'),
+            'time': tpv_time,
+            'fix_age_s': fix_age_s,
+        }
+    )
+
+
 @status_gpsd_bp.get('/api/gpsd/sky')
 def gpsd_sky():
     """Live satellite sky sourced straight from gpsd's SKY message.

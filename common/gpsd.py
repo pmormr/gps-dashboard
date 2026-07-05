@@ -30,16 +30,21 @@ FIX_LABELS = {0: 'Unknown', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix'}
 GNSS_NAMES = {0: 'GPS', 1: 'SBAS', 2: 'Galileo', 3: 'BeiDou', 4: 'IMES', 5: 'QZSS', 6: 'GLONASS'}
 
 
-def query_gpsd(timeout: float = 5) -> dict[str, Any]:
+def query_gpsd(timeout: float = 5, want_sky: bool = True) -> dict[str, Any]:
     """Open a short-lived gpsd socket and snapshot the first TPV and SKY reports.
 
-    Sends a WATCH request, then reads until both a TPV and a SKY report have
-    arrived or ``timeout`` elapses, whichever comes first. Never raises — a
-    refused or timed-out socket yields ``connected=False`` with empty reports, so
-    callers branch on the returned dict rather than handling exceptions.
+    Sends a WATCH request, then reads until the wanted reports have arrived or
+    ``timeout`` elapses, whichever comes first. Never raises — a refused or
+    timed-out socket yields ``connected=False`` with empty reports, so callers
+    branch on the returned dict rather than handling exceptions.
+
+    With ``want_sky=False`` the read returns on the first TPV — the receiver
+    emits TPV at its full nav rate (5 Hz), so this path lands in ≤ ~200 ms and
+    is cheap enough to poll (the Drive view's live feed).
 
     Args:
         timeout: Combined socket and read-loop budget, in seconds.
+        want_sky: Whether to also wait for a SKY report.
 
     Returns:
         ``{'connected': bool, 'tpv': dict, 'sky': dict}`` — ``tpv`` and ``sky``
@@ -66,7 +71,7 @@ def query_gpsd(timeout: float = 5) -> dict[str, Any]:
                 result['tpv'] = r
             elif cls == 'SKY' and not result['sky']:
                 result['sky'] = r
-            if result['tpv'] and result['sky']:
+            if result['tpv'] and (result['sky'] or not want_sky):
                 break
         s.close()
     except Exception:
