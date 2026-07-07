@@ -169,8 +169,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- other streams. Published by sensors/system_reader.py (one row per 30s snapshot)
         -- from stdlib /proc + /sys + vcgencmd reads, so rows join gps_points on the
         -- canonical ms grid. `throttled` is the raw vcgencmd get_throttled bitmask
-        -- (0 = healthy; INTEGER like the Victron enum columns); the rest are
-        -- measurements. Column set mirrors api/sensor_schema.py's 'system' metrics.
+        -- (0 = healthy; INTEGER like the Victron enum columns); the *_now columns are
+        -- its live (currently-active) bits split into 0/1 channels at poll time, so
+        -- "when did it throttle" is a chartable series rather than a sticky since-boot
+        -- flag. Column set mirrors api/sensor_schema.py's 'system' metrics.
         CREATE TABLE IF NOT EXISTS system_readings (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id         INTEGER NOT NULL,
@@ -182,7 +184,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             disk_nvme_pct     REAL,
             disk_nvme_free_gb REAL,
             uptime_s          REAL,
-            throttled         INTEGER
+            throttled         INTEGER,
+            undervolt_now     INTEGER,
+            freq_capped_now   INTEGER,
+            throttled_now     INTEGER,
+            temp_limit_now    INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_system_sensor_time
             ON system_readings(sensor_id, timestamp);
@@ -542,3 +548,40 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON phone_activities(start_time);
     """)
     conn.commit()
+    _migrate_live_throttle_channels(conn)
+
+
+#: Mirrors sensors/system_reader.py LIVE_THROTTLE_CHANNELS (not imported — api does
+#: not depend on the sensors package, and this migration is temporary anyway).
+_LIVE_THROTTLE_COLUMNS: dict[str, int] = {
+    'undervolt_now': 0x1,
+    'freq_capped_now': 0x2,
+    'throttled_now': 0x4,
+    'temp_limit_now': 0x8,
+}
+
+
+def _migrate_live_throttle_channels(conn: sqlite3.Connection) -> None:
+    """One-shot: add the live-throttle 0/1 columns and backfill from the bitmask.
+
+    Gated on the column add, so steady-state startups pay one PRAGMA. The backfill
+    is pure SQL — each channel is a bit-mask of the already-stored raw ``throttled``
+    (NULL bitmask rows stay NULL). Drop once landed on the Pi's DB, like the earlier
+    one-shot migrations.
+    """
+    # Positional index — callers pass connections with and without a row factory.
+    existing = {row[1] for row in conn.execute('PRAGMA table_info(system_readings)')}
+    missing = [col for col in _LIVE_THROTTLE_COLUMNS if col not in existing]
+    if not missing:
+        return
+    for col in missing:
+        conn.execute(f'ALTER TABLE system_readings ADD COLUMN {col} INTEGER')
+    assignments = ', '.join(
+        f'{col} = (throttled & {bit}) != 0' for col, bit in _LIVE_THROTTLE_COLUMNS.items()
+    )
+    backfilled = conn.execute(f'UPDATE system_readings SET {assignments}').rowcount
+    conn.commit()
+    print(
+        f'Migration: added system_readings column(s) {", ".join(missing)}; '
+        f'backfilled {backfilled} row(s)'
+    )

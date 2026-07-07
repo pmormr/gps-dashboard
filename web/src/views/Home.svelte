@@ -265,7 +265,9 @@
     if (!s.pi) {
       panels.push(empty('Pi'))
     } else {
-      const throttled = (s.pi.throttled ?? 0) !== 0
+      // Live bits only (0xF): the sticky since-boot flags (bits 16+) never clear
+      // until reboot, so warning on them latches forever after one boot blip.
+      const throttled = ((s.pi.throttled ?? 0) & 0xf) !== 0
       panels.push({
         name: 'Pi',
         headline: `${r1(s.pi.cpu_temp_c)}°C`,

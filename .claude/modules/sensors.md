@@ -95,7 +95,13 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   `os.getloadavg`, or `vcgencmd`, and each read is defensive (an absent source yields
   None for that one metric, so it degrades cleanly off-Pi). Not gated: the Pi is always
   on, so it runs continuously like Victron. `--fake` mode for desk testing. `throttled`
-  is stored raw (0 = healthy), a cell like the Victron enum states rather than plotted.
+  is stored raw (0 = healthy), a cell like the Victron enum states rather than plotted;
+  its **live** bits (0xF) are additionally split at poll time into chartable 0/1
+  channels (`undervolt_now`/`freq_capped_now`/`throttled_now`/`temp_limit_now`) so
+  Trends shows *when* a condition was active — the sticky since-boot bits only clear
+  on reboot (no firmware reset exists), so they carry no time information, and the
+  Home glance warns on live bits only for the same reason. Sub-poll blips can fall
+  between 30 s snapshots (accepted; the sticky bits still latch them).
 - **OpenWrt reader** (`sensors/openwrt_reader.py`) — network infra as a sensor:
   SSH-polls a router (van-edge; multi-target via `--host/--node`, ifaces via
   `--wan-iface/--halow-iface`) in **one `sh -s` round-trip per 30 s poll** — a fixed

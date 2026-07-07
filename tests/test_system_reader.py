@@ -18,6 +18,7 @@ from sensors.system_reader import (
     parse_throttled,
     read_cpu_temp_c,
     read_uptime_s,
+    split_live_throttle,
 )
 
 SCHEMA_COLUMNS = set(READING_TABLES['system']['metrics'])
@@ -55,6 +56,35 @@ def test_parse_throttled() -> None:
     assert parse_throttled('0x0') == 0
     assert parse_throttled('') is None
     assert parse_throttled('throttled=nope') is None
+
+
+def test_split_live_throttle() -> None:
+    """Live bits map to their 0/1 channels; sticky bits are ignored; None passes through."""
+    assert split_live_throttle(0) == {
+        'undervolt_now': 0,
+        'freq_capped_now': 0,
+        'throttled_now': 0,
+        'temp_limit_now': 0,
+    }
+    assert split_live_throttle(0x50005) == {
+        'undervolt_now': 1,
+        'freq_capped_now': 0,
+        'throttled_now': 1,
+        'temp_limit_now': 0,
+    }
+    # Sticky-only mask (post-event, condition cleared): every live channel reads 0.
+    assert split_live_throttle(0xF0000) == {
+        'undervolt_now': 0,
+        'freq_capped_now': 0,
+        'throttled_now': 0,
+        'temp_limit_now': 0,
+    }
+    assert split_live_throttle(None) == {
+        'undervolt_now': None,
+        'freq_capped_now': None,
+        'throttled_now': None,
+        'temp_limit_now': None,
+    }
 
 
 def test_disk_usage_real() -> None:

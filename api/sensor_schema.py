@@ -162,6 +162,10 @@ READING_TABLES: dict[str, ReadingTable] = {
             'disk_nvme_free_gb',
             'uptime_s',
             'throttled',
+            'undervolt_now',
+            'freq_capped_now',
+            'throttled_now',
+            'temp_limit_now',
         ],
     },
 }
@@ -405,6 +409,13 @@ METRIC_META: dict[str, MetricMeta] = {
     'throttled': _m(
         'Throttled', dec=0, chart=False, group='compute', codec='bitmask', codes=_THROTTLED_BITS
     ),
+    # Live throttle bits split into chartable 0/1 channels (sensors/system_reader.py),
+    # so Trends shows *when* each condition was active — the sticky bits in the raw
+    # bitmask above only say "since boot". Bucket-averaging reads as duty cycle.
+    'undervolt_now': _m('Under-volt', dec=0, color=_YELLOW, y_range=[0, 1], group='compute'),
+    'freq_capped_now': _m('Freq-capped', dec=0, color=_PURPLE, y_range=[0, 1], group='compute'),
+    'throttled_now': _m('Throttling', dec=0, color=_ORANGE, y_range=[0, 1], group='compute'),
+    'temp_limit_now': _m('Temp limit', dec=0, color=_ROSE, y_range=[0, 1], group='compute'),
     # OpenWrt router node (van-edge; multi-target later). load_1m / mem_used_pct /
     # uptime_s are shared with the Pi 'system' stream above. wan_up is interface
     # state; wan_ping_ms is the internet-actually-works signal (NULL when dark).

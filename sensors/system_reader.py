@@ -173,6 +173,36 @@ def read_throttled() -> int | None:
     return parse_throttled(out)
 
 
+#: Live (currently-active) bits of the throttled bitmask, published as their own 0/1
+#: channels so "when was it throttled/overheated/under-volt" is answerable from the
+#: reading history. The sticky since-boot bits (16+) are deliberately not split: they
+#: only clear on reboot, so they carry no time information beyond the raw bitmask.
+LIVE_THROTTLE_CHANNELS: dict[str, int] = {
+    'undervolt_now': 0x1,
+    'freq_capped_now': 0x2,
+    'throttled_now': 0x4,
+    'temp_limit_now': 0x8,
+}
+
+
+def split_live_throttle(mask: int | None) -> dict[str, int | None]:
+    """Split the live throttle bits into per-condition 0/1 channels.
+
+    Sampled at poll time, so a condition shorter than the read interval can fall
+    between snapshots — an accepted trade-off; the sticky bits still latch those.
+
+    Args:
+        mask: The raw ``get_throttled`` bitmask, or None off-Pi.
+
+    Returns:
+        ``{channel: 0|1}`` per :data:`LIVE_THROTTLE_CHANNELS`, all None when the
+        bitmask itself is unavailable.
+    """
+    if mask is None:
+        return dict.fromkeys(LIVE_THROTTLE_CHANNELS)
+    return {name: 1 if mask & bit else 0 for name, bit in LIVE_THROTTLE_CHANNELS.items()}
+
+
 class SystemSensor:
     """The Pi's own host metrics, gathered from stdlib sources on each read."""
 
@@ -193,6 +223,7 @@ class SystemSensor:
         """
         root_pct, _ = disk_usage(ROOT_PATH)
         nvme_pct, nvme_free_gb = disk_usage(self._nvme_path)
+        throttled = read_throttled()
         return {
             'cpu_temp_c': read_cpu_temp_c(),
             'load_1m': read_load_1m(),
@@ -201,7 +232,8 @@ class SystemSensor:
             'disk_nvme_pct': nvme_pct,
             'disk_nvme_free_gb': nvme_free_gb,
             'uptime_s': read_uptime_s(),
-            'throttled': read_throttled(),
+            'throttled': throttled,
+            **split_live_throttle(throttled),
         }
 
 
@@ -231,6 +263,7 @@ class FakeSystemSensor:
             bounded_walk(self._state, self._BASELINES, scale=0.02, round_to=1)
         )
         snapshot['throttled'] = 0
+        snapshot.update(split_live_throttle(0))
         return snapshot
 
 
