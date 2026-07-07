@@ -12,6 +12,9 @@ Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
 # rsync --inplace to the NAS current/ copy → dated NAS-side copy + prune.
 # A no-op when rex-nas is unreachable (boondocking) — the tool preflights the
 # SSH host and exits 0, keeping the fresh on-NVMe snapshot either way.
+# --rsync-dir is the same root module-relative: UGOS's patched rsync rejects
+# absolute paths over SSH and resolves relative ones via its rsyncd modules.
 ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.backup_db \
     --snap /mnt/nvme/backup/gps_history.snap.db \
-    --ssh rex-nas --remote-dir /volume1/backups/gps-dashboard
+    --ssh rex-nas --remote-dir /volume1/backups/gps-dashboard \
+    --rsync-dir backups/gps-dashboard

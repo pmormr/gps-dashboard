@@ -9,7 +9,9 @@ or on-grid via WireGuard. Each run:
    snapshot doubles as an on-NVMe corruption-recovery point.
 2. Preflights the NAS over SSH; unreachable (boondocking) is a clean no-op.
 3. rsyncs the snapshot ``--inplace`` onto ``<remote-dir>/current/gps_history.db``
-   — an append-mostly DB transfers only changed pages (HaLow-friendly).
+   — an append-mostly DB transfers only changed pages (HaLow-friendly). rsync
+   addresses the NAS by ``--rsync-dir`` (module-relative), not ``--remote-dir``
+   — see :func:`push_current` for the UGOS path-validation trap.
 4. Makes the day's dated copy ``<remote-dir>/history/gps_history-YYYY-MM-DD.db``
    NAS-side (``cp --reflink=auto``: free extent sharing on btrfs, plain copy
    elsewhere; no extra wire cost). First successful run of the UTC day wins.
@@ -172,18 +174,22 @@ def remote_sh(host: str, script: str, timeout: float = 60) -> tuple[int, str, st
     return result.returncode, result.stdout, result.stderr
 
 
-def push_current(host: str, snap_path: Path, remote_dir: str) -> None:
+def push_current(host: str, snap_path: Path, rsync_dir: str) -> None:
     """rsync the snapshot onto the NAS ``current/`` copy, delta-transferred.
 
     Args:
         host: The SSH destination.
         snap_path: The local snapshot file.
-        remote_dir: The NAS backup root.
+        rsync_dir: The backup root as rsync must address it. UGOS's patched
+            rsync rejects absolute paths even over SSH transport and resolves
+            relative paths through the ``/etc/rsyncd.conf`` module table, so
+            this is module-relative (``backups/...``) while the plain SSH
+            steps (mkdir/cp/ls/rm) keep the absolute ``--remote-dir``.
 
     Raises:
         RuntimeError: If rsync fails.
     """
-    dest = f'{host}:{remote_dir}/current/{DB_NAME}'
+    dest = f'{host}:{rsync_dir}/current/{DB_NAME}'
     result = subprocess.run(
         ['rsync', '--inplace', '--timeout=300', '-e', 'ssh -o BatchMode=yes', str(snap_path), dest],
         capture_output=True,
@@ -280,8 +286,8 @@ def run(args: argparse.Namespace) -> int:
         print(f'Remote mkdir failed ({code}): {err.strip()}', file=sys.stderr, flush=True)
         return 1
 
-    print(f'Pushing to {args.ssh}:{remote_dir}/current/{DB_NAME}', flush=True)
-    push_current(args.ssh, snap_path, remote_dir)
+    print(f'Pushing to {args.ssh}:{args.rsync_dir}/current/{DB_NAME}', flush=True)
+    push_current(args.ssh, snap_path, args.rsync_dir.rstrip('/'))
 
     today = datetime.now(UTC).date()
     if ensure_dated_copy(args.ssh, remote_dir, today):
@@ -317,7 +323,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--remote-dir',
         default='/volume1/backups/gps-dashboard',
-        help='NAS backup root (current/ + history/ live under it)',
+        help='NAS backup root (current/ + history/ live under it), as SSH commands see it',
+    )
+    parser.add_argument(
+        '--rsync-dir',
+        default='backups/gps-dashboard',
+        help='the same root as rsync must address it — UGOS rsync rejects absolute'
+        ' paths and maps relative ones via its rsyncd module table',
     )
     parser.add_argument('--keep-daily', type=int, default=7, help='recent days to keep')
     parser.add_argument(
