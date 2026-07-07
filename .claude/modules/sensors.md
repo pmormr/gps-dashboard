@@ -99,9 +99,13 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   its **live** bits (0xF) are additionally split at poll time into chartable 0/1
   channels (`undervolt_now`/`freq_capped_now`/`throttled_now`/`temp_limit_now`) so
   Trends shows *when* a condition was active — the sticky since-boot bits only clear
-  on reboot (no firmware reset exists), so they carry no time information, and the
-  Home glance warns on live bits only for the same reason. Sub-poll blips can fall
-  between 30 s snapshots (accepted; the sticky bits still latch them).
+  on reboot (no firmware reset exists), so their level carries no time information,
+  and the Home glance warns on live bits only for the same reason. Sub-poll blips
+  (in practice most events: six days of readings latched sticky bits with zero live
+  catches) are recovered from sticky-bit *transitions* — a sticky bit newly latching
+  between consecutive polls pulses that condition's channel for one sample, so the
+  channels read "active at poll time, or occurred since the previous poll". A reader
+  restart re-baselines: pre-existing sticky bits are boot history, not events.
 - **OpenWrt reader** (`sensors/openwrt_reader.py`) — network infra as a sensor:
   SSH-polls a router (van-edge; multi-target via `--host/--node`, ifaces via
   `--wan-iface/--halow-iface`) in **one `sh -s` round-trip per 30 s poll** — a fixed

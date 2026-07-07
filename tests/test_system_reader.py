@@ -13,6 +13,7 @@ from api.sensor_schema import READING_TABLES
 from sensors.system_reader import (
     FakeSystemSensor,
     SystemSensor,
+    apply_sticky_transitions,
     disk_usage,
     parse_mem_used_pct,
     parse_throttled,
@@ -85,6 +86,36 @@ def test_split_live_throttle() -> None:
         'throttled_now': None,
         'temp_limit_now': None,
     }
+
+
+def test_sticky_transition_pulses_channel() -> None:
+    """A sticky bit newly latching between polls flags its channel for one sample."""
+    # Poll N: healthy. Poll N+1: sticky under-volt + throttled appeared, nothing live.
+    channels = split_live_throttle(0x50000)
+    baseline = apply_sticky_transitions(channels, 0x50000, prev_sticky=0x0)
+    assert baseline == 0x5
+    assert channels['undervolt_now'] == 1
+    assert channels['throttled_now'] == 1
+    assert channels['freq_capped_now'] == 0
+    assert channels['temp_limit_now'] == 0
+    # Poll N+2: same sticky bits — no new event, channels stay live-only.
+    channels = split_live_throttle(0x50000)
+    assert apply_sticky_transitions(channels, 0x50000, prev_sticky=baseline) == 0x5
+    assert all(channels[name] == 0 for name in channels)
+
+
+def test_sticky_transitions_first_read_only_baselines() -> None:
+    """Pre-existing sticky bits on the first successful read are not events."""
+    channels = split_live_throttle(0x50000)
+    assert apply_sticky_transitions(channels, 0x50000, prev_sticky=None) == 0x5
+    assert all(channels[name] == 0 for name in channels)
+
+
+def test_sticky_transitions_failed_read_keeps_baseline() -> None:
+    """A failed vcgencmd poll leaves the channels None and the baseline untouched."""
+    channels = split_live_throttle(None)
+    assert apply_sticky_transitions(channels, None, prev_sticky=0x1) == 0x1
+    assert all(channels[name] is None for name in channels)
 
 
 def test_disk_usage_real() -> None:

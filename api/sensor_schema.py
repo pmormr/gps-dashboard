@@ -411,7 +411,9 @@ METRIC_META: dict[str, MetricMeta] = {
     ),
     # Live throttle bits split into chartable 0/1 channels (sensors/system_reader.py),
     # so Trends shows *when* each condition was active — the sticky bits in the raw
-    # bitmask above only say "since boot". Bucket-averaging reads as duty cycle.
+    # bitmask above only say "since boot". Bucket-averaging reads as duty cycle. A
+    # condition too brief for any poll to catch live still pulses one sample: the
+    # reader flags a sticky bit newly latching between consecutive polls.
     'undervolt_now': _m('Under-volt', dec=0, color=_YELLOW, y_range=[0, 1], group='compute'),
     'freq_capped_now': _m('Freq-capped', dec=0, color=_PURPLE, y_range=[0, 1], group='compute'),
     'throttled_now': _m('Throttling', dec=0, color=_ORANGE, y_range=[0, 1], group='compute'),

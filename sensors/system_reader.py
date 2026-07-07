@@ -175,8 +175,9 @@ def read_throttled() -> int | None:
 
 #: Live (currently-active) bits of the throttled bitmask, published as their own 0/1
 #: channels so "when was it throttled/overheated/under-volt" is answerable from the
-#: reading history. The sticky since-boot bits (16+) are deliberately not split: they
-#: only clear on reboot, so they carry no time information beyond the raw bitmask.
+#: reading history. The sticky since-boot bits (16+) are not split — they only clear
+#: on reboot, so their *level* carries no time information — but their transitions
+#: do, and pulse these channels via :func:`apply_sticky_transitions`.
 LIVE_THROTTLE_CHANNELS: dict[str, int] = {
     'undervolt_now': 0x1,
     'freq_capped_now': 0x2,
@@ -187,9 +188,6 @@ LIVE_THROTTLE_CHANNELS: dict[str, int] = {
 
 def split_live_throttle(mask: int | None) -> dict[str, int | None]:
     """Split the live throttle bits into per-condition 0/1 channels.
-
-    Sampled at poll time, so a condition shorter than the read interval can fall
-    between snapshots — an accepted trade-off; the sticky bits still latch those.
 
     Args:
         mask: The raw ``get_throttled`` bitmask, or None off-Pi.
@@ -203,6 +201,44 @@ def split_live_throttle(mask: int | None) -> dict[str, int | None]:
     return {name: 1 if mask & bit else 0 for name, bit in LIVE_THROTTLE_CHANNELS.items()}
 
 
+#: The sticky "has occurred since boot" bits sit 16 left of their live twins.
+STICKY_SHIFT = 16
+
+
+def apply_sticky_transitions(
+    channels: dict[str, int | None], mask: int | None, prev_sticky: int | None
+) -> int | None:
+    """Flag channels whose sticky bit newly latched since the previous poll.
+
+    The sticky bits only ever gain bits until reboot, so one appearing between two
+    consecutive polls means the condition occurred within that window even when it
+    was too brief for any poll to catch live — in practice most events are (the
+    first six days of readings latched sticky bits with zero live catches). The
+    channel therefore reads "active at poll time, or occurred since the previous
+    poll". A ``prev_sticky`` of None (first successful read of this process) only
+    baselines: pre-existing sticky bits are boot history, not events.
+
+    Args:
+        channels: Live channels from :func:`split_live_throttle`, mutated in place.
+        mask: The current raw bitmask, or None on a failed read.
+        prev_sticky: The previous baseline, or None before the first good read.
+
+    Returns:
+        The sticky baseline to carry forward — the current sticky bits, or
+        ``prev_sticky`` unchanged when this poll's read failed (sticky bits can't
+        clear mid-boot, so a stale baseline stays valid).
+    """
+    if mask is None:
+        return prev_sticky
+    sticky = (mask >> STICKY_SHIFT) & 0xF
+    if prev_sticky is not None:
+        new_bits = sticky & ~prev_sticky
+        for name, bit in LIVE_THROTTLE_CHANNELS.items():
+            if new_bits & bit:
+                channels[name] = 1
+    return sticky
+
+
 class SystemSensor:
     """The Pi's own host metrics, gathered from stdlib sources on each read."""
 
@@ -211,6 +247,7 @@ class SystemSensor:
         nvme_path: Mount point of the NVMe filesystem to report.
         """
         self._nvme_path = nvme_path
+        self._last_sticky: int | None = None
 
     def read(self) -> Reading | None:
         """Return one host-metrics snapshot.
@@ -224,6 +261,8 @@ class SystemSensor:
         root_pct, _ = disk_usage(ROOT_PATH)
         nvme_pct, nvme_free_gb = disk_usage(self._nvme_path)
         throttled = read_throttled()
+        channels = split_live_throttle(throttled)
+        self._last_sticky = apply_sticky_transitions(channels, throttled, self._last_sticky)
         return {
             'cpu_temp_c': read_cpu_temp_c(),
             'load_1m': read_load_1m(),
@@ -233,7 +272,7 @@ class SystemSensor:
             'disk_nvme_free_gb': nvme_free_gb,
             'uptime_s': read_uptime_s(),
             'throttled': throttled,
-            **split_live_throttle(throttled),
+            **channels,
         }
 
 
