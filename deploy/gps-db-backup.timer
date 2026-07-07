@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic GPS history DB backup
+
+[Timer]
+# 6-hourly mirrors gps-drone-sync: deltas are a few MB per run (HaLow-friendly)
+# and the loss window stays hours while parked at home; away-runs no-op.
+OnBootSec=15min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -23,12 +23,13 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` is a timer-driven oneshot, not restarted (its timer is idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` and `gps-db-backup` are timer-driven oneshots, not restarted (their timers are idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
 - `/mnt/nvme/gps-dashboard` — working tree (overwritten by deploys)
 - `/mnt/nvme/data/gps_history.db` — database (persists across deploys)
+- `/mnt/nvme/backup/gps_history.snap.db` — consistent DB snapshot, refreshed 6-hourly by `gps-db-backup.timer` and pushed to rex-nas `/volume1/backups/gps-dashboard/` when reachable (retention + restore procedure → `tools/backup_db.py` docstring)
 - `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
 - `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
 - `/mnt/nvme/tiles/northamerica-terrain.pmtiles` — terrain (Mapzen Terrarium) PMTiles archive, ~105 GB (persists across deploys)
@@ -243,6 +244,7 @@ gps-dashboard/
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
+│   ├── backup_db.py            # DB snapshot + opportunistic rsync to rex-nas + retention (gps-db-backup.timer)
 │   ├── import_attractions.py   # NPS API + RIDB export → attractions tier (.claude/modules/attractions.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
@@ -262,6 +264,8 @@ gps-dashboard/
 │   ├── sensor-dahua.service     # enabled-gated Dahua fleet reader unit (5 nodes; secret via /etc/default/gps-dahua)
 │   ├── gps-drone-sync.service   # timer-driven DJI footage import (Pi → NAS container)
 │   ├── gps-drone-sync.timer
+│   ├── gps-db-backup.service    # timer-driven DB backup (snapshot → rsync to rex-nas /volume1)
+│   ├── gps-db-backup.timer
 │   ├── radio-control.service    # enabled-gated rigctld (Icom ID-5100A CI-V; /dev/icom-civ)
 │   ├── exiftool.Dockerfile      # pinned ExifTool ≥13.x image, built on the NAS
 │   ├── chrony-gps-only.conf
