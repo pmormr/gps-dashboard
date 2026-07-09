@@ -34,6 +34,7 @@ decisions inline.
 | 7 | OBD strip data path (was open C) | **Reuse `/api/status` at ~5 s** | OBD reaches the DB via MQTT ingest anyway — a "live" endpoint wouldn't be fresher than the ingest cadence. The HTTP poll isn't the bottleneck. |
 | 8 | Breadcrumb seed read (was open D) | **New `GET /api/points/recent?minutes=&limit=`** (raw tier, stride-decimated) | Keeps `/api/points`' documented processed-tier contract (importance-budgeted decimation) clean. The trail is cosmetic — stride decimation suffices, no Reumann–Witkam at read time. |
 | 9 | Nav entry | **8th top-level tab** | Crowded on phone bottom tabs but consistent; a driving view deserves top-level reach. Demote to a Map/Home affordance later if it's too tight. |
+| 10 | Destination shape | **Value snapshot, never a reference** — `{name, lat, lon}` + provenance-only `source`/`sourceId` | Attractions imports are full-replace, so row ids aren't stable — a persisted id could orphan or silently retarget. Every producer (attraction, dropped pin, later a saved place / trip stop) materializes into the same shape; navigation attaches its route *alongside*, not inside. **Cross-plan interface** — `plans/navigation-plan.md` and `plans/trip-planner-plan.md` both build on it. |
 
 ---
 
@@ -41,7 +42,7 @@ decisions inline.
 
 | # | Decision | Options | Notes |
 |---|----------|---------|-------|
-| B | Camera feel | Zoom curve breakpoints, pitch angle, ease duration | Land Phase 2 with named constants in `follow.ts` (start ~50° pitch, z16 crawling → z12 highway, ~1 s ease, any pan/rotate suspends + recenter pill) and tune on the road. |
+| B | Camera feel | Zoom curve breakpoints, pitch angle, ease duration | First road test (reported 2026-07-09): pitch good; zoom too far out across the board, worst at low speed → retuned `ZOOM_MAX` 16→17, `ZOOM_MIN` 12→13. Labels were hard to read → vector `text-size` ×1.4 while Drive owns the map (`LABEL_SCALE`). Still open until a drive confirms the new values. |
 
 ---
 
@@ -124,16 +125,33 @@ before any HUD garnish. Each phase is independently shippable.
   mph, 16-wind heading, altitude ft) off the raw fix; breadcrumb seeded from the
   new `GET /api/points/recent` (decision 8) and live-extended (`extendCrumbs`:
   5 m movement gate, 30 min trim, count-cap decimation).
-- **Phase 4 — OBD strip.** Coolant, RPM, fuel level, fuel rate while the engine is
-  on; hidden/dimmed otherwise (settles C).
-- **Phase 5 — Destination chevron.** Destination store (persists across reloads);
-  "Navigate here" from the attraction sheet/detail + long-press dropped pin;
-  HUD shows great-circle distance + chevron at (bearing-to-dest − course).
-  **Forward-compat note:** `plans/trip-planner-plan.md` adds persistent
-  `saved_places` (incl. free pins) — a third pin concept. Shape the destination
-  store so a destination can later *be* a saved place / trip stop (don't bake
-  in attraction-or-raw-coords as the only forms), and keep the long-press
-  dropped pin ephemeral for now — "save this pin" belongs to the planner.
+- ✅ **Phase 4 — OBD strip** (landed 2026-07-09). Second HUD row (RPM, coolant °F,
+  fuel %, GPH) off a 5 s `/api/status` poll; `fuel_rate_lph` derived server-side
+  into the `van` block. Engine-gated (link + rpm + server-clock freshness), hidden
+  otherwise.
+- ✅ **Phase 5 — Destination chevron** (landed 2026-07-09). Snapshot-shaped
+  destination store (decision 10, localStorage); "Navigate here" on the shared
+  `AttractionDetail` (sheet + Attractions view); long-press/right-click dropped
+  pin (ephemeral — "save this pin" belongs to the trip planner); HUD distance +
+  chevron at (bearing-to-dest − course), absolute cardinal when parked; tap
+  clears. Detail: `.claude/modules/frontend.md` § Drive view.
+
+---
+
+## Remaining: road verification (then fold this plan into frontend.md)
+
+One drive with the dash phone covers all of it:
+
+- [ ] **Camera tuning** (decision B) — do z17 crawl / z13 highway feel right?
+- [ ] **Label scale** — is ×1.4 readable at a glance without crowding?
+- [ ] **Wake lock on the phone** — the new top-right chip names the mechanism and
+  whether it's holding (`WAKE VID` expected on LAN http; amber `WAKE ✕` = the
+  fallback video isn't playing). The 2026-07-09 MacBook test was inconclusive by
+  design — desktop browsers don't take sleep assertions for muted video.
+- [ ] **OBD strip** — appears with the engine, values sane, disappears ≤30 s
+  after key-off.
+- [ ] **Chevron** — set a destination, watch distance fall and the arrow track
+  turns; confirm parked fallback (cardinal, no spin at stoplights).
 
 ---
 

@@ -123,9 +123,10 @@ asks `limit=20000`.
 
 ## Drive view (`/drive`)
 
-The "currently driving" view — the shared map engine under driving chrome, phases
-landing per **`plans/drive-view-plan.md`** (Phases 1–3 built 2026-07-05; OBD strip and
-destination chevron still to come).
+The "currently driving" view — the shared map engine under driving chrome. All
+phases of **`plans/drive-view-plan.md`** are built (1–3 on 2026-07-05, 4–5 on
+2026-07-09); the plan file holds the remaining road-verification checklist and
+folds in here once that passes.
 
 - **Live chain** — `/api/gpsd/live` (TPV-only gpsd snapshot; reads gpsd, not the DB) →
   `stores/live.svelte.ts` (1 Hz poll, rAF interpolation one poll-interval behind real
@@ -149,6 +150,31 @@ destination chevron still to come).
 - **HUD** — a bottom bar (big mph, 16-wind heading + degrees, altitude ft), read from
   the **raw** fix, not the interpolated pose (interpolation would only add display
   lag to numbers).
+- **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH) off a 5 s
+  `/api/status` poll; `fuel_rate_lph` is derived server-side into the `van` block
+  (`common/obd.py` speed density). Engine-gated: `obd_link === 'online'` + rpm > 0 +
+  a 30 s freshness check against the payload's own `now` (server clock, immune to
+  client skew); sustained poll failure drops the snapshot client-side, since a
+  frozen payload freezes its `now` too.
+- **Destination chevron** — `stores/destination.svelte.ts`: a localStorage-persisted
+  **value snapshot** `{name, lat, lon}` + provenance-only `source`/`sourceId`
+  (attraction ids churn on full-replace re-imports — never dereference; the
+  navigation plan attaches a route *alongside* this object, and a trip-planner
+  saved place/trip stop just materializes into the same shape). Producers:
+  "Navigate here" on the shared `AttractionDetail`, and a long-press/right-click
+  dropped pin (`MapView.onLongPress` — hand-rolled 600 ms timer with move-slop
+  cancel; pins are ephemeral, saving them belongs to the planner). HUD cell shows
+  great-circle distance + a course-relative `▲` (absolute cardinal when parked —
+  no course); tap clears (no confirm — recoverable). No rotation CSS transition:
+  rel wraps 359→1 exactly at dead-ahead and would spin the long way.
+- **Label scaling** — `MapView.setLabelScale(LABEL_SCALE)` on enter, `1` on leave:
+  multiplies every vector symbol layer's `text-size` by scaling expression
+  *outputs* (a zoom `interpolate` can't be wrapped in `['*',…]`), restoring
+  captured originals; re-applied across style reloads. Vector base only — raster
+  labels are baked pixels.
+- **Wake readout** — a top-right chip (`WAKE API` / `WAKE VID` / amber `WAKE ✕`)
+  polling `wakeLockStatus()` at 2 s, so on-device verification of the fallback
+  video is a glance.
 - **Breadcrumb** — seeded from `GET /api/points/recent` (raw tier — the processed
   tier's open segment lags the processor cursor and would stop short of the van),
   then live-extended per fresh fix via `extendCrumbs` (`lib/live.ts`): a 5 m movement
