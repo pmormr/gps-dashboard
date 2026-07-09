@@ -21,6 +21,7 @@ from flask import Blueprint, Response, jsonify
 
 from api.db import get_connection, now_canonical
 from common import proc
+from common.obd import derive_fuel_rate_lph
 
 status_bp = Blueprint('status', __name__)
 
@@ -56,6 +57,43 @@ def _latest(conn: sqlite3.Connection, table: str, cols: list[str]) -> dict | Non
         f'SELECT timestamp, {", ".join(cols)} FROM {table} ORDER BY timestamp DESC LIMIT 1'
     ).fetchone()
     return dict(row) if row else None
+
+
+def _van(conn: sqlite3.Connection) -> dict | None:
+    """Return the latest OBD reading with ``fuel_rate_lph`` derived at read time.
+
+    The reader stores ``fuel_rate_lph`` as NULL by design; the speed-density
+    derivation lives in ``common.obd`` and runs here so consumers (the Drive
+    HUD's OBD strip) read a served value. The derivation inputs stay out of
+    the payload — ``engine_load_pct`` (a different PID) already covers load.
+
+    Args:
+        conn: Open SQLite connection.
+
+    Returns:
+        The latest OBD row plus ``fuel_rate_lph``, or None when empty.
+    """
+    row = _latest(
+        conn,
+        'obd_readings',
+        [
+            'rpm',
+            'speed_kph',
+            'coolant_c',
+            'engine_load_pct',
+            'fuel_level_pct',
+            'voltage_v',
+            'ambient_air_c',
+            'absolute_load_pct',
+            'commanded_equiv_ratio',
+        ],
+    )
+    if row is None:
+        return None
+    row['fuel_rate_lph'] = derive_fuel_rate_lph(
+        row.pop('absolute_load_pct'), row['rpm'], row.pop('commanded_equiv_ratio')
+    )
+    return row
 
 
 def _obd_link(conn: sqlite3.Connection) -> str | None:
@@ -148,19 +186,7 @@ def status() -> Response:
                 'bme680_readings',
                 ['temp_c', 'humidity_pct', 'dew_point_c', 'pressure_hpa', 'iaq', 'co2_equivalent'],
             ),
-            'van': _latest(
-                conn,
-                'obd_readings',
-                [
-                    'rpm',
-                    'speed_kph',
-                    'coolant_c',
-                    'engine_load_pct',
-                    'fuel_level_pct',
-                    'voltage_v',
-                    'ambient_air_c',
-                ],
-            ),
+            'van': _van(conn),
             'obd_link': _obd_link(conn),
             'pi': _latest(
                 conn,

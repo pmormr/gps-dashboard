@@ -31,9 +31,10 @@ def _insert_status_rows(ts: str) -> None:
         (1, ts, 22.4, 41.0, 58.0),
     )
     conn.execute(
-        'INSERT INTO obd_readings (sensor_id, timestamp, rpm, coolant_c, speed_kph) '
-        'VALUES (?, ?, ?, ?, ?)',
-        (1, ts, 1850.0, 89.0, 72.0),
+        'INSERT INTO obd_readings '
+        '(sensor_id, timestamp, rpm, coolant_c, speed_kph, absolute_load_pct, '
+        'commanded_equiv_ratio) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (1, ts, 1850.0, 89.0, 72.0, 32.0, 1.0),
     )
     conn.execute(
         'INSERT INTO system_readings '
@@ -100,6 +101,12 @@ def test_status_latest_values(client):
     assert data['house']['pv_power'] == 320.0
     assert data['cabin']['temp_c'] == 22.4
     assert data['van']['rpm'] == 1850.0
+    # fuel_rate_lph is derived at read time (common.obd); the inputs stay out.
+    from common.obd import derive_fuel_rate_lph
+
+    assert data['van']['fuel_rate_lph'] == pytest.approx(derive_fuel_rate_lph(32.0, 1850.0, 1.0))
+    assert 'absolute_load_pct' not in data['van']
+    assert 'commanded_equiv_ratio' not in data['van']
     assert data['pi']['cpu_temp_c'] == 52.1
     assert data['pi']['throttled'] == 0
     assert data['router']['wan_up'] == 1
