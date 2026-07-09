@@ -129,6 +129,11 @@ before any HUD garnish. Each phase is independently shippable.
 - **Phase 5 — Destination chevron.** Destination store (persists across reloads);
   "Navigate here" from the attraction sheet/detail + long-press dropped pin;
   HUD shows great-circle distance + chevron at (bearing-to-dest − course).
+  **Forward-compat note:** `plans/trip-planner-plan.md` adds persistent
+  `saved_places` (incl. free pins) — a third pin concept. Shape the destination
+  store so a destination can later *be* a saved place / trip stop (don't bake
+  in attraction-or-raw-coords as the only forms), and keep the long-press
+  dropped pin ephemeral for now — "save this pin" belongs to the planner.
 
 ---
 

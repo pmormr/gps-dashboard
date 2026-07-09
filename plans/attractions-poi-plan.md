@@ -91,6 +91,7 @@ decisions inline.
 ### Phase 1 — OSM extract pipeline (laptop/NAS tool)
 
 - [ ] `tools/build_osm_pois.py`: Geofabrik PBF(s) → tags-filter → centroid-resolved rows → transfer DB (`source='osm'`, natural key = element type + id)
+- [ ] **PBF reuse:** `plans/navigation-plan.md` Phase 1 downloads the same Geofabrik `north-america` PBF to the NAS for the Valhalla graph build — whichever plan runs second reuses the first's download (one transfer, and graph + POI DB share an OSM snapshot)
 - [ ] POI-key list + mass-non-place floor (decision 1) + `category`/`rank` mapping (open decision B) as data in the tool
 - [ ] Full tags → `details` JSON; `summary` from name/category/brand
 - [ ] Dry-run stats mode (counts per category) to sanity-check scope before building
