@@ -138,8 +138,15 @@ decisions inline.
   matches, above that a top-10k-by-bm25 candidate pool (junk prefixes 'c*'/'park*';
   recall degraded exactly where ranking is meaningless). Route shapes end-to-end:
   rank-gated bboxes 12–64 ms, bbox'd 'coffee' 61 ms, 'park' ~1 s laptop.
-  **Pi deploy note: pre-build the three indexes over SSH before pushing** so racing
-  service startups don't all pay the ~1 min build against busy_timeout.
+  **Post-deploy catch (2026-07-09): the no-bbox browse shape** (Places view with no
+  fix / Everywhere) sorted the whole ≤3 tier — 45 s on the Pi. Fix: partial covering
+  index `idx_places_rank_name (rank, name) WHERE rank <= 3` + the route emits plain
+  `ORDER BY rank` only when there's **no bbox** (bbox'd reads keep `COALESCE` so the
+  planner can never prefer the rank index over the latlon partials — a sparse bbox
+  would scan the entire tier); frontend allows the minor-places toggle only in
+  Near-me. 45 s → ms; rare-category Everywhere worst case ~1.5 s Pi.
+  **Pi deploy note: pre-build new indexes over SSH before pushing** so racing
+  service startups don't all pay the build against busy_timeout.
 - [ ] Taxonomy tuning from real data: `aeroway=aerodrome` at rank 1 sweeps in RC/model
   strips and unnamed airstrips (first wide-bbox rank-1 hit was an RC field) — demote
   or gate on `aerodrome:type` at the next transfer-DB rebuild.

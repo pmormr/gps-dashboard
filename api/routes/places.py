@@ -202,7 +202,15 @@ def list_places():
             params.append(f'%{q}%')
     else:
         sql = f'SELECT {_PLACE_COLUMNS_Q} FROM places p'
-    order.append('COALESCE(p.rank, 9)')
+    # A rank gate excludes NULL ranks, so plain `rank` is equivalent — and on
+    # non-bbox reads it lets idx_places_rank_name serve the top-N without
+    # sorting the whole gate tier (~45 s at 10.7M rows). Bbox'd reads keep
+    # COALESCE on purpose: it stops the planner preferring the rank index
+    # over the latlon partials (a sparse bbox would scan the entire tier).
+    if bbox is None and max_rank is not None:
+        order.append('p.rank')
+    else:
+        order.append('COALESCE(p.rank, 9)')
     if center is not None:
         # Squared-degree distance: a tiebreaker, not a measurement — the
         # ~cos(lat) lon compression doesn't change who's "nearby" enough

@@ -622,6 +622,15 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             ON places(lat, lon) WHERE rank <= 2;
         CREATE INDEX IF NOT EXISTS places_db.idx_places_latlon_r3
             ON places(lat, lon) WHERE rank <= 3;
+
+        -- Non-bbox rank-gated browse (the Places view with no fix / Everywhere
+        -- mode) orders by plain (rank, name); this covering index serves the
+        -- top-N directly — sorting the whole ≤3 tier (3.8M rows) took ~45 s on
+        -- the Pi. The route only emits index-friendly ordering when there is
+        -- no bbox, so bbox'd reads can never plan onto this instead of the
+        -- latlon partials (see list_places).
+        CREATE INDEX IF NOT EXISTS places_db.idx_places_rank_name
+            ON places(rank, name) WHERE rank <= 3;
     """)
     conn.commit()
 

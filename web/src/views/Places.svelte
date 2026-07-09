@@ -106,7 +106,9 @@
           bbox: a ? nearBbox(a) : undefined,
           // All-on means unfiltered — that also keeps unmapped-category rows.
           categories: categories.length === CATEGORY_META.length ? undefined : categories,
-          maxRank: q || showMinor ? undefined : BROWSE_MAX_RANK,
+          // Minor places need a bbox: an Everywhere all-ranks read sorts the
+          // whole 10.7M-row tier server-side (minutes on the Pi).
+          maxRank: q || (showMinor && a) ? undefined : BROWSE_MAX_RANK,
           center: q && center ? `${center.lon},${center.lat}` : undefined,
           q: q || undefined,
           limit: PLACES_LIMIT,
@@ -237,11 +239,13 @@
           <button
             type="button"
             class="attr-chip attr-chip-toggle places-minor-toggle"
-            class:active={browse.showMinor}
-            disabled={browse.query.length >= MIN_QUERY_CHARS}
+            class:active={browse.showMinor && nearActive}
+            disabled={browse.query.length >= MIN_QUERY_CHARS || !nearActive}
             title={browse.query.length >= MIN_QUERY_CHARS
               ? 'Search always covers all places'
-              : 'Include minor places (benches, markers, micro furniture)'}
+              : nearActive
+                ? 'Include minor places (benches, markers, micro furniture)'
+                : 'Minor places need Near me (the full set is too big to list everywhere)'}
             onclick={() => (browse.showMinor = !browse.showMinor)}>+ minor places</button>
         </div>
       {/if}
