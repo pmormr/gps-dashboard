@@ -111,6 +111,24 @@ def test_search_matches_summary_text(client) -> None:
     assert [a['name'] for a in body['places']] == ['Rocky Mountain National Park']
 
 
+def test_search_bounded_candidate_mode(client, monkeypatch) -> None:
+    """Huge match sets switch to the bounded bm25 candidate pool.
+
+    Forced by dropping the threshold to 0 — with the pool larger than the
+    seed data the results must match unbounded mode, filters included.
+    """
+    import api.routes.places as places_routes
+
+    _seed()
+    monkeypatch.setattr(places_routes, '_FTS_UNBOUNDED_MAX', 0)
+    body = client.get('/api/places?q=holzwarth').get_json()
+    assert [a['name'] for a in body['places']] == ['Holzwarth Historic Site Tour']
+    body = client.get('/api/places?q=rocky&kind=park&bbox=-106,40,-105,41').get_json()
+    assert [a['name'] for a in body['places']] == ['Rocky Mountain National Park']
+    body = client.get('/api/places?q=a&center=-110.86,44.65').get_json()
+    assert body['count'] >= 2  # ordering clauses (score/rank/distance) all apply
+
+
 def test_search_operator_text_falls_back_cleanly(client) -> None:
     """Quote/star-only input has no searchable token — LIKE fallback, no 500."""
     _seed()
@@ -268,6 +286,19 @@ def test_osm_merge_full_replaces_slice_and_rebuilds_fts(client, tmp_path) -> Non
     conn.close()
     assert client.get('/api/places?q=bean').get_json()['count'] == 0
     assert client.get('/api/places?q=roast').get_json()['count'] == 1
+
+
+def test_rank_partial_indexes_exist(client) -> None:
+    """The per-gate partial indexes back the rank-gated viewport reads."""
+    conn = get_connection()
+    names = {
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM places_db.sqlite_master WHERE type='index'"
+        ).fetchall()
+    }
+    conn.close()
+    assert {'idx_places_latlon_r1', 'idx_places_latlon_r2', 'idx_places_latlon_r3'} <= names
 
 
 # --- sidecar migration ---------------------------------------------------------------

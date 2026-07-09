@@ -37,6 +37,8 @@ decisions inline.
 | 12 | Spatial index (was open decision C; resolved 2026-07-09) | **Composite `(lat, lon)` index** (already in the schema); R*Tree declined | Benchmarked on a synthetic 10M-row DB (Colorado ×45, realistic local density): rank-gated viewport reads ~1 ms both; worst case (dense metro, `ORDER BY rank`, 102k in-bbox) ~28 ms both, within 1 ms of each other. The bbox+rank+limit shape dominates, so R*Tree's extra moving parts (per-merge sync, minutes-long Pi build, a join per read) buy nothing. |
 | 13 | NPS/RIDB kind → (category, rank) map (2026-07-09) | `api.db.PLACES_KIND_RANKS`: park→(park,1), recarea→(park,2), campground→(camping,2), visitorcenter→(attraction,2), thingstodo/tour→(attraction,3), facility→(outdoors,3), permit→(outdoors,4). Stamped at import; unknown future kinds import NULL (never pinned) until mapped. | User call (park at rank 1 = every NPS unit pins from ~z5). One rank×zoom gate governs all sources' pins. |
 | 14 | FTS scope (2026-07-09) | Index `name` + `summary` + `category` + `source_kind` (external-content FTS5 `places_fts`); `details` JSON stays out (hours/URLs are noise) | User call. OSM summaries are ~40-char kind·cuisine·brand strings, so the recall ("burgers", "elk") costs only a few hundred MB at 10M rows. LIKE remains the internal fallback when no searchable token survives sanitising (decision 8). |
+| 15 | Places-view category UI (2026-07-09) | **All 18 categories as flat toggle chips** (same interaction as the kind-chip era; wrapping row) | User call. No grouping layer to maintain on top of the server taxonomy; van-life essentials stay one-tap toggleable. |
+| 16 | Browse depth default (2026-07-09) | **Browse defaults to `max_rank=3`** (common POIs and up) with a "show minor places" toggle opening rank 4–5; **search (`q`) always covers all ranks** — micro furniture stays findable by name | User call. An unfiltered near-me read at 10.7M rows fills the 2,000-row limit with rank-4/5 noise instantly; the toggle keeps the deep tier reachable without making it the default. |
 
 ---
 
@@ -118,12 +120,21 @@ decisions inline.
 - [ ] Places view: category browse chips + FTS search over the broad set; detail sheet renders OSM `details` (hours, phone, website, cuisine…)
 - [ ] Map overlay: rank×zoom pin gating extending the existing viewport-driven sync (replaces the flat z6 gate for OSM kinds)
 - [ ] Data-age banner semantics for `source='osm'` (seasonal cadence, not the 45-day NPS escalation)
-- [ ] **Query tuning at broad scale** (measured on the Pi 2026-07-09; today's kind-filtered
-  overlay reads are unaffected): metro bbox + `max_rank=2` ≈ 1.3 s — the composite index
-  scans the whole NA latitude band; fix = small **partial indexes per rank gate**
-  (`(lat, lon) WHERE rank <= N`). Broad one-token search + `center` ('coffee') ≈ 3.4 s —
-  bm25 scores every match before ordering; fix = bound the candidate set (bbox-restricted
-  search when map context exists, or a scored-candidate LIMIT) before ranking.
+- [x] **Query tuning at broad scale — code DONE 2026-07-09** (benchmarked on the
+  full-scale local `~/osm-lab/places.db`): partial indexes `idx_places_latlon_r{1,2,3}`
+  (`(lat,lon) WHERE rank <= N`; no r4 — those reads only happen at z14+ tiny bboxes)
+  take the zoomed-out rank-gated bbox 3.4 s → 13 ms (+115 MB, ~11 s laptop build; a
+  bound `rank <= ?` plans onto them — SQLite peeks bound params for partial-index
+  usability). Search is **adaptive**: count matches first (~100 ms even at 2.5M),
+  unbounded join (full recall — a bbox'd search must see every match) up to 60k
+  matches, above that a top-10k-by-bm25 candidate pool (junk prefixes 'c*'/'park*';
+  recall degraded exactly where ranking is meaningless). Route shapes end-to-end:
+  rank-gated bboxes 12–64 ms, bbox'd 'coffee' 61 ms, 'park' ~1 s laptop.
+  **Pi deploy note: pre-build the three indexes over SSH before pushing** so racing
+  service startups don't all pay the ~1 min build against busy_timeout.
+- [ ] Taxonomy tuning from real data: `aeroway=aerodrome` at rank 1 sweeps in RC/model
+  strips and unnamed airstrips (first wide-bbox rank-1 hit was an RC field) — demote
+  or gate on `aerodrome:type` at the next transfer-DB rebuild.
 
 ### Phase 4 — Overture Places
 

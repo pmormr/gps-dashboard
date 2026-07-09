@@ -607,6 +607,23 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.commit()
     _migrate_places_broad_columns(conn)
+    # After the column migration — a pre-broad-columns sidecar has no `rank`
+    # yet. Rank-gated viewport reads (the map pin gate, the browse default)
+    # would otherwise scan idx_places_latlon's whole NA latitude band and
+    # discard ~everything by rank (seconds at 10.7M rows); a partial index per
+    # gate tier makes it milliseconds. No r4: rank<=4 reads only happen at
+    # z14+, where the bbox lat band is tiny. A bound `rank <= ?` still plans
+    # onto these — SQLite considers bound parameter values when testing
+    # partial-index usability.
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS places_db.idx_places_latlon_r1
+            ON places(lat, lon) WHERE rank <= 1;
+        CREATE INDEX IF NOT EXISTS places_db.idx_places_latlon_r2
+            ON places(lat, lon) WHERE rank <= 2;
+        CREATE INDEX IF NOT EXISTS places_db.idx_places_latlon_r3
+            ON places(lat, lon) WHERE rank <= 3;
+    """)
+    conn.commit()
 
 
 #: Federal-source kind → (category, rank), the same axes the OSM taxonomy

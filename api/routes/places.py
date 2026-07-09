@@ -17,6 +17,10 @@ sync, and the UI is expected to wear that age rather than present it as live.
   ("lear" no longer matches "Clear" — the LIKE-era contract changed with the
   broad-POI tier). ``max_rank`` is the pin-zoom gate (1 major … 5 micro) —
   at ~10M broad rows, "all pins in view" is only a valid query above the gate.
+  Searches whose match set is too large to score (junk prefixes — see
+  ``_FTS_UNBOUNDED_MAX``) are answered from a bounded bm25 candidate pool,
+  trading recall for latency on exactly the queries where ranking millions
+  of matches is meaningless anyway.
 * ``GET /api/places/<id>`` — one POI with parsed ``details``.
 * ``GET /api/places/events`` — occurrences (event × date × time window) in
   a calendar-date window, grouped per event. Dates are park-local
@@ -60,6 +64,18 @@ _EVENT_COLUMNS = (
     'is_free, needs_reservation, synced_at'
 )
 _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+#: Above this many FTS matches, ``q`` switches to bounded-candidate mode:
+#: bm25 scores every match before anything else applies, so a junk-prefix
+#: query ('c', 'park' — millions of rows NA-wide) costs seconds. Below it the
+#: unbounded join keeps full recall: bbox/category/rank filters see every
+#: match. Counting matches first is cheap (doclist sizes, no scoring).
+_FTS_UNBOUNDED_MAX = 60_000
+#: Candidate pool in bounded mode — the top-N by bm25 *before* the other
+#: filters apply, so recall degrades on those queries (a bbox'd search only
+#: sees in-bbox rows that made the NA-wide top-N). Acceptable: only match
+#: sets too unspecific to rank meaningfully ever hit this path.
+_FTS_CANDIDATE_LIMIT = 10_000
 
 
 def _parse_date(value: str | None, name: str) -> tuple[str | None, tuple[Response, int] | None]:
@@ -155,18 +171,31 @@ def list_places():
         where.append('p.park_code = ?')
         params.append(park)
 
+    conn = get_connection()
     order: list[str] = []
     q = request.args.get('q')
     if q:
         match = _fts_query(q)
         if match is not None:
-            sql = (
-                f'SELECT {_PLACE_COLUMNS_Q} FROM places_fts '
-                'JOIN places p ON p.id = places_fts.rowid'
-            )
-            where.insert(0, 'places_fts MATCH ?')
+            n_matches = conn.execute(
+                'SELECT count(*) FROM places_fts WHERE places_fts MATCH ?', (match,)
+            ).fetchone()[0]
+            if n_matches > _FTS_UNBOUNDED_MAX:
+                sql = (
+                    f'SELECT {_PLACE_COLUMNS_Q} FROM ('
+                    'SELECT rowid, bm25(places_fts) AS fts_score FROM places_fts '
+                    f'WHERE places_fts MATCH ? ORDER BY fts_score LIMIT {_FTS_CANDIDATE_LIMIT}'
+                    ') fts JOIN places p ON p.id = fts.rowid'
+                )
+                order.append('fts.fts_score')
+            else:
+                sql = (
+                    f'SELECT {_PLACE_COLUMNS_Q} FROM places_fts '
+                    'JOIN places p ON p.id = places_fts.rowid'
+                )
+                where.insert(0, 'places_fts MATCH ?')
+                order.append('bm25(places_fts)')
             params.insert(0, match)
-            order.append('bm25(places_fts)')
         else:
             sql = f'SELECT {_PLACE_COLUMNS_Q} FROM places p'
             where.append('p.name LIKE ?')
@@ -186,7 +215,6 @@ def list_places():
     if where:
         sql += ' WHERE ' + ' AND '.join(where)
     sql += f' ORDER BY {", ".join(order)} LIMIT ?'
-    conn = get_connection()
     rows = [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
     return jsonify({'places': rows, 'count': len(rows), 'truncated': len(rows) == limit})
 
