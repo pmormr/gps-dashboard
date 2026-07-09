@@ -597,9 +597,9 @@ export function getPhonePlaces(start: string, end: string): Promise<PhonePlacesR
   return getJSON<PhonePlacesResponse>(`/api/phone/places?${params}`)
 }
 
-// ── Attractions (parks/public-lands POI tier, synced from the NPS API + RIDB export) ──
+// ── Places (parks/public-lands POI tier, synced from the NPS API + RIDB export) ──
 
-export type AttractionKind =
+export type PlaceKind =
   | 'park'
   | 'thingstodo'
   | 'tour'
@@ -611,10 +611,10 @@ export type AttractionKind =
   | 'permit' // permit/timed-entry requirements, kept as planning signals
 
 /** One POI list row (queryable columns + summary teaser; details fetched per-row). */
-export interface Attraction {
+export interface Place {
   id: number
   source: string
-  source_kind: AttractionKind
+  source_kind: PlaceKind
   source_id: string
   park_code: string | null
   name: string
@@ -655,7 +655,7 @@ export interface OperatingHours {
  * The trimmed source record (display-only structure). Kind-specific keys pass
  * through as published — only the fields the detail sheet renders are typed.
  */
-export interface AttractionDetails {
+export interface PlaceDetails {
   description?: string
   operatingHours?: OperatingHours[]
   amenities?: string[]
@@ -680,8 +680,8 @@ export interface AttractionDetails {
   [key: string]: unknown
 }
 
-export interface AttractionsResponse {
-  attractions: Attraction[]
+export interface PlacesResponse {
+  places: Place[]
   count: number
   truncated: boolean
 }
@@ -694,7 +694,7 @@ export interface EventOccurrence {
 }
 
 /** An event with its matching occurrences (SQLite booleans arrive as 0/1). */
-export interface AttractionEvent {
+export interface PlaceEvent {
   id: number
   source: string
   source_id: string
@@ -709,58 +709,58 @@ export interface AttractionEvent {
   dates: EventOccurrence[]
 }
 
-export interface AttractionEventsResponse {
-  events: AttractionEvent[]
+export interface PlaceEventsResponse {
+  events: PlaceEvent[]
   count: number
   truncated: boolean
 }
 
 /** POI list; all filters optional (kinds joined comma-separated, `q` = name substring). */
-export function getAttractions(opts: {
+export function getPlaces(opts: {
   bbox?: string
-  kinds?: AttractionKind[]
+  kinds?: PlaceKind[]
   park?: string
   q?: string
   limit?: number
-}): Promise<AttractionsResponse> {
+}): Promise<PlacesResponse> {
   const params = new URLSearchParams()
   if (opts.bbox) params.set('bbox', opts.bbox)
   if (opts.kinds?.length) params.set('kind', opts.kinds.join(','))
   if (opts.park) params.set('park', opts.park)
   if (opts.q) params.set('q', opts.q)
   if (opts.limit != null) params.set('limit', String(opts.limit))
-  return getJSON<AttractionsResponse>(`/api/attractions?${params}`)
+  return getJSON<PlacesResponse>(`/api/places?${params}`)
 }
 
 /** One POI with its full parsed details (tour stops, hours, amenities, fees). */
-export function getAttraction(id: number): Promise<Attraction & { details: AttractionDetails }> {
-  return getJSON<Attraction & { details: AttractionDetails }>(`/api/attractions/${id}`)
+export function getPlace(id: number): Promise<Place & { details: PlaceDetails }> {
+  return getJSON<Place & { details: PlaceDetails }>(`/api/places/${id}`)
 }
 
 /** One event with parsed details and its full occurrence list. */
-export function getAttractionEvent(
+export function getPlaceEvent(
   id: number,
-): Promise<AttractionEvent & { details: Record<string, unknown> }> {
-  return getJSON<AttractionEvent & { details: Record<string, unknown> }>(
-    `/api/attractions/events/${id}`,
+): Promise<PlaceEvent & { details: Record<string, unknown> }> {
+  return getJSON<PlaceEvent & { details: Record<string, unknown> }>(
+    `/api/places/events/${id}`,
   )
 }
 
 /** Event occurrences in a calendar-date window (`YYYY-MM-DD`), grouped per event. */
-export function getAttractionEvents(opts: {
+export function getPlaceEvents(opts: {
   start?: string
   end?: string
   bbox?: string
   park?: string
   limit?: number
-}): Promise<AttractionEventsResponse> {
+}): Promise<PlaceEventsResponse> {
   const params = new URLSearchParams()
   if (opts.start) params.set('start', opts.start)
   if (opts.end) params.set('end', opts.end)
   if (opts.bbox) params.set('bbox', opts.bbox)
   if (opts.park) params.set('park', opts.park)
   if (opts.limit != null) params.set('limit', String(opts.limit))
-  return getJSON<AttractionEventsResponse>(`/api/attractions/events?${params}`)
+  return getJSON<PlaceEventsResponse>(`/api/places/events?${params}`)
 }
 
 /** Fetch the network-docs file tree (empty when the vault is unconfigured). */

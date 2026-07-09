@@ -1,6 +1,6 @@
 import type { Component } from 'svelte'
 
-import Attractions from '../views/Attractions.svelte'
+import Places from '../views/Places.svelte'
 import Docs from '../views/Docs.svelte'
 import Drive from '../views/Drive.svelte'
 import Globe from '../views/Globe.svelte'
@@ -30,7 +30,7 @@ export const routes: RouteDef[] = [
   { path: '/', component: Home, tab: '/' },
   { path: '/map', component: Map, tab: '/map' },
   { path: '/drive', component: Drive, tab: '/drive' },
-  { path: '/attractions', component: Attractions, tab: '/attractions' },
+  { path: '/places', component: Places, tab: '/places' },
   { path: '/systems', component: Systems, tab: '/systems' },
   { path: '/docs', component: Docs, tab: '/docs', prefix: true },
   { path: '/sky', component: Sky, tab: '/sky' },
@@ -57,7 +57,7 @@ export const NAV: NavItem[] = [
   { label: 'Home', icon: '◉', to: '/' },
   { label: 'Map', icon: '🗺️', to: '/map' },
   { label: 'Drive', icon: '🧭', to: '/drive' },
-  { label: 'Attractions', icon: '🏞️', to: '/attractions' },
+  { label: 'Places', icon: '🏞️', to: '/places' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },

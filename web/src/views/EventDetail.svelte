@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { getAttractionEvent, type AttractionEvent } from '../lib/api'
-  import { stripHtml } from '../lib/attractions'
+  import { getPlaceEvent, type PlaceEvent } from '../lib/api'
+  import { stripHtml } from '../lib/places'
   import { fmtDate } from '../lib/geo'
 
   // One event's full detail — description, the complete occurrence list, and the
-  // practical lines (location, fees, reservation). Rendered in the Attractions
+  // practical lines (location, fees, reservation). Rendered in the Places
   // view's detail pane; same data-age banner rule as places.
   let {
     id,
@@ -13,7 +13,7 @@
 
   const STALE_DAYS = 45
 
-  let row = $state<(AttractionEvent & { details: Record<string, unknown> }) | null>(null)
+  let row = $state<(PlaceEvent & { details: Record<string, unknown> }) | null>(null)
   let status = $state('Loading…')
 
   const ageDays = $derived(
@@ -26,7 +26,7 @@
     status = 'Loading…'
     ;(async () => {
       try {
-        const r = await getAttractionEvent(wanted)
+        const r = await getPlaceEvent(wanted)
         if (wanted !== id) return
         row = r
         status = ''

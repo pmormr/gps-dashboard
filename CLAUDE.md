@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`, `attractions`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`, `attractions-poi`, `navigation`, `trip-planner`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`, `places`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`, `attractions-poi`, `navigation`, `trip-planner`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) plus captured device-capability dumps (e.g. the van's supported-PID set) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -29,6 +29,7 @@ App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
 - `/mnt/nvme/gps-dashboard` — working tree (overwritten by deploys)
 - `/mnt/nvme/data/gps_history.db` — database (persists across deploys)
+- `/mnt/nvme/data/places.db` — places-tier sidecar DB, ATTACHed by every `get_connection()`; path derives beside the main DB (`GPS_PLACES_DB_PATH` overrides). Rebuildable from public sources, deliberately **outside** the backup path (places.md)
 - `/mnt/nvme/backup/gps_history.snap.db` — consistent DB snapshot, refreshed 6-hourly by `gps-db-backup.timer` and pushed to rex-nas `/volume1/backups/gps-dashboard/` when reachable (retention + restore procedure → `tools/backup_db.py` docstring)
 - `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
 - `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
@@ -85,10 +86,10 @@ Phone location-history tier — the user's Google Timeline export batch-imported
 - `phone_track_points(id, path_id, timestamp, lat, lon, importance, activity_type)` — the thinned breadcrumb (shared Reumann–Witkam); `importance=0` marks segment endpoints; `activity_type` is the covering activity's mode (what the map colors by).
 - `phone_visits(...)` / `phone_activities(...)` — the semantic layer (place visits, trip segments); its own tables, **not** `annotations` (which stays user-curated).
 
-Attractions tier — parks/public-lands POIs + event schedules synced by `tools/import_attractions.py` from two sources (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`, downloaded once and scp'd to the Pi — full-replace per source), browsed offline; fully rebuildable (see `.claude/modules/attractions.md`):
+Places tier — POIs + event schedules synced by `tools/import_places.py` from two sources today (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`, downloaded once and scp'd to the Pi — full-replace per source; OSM/Overture expansion in flight, `plans/attractions-poi-plan.md`), browsed offline; fully rebuildable. Lives in the **`places.db` sidecar** (ATTACHed as `places_db` by `get_connection()`, kept out of the backup path; no write transaction may span main + sidecar — see `.claude/modules/places.md`):
 
-- `attractions(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at)` — one unified row per POI (NPS: `park`|`thingstodo`|`tour`|`visitorcenter`|`campground`; RIDB adds `recarea`|`facility`|`permit` for the other federal agencies' places — FS/USACE/BLM/FWS trailheads, campgrounds, rec areas; later OSM). Columns carry only what queries filter on; display-only structure (tour stops + transcripts, operating hours, amenities, fees, per-campground campsite/equipment aggregates) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable (kinds without coords fall back to their park's/rec area's at import). RIDB `park_code` is the owning `RecAreaID` (numeric; the UI shows `details.recAreaName` instead).
-- `attraction_events(...)` + `attraction_event_dates(event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
+- `places(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at)` — one unified row per POI (NPS: `park`|`thingstodo`|`tour`|`visitorcenter`|`campground`; RIDB adds `recarea`|`facility`|`permit` for the other federal agencies' places — FS/USACE/BLM/FWS trailheads, campgrounds, rec areas; later OSM). Columns carry only what queries filter on; display-only structure (tour stops + transcripts, operating hours, amenities, fees, per-campground campsite/equipment aggregates) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable (kinds without coords fall back to their park's/rec area's at import). RIDB `park_code` is the owning `RecAreaID` (numeric; the UI shows `details.recAreaName` instead).
+- `place_events(...)` + `place_event_dates(event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
 
 GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
 
@@ -112,18 +113,18 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/obd/economy?start=&end=` — per-window drive/fuel summary, derived at read time (`common/obd.py`); pass annotation bounds for per-trip MPG
 - `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
 - `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
-- `GET /api/attractions[/:id]` · `GET /api/attractions/events[/:id]` — POI/event browse reads; event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (attractions.md)
+- `GET /api/places[/:id]` · `GET /api/places/events[/:id]` — POI/event browse reads; event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
 - `GET /api/gpsd/sky` · `GET /api/gpsd/status` · `GET /api/gpsd/live` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in) + the Drive view's 1 Hz TPV-only fix poll
 - `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
 - `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band}` — ID-5100A readout/control via rigctld, **active main band only**; 502 = rig refusal, 503 = rigctld unreachable
 - `GET /api/ntp` — chrony/NTP status (Systems drill-in)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/attractions` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
-**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with eight destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Drive** (`/drive` — follow-camera driving view + destination chevron over the shared map engine) · **Attractions** (`/attractions` — master-detail browser/search over the attractions tier; the map keeps only waypoints) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with eight destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Drive** (`/drive` — follow-camera driving view + destination chevron over the shared map engine) · **Places** (`/places` — master-detail browser/search over the places tier; the map keeps only waypoints) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
 
 ### Basemaps & Terrain
 
@@ -158,7 +159,7 @@ gps-dashboard/
 │   └── routes/
 │       ├── points.py
 │       ├── annotations.py
-│       ├── attractions.py      # /api/attractions* (parks/tours/events/hours tier reads)
+│       ├── places.py           # /api/places* (POI/tours/events/hours tier reads)
 │       ├── tiles.py
 │       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
@@ -218,15 +219,15 @@ gps-dashboard/
 │       │   ├── labels.ts       # POI/label GL-style controls (vector base)
 │       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
 │       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
-│       │   ├── attractions.ts  # attractions overlay: per-kind pin builders + viewport-driven sync (z6 gate)
+│       │   ├── places.ts       # places overlay: per-kind pin builders + viewport-driven sync (z6 gate)
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts  # view renderers/helpers
 │       │   ├── live.ts, follow.ts, wakelock.ts  # Drive view: live-fix math · follow-camera policy · screen wake lock
 │       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes)
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
-│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · attractions (browse session) · live (1 Hz fix poll + interpolation)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/AttractionSheet), Drive, Attractions (+AttractionDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
+│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation)
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures
@@ -245,7 +246,7 @@ gps-dashboard/
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
 │   ├── backup_db.py            # DB snapshot + opportunistic rsync to rex-nas + retention (gps-db-backup.timer)
-│   ├── import_attractions.py   # NPS API + RIDB export → attractions tier (.claude/modules/attractions.md)
+│   ├── import_places.py        # NPS API + RIDB export → places tier (.claude/modules/places.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)

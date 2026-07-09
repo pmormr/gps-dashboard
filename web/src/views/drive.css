@@ -138,7 +138,7 @@
 }
 
 /* Destination cell: the one interactive HUD element (tap clears; recoverable
-   from Attractions or a long-press, so no confirm while driving). */
+   from Places or a long-press, so no confirm while driving). */
 .drive-dest {
   pointer-events: auto;
   background: none;

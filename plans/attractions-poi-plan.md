@@ -25,13 +25,14 @@ decisions inline.
 |---|----------|--------|-----------|
 | 1 | Scope | **Everything POI-shaped, micro furniture included** | User call ("we can always filter it out or remove it; we have the space"). All POI-class keys — amenity, shop, tourism, leisure, historic, office, craft, healthcare, emergency, man_made (selective), destination natural features — *including* unnamed micro furniture (benches, bins, hydrants, drinking fountains). The only floor: mass-mapped non-places are excluded — individual trees (`natural=tree`), power poles/towers, street lamps, utility markers — which would roughly double the DB with unsearchable rows. Expected scale ~8–12M rows. |
 | 2 | Coverage | **Full NA**, matching the basemap bbox (`-168,7,-52,72`) | User call. Searchable data everywhere the map renders. Geofabrik `north-america` + `central-america` extracts together cover the bbox. |
-| 3 | Storage | **Sidecar DB** (`attractions.db`, `$GPS_ATTRACTIONS_DB_PATH`, `/mnt/nvme/data/attractions.db` on the Pi), ATTACHed by `get_connection()` | User call. Millions of rebuildable-from-public-download rows shouldn't inflate `gps_history.db` — and with it every 6-hourly `gps-db-backup` snapshot + rsync to rex-nas. |
-| 4 | What moves to the sidecar | **The whole attractions tier** (`attractions`, `attraction_events`, `attraction_event_dates` — NPS/RIDB included) | One table, one query path — `/api/attractions` never UNIONs across DB files. Everything in the tier is full-replace rebuildable, so nothing in the sidecar needs backup. |
+| 3 | Storage | **Sidecar DB** (`places.db` after decision 10), ATTACHed as `places_db` by `get_connection()`. **As built (Phase 0):** the path *derives* beside the main DB (`/mnt/nvme/data/places.db` on the Pi) with `GPS_PLACES_DB_PATH` as override — no unit-file env var. Derived on purpose: every service's startup runs `init_db`, so a unit missing an env var would have run the one-shot migration against the wrong file. | User call. Millions of rebuildable-from-public-download rows shouldn't inflate `gps_history.db` — and with it every 6-hourly `gps-db-backup` snapshot + rsync to rex-nas. |
+| 4 | What moves to the sidecar | **The whole attractions tier** (`attractions`, `attraction_events`, `attraction_event_dates` — NPS/RIDB included) | One table, one query path — `/api/places` never UNIONs across DB files. Everything in the tier is full-replace rebuildable, so nothing in the sidecar needs backup. |
 | 5 | Phase-1 source | **Geofabrik PBF extract, source-side** — not decoding the PMTiles archive | Tile data is render-optimized: attributes trimmed to the style's needs, geometry quantized, features thinned per zoom. The PBF is the same underlying data with full tags (`opening_hours`, `website`, `phone`, `cuisine`, …) → `details` JSON. |
 | 6 | Phase-4 source | **Overture Maps Places** (GeoParquet on S3, DuckDB bbox extract, CDLA-Permissive-2.0) | The legal Google-analog: ~60M+ POIs (Meta/Microsoft-sourced; Foursquare's open 100M-POI set folded in 2025), with categories, addresses, confidence. Covers the commercial layer OSM is weak on. |
 | 7 | Extract build placement | **Laptop/NAS builds, never the Pi** — extract → transfer DB → scp → Pi-side merge (`DELETE WHERE source='osm'` + `INSERT … SELECT` from the ATTACHed transfer file) | Same ops model as the tile archives for the heavy lifting, but a *merge* rather than whole-file replace, because NPS/RIDB syncs keep running on the Pi against the same sidecar. Full-replace-per-source semantics are preserved. |
 | 8 | Search index | **FTS5** over name + category/brand/cuisine terms; keep `LIKE` only as an internal fallback | `name LIKE '%q%'` is a full scan — fine at 22k rows, not at millions. |
 | 9 | Search ranking default | **FTS match quality → rank tier → distance to map center (current fix when no map context)** | The Google-like "nearest plausible match first" ordering. Set as the default now; tune weights during Phases 2–3 with real data. |
+| 10 | Tier rename: attractions → **places** (2026-07-09) | Tables `places`/`place_events`/`place_event_dates`, sidecar `places.db` (`GPS_PLACES_DB_PATH`), routes `/api/places*`, Places tab; renamed source files to match. Executed as part of Phase 0 (the migration copy targets the new names — one data move). | User call: "attractions" fit the NPS era, not a broad POI substrate. Matches the sources' framing (Overture Places; the Google-Places analog). Consequence for `plans/trip-planner-plan.md`: its pool CRUD moves off `/api/places` → `/api/saved-places` (noted there; its decision 8 already named the table `saved_places`). NPS's `places` API asset stays an importer-internal join detail. This plan file keeps its historical name. |
 
 ---
 
@@ -59,7 +60,10 @@ decisions inline.
    (`api/db.py` `init_db`). Migration: create the sidecar schema, copy the ~22k rows,
    drop the old tables. Unqualified table names resolve across ATTACHed DBs only when
    the name is unambiguous — the drop must land in the same deploy as the ATTACH, or
-   reads hit the stale main-DB tables.
+   reads hit the stale main-DB tables. *(Handled in Phase 0: one-shot in `api.db`,
+   copy-then-drop as two single-file transactions — no write spans both files, since
+   cross-file commits aren't crash-atomic in WAL — gated + BEGIN IMMEDIATE + re-runnable
+   because every service's startup races it; tested in `tests/test_places_api.py`.)*
 4. **Viewport reads need a hard budget.** A z10 metro bbox can hold 100k+ broad-scope
    rows. The existing `limit` cap + rank gating must bound every map-overlay read;
    "all pins in view" is no longer a valid query shape below the rank gate.
@@ -75,18 +79,19 @@ decisions inline.
 8. **`gps-db-backup` must not grow.** The sidecar is intentionally *not* in the
    snapshot path (rebuildable from public downloads). Document the rebuild recipe in
    `tools/backup_db.py`'s docstring alongside the restore procedure, and in
-   `.claude/modules/attractions.md`.
+   `.claude/modules/places.md`.
 
 ---
 
 ## Phases
 
-### Phase 0 — Sidecar migration (no new data)
+### Phase 0 — Sidecar migration (no new data) — **DONE 2026-07-09** (with the tier rename, decision 10)
 
-- [ ] `attractions.db` schema module + `GPS_ATTRACTIONS_DB_PATH` (Pi path + dev fallback, matching the tile-archive env pattern)
-- [ ] `get_connection()` ATTACHes the sidecar; tier DDL moves out of `init_db`
-- [ ] One-shot migration: copy existing rows, drop main-DB tier tables (same-deploy, trap 3)
-- [ ] `import_attractions.py` + tests point at the sidecar; deploy notes (env var in unit files if needed)
+- [x] `places.db` sidecar schema (`_init_places_schema`) + path resolution (derived beside main DB; `GPS_PLACES_DB_PATH`/`--places-db` overrides — see decision 3 as-built note)
+- [x] `get_connection()` ATTACHes the sidecar (WAL'd; no-cross-file-write invariant in its docstring); tier DDL moved out of `init_db`
+- [x] One-shot migration: copy existing rows (ids preserved), drop main-DB tier tables (same-deploy, trap 3) — tested incl. idempotent re-run
+- [x] `import_places.py` + tests point at the sidecar; no unit-file changes needed (derived path); backup exclusion + rebuild recipe documented in `tools/backup_db.py` docstring; CLAUDE.md/module docs updated
+- [ ] **Pi verify after deploy:** migration journal line, 22k rows in `/mnt/nvme/data/places.db`, `/api/places` reads clean; check R*Tree + FTS5 compiled into the Pi's SQLite (feeds open decision C / decision 8)
 
 ### Phase 1 — OSM extract pipeline (laptop/NAS tool)
 
@@ -98,9 +103,9 @@ decisions inline.
 
 ### Phase 2 — Pi-side merge + query surface
 
-- [ ] Merge mode in `import_attractions.py` (`--osm-db <transfer file>`): full-replace `source='osm'` from the ATTACHed transfer DB
+- [ ] Merge mode in `import_places.py` (`--osm-db <transfer file>`): full-replace `source='osm'` from the ATTACHed transfer DB
 - [ ] FTS5 table + rebuild step; spatial index decision (open C) benchmarked and applied
-- [ ] `/api/attractions` grows: FTS-backed `q`, `category` filter, `rank` gate; every read bounded (trap 4)
+- [ ] `/api/places` grows: FTS-backed `q`, `category` filter, `rank` gate; every read bounded (trap 4)
 - [ ] Route/param tests over a synthetic broad dataset
 
 ### Phase 3 — Frontend

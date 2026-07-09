@@ -25,6 +25,13 @@ Restore procedure: stop the writers (``gps-logger``, ``mqtt-ingest``,
 ``gps-processor``, ``gps-dashboard``), copy the chosen dated file from the NAS
 back to ``/mnt/nvme/data/gps_history.db`` (remove stale ``-wal``/``-shm``
 siblings), run ``PRAGMA integrity_check;`` before trusting it, restart.
+
+The ``places.db`` sidecar (beside the main DB) is deliberately NOT in this
+backup path: the places tier is fully rebuildable from public downloads. Its
+rebuild recipe is the importers, per source — ``tools/import_places.py`` (NPS
+over WAN; RIDB via ``--ridb-zip``; later OSM/Overture merges per
+``plans/attractions-poi-plan.md``). A lost sidecar costs a re-import, never
+data.
 """
 
 from __future__ import annotations

@@ -4,8 +4,8 @@
  * target.
  *
  * A destination is a **value snapshot, never a live reference**: producers
- * (attraction detail, a long-pressed pin, later a saved place or trip stop)
- * materialize name + coords at set time. Attractions imports are full-replace —
+ * (place detail, a long-pressed pin, later a saved place or trip stop)
+ * materialize name + coords at set time. Places imports are full-replace —
  * row ids are not stable across re-syncs — so `source`/`sourceId` are carried
  * as provenance only and must never be dereferenced. The navigation plan
  * attaches a route *alongside* this, not inside it.

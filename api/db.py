@@ -17,13 +17,37 @@ from common.timefmt import (
 
 DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
 
+#: Explicit places-sidecar override (env / tools / tests). When None, the sidecar
+#: rides beside the main DB (places_db_path) — a derived default on purpose: every
+#: process that opens a connection (app, logger, processor, ingest…) resolves the
+#: same pair of files by construction, so no unit file can drift and, e.g., run the
+#: one-shot sidecar migration against the wrong path.
+_env_places = os.environ.get('GPS_PLACES_DB_PATH')
+PLACES_DB_PATH: Path | None = Path(_env_places) if _env_places else None
+
+
+def places_db_path() -> Path:
+    """Resolve the places sidecar path: ``PLACES_DB_PATH`` override, else beside ``DB_PATH``."""
+    return PLACES_DB_PATH if PLACES_DB_PATH is not None else DB_PATH.parent / 'places.db'
+
 
 def get_connection() -> sqlite3.Connection:
+    """Open the main DB with the places sidecar ATTACHed as ``places_db``.
+
+    The places tier (rebuildable POI data, kept out of the backup path) lives in
+    its own file; ATTACH auto-creates it when missing. Invariant: no write
+    transaction may span both files — cross-file commits are not crash-atomic in
+    WAL mode. Tier writes touch only ``places_db``; everything else only ``main``.
+    """
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA synchronous=NORMAL')
     conn.execute('PRAGMA busy_timeout=30000')
+    conn.execute('ATTACH DATABASE ? AS places_db', (str(places_db_path()),))
+    # journal_mode is a persistent per-file property, but setting it is cheap and
+    # keeps a sidecar created by any code path in WAL (merges must not block reads).
+    conn.execute('PRAGMA places_db.journal_mode=WAL')
     return conn
 
 
@@ -470,68 +494,6 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_phone_visits_start_time
             ON phone_visits(start_time);
 
-        -- Attractions tier — parks/public-lands POIs (self-guided tours, facility
-        -- hours, things to do) synced from online sources by
-        -- tools/import_attractions.py while the Pi has WAN; browsed offline.
-        -- Fully rebuildable (full-replace per source on import). One unified
-        -- table across sources/kinds: columns carry only what queries filter or
-        -- sort on; display-only structure (tour stops, hours, amenities, fees)
-        -- rides in the details JSON. lat/lon nullable — rows without a resolvable
-        -- coordinate simply never match a bbox. See .claude/modules/attractions.md.
-        CREATE TABLE IF NOT EXISTS attractions (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            source      TEXT NOT NULL,
-            source_kind TEXT NOT NULL,
-            source_id   TEXT NOT NULL,
-            park_code   TEXT,
-            name        TEXT NOT NULL,
-            lat         REAL,
-            lon         REAL,
-            summary     TEXT,
-            details     TEXT NOT NULL,
-            synced_at   TEXT NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_attractions_source_key
-            ON attractions(source, source_id);
-        CREATE INDEX IF NOT EXISTS idx_attractions_latlon
-            ON attractions(lat, lon);
-        CREATE INDEX IF NOT EXISTS idx_attractions_kind
-            ON attractions(source_kind);
-
-        -- Scheduled park events (ranger programs, guided walks). Kept out of
-        -- attractions: an event is a schedule, not a place. attraction_event_dates
-        -- is the source's pre-expanded occurrence list — one row per date × time
-        -- window, park-local calendar dates as published (NOT the ms-UTC axis),
-        -- so "what's on this week" is one indexed range query.
-        CREATE TABLE IF NOT EXISTS attraction_events (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            source            TEXT NOT NULL,
-            source_id         TEXT NOT NULL,
-            park_code         TEXT,
-            name              TEXT NOT NULL,
-            lat               REAL,
-            lon               REAL,
-            location_text     TEXT,
-            is_free           INTEGER,
-            needs_reservation INTEGER,
-            details           TEXT NOT NULL,
-            synced_at         TEXT NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_attraction_events_source_key
-            ON attraction_events(source, source_id);
-
-        CREATE TABLE IF NOT EXISTS attraction_event_dates (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id   INTEGER NOT NULL,
-            date       TEXT NOT NULL,
-            time_start TEXT,
-            time_end   TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_attraction_event_dates_date
-            ON attraction_event_dates(date, event_id);
-        CREATE INDEX IF NOT EXISTS idx_attraction_event_dates_event
-            ON attraction_event_dates(event_id);
-
         CREATE TABLE IF NOT EXISTS phone_activities (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             start_time    TEXT NOT NULL,
@@ -549,6 +511,152 @@ def init_db(conn: sqlite3.Connection) -> None:
     """)
     conn.commit()
     _migrate_live_throttle_channels(conn)
+    # The places tier lives in the ATTACHed sidecar, so its schema (and the
+    # one-shot migration into it) only applies to connections that have one —
+    # every get_connection() caller. Bare connections (tests, ad-hoc scripts)
+    # get the main schema only.
+    schemas = {row[1] for row in conn.execute('PRAGMA database_list')}
+    if 'places_db' in schemas:
+        _init_places_schema(conn)
+        _migrate_places_sidecar(conn)
+
+
+def _init_places_schema(conn: sqlite3.Connection) -> None:
+    """Create the places tier's tables in the ATTACHed sidecar.
+
+    The tier lives in its own file (see :func:`places_db_path`): millions of
+    rebuildable-from-public-download POI rows must not inflate gps_history.db
+    or its 6-hourly backup snapshot. Everything here is full-replace per
+    source on import — nothing in the sidecar needs backup.
+    """
+    conn.executescript("""
+        -- Places tier — the app's general POI substrate: parks/public-lands POIs
+        -- (NPS + RIDB today; OSM/Overture planned — plans/attractions-poi-plan.md),
+        -- synced by tools/import_places.py while online, browsed offline. One
+        -- unified table across sources/kinds: columns carry only what queries
+        -- filter or sort on; display-only structure (tour stops, hours, amenities,
+        -- fees) rides in the details JSON. lat/lon nullable — rows without a
+        -- resolvable coordinate simply never match a bbox. See
+        -- .claude/modules/places.md.
+        CREATE TABLE IF NOT EXISTS places_db.places (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            source      TEXT NOT NULL,
+            source_kind TEXT NOT NULL,
+            source_id   TEXT NOT NULL,
+            park_code   TEXT,
+            name        TEXT NOT NULL,
+            lat         REAL,
+            lon         REAL,
+            summary     TEXT,
+            details     TEXT NOT NULL,
+            synced_at   TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS places_db.idx_places_source_key
+            ON places(source, source_id);
+        CREATE INDEX IF NOT EXISTS places_db.idx_places_latlon
+            ON places(lat, lon);
+        CREATE INDEX IF NOT EXISTS places_db.idx_places_kind
+            ON places(source_kind);
+
+        -- Scheduled park events (ranger programs, guided walks). Kept out of
+        -- places: an event is a schedule, not a place. place_event_dates is the
+        -- source's pre-expanded occurrence list — one row per date × time window,
+        -- park-local calendar dates as published (NOT the ms-UTC axis), so
+        -- "what's on this week" is one indexed range query.
+        CREATE TABLE IF NOT EXISTS places_db.place_events (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            source            TEXT NOT NULL,
+            source_id         TEXT NOT NULL,
+            park_code         TEXT,
+            name              TEXT NOT NULL,
+            lat               REAL,
+            lon               REAL,
+            location_text     TEXT,
+            is_free           INTEGER,
+            needs_reservation INTEGER,
+            details           TEXT NOT NULL,
+            synced_at         TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS places_db.idx_place_events_source_key
+            ON place_events(source, source_id);
+
+        CREATE TABLE IF NOT EXISTS places_db.place_event_dates (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id   INTEGER NOT NULL,
+            date       TEXT NOT NULL,
+            time_start TEXT,
+            time_end   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS places_db.idx_place_event_dates_date
+            ON place_event_dates(date, event_id);
+        CREATE INDEX IF NOT EXISTS places_db.idx_place_event_dates_event
+            ON place_event_dates(event_id);
+    """)
+    conn.commit()
+
+
+def _migrate_places_sidecar(conn: sqlite3.Connection) -> None:
+    """One-shot: move the tier out of gps_history.db into the places sidecar.
+
+    Renames the tables in flight (attractions → places, attraction_events →
+    place_events, attraction_event_dates → place_event_dates), preserving ids
+    (place_event_dates.event_id references them). Gated on the old main-DB
+    tables existing, so steady-state startups pay one sqlite_master read.
+
+    Runs as two transactions so no write ever spans both files (cross-file
+    commits are not crash-atomic in WAL mode): the copy dirties only the
+    sidecar, the drop only main. Every service's startup calls init_db and a
+    deploy restarts several at once, so both steps tolerate racing and crashed
+    predecessors: the copy full-replaces the sidecar's rows under BEGIN
+    IMMEDIATE (re-checking the gate once the lock is held; WAL snapshot
+    isolation keeps its read of main consistent even if a racer drops
+    concurrently), and the drop is IF EXISTS. Drop once landed on the Pi's DB,
+    like the earlier one-shot migrations.
+    """
+
+    def gate() -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name='attractions'"
+        ).fetchone()
+        return row is not None
+
+    if not gate():
+        return
+    conn.execute('BEGIN IMMEDIATE')
+    if not gate():
+        conn.execute('ROLLBACK')
+        return
+    conn.execute('DELETE FROM places_db.place_event_dates')
+    conn.execute('DELETE FROM places_db.place_events')
+    conn.execute('DELETE FROM places_db.places')
+    n_places = conn.execute(
+        'INSERT INTO places_db.places '
+        '(id, source, source_kind, source_id, park_code, name, lat, lon, summary, '
+        'details, synced_at) '
+        'SELECT id, source, source_kind, source_id, park_code, name, lat, lon, summary, '
+        'details, synced_at FROM main.attractions'
+    ).rowcount
+    n_events = conn.execute(
+        'INSERT INTO places_db.place_events '
+        '(id, source, source_id, park_code, name, lat, lon, location_text, is_free, '
+        'needs_reservation, details, synced_at) '
+        'SELECT id, source, source_id, park_code, name, lat, lon, location_text, is_free, '
+        'needs_reservation, details, synced_at FROM main.attraction_events'
+    ).rowcount
+    n_dates = conn.execute(
+        'INSERT INTO places_db.place_event_dates (id, event_id, date, time_start, time_end) '
+        'SELECT id, event_id, date, time_start, time_end FROM main.attraction_event_dates'
+    ).rowcount
+    conn.commit()
+    conn.execute('BEGIN IMMEDIATE')
+    conn.execute('DROP TABLE IF EXISTS main.attraction_event_dates')
+    conn.execute('DROP TABLE IF EXISTS main.attraction_events')
+    conn.execute('DROP TABLE IF EXISTS main.attractions')
+    conn.commit()
+    print(
+        f'Migration: moved places tier to {places_db_path()} '
+        f'({n_places} places, {n_events} events, {n_dates} dates); dropped main-DB tables'
+    )
 
 
 #: Mirrors sensors/system_reader.py LIVE_THROTTLE_CHANNELS (not imported — api does

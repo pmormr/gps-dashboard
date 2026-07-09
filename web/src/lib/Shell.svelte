@@ -63,7 +63,7 @@
 
   .nav li {
     flex: 1;
-    /* Flex items default to min-width:auto — a wide label ("Attractions") would
+    /* Flex items default to min-width:auto — a wide label ("Places") would
        refuse to shrink and push the last tab off-screen on phones. */
     min-width: 0;
   }

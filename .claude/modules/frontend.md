@@ -2,7 +2,7 @@
 
 **Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
 `static/dist/` (committed) and served by Flask. A persistent nav shell with eight
-top-level destinations (**Home · Map · Drive · Attractions · Systems · Docs · Sky ·
+top-level destinations (**Home · Map · Drive · Places · Systems · Docs · Sky ·
 Radio**); the map is one tab among several, not the privileged single view it once was.
 Mobile-first (the primary client is a phone over the van's WiFi): a bottom tab bar on
 phones, a left sidebar on desktop. (Tab-bar trap: flex items default to
@@ -85,7 +85,7 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   extent, and it always renders — an empty window stays navigable. Hover emits
   `track.hoverMs` (the map's ghost dot) + tooltips.
 - **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🛰 **Data
-  layers** (`DataLayers.svelte`: drone + phone + attractions toggles, the latter with a
+  layers** (`DataLayers.svelte`: drone + phone + places toggles, the latter with a
   per-kind filter), 🎨 **Map style**
   (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, labels via `labels.ts`,
   3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
@@ -96,15 +96,15 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   a mode toggle passing the map bbox into the shared `/api/points` fetch so the strip's
   density shows only time spent in view ("when was I ever at this campsite") — updates on
   moveend, suppresses refit (no fit→move→refetch loop), resets on toggle-off/route leave.
-  Drone/phone/attractions **legends are on-map chips** under the top-left annotations
+  Drone/phone/places **legends are on-map chips** under the top-left annotations
   cluster, shown only while that layer is on. Drone: `drone.ts` lazily imports
   `overlay3d.ts` (three.js tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb +
-  visit pins, following the window; attractions: `attractions.ts` per-kind pins —
+  visit pins, following the window; places: `places.ts` per-kind pins —
   **viewport-driven** (moveend refetch, parks-only below z6), *not* time-windowed. The
-  map's attractions role is **waypoints only**: pin click → `AttractionSheet.svelte`, a
-  thin container over the shared `AttractionDetail.svelte`; browsing/search lives in the
-  Attractions destination. Subsystems: **`.claude/modules/drone.md`**,
-  **`.claude/modules/phone.md`**; attractions tier: **`.claude/modules/attractions.md`**.
+  map's places role is **waypoints only**: pin click → `PlaceSheet.svelte`, a
+  thin container over the shared `PlaceDetail.svelte`; browsing/search lives in the
+  Places destination. Subsystems: **`.claude/modules/drone.md`**,
+  **`.claude/modules/phone.md`**; places tier: **`.claude/modules/places.md`**.
 - **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) —
   annotations are **named windows** (pure time metadata; any tier replays against the
   bounds). Drawer (side desktop / bottom sheet mobile) is the management UI: list, ✎ edit
@@ -162,10 +162,10 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   frozen payload freezes its `now` too.
 - **Destination chevron** — `stores/destination.svelte.ts`: a localStorage-persisted
   **value snapshot** `{name, lat, lon}` + provenance-only `source`/`sourceId`
-  (attraction ids churn on full-replace re-imports — never dereference; the
+  (place ids churn on full-replace re-imports — never dereference; the
   navigation plan attaches a route *alongside* this object, and a trip-planner
   saved place/trip stop just materializes into the same shape). Producers:
-  "Navigate here" on the shared `AttractionDetail`, and a long-press/right-click
+  "Navigate here" on the shared `PlaceDetail`, and a long-press/right-click
   dropped pin (`MapView.onLongPress` — hand-rolled 600 ms timer with move-slop
   cancel; pins are ephemeral, saving them belongs to the planner). HUD cell shows
   great-circle distance + a course-relative `▲` (absolute cardinal when parked —
@@ -184,7 +184,7 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   then live-extended per fresh fix via `extendCrumbs` (`lib/live.ts`): a 5 m movement
   gate (a parked van must not grow a fuzzball), 30 min age trim, and an
   oldest-half decimation at the count cap. Rendered as a puck-blue engine layer
-  (`MapView.setBreadcrumb`) above the red history track, below attraction pins.
+  (`MapView.setBreadcrumb`) above the red history track, below place pins.
 - **Wake lock** — `lib/wakelock.ts`: the real API needs a secure context (absent at
   `http://<LAN-IP>`), so production falls back to a NoSleep-style invisible looping
   video (~1.6 kB `web/src/assets/wakelock.mp4`, Vite-inlined, offline-safe; seek-back
@@ -192,14 +192,14 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
 
 ## Other views
 
-- **Attractions** (`Attractions.svelte`, `/attractions`) — the "where do we go next"
-  browser over the attractions tier; the map keeps only waypoints. Master-detail
+- **Places** (`Places.svelte`, `/places`) — the "where do we go next"
+  browser over the places tier; the map keeps only waypoints. Master-detail
   (email-client) layout: a list pane (Places / Events modes, server-`q` name search
   debounced, kind chips, **Near me** ↔ **Everywhere** anchor toggle — live fix,
   distance-sorted, ~±1°) beside a detail pane rendering the shared
-  `AttractionDetail.svelte` / `EventDetail.svelte` (also used by the map sheet). Desktop
+  `PlaceDetail.svelte` / `EventDetail.svelte` (also used by the map sheet). Desktop
   shows both panes; mobile shows one (list → detail with back). Browse state is a module
-  singleton (`stores/attractions.svelte.ts`) so the session survives tab switches;
+  singleton (`stores/places.svelte.ts`) so the session survives tab switches;
   "Show on map" queues `layers.pendingZoom`, enables the pins layer, and navigates —
   Map.svelte consumes the zoom once the engine is up.
 - **Systems** (`Systems.svelte`) — consolidated house/van/cabin telemetry from

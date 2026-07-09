@@ -8,8 +8,8 @@
  * the engine — it persists its own state across route remounts as a module singleton.
  */
 
-import type { AttractionKind } from '../api'
-import { KIND_META } from '../attractions'
+import type { PlaceKind } from '../api'
+import { KIND_META } from '../places'
 import { POI_GROUPS, type LabelSettings } from '../labels'
 
 export type BaseLayer = 'osm' | 'usgs'
@@ -34,13 +34,13 @@ class LayersStore {
   phone = $state(false)
   phoneStatus = $state('')
 
-  // Attractions overlay (parks/public-lands POI tier). Viewport-driven, not
+  // Places overlay (parks/public-lands POI tier). Viewport-driven, not
   // time-windowed — Map.svelte refetches it on map movement while it's on.
-  // Kinds default all-on; the zoom gate (attractions.ts) still applies on top.
-  attractions = $state(false)
-  attractionsStatus = $state('')
-  attractionKinds = $state<Set<AttractionKind>>(new Set(KIND_META.map((m) => m.kind)))
-  // A zoom queued by another view ("Show on map" in Attractions) for Map.svelte
+  // Kinds default all-on; the zoom gate (places.ts) still applies on top.
+  places = $state(false)
+  placesStatus = $state('')
+  placeKinds = $state<Set<PlaceKind>>(new Set(KIND_META.map((m) => m.kind)))
+  // A zoom queued by another view ("Show on map" in Places) for Map.svelte
   // to consume once the engine is mounted — the engine may not exist yet when
   // the navigation happens.
   pendingZoom = $state<{ lat: number; lon: number; zoom: number } | null>(null)
@@ -63,12 +63,12 @@ class LayersStore {
     this.labelGroups = next
   }
 
-  /** Toggle an attraction kind (reassigns the Set so $state reacts). */
-  toggleAttractionKind(kind: AttractionKind, on: boolean): void {
-    const next = new Set(this.attractionKinds)
+  /** Toggle an place kind (reassigns the Set so $state reacts). */
+  togglePlaceKind(kind: PlaceKind, on: boolean): void {
+    const next = new Set(this.placeKinds)
     if (on) next.add(kind)
     else next.delete(kind)
-    this.attractionKinds = next
+    this.placeKinds = next
   }
 }
 

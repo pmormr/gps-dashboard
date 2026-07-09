@@ -73,13 +73,13 @@
 }
 
 
-/* Attractions kind filter (indented under the layer toggle). */
-.attraction-kinds {
+/* Places kind filter (indented under the layer toggle). */
+.place-kinds {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin: 6px 0 4px 22px;
 }
-.attraction-kinds .label-check {
+.place-kinds .label-check {
   gap: 6px;
 }

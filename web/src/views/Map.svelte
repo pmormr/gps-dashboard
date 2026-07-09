@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
-  import { clearAttractions, KIND_META, syncAttractions } from '../lib/attractions'
+  import { clearPlaces, KIND_META, syncPlaces } from '../lib/places'
   import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
@@ -13,10 +13,10 @@
   import { track } from '../lib/stores/track.svelte'
   import './map.css'
   import './annotations.css'
-  import './attractions.css'
+  import './places.css'
   import AnnotationForm from './AnnotationForm.svelte'
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
-  import AttractionSheet from './AttractionSheet.svelte'
+  import PlaceSheet from './PlaceSheet.svelte'
   import DataLayers from './DataLayers.svelte'
   import InspectPanel from './InspectPanel.svelte'
   import MapStyle from './MapStyle.svelte'
@@ -52,16 +52,16 @@
     openPanel = openPanel === id ? null : id
   }
 
-  // Attractions detail sheet: the open row id (from a pin click or the Nearby
+  // Places detail sheet: the open row id (from a pin click or the Nearby
   // panel), null = closed.
-  let attractionId = $state<number | null>(null)
+  let placeId = $state<number | null>(null)
 
-  // Attractions overlay: viewport-driven, so map movement (not the time window)
+  // Places overlay: viewport-driven, so map movement (not the time window)
   // invalidates it. The moveend callback just bumps a revision the sync effect
   // reads; onMoveEnd's callback set makes the repeated add idempotent.
-  let attractionsRev = $state(0)
-  function onAttractionsMoved(): void {
-    attractionsRev++
+  let placesRev = $state(0)
+  function onPlacesMoved(): void {
+    placesRev++
   }
 
   // Viewport filter: while on, the shared track fetch carries
@@ -104,7 +104,7 @@
       // Re-apply label settings whenever the vector base (re)loads its style.
       hookLabels(mod.MapView, () => layers.labelSettings)
       // Pin taps open the detail sheet (the engine only hands back the row id).
-      mod.MapView.onAttractionClick((id) => (attractionId = id))
+      mod.MapView.onPlaceClick((id) => (placeId = id))
     })
     annotations.reload()
     return () => {
@@ -113,7 +113,7 @@
         view?.offMoveEnd(onMoved)
         track.bbox = null
       }
-      view?.offMoveEnd(onAttractionsMoved)
+      view?.offMoveEnd(onPlacesMoved)
       view?.clearGhost()
       hide?.()
     }
@@ -138,7 +138,7 @@
       })
   })
 
-  // A zoom queued by the Attractions view's "Show on map" — consume it once the
+  // A zoom queued by the Places view's "Show on map" — consume it once the
   // engine is up.
   $effect(() => {
     if (!view || !layers.pendingZoom) return
@@ -147,25 +147,25 @@
     view.zoomTo(lat, lon, zoom)
   })
 
-  // Attractions overlay follows the *viewport*: refetch when the toggle, the kind
-  // filter, or the map camera (attractionsRev) changes. Kinds/rev are only read
+  // Places overlay follows the *viewport*: refetch when the toggle, the kind
+  // filter, or the map camera (placesRev) changes. Kinds/rev are only read
   // while the layer is on, so an off overlay costs nothing per pan.
   $effect(() => {
     if (!view) return
-    if (!layers.attractions) {
-      view.offMoveEnd(onAttractionsMoved)
-      clearAttractions(view)
+    if (!layers.places) {
+      view.offMoveEnd(onPlacesMoved)
+      clearPlaces(view)
       return
     }
-    view.onMoveEnd(onAttractionsMoved)
-    void attractionsRev
-    const kinds = [...layers.attractionKinds]
-    syncAttractions(view, view.getBbox(), view.getZoom(), kinds)
+    view.onMoveEnd(onPlacesMoved)
+    void placesRev
+    const kinds = [...layers.placeKinds]
+    syncPlaces(view, view.getBbox(), view.getZoom(), kinds)
       .then((label) => {
-        if (label) layers.attractionsStatus = label
+        if (label) layers.placesStatus = label
       })
       .catch((err) => {
-        layers.attractionsStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+        layers.placesStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
       })
   })
 
@@ -277,7 +277,7 @@
     <button class="map-fab" title="Zoom to current location" onclick={zoomToCurrent}>⊕</button>
 
     <!-- On-map legends, visible only while that layer is on. -->
-    {#if layers.drone || layers.phone || layers.attractions}
+    {#if layers.drone || layers.phone || layers.places}
       <div class="map-legend-chips">
         {#if layers.drone}
           <div class="legend-chip">
@@ -295,10 +295,10 @@
             {/each}
           </div>
         {/if}
-        {#if layers.attractions}
+        {#if layers.places}
           <div class="legend-chip">
             <span class="legend-chip-icon">🏞</span>
-            {#each KIND_META.filter((k) => layers.attractionKinds.has(k.kind)) as k (k.kind)}
+            {#each KIND_META.filter((k) => layers.placeKinds.has(k.kind)) as k (k.kind)}
               <span class="legend-chip-item"><span class="legend-swatch" style:background={k.color}></span>{k.label}</span>
             {/each}
           </div>
@@ -354,6 +354,6 @@
 
 <AnnotationsDrawer bind:open={drawerOpen} />
 <AnnotationForm />
-{#if attractionId != null}
-  <AttractionSheet id={attractionId} {view} onClose={() => (attractionId = null)} />
+{#if placeId != null}
+  <PlaceSheet id={placeId} {view} onClose={() => (placeId = null)} />
 {/if}

@@ -192,7 +192,7 @@
     }
   })
 
-  // Destination pin follows the store (set from here, Attractions, or a reload).
+  // Destination pin follows the store (set from here, Places, or a reload).
   $effect(() => {
     const d = destination.current
     if (!view) return
