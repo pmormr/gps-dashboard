@@ -34,6 +34,9 @@ decisions inline.
 | 9 | Search ranking default | **FTS match quality → rank tier → distance to map center (current fix when no map context)** | The Google-like "nearest plausible match first" ordering. Set as the default now; tune weights during Phases 2–3 with real data. |
 | 10 | Tier rename: attractions → **places** (2026-07-09) | Tables `places`/`place_events`/`place_event_dates`, sidecar `places.db` (`GPS_PLACES_DB_PATH`), routes `/api/places*`, Places tab; renamed source files to match. Executed as part of Phase 0 (the migration copy targets the new names — one data move). | User call: "attractions" fit the NPS era, not a broad POI substrate. Matches the sources' framing (Overture Places; the Google-Places analog). Consequence for `plans/trip-planner-plan.md`: its pool CRUD moves off `/api/places` → `/api/saved-places` (noted there; its decision 8 already named the table `saved_places`). NPS's `places` API asset stays an importer-internal join detail. This plan file keeps its historical name. |
 | 11 | Category taxonomy + rank tiers (was open decision B; resolved 2026-07-09) | The `TAXONOMY` table in `tools/build_osm_pois.py`: 18 unified categories; `rank` 1 = major destination (~z5+) · 2 = significant stop (~z9+) · 3 = common POI (~z12+) · 4 = minor (~z14+) · 5 = micro furniture, search-only, never auto-pinned. Van-life essentials deliberately boosted (`water_point`/`sanitary_dump_station` rank 2 — fuel's tier; `drinking_water`/`toilets`/`shower`/`laundry` 3). `aeroway=aerodrome` added beyond decision 1's key list (airports are unambiguous destinations). NPS/RIDB rows get category/rank at the Phase-2 merge so one gate governs the overlay. | User-reviewed against Colorado dry-run stats (222,785 rows; the key-level defaults absorb the long tail sanely; `parking_space` alone was 67k excluded rows). The tags-filter expressions derive from the same table so filter and taxonomy can't drift. Tune rank weights with real data in Phases 2–3. |
+| 12 | Spatial index (was open decision C; resolved 2026-07-09) | **Composite `(lat, lon)` index** (already in the schema); R*Tree declined | Benchmarked on a synthetic 10M-row DB (Colorado ×45, realistic local density): rank-gated viewport reads ~1 ms both; worst case (dense metro, `ORDER BY rank`, 102k in-bbox) ~28 ms both, within 1 ms of each other. The bbox+rank+limit shape dominates, so R*Tree's extra moving parts (per-merge sync, minutes-long Pi build, a join per read) buy nothing. |
+| 13 | NPS/RIDB kind → (category, rank) map (2026-07-09) | `api.db.PLACES_KIND_RANKS`: park→(park,1), recarea→(park,2), campground→(camping,2), visitorcenter→(attraction,2), thingstodo/tour→(attraction,3), facility→(outdoors,3), permit→(outdoors,4). Stamped at import; unknown future kinds import NULL (never pinned) until mapped. | User call (park at rank 1 = every NPS unit pins from ~z5). One rank×zoom gate governs all sources' pins. |
+| 14 | FTS scope (2026-07-09) | Index `name` + `summary` + `category` + `source_kind` (external-content FTS5 `places_fts`); `details` JSON stays out (hours/URLs are noise) | User call. OSM summaries are ~40-char kind·cuisine·brand strings, so the recall ("burgers", "elk") costs only a few hundred MB at 10M rows. LIKE remains the internal fallback when no searchable token survives sanitising (decision 8). |
 
 ---
 
@@ -41,7 +44,6 @@ decisions inline.
 
 | # | Decision | Options | Notes |
 |---|----------|---------|-------|
-| C | Spatial index | Composite `(lat, lon)` index vs SQLite R*Tree | A lat-only-narrowing composite index may be fine; R*Tree is the right structure at ~10M rows *if* the Pi's SQLite ships with it (confirmed present in Phase 0's Pi verify). Benchmark on real data in Phase 2 before committing. |
 | E | Overture↔OSM dedupe | Overture rows carry source provenance (some are OSM-derived) | Prefer the OSM row when both exist (richer tags, matches the rendered map); Overture fills the gaps. Decide the matching key (provenance id vs name+proximity) in Phase 4. |
 
 ---
@@ -93,21 +95,23 @@ decisions inline.
 - [x] `import_places.py` + tests point at the sidecar; no unit-file changes needed (derived path); backup exclusion + rebuild recipe documented in `tools/backup_db.py` docstring; CLAUDE.md/module docs updated
 - [x] **Pi verify after deploy (2026-07-09):** migration ran (three services raced it as designed — three identical journal lines, idempotent); 22,450 places (nps 6,124 / ridb 16,326) + 3,381 events + 68,921 dates in `/mnt/nvme/data/places.db`; old main-DB tables gone; `/api/places` search + events reads clean; all services active. **R*Tree AND FTS5 both present in the Pi's Python-linked SQLite** (virtual tables created successfully) — decision 8 is safe, open decision C has both options available.
 
-### Phase 1 — OSM extract pipeline (laptop/NAS tool) — **tool DONE 2026-07-09; NA build pending**
+### Phase 1 — OSM extract pipeline (laptop/NAS tool) — **DONE 2026-07-09 (incl. NA build)**
 
 - [x] `tools/build_osm_pois.py`: Geofabrik PBF(s) → tags-filter → centroid-resolved rows → transfer DB (`source='osm'`, natural key = element type + id). Prefilter output is expression-hash-named and reused while fresh, so taxonomy scope edits auto-invalidate it; nodes + linear ways + assembled areas (trap 1 — only 4/222k Colorado rows lacked geometry); transfer table = sidecar columns + `category`/`rank`
-- [ ] **PBF reuse:** `plans/navigation-plan.md` Phase 1 downloads the same Geofabrik `north-america` PBF to the NAS for the Valhalla graph build — whichever plan runs second reuses the first's download (one transfer, and graph + POI DB share an OSM snapshot). **NA build still to run** (+ `central-america` for the basemap bbox)
+- [x] **PBF reuse:** canonical OSM snapshot at **`rex-nas:~/osm/`** (`north-america` 18 GB + `central-america` 743 MB, 2026-07-09) — the navigation plan's Valhalla build reads the same files, so graph + POI DB share one OSM vintage. (`/volume1/downloads` is root-owned; home on volume3 had the space. UGOS ad-hoc transfers need `scp -O` — SFTP/rsync are module-confined.)
+- [x] **NA build (2026-07-09):** 10,676,298 rows / 3.0 GB transfer DB in 299 s extract (+ one-time prefilter) on the laptop — `~/osm-lab/osm-places-na.db`. Full-scale merge verified locally: 324 s incl. FTS rebuild, `places.db` 4.15 GB, FTS query 5.8 ms.
 - [x] POI-key list + mass-non-place floor (decision 1) + `category`/`rank` mapping as data in the tool (decision 11; user-reviewed)
 - [x] Full tags → `details` JSON; `summary` from kind label/cuisine/brand; unnamed rows fall back name → brand/operator → humanized value ("Drinking water") so micro furniture stays searchable
 - [x] Dry-run stats mode (per-category counts + defaults-absorbed + unmatched reports — the taxonomy-tuning signals)
 - [x] **Colorado calibration:** 222,785 POIs / 62 MB / 5 s extract (+ ~4 min one-time prefilter) → full NA ≈ 10–11M rows / ~3 GB transfer DB (trap 7's low end; matches decision 1's scale estimate)
 
-### Phase 2 — Pi-side merge + query surface
+### Phase 2 — Pi-side merge + query surface — **code DONE 2026-07-09; Pi rollout pending**
 
-- [ ] Merge mode in `import_places.py` (`--osm-db <transfer file>`): full-replace `source='osm'` from the ATTACHed transfer DB
-- [ ] FTS5 table + rebuild step; spatial index decision (open C) benchmarked and applied
-- [ ] `/api/places` grows: FTS-backed `q`, `category` filter, `rank` gate; every read bounded (trap 4)
-- [ ] Route/param tests over a synthetic broad dataset
+- [x] Merge mode in `import_places.py` (`--osm-db <transfer file>`): full-replace `source='osm'` from the ATTACHed transfer DB (one sidecar-write transaction; events untouched)
+- [x] FTS5 table (`places_fts`, decision 14) + rebuild after every import/merge; spatial index resolved (decision 12: composite, benchmarked); `category`/`rank` columns + one-shot migration w/ NPS/RIDB backfill (decision 13)
+- [x] `/api/places` grows: FTS-backed `q` (token-prefix; LIKE fallback), `category` filter, `max_rank` gate, `center` distance tiebreak (decision 9 ordering: match → rank → distance); default order now rank→name so truncation keeps the significant pins (trap 4)
+- [x] Route/param/migration/merge tests (`tests/test_places_api.py`)
+- [ ] **Pi rollout:** deploy code (migration runs on startup), scp the 3 GB transfer DB docked on the LAN, run `--osm-db` on the Pi, verify search + viewport reads + Pi-side merge timing
 
 ### Phase 3 — Frontend
 
@@ -123,6 +127,10 @@ decisions inline.
 
 ### Phase 5 — Parked (discuss before acting)
 
+- **Named lakes** (`natural=water` + `water=lake|reservoir`, name required): the NA dry-run
+  showed ~54k `natural=water` elements arriving as relation members — mass-mapped as a
+  whole (every retention pond), but *named* lakes are plausible destination features.
+  Decision-1 scope call, revisit with the map in hand.
 - USGS GNIS (public-domain natural-feature names) if OSM gaps show up
 - iOverlander (licensing/export state needs a fresh check post-iOverlander-2)
 - Wikidata/Wikipedia enrichment join onto existing rows

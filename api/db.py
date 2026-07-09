@@ -549,7 +549,9 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             lon         REAL,
             summary     TEXT,
             details     TEXT NOT NULL,
-            synced_at   TEXT NOT NULL
+            synced_at   TEXT NOT NULL,
+            category    TEXT,
+            rank        INTEGER
         );
         CREATE UNIQUE INDEX IF NOT EXISTS places_db.idx_places_source_key
             ON places(source, source_id);
@@ -557,6 +559,17 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             ON places(lat, lon);
         CREATE INDEX IF NOT EXISTS places_db.idx_places_kind
             ON places(source_kind);
+
+        -- Search index over the browse/search text (name + the ~40-char summary
+        -- teaser + category/kind terms). External content: rows live only in
+        -- places; the importer rebuilds the index after every import/merge
+        -- (writes to the tier are bulk-only, so there are no sync triggers).
+        -- FTS5 matching is token-PREFIX ('creek' matches 'Clear Creek Trail';
+        -- 'lear' does not match 'Clear') — the intended search contract.
+        CREATE VIRTUAL TABLE IF NOT EXISTS places_db.places_fts USING fts5(
+            name, summary, category, source_kind,
+            content='places', content_rowid='id'
+        );
 
         -- Scheduled park events (ranger programs, guided walks). Kept out of
         -- places: an event is a schedule, not a place. place_event_dates is the
@@ -593,6 +606,65 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             ON place_event_dates(event_id);
     """)
     conn.commit()
+    _migrate_places_broad_columns(conn)
+
+
+#: Federal-source kind → (category, rank), the same axes the OSM taxonomy
+#: (tools/build_osm_pois.py TAXONOMY) assigns, so one category filter and one
+#: rank×zoom pin gate governs every source. Stamped by tools/import_places.py
+#: on every NPS/RIDB sync; unknown future kinds import with NULLs (never pinned
+#: by a rank gate) until mapped here.
+PLACES_KIND_RANKS: dict[str, tuple[str, int]] = {
+    'park': ('park', 1),
+    'recarea': ('park', 2),
+    'campground': ('camping', 2),
+    'visitorcenter': ('attraction', 2),
+    'thingstodo': ('attraction', 3),
+    'tour': ('attraction', 3),
+    'facility': ('outdoors', 3),
+    'permit': ('outdoors', 4),
+}
+
+
+def _migrate_places_broad_columns(conn: sqlite3.Connection) -> None:
+    """One-shot: add ``category``/``rank`` to ``places`` and backfill NPS/RIDB rows.
+
+    The broad-POI columns (plan decision 11) predate only the federal sources'
+    rows — OSM rows always arrive with both set. Gated on the column add
+    (steady-state startups pay one PRAGMA); BEGIN IMMEDIATE + re-check because
+    every service's startup races this on a deploy, and a racer's ALTER would
+    otherwise die on a duplicate column. Drop once landed on the Pi's DB, like
+    the earlier one-shot migrations.
+    """
+
+    def missing() -> list[str]:
+        existing = {row[1] for row in conn.execute('PRAGMA places_db.table_info(places)')}
+        return [col for col in ('category', 'rank') if col not in existing]
+
+    if not missing():
+        return
+    conn.execute('BEGIN IMMEDIATE')
+    cols = missing()
+    if not cols:
+        conn.execute('ROLLBACK')
+        return
+    for col in cols:
+        kind = 'TEXT' if col == 'category' else 'INTEGER'
+        conn.execute(f'ALTER TABLE places_db.places ADD COLUMN {col} {kind}')
+    category_cases = ' '.join(
+        f"WHEN '{kind}' THEN '{category}'" for kind, (category, _) in PLACES_KIND_RANKS.items()
+    )
+    rank_cases = ' '.join(
+        f"WHEN '{kind}' THEN {rank}" for kind, (_, rank) in PLACES_KIND_RANKS.items()
+    )
+    backfilled = conn.execute(
+        f'UPDATE places_db.places SET '
+        f'category = CASE source_kind {category_cases} END, '
+        f'rank = CASE source_kind {rank_cases} END'
+    ).rowcount
+    conn.execute("INSERT INTO places_db.places_fts(places_fts) VALUES('rebuild')")
+    conn.commit()
+    print(f'Migration: added places column(s) {", ".join(cols)}; backfilled {backfilled} row(s)')
 
 
 def _migrate_places_sidecar(conn: sqlite3.Connection) -> None:
@@ -647,6 +719,21 @@ def _migrate_places_sidecar(conn: sqlite3.Connection) -> None:
         'INSERT INTO places_db.place_event_dates (id, event_id, date, time_start, time_end) '
         'SELECT id, event_id, date, time_start, time_end FROM main.attraction_event_dates'
     ).rowcount
+    # The legacy tables predate category/rank, so stamp the copies (idempotent
+    # re-statement of _migrate_places_broad_columns' backfill — that one-shot
+    # found the columns already present and skipped) and resync the FTS index.
+    category_cases = ' '.join(
+        f"WHEN '{kind}' THEN '{category}'" for kind, (category, _) in PLACES_KIND_RANKS.items()
+    )
+    rank_cases = ' '.join(
+        f"WHEN '{kind}' THEN {rank}" for kind, (_, rank) in PLACES_KIND_RANKS.items()
+    )
+    conn.execute(
+        f'UPDATE places_db.places SET '
+        f'category = CASE source_kind {category_cases} END, '
+        f'rank = CASE source_kind {rank_cases} END'
+    )
+    conn.execute("INSERT INTO places_db.places_fts(places_fts) VALUES('rebuild')")
     conn.commit()
     conn.execute('BEGIN IMMEDIATE')
     conn.execute('DROP TABLE IF EXISTS main.attraction_event_dates')

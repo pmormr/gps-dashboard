@@ -4,7 +4,7 @@ Batch importer for the places tier (see ``.claude/modules/places.md``). The
 tier lives in its own DB file beside the main one (``api.db.places_db_path``;
 override with ``GPS_PLACES_DB_PATH`` or ``--places-db``) — rebuildable POI
 data, deliberately outside the backup path.
-Two mutually exclusive modes, each full-replacing its own ``source`` slice of
+Three mutually exclusive modes, each full-replacing its own ``source`` slice of
 ``places`` / ``place_events`` / ``place_event_dates``:
 
 * **NPS** (default) — walks the NPS API (``developer.nps.gov``) while the Pi
@@ -15,6 +15,17 @@ Two mutually exclusive modes, each full-replacing its own ``source`` slice of
   regenerated ~nightly, no API key) into ``source='ridb'`` rows: the other
   federal agencies' places (FS/USACE/BLM/FWS… trailheads, campgrounds,
   visitor centers, rec areas). Offline once the zip is local.
+* **OSM merge** (``--osm-db``) — swaps in a transfer DB built off-Pi by
+  ``tools/build_osm_pois.py`` (the broad ~10M-row POI layer): ATTACH, replace
+  ``source='osm'``, done. The transfer file arrives finished (rows already
+  carry ``category``/``rank``); the Pi never parses a PBF. A ~minutes-long
+  seasonal op, like the RIDB import — never at drive time.
+
+Every mode finishes by rebuilding ``places_fts`` (the external-content FTS5
+search index) — writes to the tier are bulk-only, so there are no sync
+triggers, and at ~10M rows the rebuild dominates the merge's runtime.
+NPS/RIDB rows get ``category``/``rank`` stamped from ``api.db.PLACES_KIND_RANKS``
+at load time, so one rank×zoom gate governs every source's pins.
 
 NPS shape notes that drive the code:
 
@@ -88,7 +99,7 @@ from typing import Any
 
 import requests
 
-from api.db import get_connection, init_db, now_canonical
+from api.db import PLACES_KIND_RANKS, get_connection, init_db, now_canonical
 from common.cli import run_cli
 
 API_ROOT = 'https://developer.nps.gov/api/v1'
@@ -909,7 +920,8 @@ def load(
         conn.execute('DELETE FROM places WHERE source = ?', (source,))
         conn.executemany(
             'INSERT INTO places (source, source_kind, source_id, park_code, name, '
-            'lat, lon, summary, details, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'lat, lon, summary, details, synced_at, category, rank) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 (
                     source,
@@ -922,6 +934,7 @@ def load(
                     a.summary,
                     json.dumps(a.details),
                     now,
+                    *PLACES_KIND_RANKS.get(a.source_kind, (None, None)),
                 )
                 for a in places
             ],
@@ -950,6 +963,40 @@ def load(
                 'VALUES (?, ?, ?, ?)',
                 [(cursor.lastrowid, d.date, d.time_start, d.time_end) for d in event.dates],
             )
+        conn.execute("INSERT INTO places_fts(places_fts) VALUES('rebuild')")
+
+
+def merge_osm(conn: sqlite3.Connection, transfer_path: Path) -> int:
+    """Full-replace the ``source='osm'`` slice from a transfer DB.
+
+    ATTACHes the file ``tools/build_osm_pois.py`` produced and swaps the slice
+    in one sidecar-write transaction (reads from the ATTACHed transfer file are
+    fine — the no-cross-file-write invariant concerns writes only), then
+    rebuilds the FTS index. OSM rows carry no events, so the event tables are
+    untouched.
+
+    Args:
+        conn: An open, initialized connection.
+        transfer_path: The transfer DB (its ``places`` table already carries
+            ``category``/``rank`` and the build's ``synced_at``).
+
+    Returns:
+        The number of rows merged in.
+    """
+    conn.execute('ATTACH DATABASE ? AS osm_src', (str(transfer_path),))
+    try:
+        with conn:
+            conn.execute("DELETE FROM places WHERE source = 'osm'")
+            merged = conn.execute(
+                'INSERT INTO places (source, source_kind, source_id, park_code, name, '
+                'lat, lon, summary, details, synced_at, category, rank) '
+                'SELECT source, source_kind, source_id, park_code, name, '
+                'lat, lon, summary, details, synced_at, category, rank FROM osm_src.places'
+            ).rowcount
+            conn.execute("INSERT INTO places_fts(places_fts) VALUES('rebuild')")
+        return merged
+    finally:
+        conn.execute('DETACH DATABASE osm_src')
 
 
 # --- Orchestration -------------------------------------------------------------------
@@ -1020,6 +1067,35 @@ def run_ridb(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_osm(args: argparse.Namespace) -> int:
+    """Merge a prebuilt OSM transfer DB into the sidecar.
+
+    Args:
+        args: Parsed arguments (``osm_db`` set).
+
+    Returns:
+        A process exit code.
+    """
+    import api.db
+
+    transfer_path = Path(args.osm_db)
+    if not transfer_path.exists():
+        print(f'Transfer DB not found: {transfer_path}', file=sys.stderr)
+        return 1
+    if args.dry_run:
+        with sqlite3.connect(transfer_path) as src:
+            n = src.execute("SELECT COUNT(*) FROM places WHERE source = 'osm'").fetchone()[0]
+        print(f'Dry run — {n} osm rows in {transfer_path}, not merging.', flush=True)
+        return 0
+
+    conn = get_connection()
+    init_db(conn)
+    print(f'Merging {transfer_path} (delete + insert + FTS rebuild) ...', flush=True)
+    merged = merge_osm(conn, transfer_path)
+    print(f'Merged {merged} osm rows into {api.db.places_db_path()}', flush=True)
+    return 0
+
+
 def run(args: argparse.Namespace) -> int:
     """Fetch every endpoint, transform, and (unless ``--dry-run``) load.
 
@@ -1031,8 +1107,13 @@ def run(args: argparse.Namespace) -> int:
     """
     import api.db
 
+    if args.ridb_zip and args.osm_db:
+        print('--ridb-zip and --osm-db are mutually exclusive', file=sys.stderr)
+        return 2
     if args.ridb_zip:
         return run_ridb(args)
+    if args.osm_db:
+        return run_osm(args)
 
     api_key = resolve_api_key(args.api_key, Path(args.env_file))
     session = requests.Session()
@@ -1102,6 +1183,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--ridb-zip',
         help='Import a local RIDB full CSV export zip (source=ridb) instead of the NPS API',
+    )
+    parser.add_argument(
+        '--osm-db',
+        help='Merge a transfer DB built by tools/build_osm_pois.py (source=osm) '
+        'instead of the NPS API',
     )
     parser.add_argument(
         '--dry-run', action='store_true', help='Fetch + report, but do not write the DB'
