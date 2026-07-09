@@ -183,7 +183,10 @@
         view.setLabelScale(1)
         // Hand the camera back the way Map expects it: flat north-up (60° if
         // the 3D toggle is on). Map's own track effect refits on remount.
-        view.easeCamera({ pitch: view.getTerrainEnabled() ? 60 : 0, bearing: 0 })
+        // duration 0 — an animated ease dies here: Map mounts right after and
+        // its first camera command stop()s the in-flight ease, freezing the
+        // pitch mid-restore (~50°). The handoff is off-screen anyway.
+        view.easeCamera({ pitch: view.getTerrainEnabled() ? 60 : 0, bearing: 0, duration: 0 })
       }
       hide?.()
     }
