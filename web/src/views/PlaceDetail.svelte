@@ -22,8 +22,11 @@
     onShowMap,
   }: { id: number; onShowMap?: (lat: number, lon: number, zoom: number) => void } = $props()
 
-  /** Syncs older than this read as a warning, not just a note. */
-  const STALE_DAYS = 45
+  // Syncs older than this read as a warning, not just a note. Federal rows
+  // carry schedule-ish data (hours, events) that degrades in weeks; the OSM
+  // extract is a seasonal rebuild, so its banner escalates on that cadence.
+  const STALE_DAYS_FEDERAL = 45
+  const STALE_DAYS_OSM = 180
   /** How far ahead the detail looks for the park's events. */
   const EVENT_HORIZON_DAYS = 30
 
@@ -37,6 +40,7 @@
   const ageDays = $derived(
     row ? Math.floor((Date.now() - new Date(row.synced_at).getTime()) / 86_400_000) : 0,
   )
+  const staleDays = $derived(row?.source === 'osm' ? STALE_DAYS_OSM : STALE_DAYS_FEDERAL)
 
   // OSM rows carry the element's raw tags as their details — a flat string
   // map, not the federal sources' structured shape — so they render their own
@@ -145,9 +149,12 @@
     {row.name}
   </h2>
 
-  <div class="attr-banner" class:stale={ageDays > STALE_DAYS}>
+  <div class="attr-banner" class:stale={ageDays > staleDays}>
     Data synced {fmtDate(row.synced_at)}
-    {#if ageDays > STALE_DAYS}· {ageDays} days old — verify at a visitor center{/if}
+    {#if ageDays > staleDays}
+      · {ageDays} days old —
+      {row.source === 'osm' ? 'rebuild the OSM extract' : 'verify at a visitor center'}
+    {/if}
   </div>
 
   <div class="attr-meta-line">

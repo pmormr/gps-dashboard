@@ -115,11 +115,19 @@ decisions inline.
 - [x] Route/param/migration/merge tests (`tests/test_places_api.py`)
 - [x] **Pi rollout (2026-07-09):** deployed (`78d3e58`); migration backfilled all 22,450 federal rows on restart; 3 GB transfer DB rsync'd over HaLow (29 min @ ~14 Mbit) and merged on the Pi in **5m47s incl. FTS rebuild** → `places.db` 4.0 GB, 10,698,748 rows, all services active. Search verified live ('hanging lake' 70 ms). The transfer file stays at `/mnt/nvme/data/osm-places-na.db` for re-merges.
 
-### Phase 3 — Frontend
+### Phase 3 — Frontend — **code DONE 2026-07-09; Pi rollout pending**
 
-- [ ] Places view: category browse chips + FTS search over the broad set; detail sheet renders OSM `details` (hours, phone, website, cuisine…)
-- [ ] Map overlay: rank×zoom pin gating extending the existing viewport-driven sync (replaces the flat z6 gate for OSM kinds)
-- [ ] Data-age banner semantics for `source='osm'` (seasonal cadence, not the 45-day NPS escalation)
+- [x] Places view: 18 category chips (decision 15) + browse `max_rank=3` w/ minor-places
+  toggle (decision 16) + FTS search over the broad set (all ranks, ≥2 chars, anchor as
+  `center` for decision-9 ordering); detail renders OSM raw tags (curated info rows +
+  address + all-tags fold + ODbL attribution), gated off the federal sections whose key
+  names collide (OSM `fee`='yes' vs federal `fees` list). Per-row presentation falls
+  back kind → category (`placeMeta`) so OSM kinds get real icons/colors.
+- [x] Map overlay: rank×zoom pin gate (`maxRankForZoom`: 1 any zoom · 2 z9+ · 3 z12+ ·
+  4 z14+ · 5 never) replaces the flat z6 container-kind gate; DataLayers filter +
+  on-map legend switch to categories.
+- [x] Data-age banner semantics for `source='osm'`: escalates at 180 days ("rebuild the
+  OSM extract") vs the federal 45-day visitor-center wording.
 - [x] **Query tuning at broad scale — code DONE 2026-07-09** (benchmarked on the
   full-scale local `~/osm-lab/places.db`): partial indexes `idx_places_latlon_r{1,2,3}`
   (`(lat,lon) WHERE rank <= N`; no r4 — those reads only happen at z14+ tiny bboxes)
