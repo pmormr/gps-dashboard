@@ -115,7 +115,14 @@ decisions inline.
 - [x] Route/param/migration/merge tests (`tests/test_places_api.py`)
 - [x] **Pi rollout (2026-07-09):** deployed (`78d3e58`); migration backfilled all 22,450 federal rows on restart; 3 GB transfer DB rsync'd over HaLow (29 min @ ~14 Mbit) and merged on the Pi in **5m47s incl. FTS rebuild** → `places.db` 4.0 GB, 10,698,748 rows, all services active. Search verified live ('hanging lake' 70 ms). The transfer file stays at `/mnt/nvme/data/osm-places-na.db` for re-merges.
 
-### Phase 3 — Frontend — **code DONE 2026-07-09; Pi rollout pending**
+### Phase 3 — Frontend — **DEPLOYED + verified on the Pi 2026-07-09** (`1fbb32f`)
+
+Pi-measured (over HaLow; 2000-row payloads carry ~0.4 s of transfer): default
+Everywhere browse 0.49 s (was 45 s pre-fix) · metro bbox rank≤2 0.47 s · near-me
+browse rank≤3 1.3 s · bbox'd 'coffee' search 0.69 s · 'hanging lake' 0.07 s ·
+degraded shapes: junk-prefix 'park' ~6 s (bounded-pool path, documented), rare-category
+Everywhere ('landmark') 2.6 s warm. Indexes were pre-built over SSH before both pushes
+(40 s for the three latlon partials, 11 s for rank_name).
 
 - [x] Places view: 18 category chips (decision 15) + browse `max_rank=3` w/ minor-places
   toggle (decision 16) + FTS search over the broad set (all ranks, ≥2 chars, anchor as
@@ -144,7 +151,7 @@ decisions inline.
   `ORDER BY rank` only when there's **no bbox** (bbox'd reads keep `COALESCE` so the
   planner can never prefer the rank index over the latlon partials — a sparse bbox
   would scan the entire tier); frontend allows the minor-places toggle only in
-  Near-me. 45 s → ms; rare-category Everywhere worst case ~1.5 s Pi.
+  Near-me. 45 s → ms; rare-category Everywhere worst case 2.6 s warm on the Pi.
   **Pi deploy note: pre-build new indexes over SSH before pushing** so racing
   service startups don't all pay the build against busy_timeout.
 - [ ] Taxonomy tuning from real data: `aeroway=aerodrome` at rank 1 sweeps in RC/model
