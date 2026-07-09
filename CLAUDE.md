@@ -247,6 +247,7 @@ gps-dashboard/
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
 │   ├── backup_db.py            # DB snapshot + opportunistic rsync to rex-nas + retention (gps-db-backup.timer)
 │   ├── import_places.py        # NPS API + RIDB export → places tier (.claude/modules/places.md)
+│   ├── build_osm_pois.py       # Geofabrik PBF → OSM POI transfer DB (laptop/NAS only; plans/attractions-poi-plan.md)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)

@@ -33,6 +33,7 @@ decisions inline.
 | 8 | Search index | **FTS5** over name + category/brand/cuisine terms; keep `LIKE` only as an internal fallback | `name LIKE '%q%'` is a full scan — fine at 22k rows, not at millions. |
 | 9 | Search ranking default | **FTS match quality → rank tier → distance to map center (current fix when no map context)** | The Google-like "nearest plausible match first" ordering. Set as the default now; tune weights during Phases 2–3 with real data. |
 | 10 | Tier rename: attractions → **places** (2026-07-09) | Tables `places`/`place_events`/`place_event_dates`, sidecar `places.db` (`GPS_PLACES_DB_PATH`), routes `/api/places*`, Places tab; renamed source files to match. Executed as part of Phase 0 (the migration copy targets the new names — one data move). | User call: "attractions" fit the NPS era, not a broad POI substrate. Matches the sources' framing (Overture Places; the Google-Places analog). Consequence for `plans/trip-planner-plan.md`: its pool CRUD moves off `/api/places` → `/api/saved-places` (noted there; its decision 8 already named the table `saved_places`). NPS's `places` API asset stays an importer-internal join detail. This plan file keeps its historical name. |
+| 11 | Category taxonomy + rank tiers (was open decision B; resolved 2026-07-09) | The `TAXONOMY` table in `tools/build_osm_pois.py`: 18 unified categories; `rank` 1 = major destination (~z5+) · 2 = significant stop (~z9+) · 3 = common POI (~z12+) · 4 = minor (~z14+) · 5 = micro furniture, search-only, never auto-pinned. Van-life essentials deliberately boosted (`water_point`/`sanitary_dump_station` rank 2 — fuel's tier; `drinking_water`/`toilets`/`shower`/`laundry` 3). `aeroway=aerodrome` added beyond decision 1's key list (airports are unambiguous destinations). NPS/RIDB rows get category/rank at the Phase-2 merge so one gate governs the overlay. | User-reviewed against Colorado dry-run stats (222,785 rows; the key-level defaults absorb the long tail sanely; `parking_space` alone was 67k excluded rows). The tags-filter expressions derive from the same table so filter and taxonomy can't drift. Tune rank weights with real data in Phases 2–3. |
 
 ---
 
@@ -40,8 +41,7 @@ decisions inline.
 
 | # | Decision | Options | Notes |
 |---|----------|---------|-------|
-| B | Category taxonomy + rank tiers | How OSM tags (and later Overture categories) map to a unified `category` column + a `rank` INTEGER | `rank` gates map-pin zoom (national park at z5, gas at z10, café at z13, bench never…), mirroring how `labels.ts` tiers label density. NPS/RIDB rows get ranks too so one gate governs the overlay. Draft as a reviewable table in the Phase 1 tool; sanity-check against the dry-run stats. |
-| C | Spatial index | Composite `(lat, lon)` index vs SQLite R*Tree | A lat-only-narrowing composite index may be fine; R*Tree is the right structure at ~10M rows *if* the Pi's SQLite ships with it (Debian's does — verify). Benchmark on real data in Phase 2 before committing. |
+| C | Spatial index | Composite `(lat, lon)` index vs SQLite R*Tree | A lat-only-narrowing composite index may be fine; R*Tree is the right structure at ~10M rows *if* the Pi's SQLite ships with it (confirmed present in Phase 0's Pi verify). Benchmark on real data in Phase 2 before committing. |
 | E | Overture↔OSM dedupe | Overture rows carry source provenance (some are OSM-derived) | Prefer the OSM row when both exist (richer tags, matches the rendered map); Overture fills the gaps. Decide the matching key (provenance id vs name+proximity) in Phase 4. |
 
 ---
@@ -93,13 +93,14 @@ decisions inline.
 - [x] `import_places.py` + tests point at the sidecar; no unit-file changes needed (derived path); backup exclusion + rebuild recipe documented in `tools/backup_db.py` docstring; CLAUDE.md/module docs updated
 - [x] **Pi verify after deploy (2026-07-09):** migration ran (three services raced it as designed — three identical journal lines, idempotent); 22,450 places (nps 6,124 / ridb 16,326) + 3,381 events + 68,921 dates in `/mnt/nvme/data/places.db`; old main-DB tables gone; `/api/places` search + events reads clean; all services active. **R*Tree AND FTS5 both present in the Pi's Python-linked SQLite** (virtual tables created successfully) — decision 8 is safe, open decision C has both options available.
 
-### Phase 1 — OSM extract pipeline (laptop/NAS tool)
+### Phase 1 — OSM extract pipeline (laptop/NAS tool) — **tool DONE 2026-07-09; NA build pending**
 
-- [ ] `tools/build_osm_pois.py`: Geofabrik PBF(s) → tags-filter → centroid-resolved rows → transfer DB (`source='osm'`, natural key = element type + id)
-- [ ] **PBF reuse:** `plans/navigation-plan.md` Phase 1 downloads the same Geofabrik `north-america` PBF to the NAS for the Valhalla graph build — whichever plan runs second reuses the first's download (one transfer, and graph + POI DB share an OSM snapshot)
-- [ ] POI-key list + mass-non-place floor (decision 1) + `category`/`rank` mapping (open decision B) as data in the tool
-- [ ] Full tags → `details` JSON; `summary` from name/category/brand
-- [ ] Dry-run stats mode (counts per category) to sanity-check scope before building
+- [x] `tools/build_osm_pois.py`: Geofabrik PBF(s) → tags-filter → centroid-resolved rows → transfer DB (`source='osm'`, natural key = element type + id). Prefilter output is expression-hash-named and reused while fresh, so taxonomy scope edits auto-invalidate it; nodes + linear ways + assembled areas (trap 1 — only 4/222k Colorado rows lacked geometry); transfer table = sidecar columns + `category`/`rank`
+- [ ] **PBF reuse:** `plans/navigation-plan.md` Phase 1 downloads the same Geofabrik `north-america` PBF to the NAS for the Valhalla graph build — whichever plan runs second reuses the first's download (one transfer, and graph + POI DB share an OSM snapshot). **NA build still to run** (+ `central-america` for the basemap bbox)
+- [x] POI-key list + mass-non-place floor (decision 1) + `category`/`rank` mapping as data in the tool (decision 11; user-reviewed)
+- [x] Full tags → `details` JSON; `summary` from kind label/cuisine/brand; unnamed rows fall back name → brand/operator → humanized value ("Drinking water") so micro furniture stays searchable
+- [x] Dry-run stats mode (per-category counts + defaults-absorbed + unmatched reports — the taxonomy-tuning signals)
+- [x] **Colorado calibration:** 222,785 POIs / 62 MB / 5 s extract (+ ~4 min one-time prefilter) → full NA ≈ 10–11M rows / ~3 GB transfer DB (trap 7's low end; matches decision 1's scale estimate)
 
 ### Phase 2 — Pi-side merge + query surface
 
