@@ -63,6 +63,24 @@ export async function acquireWakeLock(): Promise<void> {
   playVideo()
 }
 
+/** Snapshot of the current hold: which mechanism, and whether it's engaged. */
+export interface WakeLockStatus {
+  mechanism: 'api' | 'video' | 'none'
+  active: boolean
+}
+
+/**
+ * Report which wake mechanism is in play and whether it's actually holding.
+ * The Drive HUD surfaces this so on-device verification (does the fallback
+ * video really play on the dash phone?) is a glance, not a wait for the
+ * screen to dim. Video "active" = playing; a refused autoplay reads inactive.
+ */
+export function wakeLockStatus(): WakeLockStatus {
+  if (!held) return { mechanism: 'none', active: false }
+  if (video) return { mechanism: 'video', active: !video.paused }
+  return { mechanism: 'api', active: sentinel !== null }
+}
+
 /** Release the hold (idempotent). */
 export function releaseWakeLock(): void {
   held = false

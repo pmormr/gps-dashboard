@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
-  import { getPointsRecent } from '../lib/api'
+  import { getPointsRecent, getStatus, type Status } from '../lib/api'
   import {
     ENTER_EASE_MS,
     FOLLOW_PITCH_DEG,
+    LABEL_SCALE,
     slew,
     speedZoom,
     ZOOM_SLEW_PER_S,
@@ -13,7 +14,12 @@
   import { cardinal, type Crumb, extendCrumbs } from '../lib/live'
   import type { MapView as MapViewType } from '../lib/map'
   import { live } from '../lib/stores/live.svelte'
-  import { acquireWakeLock, releaseWakeLock } from '../lib/wakelock'
+  import {
+    acquireWakeLock,
+    releaseWakeLock,
+    wakeLockStatus,
+    type WakeLockStatus,
+  } from '../lib/wakelock'
   import './map.css'
   import './drive.css'
 
@@ -47,6 +53,32 @@
   }
   const statusLabel = $derived(live.status === 'ok' ? '' : STATUS_LABELS[live.status])
 
+  // Wake-lock readout: polled (the mechanism state lives outside Svelte), so a
+  // paused fallback video or a released sentinel is visible on the dash.
+  let wake = $state<WakeLockStatus>({ mechanism: 'none', active: false })
+  const wakeLabel = $derived(
+    wake.active ? (wake.mechanism === 'api' ? 'WAKE API' : 'WAKE VID') : 'WAKE ✗',
+  )
+
+  // OBD strip: /api/status polled at ~5 s (decision 7 — ingest cadence bounds
+  // freshness, not the HTTP poll). Shown only engine-on: link up, reading fresh
+  // against the server's own clock, rpm > 0. The reader publishes ~1 s snapshots
+  // while the engine runs, so a 30 s gate hides the strip promptly after key-off.
+  const OBD_POLL_MS = 5000
+  const OBD_FRESH_MS = 30_000
+  let obdStatus = $state<Status | null>(null)
+  const van = $derived.by(() => {
+    const s = obdStatus
+    if (!s?.van || s.obd_link !== 'online') return null
+    if (Date.parse(s.now) - Date.parse(s.van.timestamp) > OBD_FRESH_MS) return null
+    return s.van.rpm != null && s.van.rpm > 0 ? s.van : null
+  })
+  const coolF = $derived(van?.coolant_c != null ? Math.round(van.coolant_c * 1.8 + 32) : null)
+  const fuelPct = $derived(van?.fuel_level_pct != null ? Math.round(van.fuel_level_pct) : null)
+  const gph = $derived(
+    van?.fuel_rate_lph != null ? (van.fuel_rate_lph * 0.264172).toFixed(1) : null,
+  )
+
   // HUD readouts, from the raw fix (interpolation would just add display lag).
   const mph = $derived(
     live.fix?.speed != null && live.status !== 'no-fix' && live.status !== 'offline'
@@ -75,6 +107,7 @@
       host.showMap()
       hide = host.hideMap
       mod.MapView.onUserMove(onGesture)
+      mod.MapView.setLabelScale(LABEL_SCALE)
       if (crumbs.length) mod.MapView.setBreadcrumb(crumbs)
     })
     // Seed the trail from the raw tier so it isn't empty on view open (the
@@ -91,15 +124,40 @@
         /* no seed — the trail still builds from live fixes */
       })
     live.start()
-    void acquireWakeLock()
+    void acquireWakeLock().then(() => {
+      wake = wakeLockStatus()
+    })
+    const wakeTimer = setInterval(() => {
+      wake = wakeLockStatus()
+    }, 2000)
+    // The server-clock freshness gate only ages readings while polls *succeed*
+    // (a frozen snapshot freezes its `now` too), so sustained poll failure
+    // drops the snapshot after the same window.
+    let obdOkMs = 0
+    const pollObd = (): void => {
+      getStatus()
+        .then((s) => {
+          if (cancelled) return
+          obdOkMs = performance.now()
+          obdStatus = s
+        })
+        .catch(() => {
+          if (!cancelled && performance.now() - obdOkMs > OBD_FRESH_MS) obdStatus = null
+        })
+    }
+    pollObd()
+    const obdTimer = setInterval(pollObd, OBD_POLL_MS)
     return () => {
       cancelled = true
       live.stop()
+      clearInterval(wakeTimer)
+      clearInterval(obdTimer)
       releaseWakeLock()
       if (view) {
         view.offUserMove(onGesture)
         view.clearPuck()
         view.clearBreadcrumb()
+        view.setLabelScale(1)
         // Hand the camera back the way Map expects it: flat north-up (60° if
         // the 3D toggle is on). Map's own track effect refits on remount.
         view.easeCamera({ pitch: view.getTerrainEnabled() ? 60 : 0, bearing: 0 })
@@ -165,18 +223,42 @@
     <button type="button" class="drive-recenter" onclick={recenter}>⌖ Recenter</button>
   {/if}
 
+  <div class="drive-wake" class:drive-wake--bad={!wake.active}>{wakeLabel}</div>
+
   <div class="drive-hud">
-    <div class="drive-hud-speed">
-      <span class="num">{mph ?? '–'}</span>
-      <span class="unit">mph</span>
-    </div>
-    <div class="drive-hud-cell">
-      <span class="k">HDG</span>
-      <span class="v">{hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}</span>
-    </div>
-    <div class="drive-hud-cell">
-      <span class="k">ALT</span>
-      <span class="v">{altLabel}</span>
+    {#if van}
+      <div class="drive-obd">
+        <div class="drive-hud-cell">
+          <span class="k">RPM</span>
+          <span class="v">{van.rpm != null ? Math.round(van.rpm) : '—'}</span>
+        </div>
+        <div class="drive-hud-cell">
+          <span class="k">COOLANT</span>
+          <span class="v">{coolF != null ? `${coolF}°F` : '—'}</span>
+        </div>
+        <div class="drive-hud-cell">
+          <span class="k">FUEL</span>
+          <span class="v">{fuelPct != null ? `${fuelPct}%` : '—'}</span>
+        </div>
+        <div class="drive-hud-cell">
+          <span class="k">GPH</span>
+          <span class="v">{gph ?? '—'}</span>
+        </div>
+      </div>
+    {/if}
+    <div class="drive-hud-main">
+      <div class="drive-hud-speed">
+        <span class="num">{mph ?? '–'}</span>
+        <span class="unit">mph</span>
+      </div>
+      <div class="drive-hud-cell">
+        <span class="k">HDG</span>
+        <span class="v">{hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}</span>
+      </div>
+      <div class="drive-hud-cell">
+        <span class="k">ALT</span>
+        <span class="v">{altLabel}</span>
+      </div>
     </div>
   </div>
 </div>

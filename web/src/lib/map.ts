@@ -547,6 +547,9 @@ export const MapView = (() => {
 
   function handleStyleLoad(): void {
     reinstallOverlays()
+    // setStyle replaced every layer — captured text-size originals are stale.
+    labelSizeOriginals = null
+    applyLabelScale()
     if (currentLayer === 'osm' && onVectorBaseCb && map) onVectorBaseCb(map)
   }
 
@@ -732,6 +735,65 @@ export const MapView = (() => {
   function onVectorBase(cb: (map: MlMap) => void): void {
     onVectorBaseCb = cb
     if (currentLayer === 'osm' && map && map.isStyleLoaded()) cb(map)
+  }
+
+  // --- Label scaling (Drive readability) ---------------------------------
+  // Multiplies every symbol layer's text-size on the vector base while a view
+  // (Drive) wants larger labels; restore with setLabelScale(1). Raster labels
+  // are baked pixels — no-op there. Survives style reloads via handleStyleLoad.
+  let labelScale = 1
+  let labelSizeOriginals: Map<string, number | unknown[]> | null = null
+
+  // A zoom-driven interpolate can't be wrapped in ['*', …] (MapLibre requires
+  // ['zoom'] at the top level of interpolate/step), so scale the *outputs* of
+  // the expression forms the shipped style actually uses; anything else passes
+  // through unscaled rather than risking an invalid expression.
+  function scaleSizeValue(v: number | unknown[] | unknown, f: number): unknown {
+    if (typeof v === 'number') return v * f
+    if (!Array.isArray(v)) return v
+    const op = v[0]
+    if (op === 'interpolate') {
+      return v.map((x, i) => (i >= 4 && i % 2 === 0 ? scaleSizeValue(x, f) : x))
+    }
+    if (op === 'step') {
+      return v.map((x, i) => (i >= 2 && i % 2 === 0 ? scaleSizeValue(x, f) : x))
+    }
+    if (op === 'case') {
+      return v.map((x, i) =>
+        i > 0 && (i % 2 === 0 || i === v.length - 1) ? scaleSizeValue(x, f) : x,
+      )
+    }
+    return v
+  }
+
+  function applyLabelScale(): void {
+    const gl = getVectorBase()
+    if (!gl || (labelScale === 1 && !labelSizeOriginals)) return
+    try {
+      if (!labelSizeOriginals) {
+        labelSizeOriginals = new Map()
+        for (const layer of gl.getStyle().layers) {
+          if (layer.type !== 'symbol') continue
+          const ts = (layer as { layout?: Record<string, unknown> }).layout?.['text-size']
+          if (ts != null) labelSizeOriginals.set(layer.id, ts as number | unknown[])
+        }
+      }
+      for (const [id, original] of labelSizeOriginals) {
+        gl.setLayoutProperty(
+          id,
+          'text-size',
+          labelScale === 1 ? original : scaleSizeValue(original, labelScale),
+        )
+      }
+      if (labelScale === 1) labelSizeOriginals = null
+    } catch (e) {
+      console.error('label scale:', e)
+    }
+  }
+
+  function setLabelScale(factor: number): void {
+    labelScale = factor
+    applyLabelScale()
   }
 
   function showTrack(
@@ -1024,6 +1086,7 @@ export const MapView = (() => {
     setLayer,
     getVectorBase,
     onVectorBase,
+    setLabelScale,
     clearAnnotations,
     addRangeOverlay,
     addPinOverlay,

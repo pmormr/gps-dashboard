@@ -9,8 +9,8 @@
 export const FOLLOW_PITCH_DEG = 50
 
 /** Zoom at/below SPEED_LO_MS (crawling) and at/above SPEED_HI_MS (highway). */
-export const ZOOM_MAX = 16
-export const ZOOM_MIN = 12
+export const ZOOM_MAX = 17
+export const ZOOM_MIN = 13
 export const SPEED_LO_MS = 3 // ~7 mph
 export const SPEED_HI_MS = 29 // ~65 mph
 
@@ -19,6 +19,9 @@ export const ZOOM_SLEW_PER_S = 0.6
 
 /** Duration of the ease into the follow pose on view enter, ms. */
 export const ENTER_EASE_MS = 800
+
+/** Vector-label text-size multiplier while Drive owns the map (dash readability). */
+export const LABEL_SCALE = 1.4
 
 /** Target zoom for a ground speed (m/s): linear between the curve endpoints. */
 export function speedZoom(speedMs: number | null): number {

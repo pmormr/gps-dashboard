@@ -58,6 +58,8 @@ export interface VanReading {
   fuel_level_pct: number | null
   voltage_v: number | null
   ambient_air_c: number | null
+  /** Derived server-side at read time (speed density, common/obd.py). */
+  fuel_rate_lph: number | null
 }
 
 export interface PiReading {
