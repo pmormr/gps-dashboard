@@ -111,13 +111,19 @@ decisions inline.
 - [x] FTS5 table (`places_fts`, decision 14) + rebuild after every import/merge; spatial index resolved (decision 12: composite, benchmarked); `category`/`rank` columns + one-shot migration w/ NPS/RIDB backfill (decision 13)
 - [x] `/api/places` grows: FTS-backed `q` (token-prefix; LIKE fallback), `category` filter, `max_rank` gate, `center` distance tiebreak (decision 9 ordering: match → rank → distance); default order now rank→name so truncation keeps the significant pins (trap 4)
 - [x] Route/param/migration/merge tests (`tests/test_places_api.py`)
-- [ ] **Pi rollout:** deploy code (migration runs on startup), scp the 3 GB transfer DB docked on the LAN, run `--osm-db` on the Pi, verify search + viewport reads + Pi-side merge timing
+- [x] **Pi rollout (2026-07-09):** deployed (`78d3e58`); migration backfilled all 22,450 federal rows on restart; 3 GB transfer DB rsync'd over HaLow (29 min @ ~14 Mbit) and merged on the Pi in **5m47s incl. FTS rebuild** → `places.db` 4.0 GB, 10,698,748 rows, all services active. Search verified live ('hanging lake' 70 ms). The transfer file stays at `/mnt/nvme/data/osm-places-na.db` for re-merges.
 
 ### Phase 3 — Frontend
 
-- [ ] Attractions view: category browse chips + FTS search over the broad set; detail sheet renders OSM `details` (hours, phone, website, cuisine…)
+- [ ] Places view: category browse chips + FTS search over the broad set; detail sheet renders OSM `details` (hours, phone, website, cuisine…)
 - [ ] Map overlay: rank×zoom pin gating extending the existing viewport-driven sync (replaces the flat z6 gate for OSM kinds)
 - [ ] Data-age banner semantics for `source='osm'` (seasonal cadence, not the 45-day NPS escalation)
+- [ ] **Query tuning at broad scale** (measured on the Pi 2026-07-09; today's kind-filtered
+  overlay reads are unaffected): metro bbox + `max_rank=2` ≈ 1.3 s — the composite index
+  scans the whole NA latitude band; fix = small **partial indexes per rank gate**
+  (`(lat, lon) WHERE rank <= N`). Broad one-token search + `center` ('coffee') ≈ 3.4 s —
+  bm25 scores every match before ordering; fix = bound the candidate set (bbox-restricted
+  search when map context exists, or a scored-candidate LIMIT) before ranking.
 
 ### Phase 4 — Overture Places
 
