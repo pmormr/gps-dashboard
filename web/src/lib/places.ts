@@ -95,16 +95,17 @@ export function placeMeta(row: { source_kind: string; category: string | null })
   return KIND_BY_KEY.get(row.source_kind) ?? categoryMeta(row.category)
 }
 
-/** Below this zoom only containers render — the whole-country POI set is soup earlier. */
-export const MIN_DETAIL_ZOOM = 6
-
-/** The container kinds still shown below the zoom gate (parks + their RIDB analogs). */
-const CONTAINER_KINDS: ReadonlySet<PlaceKind> = new Set(['park', 'recarea'])
-
-/** The kinds that actually load at a zoom level (containers-only below the gate). */
-export function kindsAtZoom(kinds: PlaceKind[], zoom: number): PlaceKind[] {
-  if (zoom >= MIN_DETAIL_ZOOM) return kinds
-  return kinds.filter((k) => CONTAINER_KINDS.has(k))
+/**
+ * The rank×zoom pin gate (plan decisions 11+13): each zoom admits ranks down
+ * to its tier — 1 = major destination (any zoom), 2 ~z9+, 3 ~z12+, 4 ~z14+.
+ * Rank 5 (micro furniture) is search-only, never auto-pinned; one gate
+ * governs every source, since NPS/RIDB rows carry ranks from the same scale.
+ */
+export function maxRankForZoom(zoom: number): number {
+  if (zoom >= 14) return 4
+  if (zoom >= 12) return 3
+  if (zoom >= 9) return 2
+  return 1
 }
 
 /** Rows → pin features; rows without a coordinate are skipped (they can't pin). */
@@ -154,25 +155,33 @@ function emptyFC(): FeatureCollection {
 let token = 0
 
 /**
- * Fetch the POIs for the current viewport and push them to the map. Returns a
- * status string for the panel; a superseded fetch returns '' and paints nothing.
+ * Fetch the POIs for the current viewport and push them to the map. The
+ * rank×zoom gate bounds every read — at 10.7M broad rows "all pins in view"
+ * is never a valid shape. Returns a status string for the panel; a
+ * superseded fetch returns '' and paints nothing.
  */
 export async function syncPlaces(
   view: View,
   bbox: string | null,
   zoom: number,
-  kinds: PlaceKind[],
+  categories: PlaceCategory[],
 ): Promise<string> {
   const mine = ++token
-  const effective = kindsAtZoom(kinds, zoom)
-  if (!effective.length) {
+  if (!categories.length) {
     view.setPlacesData(emptyFC())
-    return kinds.length ? `Zoom in past z${MIN_DETAIL_ZOOM} for these kinds` : 'No kinds selected'
+    return 'No categories selected'
   }
-  const resp = await getPlaces({ bbox: bbox ?? undefined, kinds: effective, limit: 2000 })
+  const maxRank = maxRankForZoom(zoom)
+  const resp = await getPlaces({
+    bbox: bbox ?? undefined,
+    // All-on means unfiltered — that also keeps unmapped-category rows.
+    categories: categories.length === CATEGORY_META.length ? undefined : categories,
+    maxRank,
+    limit: 2000,
+  })
   if (mine !== token) return ''
   view.setPlacesData(placesToFC(resp.places))
-  const gated = effective.length < kinds.length ? ` · zoom in past z${MIN_DETAIL_ZOOM} for more` : ''
+  const gated = maxRank < 4 ? ' · zoom in for more' : ''
   const truncated = resp.truncated ? ' (truncated — zoom in)' : ''
   return `${resp.count.toLocaleString()} places${truncated}${gated}`
 }

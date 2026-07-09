@@ -8,8 +8,7 @@ import {
   categoryMeta,
   KIND_META,
   kindMeta,
-  kindsAtZoom,
-  MIN_DETAIL_ZOOM,
+  maxRankForZoom,
   placeMeta,
   stripHtml,
 } from './places'
@@ -69,21 +68,17 @@ describe('categoryMeta / placeMeta', () => {
   })
 })
 
-describe('kindsAtZoom', () => {
-  const all = KIND_META.map((m) => m.kind)
-
-  it('passes every kind through at or past the gate', () => {
-    expect(kindsAtZoom(all, MIN_DETAIL_ZOOM)).toEqual(all)
-    expect(kindsAtZoom(all, 12)).toEqual(all)
+describe('maxRankForZoom', () => {
+  it('admits deeper ranks as zoom increases, majors-only when zoomed out', () => {
+    expect(maxRankForZoom(0)).toBe(1)
+    expect(maxRankForZoom(8.9)).toBe(1)
+    expect(maxRankForZoom(9)).toBe(2)
+    expect(maxRankForZoom(12)).toBe(3)
+    expect(maxRankForZoom(14)).toBe(4)
   })
 
-  it('keeps only the container kinds below the gate', () => {
-    expect(kindsAtZoom(all, MIN_DETAIL_ZOOM - 1)).toEqual(['park', 'recarea'])
-  })
-
-  it('is empty below the gate when the containers are deselected', () => {
-    const noContainers = all.filter((k) => k !== 'park' && k !== 'recarea')
-    expect(kindsAtZoom(noContainers, 3)).toEqual([])
+  it('never admits rank 5 (micro furniture is search-only)', () => {
+    expect(maxRankForZoom(22)).toBe(4)
   })
 })
 

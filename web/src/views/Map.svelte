@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
-  import { clearPlaces, KIND_META, syncPlaces } from '../lib/places'
+  import { CATEGORY_META, clearPlaces, syncPlaces } from '../lib/places'
   import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
@@ -147,9 +147,10 @@
     view.zoomTo(lat, lon, zoom)
   })
 
-  // Places overlay follows the *viewport*: refetch when the toggle, the kind
-  // filter, or the map camera (placesRev) changes. Kinds/rev are only read
-  // while the layer is on, so an off overlay costs nothing per pan.
+  // Places overlay follows the *viewport*: refetch when the toggle, the
+  // category filter, or the map camera (placesRev) changes — the rank×zoom
+  // pin gate applies inside syncPlaces. Categories/rev are only read while
+  // the layer is on, so an off overlay costs nothing per pan.
   $effect(() => {
     if (!view) return
     if (!layers.places) {
@@ -159,8 +160,8 @@
     }
     view.onMoveEnd(onPlacesMoved)
     void placesRev
-    const kinds = [...layers.placeKinds]
-    syncPlaces(view, view.getBbox(), view.getZoom(), kinds)
+    const categories = [...layers.placeCategories]
+    syncPlaces(view, view.getBbox(), view.getZoom(), categories)
       .then((label) => {
         if (label) layers.placesStatus = label
       })
@@ -298,8 +299,8 @@
         {#if layers.places}
           <div class="legend-chip">
             <span class="legend-chip-icon">🏞</span>
-            {#each KIND_META.filter((k) => layers.placeKinds.has(k.kind)) as k (k.kind)}
-              <span class="legend-chip-item"><span class="legend-swatch" style:background={k.color}></span>{k.label}</span>
+            {#each CATEGORY_META.filter((c) => layers.placeCategories.has(c.category)) as c (c.category)}
+              <span class="legend-chip-item"><span class="legend-swatch" style:background={c.color}></span>{c.label}</span>
             {/each}
           </div>
         {/if}

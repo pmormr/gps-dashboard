@@ -8,8 +8,8 @@
  * the engine — it persists its own state across route remounts as a module singleton.
  */
 
-import type { PlaceKind } from '../api'
-import { KIND_META } from '../places'
+import type { PlaceCategory } from '../api'
+import { CATEGORY_META } from '../places'
 import { POI_GROUPS, type LabelSettings } from '../labels'
 
 export type BaseLayer = 'osm' | 'usgs'
@@ -34,12 +34,12 @@ class LayersStore {
   phone = $state(false)
   phoneStatus = $state('')
 
-  // Places overlay (parks/public-lands POI tier). Viewport-driven, not
-  // time-windowed — Map.svelte refetches it on map movement while it's on.
-  // Kinds default all-on; the zoom gate (places.ts) still applies on top.
+  // Places overlay (the POI tier). Viewport-driven, not time-windowed —
+  // Map.svelte refetches it on map movement while it's on. Categories default
+  // all-on; the rank×zoom pin gate (places.ts) always applies on top.
   places = $state(false)
   placesStatus = $state('')
-  placeKinds = $state<Set<PlaceKind>>(new Set(KIND_META.map((m) => m.kind)))
+  placeCategories = $state<Set<PlaceCategory>>(new Set(CATEGORY_META.map((m) => m.category)))
   // A zoom queued by another view ("Show on map" in Places) for Map.svelte
   // to consume once the engine is mounted — the engine may not exist yet when
   // the navigation happens.
@@ -63,12 +63,12 @@ class LayersStore {
     this.labelGroups = next
   }
 
-  /** Toggle an place kind (reassigns the Set so $state reacts). */
-  togglePlaceKind(kind: PlaceKind, on: boolean): void {
-    const next = new Set(this.placeKinds)
-    if (on) next.add(kind)
-    else next.delete(kind)
-    this.placeKinds = next
+  /** Toggle a place category (reassigns the Set so $state reacts). */
+  togglePlaceCategory(category: PlaceCategory, on: boolean): void {
+    const next = new Set(this.placeCategories)
+    if (on) next.add(category)
+    else next.delete(category)
+    this.placeCategories = next
   }
 }
 

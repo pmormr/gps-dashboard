@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { PlaceKind } from '../lib/api'
-  import { KIND_META } from '../lib/places'
+  import type { PlaceCategory } from '../lib/api'
+  import { CATEGORY_META } from '../lib/places'
   import { setDroneEnabled } from '../lib/drone'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers } from '../lib/stores/layers.svelte'
@@ -41,8 +41,8 @@
     layers.placesStatus = on ? 'Loading…' : ''
   }
 
-  function onPlaceKind(kind: PlaceKind, e: Event): void {
-    layers.togglePlaceKind(kind, (e.currentTarget as HTMLInputElement).checked)
+  function onPlaceCategory(category: PlaceCategory, e: Event): void {
+    layers.togglePlaceCategory(category, (e.currentTarget as HTMLInputElement).checked)
   }
 </script>
 
@@ -64,18 +64,18 @@
     <label class="label-check">
       <input type="checkbox" checked={layers.places} onchange={onPlaces} /> 🏞 Places
     </label>
-    <div class="label-hint">Parks &amp; public lands (NPS) · follows the map view</div>
+    <div class="label-hint">POIs (NPS · federal · OSM) · follows the map view · more pins as you zoom</div>
     {#if layers.places}
       <div class="place-kinds">
-        {#each KIND_META as k (k.kind)}
+        {#each CATEGORY_META as c (c.category)}
           <label class="label-check">
             <input
               type="checkbox"
-              checked={layers.placeKinds.has(k.kind)}
-              onchange={(e) => onPlaceKind(k.kind, e)}
+              checked={layers.placeCategories.has(c.category)}
+              onchange={(e) => onPlaceCategory(c.category, e)}
             />
-            <span class="legend-swatch" style:background={k.color}></span>
-            {k.icon} {k.label}
+            <span class="legend-swatch" style:background={c.color}></span>
+            {c.icon} {c.label}
           </label>
         {/each}
       </div>
