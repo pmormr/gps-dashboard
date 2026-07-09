@@ -203,6 +203,8 @@ TAXONOMY: dict[str, dict[str, Rule]] = {
         'place_of_worship': ('civic', 4),
         'social_facility': ('civic', 4),
         'polling_station': ('civic', 5),
+        'grave_yard': ('civic', 4),
+        'kindergarten': ('civic', 5),
         'school': ('civic', 4),
         'college': ('civic', 3),
         'university': ('civic', 3),
@@ -269,6 +271,7 @@ TAXONOMY: dict[str, dict[str, Rule]] = {
         '*': ('emergency', 4),
         'fire_hydrant': ('emergency', 5),
         'defibrillator': ('emergency', 5),
+        'siren': ('emergency', 5),
     },
     # Selective: landmark structures only — man_made at large is mass-mapped
     # infrastructure (comms towers, pipelines, survey markers).
