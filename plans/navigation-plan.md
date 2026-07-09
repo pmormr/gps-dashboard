@@ -15,9 +15,12 @@ Turn-by-turn maneuver guidance (banner/voice) is explicitly **later** — but th
 engine returns maneuvers with every route, so v1 keeps them in the payload and
 simply doesn't render them. Nothing about v1 forecloses tier 3.
 
-Builds directly on the Drive view plan (`plans/drive-view-plan.md`): its Phase 5
-destination store ("Navigate here" from attractions, dropped pins) is the entry
-point navigation extends. **Drive Phases 4–5 land first.**
+Builds directly on the Drive view (`.claude/modules/frontend.md` § Drive view —
+plan landed and folded 2026-07-09): its destination store ("Navigate here" from
+attractions, dropped pins) is the entry point navigation extends. The store is a
+**value snapshot** `{name, lat, lon}` + provenance-only source ids — routes
+attach *alongside* it, never inside. **Prereq met: Drive is fully built**; only
+its road-verification drive is outstanding.
 
 Treat this doc as the durable, living plan — check items off as they land, record
 decisions inline.
@@ -95,7 +98,7 @@ None — all resolved 2026-07-09 (see confirmed decisions 1–8).
 ## Architecture
 
 ```
-  destination store (drive plan Phase 5)
+  destination store (built — frontend.md § Drive view)
        │  "route to this"
        ▼
   POST /api/route ──── Flask ──── pyvalhalla Actor (mmap'd NA extract tar;
@@ -144,7 +147,7 @@ Each phase independently shippable; Phase 0 is disposable validation.
   path). Tests: a tiny committed fixture extract (a few km² of Colorado —
   measure size; mock if it's not small) driving the route read path.
 - **Phase 3 — Frontend routing UX.** Route request from the Drive destination
-  flow (extends the Phase-5 chevron: chevron = no route yet / fallback); route
+  flow (extends the built chevron: chevron = no route yet / fallback); route
   line overlay on the shared MapView; HUD gains ETA + distance remaining;
   off-route monitor with hysteresis → auto re-route from current position.
   Clear-route affordance; route survives reloads alongside the destination.

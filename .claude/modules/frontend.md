@@ -123,10 +123,11 @@ asks `limit=20000`.
 
 ## Drive view (`/drive`)
 
-The "currently driving" view — the shared map engine under driving chrome. All
-phases of **`plans/drive-view-plan.md`** are built (1–3 on 2026-07-05, 4–5 on
-2026-07-09); the plan file holds the remaining road-verification checklist and
-folds in here once that passes.
+The "currently driving" view — the shared map engine under driving chrome, plus
+the seed of navigation: a destination store + straight-line chevron (no router —
+`plans/navigation-plan.md` builds the routed tier on top). Every camera/readability
+knob is a named constant in `lib/follow.ts`, tuned from road feedback (zoom 17
+crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
 
 - **Live chain** — `/api/gpsd/live` (TPV-only gpsd snapshot; reads gpsd, not the DB) →
   `stores/live.svelte.ts` (1 Hz poll, rAF interpolation one poll-interval behind real
@@ -144,9 +145,12 @@ folds in here once that passes.
   survives style swaps like the ghost dot. The Map view has no live dot to conflict
   with (its ⊕ FAB is a one-shot read).
 - **Handoff contract** — the engine is a keep-alive singleton: Drive on leave clears
-  the puck, unsubscribes gestures, and eases the camera back to flat/north-up (60° if
-  the 3D toggle is on); Map's own track effect refits on remount. Data layers are left
-  as the user set them — Drive is the same map with a different camera.
+  the puck/breadcrumb/destination pin, unsubscribes gestures, resets label scale, and
+  restores a flat/north-up camera (60° if the 3D toggle is on). The restore must be an
+  **instant jump, never an ease**: Map mounts right after and its first camera command
+  `stop()`s any in-flight animation, freezing the pitch mid-restore (the once-shipped
+  stuck-tilted bug). Data layers are left as the user set them — Drive is the same map
+  with a different camera.
 - **HUD** — a bottom bar (big mph, 16-wind heading + degrees, altitude ft), read from
   the **raw** fix, not the interpolated pose (interpolation would only add display
   lag to numbers).
@@ -272,5 +276,11 @@ folds in here once that passes.
   curated mark (deferred from the denoise work; see `.claude/modules/processor.md`). *(Window
   **energy** from Victron is the remaining Inspect stat, deferred until the
   power-integration endpoint lands.)*
+- **Drive continuation** — SSE transport (replace the 1 Hz poll with a gpsd-bridged
+  5 Hz stream if interpolation isn't smooth enough on the road); dark/night map style
+  variant; road-name readout (query vector-tile features under the puck); parked/
+  low-speed heading from the IMU compass (`plans/motion-imu-plan.md` Phase 1 — the
+  v1 answer is the speed gate); annotation destinations (resolve a time range to a
+  representative point — annotations have no coordinates, deferred until missed).
 - Richer trail rendering (direction chevrons, head dot); per-annotation elevation/speed
   charts.
