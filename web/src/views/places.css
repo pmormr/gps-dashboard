@@ -320,6 +320,15 @@
   color: var(--text);
   opacity: 1;
 }
+.attr-chip-toggle:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+/* Raw OSM tag keys are case-sensitive identifiers — don't capitalize them. */
+.attr-tags .attr-day {
+  text-transform: none;
+}
 
 .places-list {
   flex: 1;

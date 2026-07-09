@@ -6,7 +6,7 @@
     type Place,
     type PlaceEvent,
   } from '../lib/api'
-  import { KIND_META, kindMeta } from '../lib/places'
+  import { CATEGORY_META, placeMeta } from '../lib/places'
   import { fmtDate, fmtDistance, haversineMeters } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { browse } from '../lib/stores/places.svelte'
@@ -29,6 +29,10 @@
   const PLACES_LIMIT = 2000
   const EVENTS_LIMIT = 2000
   const QUERY_DEBOUNCE_MS = 300
+  /** 1-char prefixes match millions of rows — browse until a real query forms. */
+  const MIN_QUERY_CHARS = 2
+  /** Browse depth without the minor-places toggle (decision 16). */
+  const BROWSE_MAX_RANK = 3
 
   let anchor = $state<{ lat: number; lon: number } | null>(null)
   let anchorResolved = $state(false)
@@ -78,25 +82,32 @@
 
   const nearActive = $derived(browse.anchorMode === 'near' && anchor != null)
 
-  // Places fetch: mode/filters/search → one list. Near-me sorts by distance;
-  // Everywhere keeps the server's name order.
+  // Places fetch: mode/filters/search → one list. Browsing gates at
+  // BROWSE_MAX_RANK (unless minor places are toggled on) and, near-me, sorts
+  // by distance; searching covers all ranks and keeps the server's
+  // match → rank → distance-to-anchor order (decision 9).
   $effect(() => {
     if (browse.mode !== 'places' || !anchorResolved) return
-    const kinds = [...browse.kinds]
-    const q = browse.query
+    const categories = [...browse.categories]
+    const q = browse.query.length >= MIN_QUERY_CHARS ? browse.query : ''
+    const showMinor = browse.showMinor
     const a = nearActive ? anchor : null
+    const center = anchor
     let cancelled = false
     ;(async () => {
       status = 'Loading…'
-      if (!kinds.length) {
+      if (!categories.length) {
         places = []
-        status = 'No kinds selected'
+        status = 'No categories selected'
         return
       }
       try {
         const resp = await getPlaces({
           bbox: a ? nearBbox(a) : undefined,
-          kinds,
+          // All-on means unfiltered — that also keeps unmapped-category rows.
+          categories: categories.length === CATEGORY_META.length ? undefined : categories,
+          maxRank: q || showMinor ? undefined : BROWSE_MAX_RANK,
+          center: q && center ? `${center.lon},${center.lat}` : undefined,
           q: q || undefined,
           limit: PLACES_LIMIT,
         })
@@ -108,7 +119,8 @@
               ? haversineMeters(a.lat, a.lon, r.lat, r.lon)
               : null,
         }))
-        if (a) rows = rows.sort((x, y) => (x.distance_m ?? Infinity) - (y.distance_m ?? Infinity))
+        if (a && !q)
+          rows = rows.sort((x, y) => (x.distance_m ?? Infinity) - (y.distance_m ?? Infinity))
         places = rows
         syncedAt = rows[0]?.synced_at ?? syncedAt
         status = rows.length
@@ -205,21 +217,32 @@
       <input
         class="nearby-filter"
         type="search"
-        placeholder={browse.mode === 'places' ? 'Search places by name…' : 'Filter events by name…'}
+        placeholder={browse.mode === 'places'
+          ? 'Search places (name, cuisine, brand…)'
+          : 'Filter events by name…'}
         bind:value={queryInput}
         oninput={onQueryInput}
       />
       {#if browse.mode === 'places'}
         <div class="places-kind-chips">
-          {#each KIND_META as k (k.kind)}
+          {#each CATEGORY_META as c (c.category)}
             <button
               type="button"
               class="attr-chip attr-chip-toggle"
-              class:active={browse.kinds.has(k.kind)}
-              style:--chip-color={k.color}
-              onclick={() => browse.toggleKind(k.kind, !browse.kinds.has(k.kind))}
-              >{k.icon} {k.label}</button>
+              class:active={browse.categories.has(c.category)}
+              style:--chip-color={c.color}
+              onclick={() => browse.toggleCategory(c.category, !browse.categories.has(c.category))}
+              >{c.icon} {c.label}</button>
           {/each}
+          <button
+            type="button"
+            class="attr-chip attr-chip-toggle places-minor-toggle"
+            class:active={browse.showMinor}
+            disabled={browse.query.length >= MIN_QUERY_CHARS}
+            title={browse.query.length >= MIN_QUERY_CHARS
+              ? 'Search always covers all places'
+              : 'Include minor places (benches, markers, micro furniture)'}
+            onclick={() => (browse.showMinor = !browse.showMinor)}>+ minor places</button>
         </div>
       {/if}
       <div class="label-hint">
@@ -240,13 +263,13 @@
               class:selected={browse.selectedPlace === row.id}
               onclick={() => browse.select(row.id)}
             >
-              <span class="nearby-icon" style:color={kindMeta(row.source_kind).color}
-                >{kindMeta(row.source_kind).icon}</span>
+              <span class="nearby-icon" style:color={placeMeta(row).color}
+                >{placeMeta(row).icon}</span>
               <span class="nearby-main">
                 <span class="nearby-name">{row.name}</span>
                 <span class="nearby-meta">
                   {#if row.distance_m != null}{fmtDistance(row.distance_m)} ·{/if}
-                  {kindMeta(row.source_kind).label}
+                  {placeMeta(row).label}
                   <!-- RIDB park codes are numeric RecArea ids — meaningless raw, so hidden -->
                   {#if row.park_code && !/^\d+$/.test(row.park_code)}
                     · {row.park_code.toUpperCase()}

@@ -597,7 +597,7 @@ export function getPhonePlaces(start: string, end: string): Promise<PhonePlacesR
   return getJSON<PhonePlacesResponse>(`/api/phone/places?${params}`)
 }
 
-// ── Places (parks/public-lands POI tier, synced from the NPS API + RIDB export) ──
+// ── Places (the POI tier: NPS + RIDB federal sources + the broad OSM extract) ──
 
 export type PlaceKind =
   | 'park'
@@ -609,6 +609,30 @@ export type PlaceKind =
   | 'recarea' // the park-analog container (forest, lake project, refuge)
   | 'facility' // the generic place type: trailheads, cabins, boat ramps, day-use sites
   | 'permit' // permit/timed-entry requirements, kept as planning signals
+  // OSM kinds are the open-ended primary tag ('amenity=cafe', 'natural=peak', …);
+  // `& {}` keeps the federal literals in autocomplete while admitting them.
+  | (string & {})
+
+/** Unified taxonomy category (plan decision 11) — one axis across every source. */
+export type PlaceCategory =
+  | 'park'
+  | 'outdoors'
+  | 'camping'
+  | 'attraction'
+  | 'historic'
+  | 'landmark'
+  | 'recreation'
+  | 'lodging'
+  | 'food_drink'
+  | 'grocery'
+  | 'shopping'
+  | 'automotive'
+  | 'transport'
+  | 'health'
+  | 'emergency'
+  | 'civic'
+  | 'services'
+  | 'utility'
 
 /** One POI list row (queryable columns + summary teaser; details fetched per-row). */
 export interface Place {
@@ -624,6 +648,10 @@ export interface Place {
   summary: string | null
   /** When this row was last synced from its source — the UI wears this age. */
   synced_at: string
+  /** Unified taxonomy category; null = a kind not yet mapped (never pinned). */
+  category: PlaceCategory | null
+  /** Pin-zoom tier: 1 major destination … 5 micro furniture (search-only). */
+  rank: number | null
 }
 
 /** A self-guided tour stop; lat/lon joined from the NPS `places` asset at import. */
@@ -715,10 +743,19 @@ export interface PlaceEventsResponse {
   truncated: boolean
 }
 
-/** POI list; all filters optional (kinds joined comma-separated, `q` = name substring). */
+/**
+ * POI list; all filters optional. `q` is FTS token-prefix search ('creek'
+ * matches "Clear Creek Trail", mid-token substrings don't); with `q`, results
+ * order match → rank → distance-to-`center` (pass the map center or current
+ * fix as `lon,lat`). `maxRank` is the pin-zoom gate — mandatory for broad
+ * viewport reads (rank 5 is search-only micro furniture).
+ */
 export function getPlaces(opts: {
   bbox?: string
   kinds?: PlaceKind[]
+  categories?: PlaceCategory[]
+  maxRank?: number
+  center?: string
   park?: string
   q?: string
   limit?: number
@@ -726,6 +763,9 @@ export function getPlaces(opts: {
   const params = new URLSearchParams()
   if (opts.bbox) params.set('bbox', opts.bbox)
   if (opts.kinds?.length) params.set('kind', opts.kinds.join(','))
+  if (opts.categories?.length) params.set('category', opts.categories.join(','))
+  if (opts.maxRank != null) params.set('max_rank', String(opts.maxRank))
+  if (opts.center) params.set('center', opts.center)
   if (opts.park) params.set('park', opts.park)
   if (opts.q) params.set('q', opts.q)
   if (opts.limit != null) params.set('limit', String(opts.limit))

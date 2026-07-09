@@ -6,7 +6,7 @@
     type PlaceDetails,
     type PlaceEvent,
   } from '../lib/api'
-  import { kindMeta, stripHtml } from '../lib/places'
+  import { placeMeta, stripHtml } from '../lib/places'
   import { fmtDate } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { destination } from '../lib/stores/destination.svelte'
@@ -33,9 +33,50 @@
 
   const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-  const meta = $derived(row ? kindMeta(row.source_kind) : null)
+  const meta = $derived(row ? placeMeta(row) : null)
   const ageDays = $derived(
     row ? Math.floor((Date.now() - new Date(row.synced_at).getTime()) / 86_400_000) : 0,
+  )
+
+  // OSM rows carry the element's raw tags as their details — a flat string
+  // map, not the federal sources' structured shape — so they render their own
+  // info section instead of the federal ones (whose key names can collide:
+  // OSM `fee` is 'yes', not a list).
+  const osmTags = $derived(
+    row && row.source === 'osm' ? (row.details as Record<string, string>) : null,
+  )
+
+  /** OSM tag values are snake_case, semicolon-separated lists. */
+  function humanize(value: string): string {
+    return value.replace(/_/g, ' ').replace(/;/g, ', ')
+  }
+
+  /** The curated info rows for an OSM place, in display order. */
+  const osmInfo = $derived.by((): { label: string; value: string }[] => {
+    if (!osmTags) return []
+    const t = osmTags
+    const rows: { label: string; value: string }[] = []
+    const push = (label: string, value: string | undefined, raw = false) => {
+      if (value) rows.push({ label, value: raw ? value : humanize(value) })
+    }
+    const street = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ')
+    const town = [t['addr:city'], t['addr:state']].filter(Boolean).join(', ')
+    push('Address', [street, town].filter(Boolean).join(', '), true)
+    push('Hours', t.opening_hours, true)
+    push('Phone', t.phone ?? t['contact:phone'], true)
+    push('Website', t.website ?? t['contact:website'], true)
+    push('Cuisine', t.cuisine)
+    push('Brand', t.brand ?? t.operator, true)
+    push('Elevation', t.ele ? `${t.ele} m` : undefined, true)
+    push('Wi-Fi', t.internet_access)
+    push('Wheelchair', t.wheelchair)
+    push('Fee', t.fee)
+    return rows
+  })
+
+  /** Every raw tag, key-sorted, for the collapsible full dump. */
+  const osmAllTags = $derived(
+    osmTags ? Object.entries(osmTags).sort(([a], [b]) => a.localeCompare(b)) : [],
   )
 
   function localDate(offsetDays: number): string {
@@ -133,7 +174,52 @@
     <p class="attr-summary">{row.summary}</p>
   {/if}
 
-  {#if row.details.amenities?.length}
+  {#if osmTags}
+    {#if osmInfo.length}
+      <div class="attr-section">
+        <h3>Info</h3>
+        <div class="attr-hours">
+          <table>
+            <tbody>
+              {#each osmInfo as info (info.label)}
+                <tr>
+                  <td class="attr-day">{info.label}</td>
+                  <td>
+                    {#if info.label === 'Website'}
+                      <a href={info.value} target="_blank" rel="noopener">{info.value}</a>
+                    {:else}{info.value}{/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {/if}
+    {#if osmTags.description}
+      <div class="attr-section">
+        <h3>About</h3>
+        <p class="attr-summary">{osmTags.description}</p>
+      </div>
+    {/if}
+    <div class="attr-section">
+      <details>
+        <summary>All OSM tags ({osmAllTags.length})</summary>
+        <div class="attr-hours attr-tags">
+          <table>
+            <tbody>
+              {#each osmAllTags as [key, value] (key)}
+                <tr><td class="attr-day">{key}</td><td>{value}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <p class="attr-muted">© OpenStreetMap contributors (ODbL)</p>
+    </div>
+  {/if}
+
+  {#if !osmTags && row.details.amenities?.length}
     <div class="attr-section">
       <h3>Amenities</h3>
       <div class="attr-chips">
@@ -228,21 +314,21 @@
     </div>
   {/if}
 
-  {#if row.details.description && row.details.description !== row.summary}
+  {#if !osmTags && row.details.description && row.details.description !== row.summary}
     <div class="attr-section">
       <h3>About</h3>
       <p class="attr-summary">{stripHtml(row.details.description)}</p>
     </div>
   {/if}
 
-  {#if row.details.directions}
+  {#if !osmTags && row.details.directions}
     <div class="attr-section">
       <h3>Directions</h3>
       <p class="attr-summary">{stripHtml(row.details.directions)}</p>
     </div>
   {/if}
 
-  {#if row.details.feeText || row.details.reservable || row.details.phone}
+  {#if !osmTags && (row.details.feeText || row.details.reservable || row.details.phone)}
     <div class="attr-section">
       <h3>Practical</h3>
       {#if row.details.feeText}<p class="attr-summary">{stripHtml(row.details.feeText)}</p>{/if}

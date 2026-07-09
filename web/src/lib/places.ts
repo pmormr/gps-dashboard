@@ -15,7 +15,7 @@
 
 import type { Feature, FeatureCollection, Point } from 'geojson'
 
-import { getPlaces, type Place, type PlaceKind } from './api'
+import { getPlaces, type Place, type PlaceCategory, type PlaceKind } from './api'
 import type { MapView as MapViewType } from './map'
 
 type View = typeof MapViewType
@@ -36,7 +36,63 @@ const KIND_BY_KEY = new Map(KIND_META.map((m) => [m.kind, m]))
 
 /** Presentation meta for one kind (falls back to a neutral entry). */
 export function kindMeta(kind: string): { label: string; icon: string; color: string } {
-  return KIND_BY_KEY.get(kind as PlaceKind) ?? { label: kind, icon: '📍', color: '#94a3b8' }
+  return KIND_BY_KEY.get(kind) ?? { label: kind, icon: '📍', color: '#94a3b8' }
+}
+
+/**
+ * Per-category presentation (the unified taxonomy, plan decisions 11+15), in
+ * display order — the Places view's browse chips and the fallback meta for
+ * OSM rows, whose open-ended kinds ('amenity=cafe') have no per-kind entry.
+ */
+export const CATEGORY_META: {
+  category: PlaceCategory
+  label: string
+  icon: string
+  color: string
+}[] = [
+  { category: 'park', label: 'Parks', icon: '🏞', color: '#10b981' },
+  { category: 'outdoors', label: 'Outdoors', icon: '⛰', color: '#059669' },
+  { category: 'camping', label: 'Camping', icon: '⛺', color: '#d97706' },
+  { category: 'attraction', label: 'Attractions', icon: '🎡', color: '#eab308' },
+  { category: 'historic', label: 'Historic', icon: '🏛', color: '#b45309' },
+  { category: 'landmark', label: 'Landmarks', icon: '🗼', color: '#8b5cf6' },
+  { category: 'recreation', label: 'Recreation', icon: '⚽', color: '#14b8a6' },
+  { category: 'lodging', label: 'Lodging', icon: '🛏', color: '#6366f1' },
+  { category: 'food_drink', label: 'Food & drink', icon: '🍽', color: '#f97316' },
+  { category: 'grocery', label: 'Grocery', icon: '🛒', color: '#84cc16' },
+  { category: 'shopping', label: 'Shopping', icon: '🛍', color: '#ec4899' },
+  { category: 'automotive', label: 'Fuel & auto', icon: '⛽', color: '#f43f5e' },
+  { category: 'transport', label: 'Transport', icon: '🚌', color: '#0ea5e9' },
+  { category: 'health', label: 'Health', icon: '🏥', color: '#ef4444' },
+  { category: 'emergency', label: 'Emergency', icon: '🚨', color: '#dc2626' },
+  { category: 'civic', label: 'Civic', icon: '🏫', color: '#64748b' },
+  { category: 'services', label: 'Services', icon: '🏦', color: '#94a3b8' },
+  { category: 'utility', label: 'Utilities', icon: '🚰', color: '#78716c' },
+]
+
+const CATEGORY_BY_KEY = new Map(CATEGORY_META.map((m) => [m.category as string, m]))
+
+/** Presentation meta for one category (neutral fallback for unmapped rows). */
+export function categoryMeta(category: string | null): {
+  label: string
+  icon: string
+  color: string
+} {
+  return (
+    (category && CATEGORY_BY_KEY.get(category)) || { label: 'Other', icon: '📍', color: '#94a3b8' }
+  )
+}
+
+/**
+ * Presentation for one row: the federal kinds keep their richer per-kind meta;
+ * everything else (OSM's open-ended kinds) falls back to its category's.
+ */
+export function placeMeta(row: { source_kind: string; category: string | null }): {
+  label: string
+  icon: string
+  color: string
+} {
+  return KIND_BY_KEY.get(row.source_kind) ?? categoryMeta(row.category)
 }
 
 /** Below this zoom only containers render — the whole-country POI set is soup earlier. */
@@ -63,7 +119,7 @@ export function placesToFC(rows: Place[]): FeatureCollection {
         id: row.id,
         kind: row.source_kind,
         name: row.name,
-        color: kindMeta(row.source_kind).color,
+        color: placeMeta(row).color,
       },
     })
   }

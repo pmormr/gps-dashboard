@@ -1,13 +1,16 @@
 import type { Point } from 'geojson'
 import { describe, expect, it } from 'vitest'
 
-import type { Place, PlaceKind } from './api'
+import type { Place, PlaceCategory, PlaceKind } from './api'
 import {
   placesToFC,
+  CATEGORY_META,
+  categoryMeta,
   KIND_META,
   kindMeta,
   kindsAtZoom,
   MIN_DETAIL_ZOOM,
+  placeMeta,
   stripHtml,
 } from './places'
 
@@ -23,6 +26,8 @@ function row(overrides: Partial<Place> = {}): Place {
     lon: -105.7,
     summary: null,
     synced_at: '2026-07-03T00:00:00.000Z',
+    category: 'park',
+    rank: 1,
     ...overrides,
   }
 }
@@ -36,6 +41,31 @@ describe('kindMeta', () => {
     const meta = kindMeta('ridb-facility')
     expect(meta.label).toBe('ridb-facility')
     expect(meta.color).toBeTruthy()
+  })
+})
+
+describe('categoryMeta / placeMeta', () => {
+  it('resolves every declared category', () => {
+    for (const m of CATEGORY_META) expect(categoryMeta(m.category)).toBe(m)
+  })
+
+  it('falls back to a neutral entry for unmapped/null categories', () => {
+    expect(categoryMeta(null).label).toBe('Other')
+    expect(categoryMeta('mystery').label).toBe('Other')
+  })
+
+  it('prefers the per-kind meta for federal kinds', () => {
+    expect(placeMeta(row())).toBe(kindMeta('park'))
+  })
+
+  it('falls back to the category meta for OSM kinds', () => {
+    const osm = row({ source: 'osm', source_kind: 'amenity=cafe', category: 'food_drink' })
+    expect(placeMeta(osm)).toBe(categoryMeta('food_drink'))
+  })
+
+  it('category colors differ (chip/pin readability)', () => {
+    const colors = new Set(CATEGORY_META.map((m) => m.color))
+    expect(colors.size).toBe(CATEGORY_META.length)
   })
 })
 

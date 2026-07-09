@@ -2,12 +2,12 @@
  * The Places view's browse state — mode, search, filters, selection — as a
  * module singleton so the "google-maps search" session survives tab switches
  * (views remount on route change; losing a half-typed search would hurt).
- * Distinct from the map's layer state (layers.svelte.ts): the map's kind filter
+ * Distinct from the map's layer state (layers.svelte.ts): the map's filter
  * controls pins, this one controls the browser.
  */
 
-import type { PlaceKind } from '../api'
-import { KIND_META } from '../places'
+import type { PlaceCategory } from '../api'
+import { CATEGORY_META } from '../places'
 
 export type BrowseMode = 'places' | 'events'
 export type AnchorMode = 'near' | 'everywhere'
@@ -15,8 +15,14 @@ export type AnchorMode = 'near' | 'everywhere'
 class PlacesBrowseStore {
   mode = $state<BrowseMode>('places')
   query = $state('')
-  kinds = $state<Set<PlaceKind>>(new Set(KIND_META.map((m) => m.kind)))
+  categories = $state<Set<PlaceCategory>>(new Set(CATEGORY_META.map((m) => m.category)))
   anchorMode = $state<AnchorMode>('near')
+  /**
+   * Browse depth (plan decision 16): off = rank ≤ 3 (common POIs and up);
+   * on = every rank, micro furniture included. Search ignores this — `q`
+   * always covers all ranks.
+   */
+  showMinor = $state(false)
 
   // Selection per mode (kept separately so switching modes keeps both).
   selectedPlace = $state<number | null>(null)
@@ -25,12 +31,12 @@ class PlacesBrowseStore {
   /** Mobile only: the detail pane is showing (list otherwise). */
   detailOpen = $state(false)
 
-  /** Toggle a kind chip (reassigns the Set so $state reacts). */
-  toggleKind(kind: PlaceKind, on: boolean): void {
-    const next = new Set(this.kinds)
-    if (on) next.add(kind)
-    else next.delete(kind)
-    this.kinds = next
+  /** Toggle a category chip (reassigns the Set so $state reacts). */
+  toggleCategory(category: PlaceCategory, on: boolean): void {
+    const next = new Set(this.categories)
+    if (on) next.add(category)
+    else next.delete(category)
+    this.categories = next
   }
 
   /** The current mode's selected row id (null = nothing selected). */
