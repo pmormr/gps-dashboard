@@ -91,7 +91,7 @@ decisions inline.
 - [x] `get_connection()` ATTACHes the sidecar (WAL'd; no-cross-file-write invariant in its docstring); tier DDL moved out of `init_db`
 - [x] One-shot migration: copy existing rows (ids preserved), drop main-DB tier tables (same-deploy, trap 3) — tested incl. idempotent re-run
 - [x] `import_places.py` + tests point at the sidecar; no unit-file changes needed (derived path); backup exclusion + rebuild recipe documented in `tools/backup_db.py` docstring; CLAUDE.md/module docs updated
-- [ ] **Pi verify after deploy:** migration journal line, 22k rows in `/mnt/nvme/data/places.db`, `/api/places` reads clean; check R*Tree + FTS5 compiled into the Pi's SQLite (feeds open decision C / decision 8)
+- [x] **Pi verify after deploy (2026-07-09):** migration ran (three services raced it as designed — three identical journal lines, idempotent); 22,450 places (nps 6,124 / ridb 16,326) + 3,381 events + 68,921 dates in `/mnt/nvme/data/places.db`; old main-DB tables gone; `/api/places` search + events reads clean; all services active. **R*Tree AND FTS5 both present in the Pi's Python-linked SQLite** (virtual tables created successfully) — decision 8 is safe, open decision C has both options available.
 
 ### Phase 1 — OSM extract pipeline (laptop/NAS tool)
 
