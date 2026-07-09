@@ -42,6 +42,16 @@ export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+/** Initial great-circle bearing from point 1 toward point 2, degrees [0, 360). */
+export function initialBearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const f1 = (lat1 * Math.PI) / 180
+  const f2 = (lat2 * Math.PI) / 180
+  const dl = ((lon2 - lon1) * Math.PI) / 180
+  const y = Math.sin(dl) * Math.cos(f2)
+  const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+}
+
 // gpsd reports Doppler-derived ground speed, which is reliable even at low speed
 // unlike differencing the noisy position. Below this, the receiver is parked and
 // its position wander is GPS jitter, not travel — so those segments are excluded

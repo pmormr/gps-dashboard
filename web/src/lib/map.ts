@@ -325,6 +325,15 @@ export const MapView = (() => {
   let puckMarker: Marker | null = null
   const userMoveCbs = new Set<() => void>()
 
+  // Drive-view destination pin (DOM marker) + long-press subscribers (dropped-pin
+  // destinations). Long-press is hand-rolled: touchstart arms a timer that a move
+  // past a slop radius, a second touch, or touchend cancels; desktop gets the
+  // same callback from contextmenu (right-click).
+  let destMarker: Marker | null = null
+  const longPressCbs = new Set<(lat: number, lon: number) => void>()
+  const LONG_PRESS_MS = 600
+  const LONG_PRESS_SLOP_PX = 12
+
   function rangeFC(): FeatureCollection {
     return { type: 'FeatureCollection', features: rangeFeatures }
   }
@@ -707,6 +716,7 @@ export const MapView = (() => {
     map.on('movestart', (e) => {
       if ((e as { originalEvent?: Event }).originalEvent) userMoveCbs.forEach((cb) => cb())
     })
+    wireLongPress(map)
     applyBasemap(currentLayer)
   }
 
@@ -768,7 +778,8 @@ export const MapView = (() => {
 
   function applyLabelScale(): void {
     const gl = getVectorBase()
-    if (!gl || (labelScale === 1 && !labelSizeOriginals)) return
+    // Pre-style-load there's nothing to capture; handleStyleLoad re-runs this.
+    if (!gl || !gl.isStyleLoaded() || (labelScale === 1 && !labelSizeOriginals)) return
     try {
       if (!labelSizeOriginals) {
         labelSizeOriginals = new Map()
@@ -932,6 +943,70 @@ export const MapView = (() => {
   function clearPuck(): void {
     puckMarker?.remove()
     puckMarker = null
+  }
+
+  /** Place/update the Drive destination pin (another style-swap-surviving marker). */
+  function setDestination(lat: number, lon: number): void {
+    if (!map) return
+    if (!destMarker) {
+      const el = document.createElement('div')
+      el.className = 'map-dest-pin'
+      destMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([lon, lat])
+        .addTo(map)
+    } else {
+      destMarker.setLngLat([lon, lat])
+    }
+  }
+
+  function clearDestination(): void {
+    destMarker?.remove()
+    destMarker = null
+  }
+
+  /** Subscribe to a long-press / right-click on the map (dropped-pin destinations). */
+  function onLongPress(cb: (lat: number, lon: number) => void): void {
+    longPressCbs.add(cb)
+  }
+
+  function offLongPress(cb: (lat: number, lon: number) => void): void {
+    longPressCbs.delete(cb)
+  }
+
+  function wireLongPress(m: MlMap): void {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let startPoint: { x: number; y: number } | null = null
+    const cancel = (): void => {
+      if (timer) clearTimeout(timer)
+      timer = null
+      startPoint = null
+    }
+    m.on('touchstart', (e) => {
+      if (e.originalEvent.touches.length !== 1) {
+        cancel()
+        return
+      }
+      cancel()
+      startPoint = { x: e.point.x, y: e.point.y }
+      const { lat, lng } = e.lngLat
+      timer = setTimeout(() => {
+        cancel()
+        longPressCbs.forEach((cb) => cb(lat, lng))
+      }, LONG_PRESS_MS)
+    })
+    m.on('touchmove', (e) => {
+      if (!startPoint) return
+      const dx = e.point.x - startPoint.x
+      const dy = e.point.y - startPoint.y
+      if (dx * dx + dy * dy > LONG_PRESS_SLOP_PX ** 2) cancel()
+    })
+    m.on('touchend', cancel)
+    m.on('touchcancel', cancel)
+    m.on('contextmenu', (e) => {
+      if (!longPressCbs.size) return
+      e.preventDefault()
+      longPressCbs.forEach((cb) => cb(e.lngLat.lat, e.lngLat.lng))
+    })
   }
 
   /** Replace the Drive breadcrumb polyline (pass [] to clear). */
@@ -1099,6 +1174,10 @@ export const MapView = (() => {
     clearGhost,
     setPuck,
     clearPuck,
+    setDestination,
+    clearDestination,
+    onLongPress,
+    offLongPress,
     setBreadcrumb,
     clearBreadcrumb,
     setCamera,

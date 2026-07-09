@@ -8,6 +8,8 @@
   } from '../lib/api'
   import { kindMeta, stripHtml } from '../lib/attractions'
   import { fmtDate } from '../lib/geo'
+  import { router } from '../lib/router.svelte'
+  import { destination } from '../lib/stores/destination.svelte'
 
   // One attraction's full detail — title, the always-on data-age banner, summary,
   // amenities, hours, fees, tour stops with transcripts, and the park's upcoming
@@ -68,6 +70,21 @@
     })()
   })
 
+  // Sets the Drive destination as a value snapshot (name + coords; source ids
+  // ride along as provenance only — attraction rows are full-replaced on
+  // re-import, so the id must never be dereferenced later) and heads to /drive.
+  function navigateHere(): void {
+    const r = row!
+    destination.set({
+      name: r.name,
+      lat: r.lat!,
+      lon: r.lon!,
+      source: r.source,
+      sourceId: r.source_id,
+    })
+    router.navigate('/drive')
+  }
+
   function occurrenceLabel(ev: AttractionEvent): string {
     const first = ev.dates[0]
     if (!first) return ''
@@ -106,6 +123,9 @@
     {#if onShowMap && row.lat != null && row.lon != null}
       <button type="button" class="attr-link" onclick={() => onShowMap!(row!.lat!, row!.lon!, 12)}
         >Show on map</button>
+    {/if}
+    {#if row.lat != null && row.lon != null}
+      <button type="button" class="attr-link" onclick={navigateHere}>Navigate here</button>
     {/if}
   </div>
 

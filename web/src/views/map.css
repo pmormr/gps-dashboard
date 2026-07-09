@@ -105,6 +105,19 @@
   pointer-events: none;
 }
 
+/* Drive destination pin (engine-injected marker element — must be global):
+   a teardrop anchored at its tip. */
+.map-dest-pin {
+  width: 22px;
+  height: 22px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: #f43f5e;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
 /* Desktop: a card anchored next to the rail. */
 .rail-card {
   position: absolute;

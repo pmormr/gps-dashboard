@@ -10,9 +10,10 @@
     speedZoom,
     ZOOM_SLEW_PER_S,
   } from '../lib/follow'
-  import { fmtAltitude, haversineMeters } from '../lib/geo'
+  import { fmtAltitude, fmtDistance, haversineMeters, initialBearingDeg } from '../lib/geo'
   import { cardinal, type Crumb, extendCrumbs } from '../lib/live'
   import type { MapView as MapViewType } from '../lib/map'
+  import { destination } from '../lib/stores/destination.svelte'
   import { live } from '../lib/stores/live.svelte'
   import {
     acquireWakeLock,
@@ -79,6 +80,25 @@
     van?.fuel_rate_lph != null ? (van.fuel_rate_lph * 0.264172).toFixed(1) : null,
   )
 
+  // Destination chevron: great-circle distance + bearing relative to course.
+  // Off the raw fix like the other readouts. rel is null without a heading
+  // (parked, no course yet); the HUD falls back to the absolute cardinal then.
+  const destInfo = $derived.by(() => {
+    const d = destination.current
+    const fix = live.fix
+    if (!d || !fix || fix.lat == null || fix.lon == null) return null
+    const meters = haversineMeters(fix.lat, fix.lon, d.lat, d.lon)
+    const bearing = initialBearingDeg(fix.lat, fix.lon, d.lat, d.lon)
+    const rel = live.heading != null ? (bearing - live.heading + 360) % 360 : null
+    return { meters, bearing, rel }
+  })
+
+  function onLongPress(lat: number, lon: number): void {
+    // A dropped pin is a raw-coords destination; saving pins as places belongs
+    // to the trip planner, not Drive.
+    destination.set({ name: null, lat, lon })
+  }
+
   // HUD readouts, from the raw fix (interpolation would just add display lag).
   const mph = $derived(
     live.fix?.speed != null && live.status !== 'no-fix' && live.status !== 'offline'
@@ -107,6 +127,7 @@
       host.showMap()
       hide = host.hideMap
       mod.MapView.onUserMove(onGesture)
+      mod.MapView.onLongPress(onLongPress)
       mod.MapView.setLabelScale(LABEL_SCALE)
       if (crumbs.length) mod.MapView.setBreadcrumb(crumbs)
     })
@@ -155,8 +176,10 @@
       releaseWakeLock()
       if (view) {
         view.offUserMove(onGesture)
+        view.offLongPress(onLongPress)
         view.clearPuck()
         view.clearBreadcrumb()
+        view.clearDestination()
         view.setLabelScale(1)
         // Hand the camera back the way Map expects it: flat north-up (60° if
         // the 3D toggle is on). Map's own track effect refits on remount.
@@ -164,6 +187,14 @@
       }
       hide?.()
     }
+  })
+
+  // Destination pin follows the store (set from here, Attractions, or a reload).
+  $effect(() => {
+    const d = destination.current
+    if (!view) return
+    if (d) view.setDestination(d.lat, d.lon)
+    else view.clearDestination()
   })
 
   // Trail extension: one attempt per fresh fix (keyed by TPV time, not per rAF).
@@ -251,6 +282,29 @@
         <span class="num">{mph ?? '–'}</span>
         <span class="unit">mph</span>
       </div>
+      {#if destination.current}
+        <button
+          type="button"
+          class="drive-hud-cell drive-dest"
+          title="Clear destination"
+          onclick={() => destination.clear()}
+        >
+          <span class="k">{destination.current.name ?? 'PIN'} ✕</span>
+          <span class="v">
+            {#if destInfo}
+              {#if destInfo.rel != null}
+                <span class="drive-dest-arrow" style:transform={`rotate(${destInfo.rel}deg)`}
+                  >▲</span>
+              {:else}
+                <span class="drive-dest-cardinal">{cardinal(destInfo.bearing)}</span>
+              {/if}
+              {fmtDistance(destInfo.meters)}
+            {:else}
+              —
+            {/if}
+          </span>
+        </button>
+      {/if}
       <div class="drive-hud-cell">
         <span class="k">HDG</span>
         <span class="v">{hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}</span>
