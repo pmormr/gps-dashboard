@@ -42,6 +42,9 @@ decisions inline.
 | 17 | Aerodrome rank refinement (2026-07-10) | `REFINERS` mechanism in `build_osm_pois.py` (per-kind post-lookup rules on secondary tags): aerodrome base rank **3**; `aerodrome[:type]=international` → **1**; any `iata` → **2** | The flat rank 1 swept in RC strips (Phase-3 catch). Tags are too inconsistent for anything finer — IATA alone doesn't separate commercial from GA (Colorado: DEN→1, 40 IATA fields→2, 270 strips→3). |
 | 18 | Named lakes in scope (2026-07-10) | `water=lake\|reservoir`, both `('outdoors', 2)`, filtered on the **`water` companion key** (never `natural=water`, so the prefilter skips the every-retention-pond long tail); a `REFINERS` name gate drops unnamed matches | User call (was Phase-5 parked). Colorado: +3,185 rows (575 lakes, 2,610 reservoirs), 4,108 unnamed dropped. Known gap: old-style `natural=water`-only lakes without the companion tag are missed — GNIS would cover natural-feature names if it matters. |
 | 19 | Overture (Phase 4) descoped; iOverlander rejected (2026-07-10) | Skip both | User calls: OSM coverage is proving extensive enough that the commercial layer isn't missed — revisit only if real-use gaps show up; iOverlander now requires a paid data license. Open decision E goes moot with Phase 4. |
+| 20 | GNIS populated places (2026-07-10) | Include all 190,921 as a **new `community` category, rank 3** (19th chip) | User call. Makes towns searchable ('Leadville'); rank 3 keeps pins z12+ so they don't fight the basemap's own labels at low zoom. |
+| 21 | GNIS streams (2026-07-10) | Include all 232,585 at **rank 4**, pinned at the mouth (primary) coordinate | User call. Searchable by name, browse only via the minor-places toggle — the long tail is every named creek. |
+| 22 | Wikipedia cache scope (2026-07-10) | **Extracts + thumbnails for all ~166k wiki-tagged rows** (~3.5 GB, one-time ~4–5 h laptop fetch) | User call. Full offline photo+blurb experience; places.db is already outside the backup path so size is cheap. |
 
 ---
 
@@ -167,10 +170,12 @@ and the trail reads the queue untracked).
 - [x] Taxonomy tuning from real data (2026-07-10): aerodrome rank refinement
   (decision 17) + named lakes (decision 18) — landed in `build_osm_pois.py` as the
   `REFINERS` table; Colorado-validated.
-- [ ] Rebuild the NA transfer DB with the new taxonomy (laptop; prefilter re-runs on
-  the hash change) → rsync to the Pi **docked on the LAN** (3 GB; HaLow took 29 min)
-  → re-merge (`import_places.py --osm-db`, ~6 min incl. FTS rebuild — not at drive
-  time).
+- [ ] Rebuild the NA transfer DB with the new taxonomy → rsync to the Pi **docked on
+  the LAN** (3 GB; HaLow took 29 min) → re-merge (`import_places.py --osm-db`, ~6 min
+  incl. FTS rebuild — not at drive time). *Rebuild DONE 2026-07-10:* 10,791,484 rows /
+  3.1 GB in 372 s (`~/osm-lab/osm-places-na.db`) — 143 international / 2,839 IATA /
+  16,131 minor aerodromes; 77,250 lakes + 38,286 reservoirs. **Pi rsync + merge
+  pending**; chain the Phase-6 GNIS import after it (dedupe reads the OSM slice).
 
 ### Phase 4 — Overture Places — **DESCOPED 2026-07-10** (decision 19)
 
@@ -182,16 +187,73 @@ comes back.
 
 - ~~Named lakes~~ — promoted into scope 2026-07-10 (decision 18).
 - ~~iOverlander~~ — rejected 2026-07-10: the data now requires a paid license (decision 19).
-- USGS GNIS (public-domain natural-feature names) if OSM gaps show up — e.g. the
-  `natural=water`-only lakes decision 18 misses. ~1M named features (summits, streams,
-  lakes, valleys, springs…; admin/man-made classes were dropped from GNIS in 2021),
-  pipe-delimited national download, trivially small next to OSM. Under discussion.
-- Wikidata/Wikipedia enrichment join onto existing rows — under discussion 2026-07-10.
-  OSM rows already carry the join key: 166k NA rows have a `wikipedia`/`wikidata` tag
-  (72k at rank ≤ 2). Sketch: laptop batch tool hits the Wikipedia REST summary API for
-  tagged rows, caches lead extract (+ thumbnail?) offline; needs its own storage that
-  survives the full-replace OSM merge (enrichment table keyed by wiki id, or re-run
-  after every merge). CC BY-SA attribution in the detail sheet.
+- ~~USGS GNIS~~ — promoted to Phase 6, 2026-07-10.
+- ~~Wikidata/Wikipedia enrichment~~ — promoted to Phase 7, 2026-07-10.
+
+### Phase 6 — USGS GNIS natural-feature names (user-approved 2026-07-10)
+
+The federal names layer: 981,698 rows (national Domestic Names file, 2026-07-02
+vintage, 37 MB zip from The National Map staged products, refreshed every other
+month; public domain). Post-2021 GNIS is natural features + populated places only —
+zero overlap with the commercial layer, pure complement to OSM naming. Fills the
+known decision-18 gap (`natural=water`-only lakes) plus unnamed-in-OSM summits,
+streams, springs, valleys.
+
+- Import placement: **Pi-side, like RIDB** (`import_places.py --gnis-zip`) — the file
+  is 37 MB, the parse is a pipe-delimited scan, no geometry work. Laptop downloads,
+  scp, Pi imports (`source='gnis'`, full-replace).
+- Dedupe vs OSM at import: **488,634 OSM rows already carry `gnis:feature_id`**
+  (early OSM US imports were GNIS-seeded) — build that id set from the OSM rows'
+  `details` (one json scan, minutes on the Pi) and skip matching GNIS rows. Id-only
+  first; measure residual name-duplicates in practice before adding any
+  name+proximity heuristic. Ordering trap: an OSM re-merge can introduce newly
+  id-tagged rows → re-run the GNIS import after every OSM merge (both seasonal).
+- Feature-class → (category, rank) mapping as a reviewable data table in the
+  importer, same pattern as `TAXONOMY` (decisions 20–21; excluded classes: Civil 65k /
+  Census 15k — administrative duplicates of Populated Place — plus Crossing, Military,
+  Levee, Area).
+- Rows pin at the primary (mouth) coordinate; `details` keeps state/county/map_name
+  + source coords for streams.
+- [x] **Built + locally verified 2026-07-10** (`GNIS_CLASS_RANKS` in
+  `import_places.py`; tests): full-scale local import = 876,182 in scope
+  (skipped: class 89,452, coord/bbox 16,064) → 79,148 deduped vs OSM ids →
+  **797,034 loaded**; search checks clean (2 ms 'leadville'). The 488k OSM-carried
+  GNIS ids only intersect ~79k because most belong to the admin classes GNIS dropped
+  in 2021 or to classes we exclude — expect residual OSM↔GNIS name-duplicates
+  (measure in use before adding name+proximity dedupe).
+- [ ] **Pi rollout**: scp the zip → run `--gnis-zip` (after the Phase-3 OSM
+  re-merge).
+- Tuning observations from the live checks (discuss, don't churn): a bare 'leadville'
+  search lists rank-2 physical features above the rank-3 town (match→rank ordering);
+  GNIS keeps "(historical)" ghost-town entries — plausibly a feature for this user.
+
+### Phase 7 — Wikipedia summary cache (user-approved 2026-07-10)
+
+Offline "what is this place" enrichment: cache the Wikipedia lead extract (and
+possibly a thumbnail) for every place that has one. Join key already in the data:
+45,625 OSM rows carry a `wikipedia` title, 120,439 more a `wikidata` QID only
+(resolve QID → title via the Wikidata API, 50/request).
+
+- Storage: **`place_wiki` table in `places.db`, keyed by wiki id** (QID, else
+  `lang:title`) — *not* rows' `details`, so it survives every full-replace source
+  merge. Detail reads resolve place → wiki key from tags at read time (one row,
+  cheap) and join.
+- Build: `tools/fetch_wikipedia.py` (laptop, online): scan the sidecar for tagged
+  rows → resolve QIDs → Wikipedia REST `page/summary` (extract + thumbnail URL,
+  polite concurrency + UA) → wiki transfer DB; `import_places.py --wiki-db` merges
+  on the Pi (full-replace). Re-run after OSM merges to pick up new tagged rows.
+- Frontend: extract + "Wikipedia (CC BY-SA 4.0)" attribution in PlaceSheet/detail;
+  thumbnail if cached.
+- Scope: decision 22 — extracts + thumbnails for all tagged rows (~162k distinct
+  articles; smoke run measured thumbs ~30 KB avg → expect ~5 GB, a bit above the
+  original ~3.5 GB estimate).
+- [x] **Built + smoke-verified live 2026-07-10**: `place_wiki` schema +
+  `place_wiki_key` (api.db), `tools/fetch_wikipedia.py` (resumable; QID→enwiki
+  resolution; misses recorded), `--wiki-db` merge, detail-read join +
+  `/api/places/<id>/photo`, PlaceDetail wiki section; end-to-end check on real data
+  (extract + 12 KB thumbnail served).
+- [ ] **Full fetch** (~162k articles, hours, laptop — resumable) → scp transfer DB →
+  `--wiki-db` on the Pi.
 
 ---
 

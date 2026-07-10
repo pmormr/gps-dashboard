@@ -46,8 +46,10 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
 
 ## Sources
 
-Three sources, one importer (`tools/import_places.py`), **full-replace per source**
-(`source` column: `nps` | `ridb` | `osm`) — an import never touches other sources' rows.
+Four sources, one importer (`tools/import_places.py`), **full-replace per source**
+(`source` column: `nps` | `ridb` | `osm` | `gnis`) — an import never touches other
+sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source slice
+(below).
 
 - **NPS API** (`developer.nps.gov/api/v1/`, api.data.gov key): parks, thingstodo, tours,
   visitorcenters, campgrounds, events. Whole-country dataset ≲100 MB JSON — sync it all,
@@ -64,8 +66,29 @@ Three sources, one importer (`tools/import_places.py`), **full-replace per sourc
   is the category/rank decision table). The Pi only ATTACHes the finished ~3 GB file
   and swaps the `osm` slice. Canonical PBF snapshot: `rex-nas:~/osm/` (shared with the
   navigation plan's Valhalla graph build so graph + POIs see one OSM vintage).
+- **GNIS** (`--gnis-zip <path>`): the USGS Domestic Names national export (~37 MB zip,
+  The National Map staged products, refreshed every other month, public domain) — the
+  federal *names* layer: summits, lakes, streams, springs, valleys… plus populated
+  places (the tier's `community` category; towns searchable by name). Class →
+  category/rank table `GNIS_CLASS_RANKS` in the importer. Rows whose `feature_id`
+  already rides in an OSM row's `gnis:feature_id` tag are skipped — so **re-run the
+  GNIS import after every OSM merge** (a fresh OSM slice moves the dedupe boundary).
+  Pi-side import like RIDB (pipe-delimited parse, no geometry work).
 - **State parks**: no unified source exists (that's the commercial apps' manual
   aggregation). Punted — federal + OSM is the baseline.
+
+## Wikipedia cache (`place_wiki`)
+
+Offline blurb + thumbnail for every wiki-tagged place (~162k distinct articles across
+~166k OSM rows). Keyed by wiki id (`api.db.place_wiki_key`: wikidata QID, else
+`lang:title`), **not** `places.id` — full-replace merges would orphan a places-keyed
+cache; the detail read resolves place → key from its tags at read time and joins.
+Built off-Pi by `tools/fetch_wikipedia.py` (resumable — fetched keys + misses persist
+in the output DB; QID-only rows resolve to their English article via the Wikidata
+API), merged with `--wiki-db`. Extracts are CC BY-SA 4.0 — the detail sheet
+attributes; the thumbnail blob is served by `/api/places/<id>/photo`. Re-run the fetch
+after OSM rebuilds to pick up newly tagged rows (existing keys are skipped, so
+incremental runs are cheap).
 
 ## Importer facts (traps that cost time once)
 
@@ -107,9 +130,14 @@ RIDB:
 - **OSM** ~seasonally: rebuild the transfer DB on the laptop/NAS from fresh Geofabrik
   extracts, `scp` to the Pi **docked on the LAN** (3 GB over HaLow hurts), run
   `--osm-db`. The merge + FTS rebuild is minutes-long — never at drive time.
+- **GNIS** ~seasonally, chained **after** the OSM merge (the dedupe reads the fresh OSM
+  slice): download the zip on the laptop, `scp`, run `--gnis-zip` on the Pi.
+- **Wiki** ~seasonally, after OSM rebuilds: `tools/fetch_wikipedia.py` on the laptop
+  (resumable; incremental re-runs only fetch new keys), `scp` the transfer DB, run
+  `--wiki-db` on the Pi.
 - Every payload carries `synced_at`; the UI wears data age (banner escalates past 45
-  days) — schedule data degrades into "verify at the visitor center", never silently
-  trusted.
+  days for federal rows, 180 for the osm/gnis bulk sources) — schedule data degrades
+  into "verify at the visitor center", never silently trusted.
 
 ## Deferred / parked
 
