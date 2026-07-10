@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
   import { CATEGORY_META, clearPlaces, syncPlaces } from '../lib/places'
@@ -216,7 +216,12 @@
       view.clearTrack()
       return
     }
-    view.showTrack(pts, { fitBounds: track.refit && !layers.pendingZoom })
+    // untrack: consuming the queued zoom (pendingZoom → null) must not re-run
+    // this effect — refit is still true then, and the re-run's fitTo would
+    // stomp the destination animation it just yielded to.
+    view.showTrack(pts, {
+      fitBounds: track.refit && untrack(() => layers.pendingZoom == null),
+    })
     // A point annotation was just clicked: recentre on its nearest fix now that
     // the reframed window's points have landed.
     if (annotations.pendingPan) {
@@ -235,6 +240,9 @@
     if (!view || !layers.pendingZoom || track.loading) return
     const { lat, lon, zoom } = layers.pendingZoom
     layers.pendingZoom = null
+    // The destination zoom supersedes the pending trail refit for good — the
+    // next live tick recomputes refit anyway.
+    track.refit = false
     view.zoomTo(lat, lon, zoom)
   })
 
