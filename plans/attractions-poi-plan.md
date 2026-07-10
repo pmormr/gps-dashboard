@@ -123,6 +123,13 @@ browse rank≤3 1.3 s · bbox'd 'coffee' search 0.69 s · 'hanging lake' 0.07 s 
 degraded shapes: junk-prefix 'park' ~6 s (bounded-pool path, documented), rare-category
 Everywhere ('landmark') 2.6 s warm. Indexes were pre-built over SSH before both pushes
 (40 s for the three latlon partials, 11 s for rank_name).
+Playwright click-through then surfaced two latent map bugs the flow tripped
+(`b20d284`/`8a8ce13`/`6d8d4d5`, verified live): MapLibre fires moveend *synchronously*
+on no-op camera moves, so the places overlay's rev bump executed inside the trail
+effect's tracking context → infinite flush loop (fix: façade dispatches moveend on a
+microtask); and the trail's mount-fetch refit stomped the "Show on map" destination
+zoom (fix: pendingZoom waits on the new `track.loading`, outranks + clears `refit`,
+and the trail reads the queue untracked).
 
 - [x] Places view: 18 category chips (decision 15) + browse `max_rank=3` w/ minor-places
   toggle (decision 16) + FTS search over the broad set (all ranks, ≥2 chars, anchor as
