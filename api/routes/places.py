@@ -21,7 +21,10 @@ sync, and the UI is expected to wear that age rather than present it as live.
   ``_FTS_UNBOUNDED_MAX``) are answered from a bounded bm25 candidate pool,
   trading recall for latency on exactly the queries where ranking millions
   of matches is meaningless anyway.
-* ``GET /api/places/<id>`` — one POI with parsed ``details``.
+* ``GET /api/places/<id>`` — one POI with parsed ``details``, plus its cached
+  Wikipedia summary (``wiki``) when the ``place_wiki`` cache has the row's
+  wiki tag (resolved at read time — see ``api.db.place_wiki_key``).
+* ``GET /api/places/<id>/photo`` — the cached Wikipedia thumbnail bytes.
 * ``GET /api/places/events`` — occurrences (event × date × time window) in
   a calendar-date window, grouped per event. Dates are park-local
   ``YYYY-MM-DD`` strings as published — not the ms-UTC axis.
@@ -36,7 +39,7 @@ import re
 
 from flask import Blueprint, Response, jsonify, request
 
-from api.db import get_connection
+from api.db import get_connection, place_wiki_key
 from api.params import parse_bbox, parse_limit
 
 places_bp = Blueprint('places', __name__)
@@ -229,7 +232,12 @@ def list_places():
 
 @places_bp.get('/api/places/<int:place_id>')
 def get_place(place_id: int):
-    """One POI with its full parsed ``details`` (tour stops, hours, amenities…)."""
+    """One POI with its full parsed ``details`` (tour stops, hours, amenities…).
+
+    ``wiki`` carries the cached Wikipedia summary (title, extract, page_url,
+    has_thumb — the blob itself is served by the photo endpoint) or null; the
+    extract is CC BY-SA 4.0, which the UI must attribute.
+    """
     conn = get_connection()
     row = conn.execute(
         f'SELECT {_PLACE_COLUMNS}, details FROM places WHERE id = ?',
@@ -239,7 +247,39 @@ def get_place(place_id: int):
         return jsonify({'error': 'place not found'}), 404
     record = dict(row)
     record['details'] = json.loads(record['details'])
+    record['wiki'] = None
+    wiki_key = place_wiki_key(record['details'])
+    if wiki_key is not None:
+        wiki = conn.execute(
+            'SELECT title, lang, extract, page_url, thumb IS NOT NULL AS has_thumb, '
+            'fetched_at FROM place_wiki WHERE wiki_key = ?',
+            (wiki_key,),
+        ).fetchone()
+        if wiki is not None:
+            record['wiki'] = {**dict(wiki), 'has_thumb': bool(wiki['has_thumb'])}
     return jsonify(record)
+
+
+@places_bp.get('/api/places/<int:place_id>/photo')
+def get_place_photo(place_id: int):
+    """The cached Wikipedia thumbnail for one place (404 when none is cached)."""
+    conn = get_connection()
+    row = conn.execute('SELECT details FROM places WHERE id = ?', (place_id,)).fetchone()
+    if row is None:
+        return jsonify({'error': 'place not found'}), 404
+    wiki_key = place_wiki_key(json.loads(row['details']))
+    if wiki_key is not None:
+        wiki = conn.execute(
+            'SELECT thumb, thumb_mime FROM place_wiki WHERE wiki_key = ? AND thumb IS NOT NULL',
+            (wiki_key,),
+        ).fetchone()
+        if wiki is not None:
+            return Response(
+                wiki['thumb'],
+                mimetype=wiki['thumb_mime'] or 'image/jpeg',
+                headers={'Cache-Control': 'public, max-age=86400'},
+            )
+    return jsonify({'error': 'no photo'}), 404
 
 
 @places_bp.get('/api/places/events')

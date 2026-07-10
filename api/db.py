@@ -1,6 +1,8 @@
 import os
 import sqlite3
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 # Canonical timestamp formatting lives in common.timefmt (a project-wide
 # convention, not a database concern); re-exported here for the many call sites
@@ -604,6 +606,23 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             ON place_event_dates(date, event_id);
         CREATE INDEX IF NOT EXISTS places_db.idx_place_event_dates_event
             ON place_event_dates(event_id);
+
+        -- Wikipedia summary cache: offline blurb + thumbnail for wiki-tagged
+        -- places. Keyed by the wiki id (place_wiki_key), NOT places.id — every
+        -- source merge is a full-replace, so a places-keyed cache would orphan
+        -- on each one; the detail read resolves place → key from its tags at
+        -- read time instead. Built off-Pi by tools/fetch_wikipedia.py, merged
+        -- by tools/import_places.py --wiki-db.
+        CREATE TABLE IF NOT EXISTS places_db.place_wiki (
+            wiki_key   TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            lang       TEXT NOT NULL,
+            extract    TEXT NOT NULL,
+            page_url   TEXT,
+            thumb      BLOB,
+            thumb_mime TEXT,
+            fetched_at TEXT NOT NULL
+        );
     """)
     conn.commit()
     _migrate_places_broad_columns(conn)
@@ -633,6 +652,40 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             ON places(rank, name) WHERE rank <= 3;
     """)
     conn.commit()
+
+
+def place_wiki_key(details: Mapping[str, Any]) -> str | None:
+    """Resolve a place's Wikipedia join key from its source tags.
+
+    OSM rows carry ``wikidata`` (a QID) and/or ``wikipedia`` (``lang:Title``)
+    tags in their raw-tag details; the QID wins (stable across article
+    renames), a bare title without a language prefix assumes English, and
+    multi-values take their first entry. The same function builds keys in
+    ``tools/fetch_wikipedia.py`` and resolves them in the detail read, so the
+    two sides cannot drift.
+
+    Args:
+        details: The place's parsed ``details`` JSON.
+
+    Returns:
+        The ``place_wiki.wiki_key`` (``'Q42'`` or ``'en:Title'``), or None.
+    """
+    qid = details.get('wikidata')
+    if isinstance(qid, str) and qid.strip():
+        return qid.strip().split(';', 1)[0].strip().upper()
+    tag = details.get('wikipedia')
+    if not isinstance(tag, str) or not tag.strip():
+        return None
+    text = tag.strip().split(';', 1)[0].strip()
+    if text.lower().startswith(('http://', 'https://')):
+        return None  # malformed tag (URLs belong in website=); rare, skip
+    lang, sep, title = text.partition(':')
+    if not sep:
+        lang, title = 'en', text
+    lang, title = lang.strip().lower(), title.strip().replace('_', ' ')
+    if not lang or not title:
+        return None
+    return f'{lang}:{title}'
 
 
 #: Federal-source kind → (category, rank), the same axes the OSM taxonomy

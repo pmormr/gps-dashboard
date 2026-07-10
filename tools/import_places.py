@@ -20,6 +20,18 @@ Three mutually exclusive modes, each full-replacing its own ``source`` slice of
   ``source='osm'``, done. The transfer file arrives finished (rows already
   carry ``category``/``rank``); the Pi never parses a PBF. A ~minutes-long
   seasonal op, like the RIDB import — never at drive time.
+* **GNIS** (``--gnis-zip``) — parses the USGS Domestic Names national export
+  (``prd-tnm.s3.amazonaws.com/StagedProducts/GeographicNames/DomesticNames/
+  DomesticNames_National_Text.zip``, ~37 MB, refreshed every other month,
+  public domain) into ``source='gnis'`` rows: the federal names layer for
+  natural features (summits, lakes, streams, springs…) plus populated places.
+  Rows whose ``feature_id`` already rides in an OSM row's
+  ``gnis:feature_id`` tag are skipped (early OSM US imports were GNIS-seeded
+  — ~half the file), so **re-run this after every OSM merge**: a fresh OSM
+  slice can add or drop id-tagged rows either side of the dedupe.
+* **Wiki merge** (``--wiki-db``) — swaps in the ``place_wiki`` summary cache
+  built off-Pi by ``tools/fetch_wikipedia.py`` (offline Wikipedia blurbs +
+  thumbnails, keyed by wiki id so source merges never orphan them).
 
 Every mode finishes by rebuilding ``places_fts`` (the external-content FTS5
 search index) — writes to the tier are bulk-only, so there are no sync
@@ -91,6 +103,7 @@ import sqlite3
 import sys
 import time
 import zipfile
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -889,6 +902,178 @@ def build_ridb_places(export: RidbExport) -> list[Place]:
     return [a for a in recareas + facilities if a.name]
 
 
+# --- GNIS (USGS Domestic Names national export) ---------------------------------------
+
+GNIS_SOURCE = 'gnis'
+GNIS_MEMBER = 'Text/DomesticNames_National.txt'
+# Matches build_osm_pois.BASEMAP_BBOX — not imported, that module needs osmium,
+# which the Pi doesn't install. Clips Guam/American Samoa/Antarctica names off
+# the tier: searchable data everywhere the map renders, nothing where it doesn't.
+GNIS_BBOX = (-168.0, 7.0, -52.0, 72.0)
+
+#: Feature class → (category, rank) — the reviewable decision table (plan
+#: decisions 20–21), same axes as the OSM ``TAXONOMY``/``PLACES_KIND_RANKS``.
+#: Everything physical is ``outdoors``; ``Populated Place`` is the tier's
+#: ``community`` category (towns searchable by name; rank 3 keeps their pins
+#: from fighting the basemap's own labels below z12). Ranks mirror the OSM
+#: values for the same features (Summit=peak=2, Lake/Reservoir=2, Falls=2).
+#: Unlisted classes are skipped on purpose: Civil/Census are administrative
+#: duplicates of Populated Place; Crossing/Military/Levee/Area aren't
+#: destination features.
+GNIS_CLASS_RANKS: dict[str, tuple[str, int]] = {
+    'Populated Place': ('community', 3),
+    'Summit': ('outdoors', 2),
+    'Lake': ('outdoors', 2),
+    'Reservoir': ('outdoors', 2),
+    'Falls': ('outdoors', 2),
+    'Range': ('outdoors', 2),
+    'Valley': ('outdoors', 3),
+    'Spring': ('outdoors', 3),
+    'Island': ('outdoors', 3),
+    'Bay': ('outdoors', 3),
+    'Cape': ('outdoors', 3),
+    'Ridge': ('outdoors', 3),
+    'Beach': ('outdoors', 3),
+    'Glacier': ('outdoors', 3),
+    'Rapids': ('outdoors', 3),
+    'Arch': ('outdoors', 3),
+    'Basin': ('outdoors', 3),
+    'Crater': ('outdoors', 3),
+    'Sea': ('outdoors', 3),
+    'Stream': ('outdoors', 4),
+    'Canal': ('outdoors', 4),
+    'Gap': ('outdoors', 4),
+    'Cliff': ('outdoors', 4),
+    'Swamp': ('outdoors', 4),
+    'Flat': ('outdoors', 4),
+    'Gut': ('outdoors', 4),
+    'Bar': ('outdoors', 4),
+    'Bend': ('outdoors', 4),
+    'Channel': ('outdoors', 4),
+    'Pillar': ('outdoors', 4),
+    'Woods': ('outdoors', 4),
+    'Slope': ('outdoors', 4),
+    'Plain': ('outdoors', 4),
+    'Arroyo': ('outdoors', 4),
+    'Lava': ('outdoors', 4),
+    'Bench': ('outdoors', 4),
+    'Isthmus': ('outdoors', 4),
+}
+
+#: ``source_kind`` → (category, rank) for :func:`load` — kinds are the classes
+#: lowercased/underscored (``populated_place``), the tier's kind vocabulary.
+GNIS_KIND_RANKS: dict[str, tuple[str, int]] = {
+    cls.lower().replace(' ', '_'): rule for cls, rule in GNIS_CLASS_RANKS.items()
+}
+
+
+def parse_gnis_row(record: dict[str, str]) -> Place | None:
+    """Transform one Domestic Names row, or None when out of scope.
+
+    Skips unlisted feature classes, nameless rows, and rows without a primary
+    coordinate inside :data:`GNIS_BBOX`. Streams keep their source (headwater)
+    coordinate in details; the row pins at the primary (mouth) one.
+
+    Args:
+        record: One pipe-delimited row as a dict.
+
+    Returns:
+        The feature as a :class:`Place` (kind = lowercased class), or None.
+    """
+    cls = (record.get('feature_class') or '').strip()
+    if cls not in GNIS_CLASS_RANKS:
+        return None
+    name = (record.get('feature_name') or '').strip()
+    if not name:
+        return None
+    lat = _coord(record.get('prim_lat_dec'))
+    lon = _coord(record.get('prim_long_dec'))
+    if lat is None or lon is None or lat == 0.0:
+        return None
+    if not (GNIS_BBOX[0] <= lon <= GNIS_BBOX[2] and GNIS_BBOX[1] <= lat <= GNIS_BBOX[3]):
+        return None
+    state = (record.get('state_name') or '').strip()
+    county = (record.get('county_name') or '').strip()
+    where = ', '.join(p for p in (county, state) if p)
+    details = _ridb_details(
+        {
+            'featureClass': cls,
+            'state': state,
+            'county': county,
+            'mapName': (record.get('map_name') or '').strip(),
+            'sourceLat': _coord(record.get('source_lat_dec')),
+            'sourceLon': _coord(record.get('source_long_dec')),
+        }
+    )
+    return Place(
+        source_kind=cls.lower().replace(' ', '_'),
+        source_id=record['feature_id'],
+        park_code=None,
+        name=name,
+        lat=lat,
+        lon=lon,
+        summary=' · '.join(p for p in (cls, where) if p) or None,
+        details=details,
+    )
+
+
+def read_gnis_zip(path: Path) -> tuple[list[Place], Counter[str]]:
+    """Stream the national Domestic Names member into place rows.
+
+    Args:
+        path: The downloaded ``DomesticNames_National_Text.zip``.
+
+    Returns:
+        ``(rows, skipped)`` — the in-scope rows plus skip counts by reason
+        (``class`` / ``unnamed`` / ``no_coord_or_bbox``).
+    """
+    rows: list[Place] = []
+    skipped: Counter[str] = Counter()
+    with zipfile.ZipFile(path) as zf, zf.open(GNIS_MEMBER) as raw:
+        reader = csv.DictReader(
+            io.TextIOWrapper(raw, encoding='utf-8-sig', newline=''), delimiter='|'
+        )
+        for record in reader:
+            place = parse_gnis_row(record)
+            if place is not None:
+                rows.append(place)
+            elif (record.get('feature_class') or '').strip() not in GNIS_CLASS_RANKS:
+                skipped['class'] += 1
+            elif not (record.get('feature_name') or '').strip():
+                skipped['unnamed'] += 1
+            else:
+                skipped['no_coord_or_bbox'] += 1
+    return rows, skipped
+
+
+def osm_gnis_ids(conn: sqlite3.Connection) -> set[str]:
+    """Collect every ``gnis:feature_id`` riding on an OSM row's tags.
+
+    Early OSM US imports were GNIS-seeded, so roughly half the GNIS file is
+    already in the tier as (richer) OSM rows — this set is the dedupe key.
+    Multi-value tags (``'123;456'``) contribute each id. One json scan of the
+    OSM slice — minutes on the Pi, per seasonal import.
+
+    Args:
+        conn: An open, initialized connection.
+
+    Returns:
+        The id set (strings, as GNIS publishes them).
+    """
+    ids: set[str] = set()
+    rows = conn.execute(
+        'SELECT json_extract(details, \'$."gnis:feature_id"\') FROM places '
+        "WHERE source = 'osm' AND details LIKE '%\"gnis:feature_id\"%'"
+    )
+    for (value,) in rows:
+        if value is None:
+            continue
+        for part in str(value).split(';'):
+            if part.strip():
+                ids.add(part.strip())
+    return ids
+
+
 # --- Load --------------------------------------------------------------------------
 
 
@@ -897,6 +1082,7 @@ def load(
     places: list[Place],
     events: list[Event],
     source: str = SOURCE,
+    kind_ranks: dict[str, tuple[str, int]] | None = None,
 ) -> None:
     """Full-replace one source's slice of the places tier.
 
@@ -907,8 +1093,11 @@ def load(
         conn: An open, initialized connection.
         places: The POI rows.
         events: The event rows with expanded dates.
-        source: The source whose slice to replace (``'nps'``/``'ridb'``).
+        source: The source whose slice to replace (``'nps'``/``'ridb'``/``'gnis'``).
+        kind_ranks: ``source_kind → (category, rank)`` stamp table; defaults to
+            the federal :data:`api.db.PLACES_KIND_RANKS`.
     """
+    ranks = PLACES_KIND_RANKS if kind_ranks is None else kind_ranks
     now = now_canonical()
     with conn:
         conn.execute(
@@ -934,7 +1123,7 @@ def load(
                     a.summary,
                     json.dumps(a.details),
                     now,
-                    *PLACES_KIND_RANKS.get(a.source_kind, (None, None)),
+                    *ranks.get(a.source_kind, (None, None)),
                 )
                 for a in places
             ],
@@ -997,6 +1186,35 @@ def merge_osm(conn: sqlite3.Connection, transfer_path: Path) -> int:
         return merged
     finally:
         conn.execute('DETACH DATABASE osm_src')
+
+
+def merge_wiki(conn: sqlite3.Connection, transfer_path: Path) -> int:
+    """Full-replace ``place_wiki`` from a transfer DB built by ``fetch_wikipedia.py``.
+
+    Same ATTACH-and-swap shape as :func:`merge_osm`; no FTS involvement — the
+    wiki cache is a detail-read join, never searched.
+
+    Args:
+        conn: An open, initialized connection.
+        transfer_path: The wiki transfer DB (its ``place_wiki`` table matches
+            the sidecar's).
+
+    Returns:
+        The number of rows merged in.
+    """
+    conn.execute('ATTACH DATABASE ? AS wiki_src', (str(transfer_path),))
+    try:
+        with conn:
+            conn.execute('DELETE FROM place_wiki')
+            merged = conn.execute(
+                'INSERT INTO place_wiki (wiki_key, title, lang, extract, page_url, '
+                'thumb, thumb_mime, fetched_at) '
+                'SELECT wiki_key, title, lang, extract, page_url, '
+                'thumb, thumb_mime, fetched_at FROM wiki_src.place_wiki'
+            ).rowcount
+        return merged
+    finally:
+        conn.execute('DETACH DATABASE wiki_src')
 
 
 # --- Orchestration -------------------------------------------------------------------
@@ -1096,6 +1314,76 @@ def run_osm(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_gnis(args: argparse.Namespace) -> int:
+    """Parse a local GNIS export zip, dedupe vs OSM, and (unless ``--dry-run``) load.
+
+    Args:
+        args: Parsed arguments (``gnis_zip`` set).
+
+    Returns:
+        A process exit code.
+    """
+    import api.db
+
+    zip_path = Path(args.gnis_zip)
+    if not zip_path.exists():
+        print(f'GNIS export not found: {zip_path}', file=sys.stderr)
+        return 1
+    print(f'Reading {zip_path} ...', flush=True)
+    places, skipped = read_gnis_zip(zip_path)
+    skips = ', '.join(f'{reason} {n:,}' for reason, n in skipped.most_common())
+    print(f'Parsed {len(places):,} named features (skipped: {skips})', flush=True)
+    by_kind = Counter(a.source_kind for a in places)
+    print('  ' + ' · '.join(f'{kind} {n:,}' for kind, n in by_kind.most_common(10)), flush=True)
+
+    conn = get_connection()
+    init_db(conn)
+    ids = osm_gnis_ids(conn)
+    before = len(places)
+    places = [a for a in places if a.source_id not in ids]
+    print(
+        f'Deduped {before - len(places):,} features already in the tier via OSM '
+        f'gnis:feature_id tags ({len(ids):,} ids on OSM rows); {len(places):,} to load',
+        flush=True,
+    )
+    if args.dry_run:
+        print('Dry run — not writing.', flush=True)
+        return 0
+
+    load(conn, places, [], source=GNIS_SOURCE, kind_ranks=GNIS_KIND_RANKS)
+    print(f'Loaded into {api.db.places_db_path()}', flush=True)
+    return 0
+
+
+def run_wiki(args: argparse.Namespace) -> int:
+    """Merge a prebuilt Wikipedia-cache transfer DB into the sidecar.
+
+    Args:
+        args: Parsed arguments (``wiki_db`` set).
+
+    Returns:
+        A process exit code.
+    """
+    import api.db
+
+    transfer_path = Path(args.wiki_db)
+    if not transfer_path.exists():
+        print(f'Wiki transfer DB not found: {transfer_path}', file=sys.stderr)
+        return 1
+    if args.dry_run:
+        with sqlite3.connect(transfer_path) as src:
+            n = src.execute('SELECT COUNT(*) FROM place_wiki').fetchone()[0]
+        print(f'Dry run — {n:,} wiki rows in {transfer_path}, not merging.', flush=True)
+        return 0
+
+    conn = get_connection()
+    init_db(conn)
+    print(f'Merging {transfer_path} (delete + insert) ...', flush=True)
+    merged = merge_wiki(conn, transfer_path)
+    print(f'Merged {merged:,} wiki rows into {api.db.places_db_path()}', flush=True)
+    return 0
+
+
 def run(args: argparse.Namespace) -> int:
     """Fetch every endpoint, transform, and (unless ``--dry-run``) load.
 
@@ -1107,13 +1395,21 @@ def run(args: argparse.Namespace) -> int:
     """
     import api.db
 
-    if args.ridb_zip and args.osm_db:
-        print('--ridb-zip and --osm-db are mutually exclusive', file=sys.stderr)
+    modes = [m for m in (args.ridb_zip, args.osm_db, args.gnis_zip, args.wiki_db) if m]
+    if len(modes) > 1:
+        print(
+            '--ridb-zip / --osm-db / --gnis-zip / --wiki-db are mutually exclusive',
+            file=sys.stderr,
+        )
         return 2
     if args.ridb_zip:
         return run_ridb(args)
     if args.osm_db:
         return run_osm(args)
+    if args.gnis_zip:
+        return run_gnis(args)
+    if args.wiki_db:
+        return run_wiki(args)
 
     api_key = resolve_api_key(args.api_key, Path(args.env_file))
     session = requests.Session()
@@ -1187,6 +1483,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--osm-db',
         help='Merge a transfer DB built by tools/build_osm_pois.py (source=osm) '
+        'instead of the NPS API',
+    )
+    parser.add_argument(
+        '--gnis-zip',
+        help='Import a local USGS GNIS Domestic Names national zip (source=gnis) '
+        'instead of the NPS API',
+    )
+    parser.add_argument(
+        '--wiki-db',
+        help='Merge a place_wiki transfer DB built by tools/fetch_wikipedia.py '
         'instead of the NPS API',
     )
     parser.add_argument(

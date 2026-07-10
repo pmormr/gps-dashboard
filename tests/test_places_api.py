@@ -11,8 +11,18 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from api.db import get_connection
-from tools.import_places import Event, EventDate, Place, load, merge_osm
+from api.db import get_connection, place_wiki_key
+from tools.fetch_wikipedia import Target, collect_targets
+from tools.import_places import (
+    GNIS_KIND_RANKS,
+    Event,
+    EventDate,
+    Place,
+    load,
+    merge_osm,
+    merge_wiki,
+    osm_gnis_ids,
+)
 
 _PARK = Place(
     'park', 'P1', 'romo', 'Rocky Mountain National Park', 40.36, -105.70, 'Mountains.', {'x': 1}
@@ -408,3 +418,153 @@ def test_broad_columns_migration_backfills_existing_sidecar(tmp_path, monkeypatc
 
     db.init_db(conn)  # steady-state: columns present, migration skips
     assert conn.execute('SELECT COUNT(*) FROM places').fetchone()[0] == 3
+
+
+# --- GNIS ---------------------------------------------------------------------------
+
+
+def test_osm_gnis_ids_reads_multivalue_tags(client, tmp_path) -> None:
+    transfer = tmp_path / 'osm.db'
+    tagged = list(_OSM_ROW)
+    tagged[8] = '{"natural": "peak", "gnis:feature_id": "123;456"}'
+    _write_transfer_db(
+        transfer, [tuple(tagged), _OSM_ROW[:2] + ('node/2', None, 'Plain') + _OSM_ROW[5:]]
+    )
+    conn = get_connection()
+    merge_osm(conn, transfer)
+    assert osm_gnis_ids(conn) == {'123', '456'}
+    conn.close()
+
+
+def test_gnis_load_stamps_community_category(client) -> None:
+    town = Place(
+        'populated_place',
+        '789',
+        None,
+        'Leadville',
+        39.25,
+        -106.29,
+        'Populated Place · Lake, Colorado',
+        {'state': 'Colorado'},
+    )
+    conn = get_connection()
+    load(conn, [town], [], source='gnis', kind_ranks=GNIS_KIND_RANKS)
+    conn.close()
+    found = client.get('/api/places?q=leadville').get_json()['places']
+    assert [(a['category'], a['rank'], a['source']) for a in found] == [('community', 3, 'gnis')]
+
+
+# --- Wikipedia cache ------------------------------------------------------------------
+
+
+def _seed_wiki_place(details: dict) -> int:
+    """Load one OSM-tagged place and return its row id."""
+    place = Place('peak', 'wiki1', None, 'Wiki Peak', 40.0, -105.0, None, details)
+    conn = get_connection()
+    load(conn, [place], [], source='osm')
+    row_id = conn.execute("SELECT id FROM places WHERE source_id = 'wiki1'").fetchone()[0]
+    conn.close()
+    return int(row_id)
+
+
+def _insert_wiki(key: str, thumb: bytes | None) -> None:
+    conn = get_connection()
+    with conn:
+        conn.execute(
+            'INSERT INTO place_wiki (wiki_key, title, lang, extract, page_url, thumb, '
+            "thumb_mime, fetched_at) VALUES (?, 'Wiki Peak', 'en', 'A peak.', "
+            "'https://en.wikipedia.org/wiki/Wiki_Peak', ?, ?, 'T1')",
+            (key, thumb, 'image/jpeg' if thumb else None),
+        )
+    conn.close()
+
+
+def test_place_wiki_key_variants() -> None:
+    assert place_wiki_key({'wikidata': 'q42'}) == 'Q42'
+    assert place_wiki_key({'wikidata': 'Q1;Q2'}) == 'Q1'
+    assert place_wiki_key({'wikidata': 'Q1', 'wikipedia': 'en:Other'}) == 'Q1'
+    assert place_wiki_key({'wikipedia': 'en:Foo_Bar'}) == 'en:Foo Bar'
+    assert place_wiki_key({'wikipedia': 'Plain Title'}) == 'en:Plain Title'
+    assert place_wiki_key({'wikipedia': 'https://en.wikipedia.org/wiki/X'}) is None
+    assert place_wiki_key({'wikipedia': '  '}) is None
+    assert place_wiki_key({}) is None
+
+
+def test_detail_joins_wiki_and_photo_serves_thumb(client) -> None:
+    place_id = _seed_wiki_place({'natural': 'peak', 'wikidata': 'Q42'})
+    _insert_wiki('Q42', b'\xff\xd8fakejpeg')
+
+    body = client.get(f'/api/places/{place_id}').get_json()
+    assert body['wiki']['title'] == 'Wiki Peak'
+    assert body['wiki']['extract'] == 'A peak.'
+    assert body['wiki']['has_thumb'] is True
+
+    photo = client.get(f'/api/places/{place_id}/photo')
+    assert photo.status_code == 200
+    assert photo.data == b'\xff\xd8fakejpeg'
+    assert photo.mimetype == 'image/jpeg'
+
+
+def test_detail_wiki_null_and_photo_404_when_uncached(client) -> None:
+    place_id = _seed_wiki_place({'natural': 'peak', 'wikipedia': 'en:Uncached'})
+    body = client.get(f'/api/places/{place_id}').get_json()
+    assert body['wiki'] is None
+    assert client.get(f'/api/places/{place_id}/photo').status_code == 404
+    assert client.get('/api/places/99999/photo').status_code == 404
+
+
+def test_wiki_key_resolves_from_wikipedia_tag(client) -> None:
+    place_id = _seed_wiki_place({'natural': 'peak', 'wikipedia': 'en:Wiki_Peak'})
+    _insert_wiki('en:Wiki Peak', None)
+    body = client.get(f'/api/places/{place_id}').get_json()
+    assert body['wiki']['has_thumb'] is False
+    assert client.get(f'/api/places/{place_id}/photo').status_code == 404
+
+
+def test_merge_wiki_full_replaces(client, tmp_path) -> None:
+    _insert_wiki('Q1', None)
+    transfer = tmp_path / 'wiki.db'
+    src = sqlite3.connect(transfer)
+    src.execute(
+        'CREATE TABLE place_wiki (wiki_key TEXT PRIMARY KEY, title TEXT NOT NULL, '
+        'lang TEXT NOT NULL, extract TEXT NOT NULL, page_url TEXT, thumb BLOB, '
+        'thumb_mime TEXT, fetched_at TEXT NOT NULL)'
+    )
+    src.execute(
+        "INSERT INTO place_wiki VALUES ('Q2', 'New', 'en', 'Fresh.', NULL, NULL, NULL, 'T2')"
+    )
+    src.commit()
+    src.close()
+
+    conn = get_connection()
+    assert merge_wiki(conn, transfer) == 1
+    keys = [r[0] for r in conn.execute('SELECT wiki_key FROM place_wiki').fetchall()]
+    conn.close()
+    assert keys == ['Q2']
+
+
+def test_collect_targets_prefers_explicit_titles(client) -> None:
+    conn = get_connection()
+    load(
+        conn,
+        [
+            Place('peak', 'w1', None, 'A', 40.0, -105.0, None, {'wikidata': 'Q7'}),
+            Place(
+                'peak',
+                'w2',
+                None,
+                'B',
+                40.1,
+                -105.1,
+                None,
+                {'wikidata': 'Q7', 'wikipedia': 'en:Seven'},
+            ),
+            Place('peak', 'w3', None, 'C', 40.2, -105.2, None, {'wikipedia': 'fr:Sept'}),
+        ],
+        [],
+        source='osm',
+    )
+    targets = collect_targets(conn)
+    conn.close()
+    assert targets['Q7'] == Target('Q7', 'en', 'Seven')
+    assert targets['fr:Sept'] == Target('fr:Sept', 'fr', 'Sept')

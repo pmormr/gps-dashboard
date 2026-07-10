@@ -1,14 +1,22 @@
-"""Unit tests for the places importer's pure transforms (NPS + RIDB).
+"""Unit tests for the places importer's pure transforms (NPS + RIDB + GNIS).
 
 Sample records mirror the real source shapes: NPS API records as captured in
 the Phase-0 spike (string coordinates, event-level ``times``, tour stops
 referencing ``places`` assets), RIDB CSV rows as in the full export (all-string
-fields, ``0.0`` null-island coordinates, ALL-CAPS labels); no network, no zip.
+fields, ``0.0`` null-island coordinates, ALL-CAPS labels), GNIS Domestic Names
+rows as in the pipe-delimited national file; no network. The one zip built here
+(GNIS) is synthetic and tiny.
 """
 
 from __future__ import annotations
 
+import zipfile
+from pathlib import Path
+
 from tools.import_places import (
+    GNIS_CLASS_RANKS,
+    GNIS_KIND_RANKS,
+    GNIS_MEMBER,
     Place,
     RidbExport,
     _ridb_label,
@@ -18,11 +26,13 @@ from tools.import_places import (
     parse_ampm,
     parse_event,
     parse_facility,
+    parse_gnis_row,
     parse_park,
     parse_ridb_facility,
     parse_ridb_recarea,
     parse_thingstodo,
     parse_tour,
+    read_gnis_zip,
     summarize,
 )
 
@@ -307,3 +317,86 @@ def test_build_ridb_places_excludes_nps_and_products_and_backfills_coords() -> N
 
     permit = by_id['fac:13']
     assert (permit.lat, permit.lon) == (38.2, -120.0)
+
+
+# --- GNIS (Domestic Names) ------------------------------------------------------------
+
+_GNIS_SUMMIT = {
+    'feature_id': '178721',
+    'feature_name': 'Longs Peak',
+    'feature_class': 'Summit',
+    'state_name': 'Colorado',
+    'county_name': 'Boulder',
+    'map_name': 'Longs Peak',
+    'prim_lat_dec': '40.2549639',
+    'prim_long_dec': '-105.6160585',
+    'source_lat_dec': '',
+    'source_long_dec': '',
+}
+
+
+def test_parse_gnis_summit() -> None:
+    place = parse_gnis_row(_GNIS_SUMMIT)
+    assert place is not None
+    assert place.source_kind == 'summit'
+    assert place.source_id == '178721'
+    assert place.name == 'Longs Peak'
+    assert (place.lat, place.lon) == (40.2549639, -105.6160585)
+    assert place.summary == 'Summit · Boulder, Colorado'
+    assert place.details == {
+        'featureClass': 'Summit',
+        'state': 'Colorado',
+        'county': 'Boulder',
+        'mapName': 'Longs Peak',
+    }
+
+
+def test_parse_gnis_stream_keeps_source_coords() -> None:
+    record = {
+        **_GNIS_SUMMIT,
+        'feature_class': 'Stream',
+        'feature_name': 'Clear Creek',
+        'source_lat_dec': '39.8',
+        'source_long_dec': '-105.9',
+    }
+    place = parse_gnis_row(record)
+    assert place is not None
+    assert place.source_kind == 'stream'
+    assert place.details['sourceLat'] == 39.8
+    assert place.details['sourceLon'] == -105.9
+
+
+def test_parse_gnis_skips_out_of_scope_rows() -> None:
+    assert parse_gnis_row({**_GNIS_SUMMIT, 'feature_class': 'Civil'}) is None
+    assert parse_gnis_row({**_GNIS_SUMMIT, 'feature_name': '  '}) is None
+    assert parse_gnis_row({**_GNIS_SUMMIT, 'prim_lat_dec': ''}) is None
+    guam = {**_GNIS_SUMMIT, 'prim_lat_dec': '13.44', 'prim_long_dec': '144.79'}
+    assert parse_gnis_row(guam) is None
+
+
+def test_gnis_kind_ranks_mirror_class_table() -> None:
+    assert GNIS_KIND_RANKS['populated_place'] == ('community', 3)
+    assert GNIS_KIND_RANKS['summit'] == ('outdoors', 2)
+    assert GNIS_KIND_RANKS['stream'] == ('outdoors', 4)
+    assert len(GNIS_KIND_RANKS) == len(GNIS_CLASS_RANKS)
+
+
+def test_read_gnis_zip(tmp_path: Path) -> None:
+    header = (
+        'feature_id|feature_name|feature_class|state_name|state_numeric|county_name'
+        '|county_numeric|map_name|date_created|date_edited|bgn_type|bgn_authority'
+        '|bgn_date|prim_lat_dms|prim_long_dms|prim_lat_dec|prim_long_dec'
+        '|source_lat_dms|source_long_dms|source_lat_dec|source_long_dec'
+    )
+    rows = [
+        '1|Longs Peak|Summit|Colorado|08|Boulder|013|Longs Peak||||||||40.25|-105.61||||',
+        '2|Boulder County|Civil|Colorado|08|Boulder|013|Boulder||||||||40.1|-105.4||||',
+        '3|Lost Lake|Lake|Colorado|08|Grand|049|Granby||||||||40.0|-105.9||||',
+    ]
+    archive = tmp_path / 'gnis.zip'
+    with zipfile.ZipFile(archive, 'w') as zf:
+        zf.writestr(GNIS_MEMBER, '﻿' + '\n'.join([header, *rows]) + '\n')
+
+    places, skipped = read_gnis_zip(archive)
+    assert [a.name for a in places] == ['Longs Peak', 'Lost Lake']
+    assert skipped == {'class': 1}
