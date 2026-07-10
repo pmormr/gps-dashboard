@@ -16,6 +16,7 @@ from tools.build_osm_pois import (
     BASEMAP_BBOX,
     EXCLUDED_VALUES,
     JUNK_VALUES,
+    REFINERS,
     TAXONOMY,
     build_summary,
     classify,
@@ -68,6 +69,28 @@ class TestClassify:
         assert result is not None
         assert result[2] == 5
 
+    def test_international_aerodrome_is_rank_1(self) -> None:
+        tags = {'aeroway': 'aerodrome', 'aerodrome': 'international', 'iata': 'DEN'}
+        assert classify(tags) == ('aeroway=aerodrome', 'transport', 1)
+        tags = {'aeroway': 'aerodrome', 'aerodrome:type': 'international'}
+        assert classify(tags) == ('aeroway=aerodrome', 'transport', 1)
+
+    def test_iata_aerodrome_promotes_to_rank_2(self) -> None:
+        tags = {'aeroway': 'aerodrome', 'name': 'Telluride Regional', 'iata': 'TEX'}
+        assert classify(tags) == ('aeroway=aerodrome', 'transport', 2)
+
+    def test_plain_aerodrome_stays_minor(self) -> None:
+        result = classify({'aeroway': 'aerodrome', 'name': 'Mile High RC Field'})
+        assert result == ('aeroway=aerodrome', 'transport', 3)
+
+    def test_named_lake_classifies(self) -> None:
+        tags = {'natural': 'water', 'water': 'lake', 'name': 'Grand Lake'}
+        assert classify(tags) == ('water=lake', 'outdoors', 2)
+
+    def test_unnamed_lake_drops(self) -> None:
+        assert classify({'natural': 'water', 'water': 'lake'}) is None
+        assert classify({'natural': 'water', 'water': 'reservoir', 'name': ' '}) is None
+
 
 class TestTaxonomyTable:
     def test_ranks_are_1_to_5(self) -> None:
@@ -83,6 +106,11 @@ class TestTaxonomyTable:
         for key, table in TAXONOMY.items():
             assert not JUNK_VALUES & set(table), f'junk value listed under {key}'
 
+    def test_refiners_target_real_kinds(self) -> None:
+        for kind in REFINERS:
+            key, _, value = kind.partition('=')
+            assert value in TAXONOMY.get(key, {}), f'refiner on unlisted kind {kind}'
+
 
 class TestFilterExpressions:
     def test_wholesale_key(self) -> None:
@@ -96,6 +124,11 @@ class TestFilterExpressions:
 
     def test_one_expression_per_key(self) -> None:
         assert len(filter_expressions()) == len(TAXONOMY)
+
+    def test_water_filters_on_companion_key_only(self) -> None:
+        expr = next(e for e in filter_expressions() if e.startswith('nwr/water='))
+        assert set(expr.removeprefix('nwr/water=').split(',')) == set(TAXONOMY['water'])
+        assert 'nwr/natural=water' not in filter_expressions()
 
 
 class TestNaming:

@@ -39,6 +39,9 @@ decisions inline.
 | 14 | FTS scope (2026-07-09) | Index `name` + `summary` + `category` + `source_kind` (external-content FTS5 `places_fts`); `details` JSON stays out (hours/URLs are noise) | User call. OSM summaries are ~40-char kind·cuisine·brand strings, so the recall ("burgers", "elk") costs only a few hundred MB at 10M rows. LIKE remains the internal fallback when no searchable token survives sanitising (decision 8). |
 | 15 | Places-view category UI (2026-07-09) | **All 18 categories as flat toggle chips** (same interaction as the kind-chip era; wrapping row) | User call. No grouping layer to maintain on top of the server taxonomy; van-life essentials stay one-tap toggleable. |
 | 16 | Browse depth default (2026-07-09) | **Browse defaults to `max_rank=3`** (common POIs and up) with a "show minor places" toggle opening rank 4–5; **search (`q`) always covers all ranks** — micro furniture stays findable by name | User call. An unfiltered near-me read at 10.7M rows fills the 2,000-row limit with rank-4/5 noise instantly; the toggle keeps the deep tier reachable without making it the default. |
+| 17 | Aerodrome rank refinement (2026-07-10) | `REFINERS` mechanism in `build_osm_pois.py` (per-kind post-lookup rules on secondary tags): aerodrome base rank **3**; `aerodrome[:type]=international` → **1**; any `iata` → **2** | The flat rank 1 swept in RC strips (Phase-3 catch). Tags are too inconsistent for anything finer — IATA alone doesn't separate commercial from GA (Colorado: DEN→1, 40 IATA fields→2, 270 strips→3). |
+| 18 | Named lakes in scope (2026-07-10) | `water=lake\|reservoir`, both `('outdoors', 2)`, filtered on the **`water` companion key** (never `natural=water`, so the prefilter skips the every-retention-pond long tail); a `REFINERS` name gate drops unnamed matches | User call (was Phase-5 parked). Colorado: +3,185 rows (575 lakes, 2,610 reservoirs), 4,108 unnamed dropped. Known gap: old-style `natural=water`-only lakes without the companion tag are missed — GNIS would cover natural-feature names if it matters. |
+| 19 | Overture (Phase 4) descoped; iOverlander rejected (2026-07-10) | Skip both | User calls: OSM coverage is proving extensive enough that the commercial layer isn't missed — revisit only if real-use gaps show up; iOverlander now requires a paid data license. Open decision E goes moot with Phase 4. |
 
 ---
 
@@ -46,7 +49,7 @@ decisions inline.
 
 | # | Decision | Options | Notes |
 |---|----------|---------|-------|
-| E | Overture↔OSM dedupe | Overture rows carry source provenance (some are OSM-derived) | Prefer the OSM row when both exist (richer tags, matches the rendered map); Overture fills the gaps. Decide the matching key (provenance id vs name+proximity) in Phase 4. |
+| E | ~~Overture↔OSM dedupe~~ | — | Moot: Phase 4 descoped (decision 19). |
 
 ---
 
@@ -161,25 +164,34 @@ and the trail reads the queue untracked).
   Near-me. 45 s → ms; rare-category Everywhere worst case 2.6 s warm on the Pi.
   **Pi deploy note: pre-build new indexes over SSH before pushing** so racing
   service startups don't all pay the build against busy_timeout.
-- [ ] Taxonomy tuning from real data: `aeroway=aerodrome` at rank 1 sweeps in RC/model
-  strips and unnamed airstrips (first wide-bbox rank-1 hit was an RC field) — demote
-  or gate on `aerodrome:type` at the next transfer-DB rebuild.
+- [x] Taxonomy tuning from real data (2026-07-10): aerodrome rank refinement
+  (decision 17) + named lakes (decision 18) — landed in `build_osm_pois.py` as the
+  `REFINERS` table; Colorado-validated.
+- [ ] Rebuild the NA transfer DB with the new taxonomy (laptop; prefilter re-runs on
+  the hash change) → rsync to the Pi **docked on the LAN** (3 GB; HaLow took 29 min)
+  → re-merge (`import_places.py --osm-db`, ~6 min incl. FTS rebuild — not at drive
+  time).
 
-### Phase 4 — Overture Places
+### Phase 4 — Overture Places — **DESCOPED 2026-07-10** (decision 19)
 
-- [ ] DuckDB bbox extract of the places theme → same transfer-DB shape (`source='overture'`)
-- [ ] Category mapping into the Phase-1 taxonomy; dedupe vs OSM (open E)
-- [ ] Same merge path; measure what it actually adds over OSM in a sample region before committing to full NA
+OSM coverage is proving extensive enough in real use; revisit only if commercial-layer
+gaps actually show up. The DuckDB-extract approach (context above) stays valid if it
+comes back.
 
 ### Phase 5 — Parked (discuss before acting)
 
-- **Named lakes** (`natural=water` + `water=lake|reservoir`, name required): the NA dry-run
-  showed ~54k `natural=water` elements arriving as relation members — mass-mapped as a
-  whole (every retention pond), but *named* lakes are plausible destination features.
-  Decision-1 scope call, revisit with the map in hand.
-- USGS GNIS (public-domain natural-feature names) if OSM gaps show up
-- iOverlander (licensing/export state needs a fresh check post-iOverlander-2)
-- Wikidata/Wikipedia enrichment join onto existing rows
+- ~~Named lakes~~ — promoted into scope 2026-07-10 (decision 18).
+- ~~iOverlander~~ — rejected 2026-07-10: the data now requires a paid license (decision 19).
+- USGS GNIS (public-domain natural-feature names) if OSM gaps show up — e.g. the
+  `natural=water`-only lakes decision 18 misses. ~1M named features (summits, streams,
+  lakes, valleys, springs…; admin/man-made classes were dropped from GNIS in 2021),
+  pipe-delimited national download, trivially small next to OSM. Under discussion.
+- Wikidata/Wikipedia enrichment join onto existing rows — under discussion 2026-07-10.
+  OSM rows already carry the join key: 166k NA rows have a `wikipedia`/`wikidata` tag
+  (72k at rank ≤ 2). Sketch: laptop batch tool hits the Wikipedia REST summary API for
+  tagged rows, caches lead extract (+ thumbnail?) offline; needs its own storage that
+  survives the full-replace OSM merge (enrichment table keyed by wiki id, or re-run
+  after every merge). CC BY-SA attribution in the detail sheet.
 
 ---
 

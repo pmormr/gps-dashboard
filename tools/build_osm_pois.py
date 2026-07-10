@@ -33,7 +33,7 @@ Pipeline::
 
 Rank tiers (Phase 3 owns the actual zoom gates; these are the intent):
 
-1. major destination (theme park, airport) — visible from far out (~z5+)
+1. major destination (theme park, IATA airport) — visible from far out (~z5+)
 2. significant stop (fuel, campground, supermarket, peak, hospital) (~z9+)
 3. common POI (restaurant, hotel, most shops, trailhead-scale nature) (~z12+)
 4. minor POI (ATM, playground, toilets) (~z14+)
@@ -64,7 +64,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -145,6 +145,14 @@ TAXONOMY: dict[str, dict[str, Rule]] = {
     },
     'waterway': {
         'waterfall': ('outdoors', 2),
+    },
+    # Selective: named lakes only. Filtered on the `water` companion key (not
+    # natural=water) so the prefilter never carries the mass-mapped long tail —
+    # every retention pond — through geometry assembly; the REFINERS name gate
+    # then drops unnamed matches.
+    'water': {
+        'lake': ('outdoors', 2),
+        'reservoir': ('outdoors', 2),
     },
     'leisure': {
         '*': ('recreation', 4),
@@ -283,10 +291,11 @@ TAXONOMY: dict[str, dict[str, Rule]] = {
         'observatory': ('landmark', 2),
         'water_tap': ('utility', 4),
     },
-    # Selective, and an addition beyond the plan's decision-1 key list:
-    # airports are unambiguous destinations.
+    # Selective, and an addition beyond the plan's decision-1 key list. Base
+    # rank 3: the key sweeps in RC/model strips and unnamed airstrips; the
+    # REFINERS rule promotes commercial airports (international → 1, IATA → 2).
     'aeroway': {
-        'aerodrome': ('transport', 1),
+        'aerodrome': ('transport', 3),
     },
 }
 
@@ -301,6 +310,38 @@ EXCLUDED_VALUES: dict[str, frozenset[str]] = {
 JUNK_VALUES = frozenset({'yes', 'no', 'fixme', 'vacant', 'disused', 'unknown', 'designated'})
 
 _EMPTY: frozenset[str] = frozenset()
+
+
+def _refine_aerodrome(tags: Mapping[str, str], rule: Rule) -> Rule | None:
+    """Rank aerodromes by evidence of commercial passenger service.
+
+    International airports → 1; anything with an IATA code → 2 (small GA
+    fields often carry one — Colorado alone has 41); the rest keep the base
+    rank 3 (grass strips, RC/model fields, private airparks).
+    """
+    kind = f'{tags.get("aerodrome", "")} {tags.get("aerodrome:type", "")}'
+    if 'international' in kind:
+        return (rule[0], 1)
+    if (tags.get('iata') or '').strip():
+        return (rule[0], 2)
+    return rule
+
+
+def _require_name(tags: Mapping[str, str], rule: Rule) -> Rule | None:
+    """Keep the rule only for elements with a proper name tag; drop the rest."""
+    if (tags.get('name') or tags.get('name:en') or '').strip():
+        return rule
+    return None
+
+
+# Per-kind refinements applied after the table lookup: adjust the rule from
+# secondary tags, or return None to drop the element entirely (a name gate for
+# mass-mapped feature classes where only named elements are destinations).
+REFINERS: dict[str, Callable[[Mapping[str, str], Rule], Rule | None]] = {
+    'aeroway=aerodrome': _refine_aerodrome,
+    'water=lake': _require_name,
+    'water=reservoir': _require_name,
+}
 
 
 def filter_expressions() -> list[str]:
@@ -327,14 +368,16 @@ def classify(tags: Mapping[str, str]) -> tuple[str, str, int] | None:
     The first ``TAXONOMY`` key present in the tags (declaration order) is the
     primary tag; its value looks up in that key's table, falling back to the
     key's ``'*'`` default. Multi-values (``restaurant;cafe``) classify on the
-    first entry.
+    first entry. A ``REFINERS`` rule, when one exists for the kind, gets the
+    last word: it can adjust the rank from secondary tags or veto the element.
 
     Args:
         tags: The element's OSM tags.
 
     Returns:
         ``(source_kind, category, rank)`` — kind is the primary ``key=value`` —
-        or None when nothing classifies (or an excluded value matched).
+        or None when nothing classifies (or an excluded value / refiner veto
+        matched).
     """
     for key, table in TAXONOMY.items():
         raw = tags.get(key)
@@ -348,7 +391,14 @@ def classify(tags: Mapping[str, str]) -> tuple[str, str, int] | None:
         rule = table.get(value) or table.get('*')
         if rule is None:
             continue
-        return f'{key}={value}', rule[0], rule[1]
+        kind = f'{key}={value}'
+        refiner = REFINERS.get(kind)
+        if refiner is not None:
+            refined = refiner(tags, rule)
+            if refined is None:
+                return None
+            rule = refined
+        return kind, rule[0], rule[1]
     return None
 
 
