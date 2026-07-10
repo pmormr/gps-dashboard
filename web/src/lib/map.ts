@@ -712,7 +712,12 @@ export const MapView = (() => {
     wireDronePopup(map)
     wirePhonePopup(map)
     wirePlaceInteraction(map)
-    map.on('moveend', () => moveEndCbs.forEach((cb) => cb()))
+    // Dispatch on a microtask: MapLibre fires moveend *synchronously* for
+    // no-op camera moves (e.g. re-fitting an unchanged bounds), which would
+    // run subscribers inside whatever $effect triggered the move — a
+    // subscriber's read-modify-write ($state rev bump) then registers as that
+    // effect's own dependency and the flush loops until Svelte aborts it.
+    map.on('moveend', () => queueMicrotask(() => moveEndCbs.forEach((cb) => cb())))
     map.on('movestart', (e) => {
       if ((e as { originalEvent?: Event }).originalEvent) userMoveCbs.forEach((cb) => cb())
     })
