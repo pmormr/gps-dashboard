@@ -41,6 +41,7 @@ import argparse
 import json
 import sqlite3
 import sys
+import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -55,8 +56,11 @@ from common.cli import run_cli
 
 USER_AGENT = 'gps-dashboard/1.0 (https://github.com/pmormr/gps-dashboard)'
 WIKIDATA_API = 'https://www.wikidata.org/w/api.php'
+#: Article-language preference for QID sitelink resolution — English first,
+#: then the other two NA languages (Mexico/Québec places often have no enwiki).
+SITELINK_LANGS = (('enwiki', 'en'), ('eswiki', 'es'), ('frwiki', 'fr'))
 QID_BATCH = 50
-RETRIES = 3
+RETRIES = 5
 RETRY_SLEEP = 5.0
 #: Skip absurdly large "thumbnails" (some SVG renders); the standard summary
 #: thumb is ~10–50 KB.
@@ -178,16 +182,19 @@ def collect_targets(conn: sqlite3.Connection) -> dict[str, Target]:
 
 
 def resolve_qids(session: requests.Session, qids: list[str]) -> dict[str, tuple[str, str]]:
-    """Resolve QIDs to their English article via the Wikidata API.
+    """Resolve QIDs to an article via the Wikidata API (en, then es/fr).
 
     Args:
         session: The shared HTTP session.
         qids: Bare QIDs (``'Q42'``) needing a title.
 
     Returns:
-        ``qid → ('en', title)`` for entities with an enwiki sitelink.
+        ``qid → (lang, title)`` for entities with any preferred-language
+        sitelink; ~most wikidata-only OSM tags reference items with *no*
+        article in any language (measured 2026-07-10) — those stay absent.
     """
     resolved: dict[str, tuple[str, str]] = {}
+    sitefilter = '|'.join(site for site, _ in SITELINK_LANGS)
     for start in range(0, len(qids), QID_BATCH):
         batch = qids[start : start + QID_BATCH]
         body = _get_with_retries(
@@ -197,25 +204,52 @@ def resolve_qids(session: requests.Session, qids: list[str]) -> dict[str, tuple[
                 'action': 'wbgetentities',
                 'ids': '|'.join(batch),
                 'props': 'sitelinks',
-                'sitefilter': 'enwiki',
+                'sitefilter': sitefilter,
                 'format': 'json',
             },
         )
         if body is None:
             continue
         for qid, entity in (body.json().get('entities') or {}).items():
-            title = ((entity.get('sitelinks') or {}).get('enwiki') or {}).get('title')
-            if title:
-                resolved[qid] = ('en', title)
+            sitelinks = entity.get('sitelinks') or {}
+            for site, lang in SITELINK_LANGS:
+                title = (sitelinks.get(site) or {}).get('title')
+                if title:
+                    resolved[qid] = (lang, title)
+                    break
         done = min(start + QID_BATCH, len(qids))
-        print(f'  … resolved {done:,}/{len(qids):,} QIDs', file=sys.stderr)
+        if done % 5000 < QID_BATCH or done == len(qids):
+            print(f'  … resolved {done:,}/{len(qids):,} QIDs', file=sys.stderr)
     return resolved
+
+
+# Global politeness throttle: a shared minimum interval between request starts
+# across all workers. Wikimedia rate-limits sustained parallel fetches (observed
+# as 429 storms from upload.wikimedia.org on the first full run); concurrency
+# then only hides latency, it never multiplies the request rate.
+_throttle_lock = threading.Lock()
+_next_slot = 0.0
+_min_interval = 0.1
+
+
+def _throttle() -> None:
+    """Block until this worker's turn under the global rate limit."""
+    global _next_slot
+    with _throttle_lock:
+        now = time.monotonic()
+        wait = _next_slot - now
+        _next_slot = max(now, _next_slot) + _min_interval
+    if wait > 0:
+        time.sleep(wait)
 
 
 def _get_with_retries(
     session: requests.Session, url: str, params: dict | None = None
 ) -> requests.Response | None:
-    """GET with backoff on transport errors and 429/5xx; None on a 404.
+    """Throttled GET with backoff on transport errors and 429/5xx; None on a 404.
+
+    A 429's ``Retry-After`` is honored when present (Wikimedia sends it);
+    otherwise backoff grows linearly per attempt.
 
     Args:
         session: The shared HTTP session.
@@ -231,11 +265,14 @@ def _get_with_retries(
     last_exc: requests.RequestException | None = None
     for attempt in range(RETRIES):
         try:
+            _throttle()
             response = session.get(url, params=params, timeout=30)
             if response.status_code == 404:
                 return None
             if response.status_code in (429, 500, 502, 503):
-                time.sleep(RETRY_SLEEP * (attempt + 1))
+                retry_after = response.headers.get('Retry-After', '')
+                delay = float(retry_after) if retry_after.isdigit() else RETRY_SLEEP * (attempt + 1)
+                time.sleep(max(delay, RETRY_SLEEP))
                 continue
             response.raise_for_status()
             return response
@@ -274,7 +311,12 @@ def fetch_summary(
     thumb = thumb_mime = None
     thumb_url = (body.get('thumbnail') or {}).get('source')
     if want_thumb and thumb_url:
-        thumb_response = _get_with_retries(session, thumb_url)
+        # A failed thumbnail must never lose the article — degrade to text-only
+        # (the first full run dropped whole rows on Commons 429s).
+        try:
+            thumb_response = _get_with_retries(session, thumb_url)
+        except requests.RequestException:
+            thumb_response = None
         if thumb_response is not None and len(thumb_response.content) <= THUMB_MAX_BYTES:
             thumb = thumb_response.content
             thumb_mime = thumb_response.headers.get('Content-Type')
@@ -309,6 +351,8 @@ def _flush(out: sqlite3.Connection, rows: list[WikiRow], misses: list[tuple[str,
 
 def run(args: argparse.Namespace) -> int:
     """Drive scan → QID resolution → concurrent summary fetch → transfer DB."""
+    global _min_interval
+    _min_interval = 1.0 / args.rps
     conn = get_connection()
     init_db(conn)
     print('Scanning places for wiki tags ...', file=sys.stderr)
@@ -339,8 +383,8 @@ def run(args: argparse.Namespace) -> int:
             elif t.key in titles:
                 resolved.append(Target(t.key, *titles[t.key]))
             else:
-                no_sitelink.append((t.key, 'no_enwiki_sitelink'))
-        print(f'  {len(no_sitelink):,} without an enwiki article (recorded)', file=sys.stderr)
+                no_sitelink.append((t.key, 'no_sitelink'))
+        print(f'  {len(no_sitelink):,} without an en/es/fr article (recorded)', file=sys.stderr)
         _flush(out, [], no_sitelink)
         pending = resolved
 
@@ -415,6 +459,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--limit', type=int, help='fetch at most N articles (smoke runs)')
     parser.add_argument('--no-thumbs', action='store_true', help='skip thumbnail downloads')
     parser.add_argument('--concurrency', type=int, default=8, help='fetch worker threads')
+    parser.add_argument(
+        '--rps', type=float, default=10.0, help='global request-rate cap across workers'
+    )
     return parser.parse_args()
 
 
