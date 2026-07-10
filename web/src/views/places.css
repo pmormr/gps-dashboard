@@ -384,3 +384,24 @@
     display: inline-block;
   }
 }
+
+/* Wikipedia summary block (PlaceDetail): thumbnail floats beside the extract
+   on wide panes, stacks above it on phones. */
+.attr-wiki .attr-wiki-thumb {
+  float: right;
+  max-width: 42%;
+  max-height: 10rem;
+  margin: 0 0 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+.attr-wiki .attr-wiki-attrib {
+  clear: both;
+}
+@media (max-width: 480px) {
+  .attr-wiki .attr-wiki-thumb {
+    float: none;
+    display: block;
+    max-width: 100%;
+    margin: 0 0 0.5rem;
+  }
+}

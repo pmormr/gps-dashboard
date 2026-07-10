@@ -5,6 +5,7 @@
     type Place,
     type PlaceDetails,
     type PlaceEvent,
+    type PlaceWiki,
   } from '../lib/api'
   import { placeMeta, stripHtml } from '../lib/places'
   import { fmtDate } from '../lib/geo'
@@ -24,13 +25,14 @@
 
   // Syncs older than this read as a warning, not just a note. Federal rows
   // carry schedule-ish data (hours, events) that degrades in weeks; the OSM
-  // extract is a seasonal rebuild, so its banner escalates on that cadence.
+  // extract and the GNIS names file are seasonal rebuilds (and names barely
+  // age), so their banners escalate on that cadence instead.
   const STALE_DAYS_FEDERAL = 45
-  const STALE_DAYS_OSM = 180
+  const STALE_DAYS_BULK = 180
   /** How far ahead the detail looks for the park's events. */
   const EVENT_HORIZON_DAYS = 30
 
-  let row = $state<(Place & { details: PlaceDetails }) | null>(null)
+  let row = $state<(Place & { details: PlaceDetails; wiki: PlaceWiki | null }) | null>(null)
   let events = $state<PlaceEvent[]>([])
   let status = $state('Loading…')
 
@@ -40,7 +42,8 @@
   const ageDays = $derived(
     row ? Math.floor((Date.now() - new Date(row.synced_at).getTime()) / 86_400_000) : 0,
   )
-  const staleDays = $derived(row?.source === 'osm' ? STALE_DAYS_OSM : STALE_DAYS_FEDERAL)
+  const bulkSource = $derived(row?.source === 'osm' || row?.source === 'gnis')
+  const staleDays = $derived(bulkSource ? STALE_DAYS_BULK : STALE_DAYS_FEDERAL)
 
   // OSM rows carry the element's raw tags as their details — a flat string
   // map, not the federal sources' structured shape — so they render their own
@@ -153,7 +156,9 @@
     Data synced {fmtDate(row.synced_at)}
     {#if ageDays > staleDays}
       · {ageDays} days old —
-      {row.source === 'osm' ? 'rebuild the OSM extract' : 'verify at a visitor center'}
+      {#if row.source === 'osm'}rebuild the OSM extract
+      {:else if row.source === 'gnis'}re-import the GNIS names file
+      {:else}verify at a visitor center{/if}
     {/if}
   </div>
 
@@ -179,6 +184,22 @@
 
   {#if row.summary}
     <p class="attr-summary">{row.summary}</p>
+  {/if}
+
+  {#if row.wiki}
+    <div class="attr-section attr-wiki">
+      {#if row.wiki.has_thumb}
+        <img
+          class="attr-wiki-thumb"
+          src={`/api/places/${row.id}/photo`}
+          alt={row.wiki.title}
+          loading="lazy" />
+      {/if}
+      <p class="attr-summary">{row.wiki.extract}</p>
+      <p class="attr-muted attr-wiki-attrib">
+        Wikipedia{#if row.wiki.title !== row.name}&nbsp;· “{row.wiki.title}”{/if} · CC BY-SA 4.0
+      </p>
+    </div>
   {/if}
 
   {#if osmTags}

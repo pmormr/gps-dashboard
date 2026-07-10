@@ -633,6 +633,8 @@ export type PlaceCategory =
   | 'civic'
   | 'services'
   | 'utility'
+  // GNIS populated places (plan decision 20) — towns searchable by name.
+  | 'community'
 
 /** One POI list row (queryable columns + summary teaser; details fetched per-row). */
 export interface Place {
@@ -772,9 +774,22 @@ export function getPlaces(opts: {
   return getJSON<PlacesResponse>(`/api/places?${params}`)
 }
 
+/**
+ * Cached Wikipedia summary for a place (offline; CC BY-SA 4.0 — the detail
+ * sheet must attribute). The thumbnail bytes live behind /api/places/:id/photo.
+ */
+export interface PlaceWiki {
+  title: string
+  lang: string
+  extract: string
+  page_url: string | null
+  has_thumb: boolean
+  fetched_at: string
+}
+
 /** One POI with its full parsed details (tour stops, hours, amenities, fees). */
-export function getPlace(id: number): Promise<Place & { details: PlaceDetails }> {
-  return getJSON<Place & { details: PlaceDetails }>(`/api/places/${id}`)
+export function getPlace(id: number): Promise<Place & { details: PlaceDetails; wiki: PlaceWiki | null }> {
+  return getJSON<Place & { details: PlaceDetails; wiki: PlaceWiki | null }>(`/api/places/${id}`)
 }
 
 /** One event with parsed details and its full occurrence list. */

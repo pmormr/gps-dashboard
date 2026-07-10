@@ -65,6 +65,7 @@ export const CATEGORY_META: {
   { category: 'transport', label: 'Transport', icon: '🚌', color: '#0ea5e9' },
   { category: 'health', label: 'Health', icon: '🏥', color: '#ef4444' },
   { category: 'emergency', label: 'Emergency', icon: '🚨', color: '#dc2626' },
+  { category: 'community', label: 'Communities', icon: '🏘', color: '#a16207' },
   { category: 'civic', label: 'Civic', icon: '🏫', color: '#64748b' },
   { category: 'services', label: 'Services', icon: '🏦', color: '#94a3b8' },
   { category: 'utility', label: 'Utilities', icon: '🚰', color: '#78716c' },
