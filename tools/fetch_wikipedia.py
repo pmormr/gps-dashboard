@@ -47,7 +47,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import requests
 
@@ -67,6 +67,10 @@ RETRY_SLEEP = 5.0
 THUMB_MAX_BYTES = 1_000_000
 BATCH_ROWS = 200
 PROGRESS_EVERY = 1000
+#: Abort a pass after this many *consecutive* per-article failures — an
+#: unbroken streak is an outage, and each failed article costs minutes of
+#: retry backoff. The next --loop pass retries everything unfinished.
+ERROR_STREAK_ABORT = 25
 
 TRANSFER_SCHEMA = """
     CREATE TABLE IF NOT EXISTS place_wiki (
@@ -79,12 +83,20 @@ TRANSFER_SCHEMA = """
         thumb_mime TEXT,
         fetched_at TEXT NOT NULL
     );
-    -- Keys that resolved to nothing (deleted article, no enwiki sitelink, no
-    -- extract): persisted so a resumed run skips them instead of re-asking.
+    -- Keys that resolved to nothing (deleted article, no en/es/fr sitelink,
+    -- no extract): persisted so a resumed run skips them instead of re-asking.
     CREATE TABLE IF NOT EXISTS misses (
         wiki_key   TEXT PRIMARY KEY,
         reason     TEXT NOT NULL,
         fetched_at TEXT NOT NULL
+    );
+    -- QID → article resolutions, persisted per Wikidata batch: resolving ~119k
+    -- QIDs takes hours at the polite rate, so an interrupted/looping run must
+    -- never pay it twice.
+    CREATE TABLE IF NOT EXISTS resolved (
+        wiki_key TEXT PRIMARY KEY,
+        lang     TEXT NOT NULL,
+        title    TEXT NOT NULL
     );
 """
 
@@ -181,16 +193,22 @@ def collect_targets(conn: sqlite3.Connection) -> dict[str, Target]:
     return targets
 
 
-def resolve_qids(session: requests.Session, qids: list[str]) -> dict[str, tuple[str, str]]:
+def resolve_qids(
+    session: requests.Session, qids: list[str], out: sqlite3.Connection
+) -> dict[str, tuple[str, str]]:
     """Resolve QIDs to an article via the Wikidata API (en, then es/fr).
+
+    Each batch's resolutions persist to the output DB's ``resolved`` table
+    immediately, so an interrupted run resumes where it stopped.
 
     Args:
         session: The shared HTTP session.
         qids: Bare QIDs (``'Q42'``) needing a title.
+        out: The output DB (for the ``resolved`` table).
 
     Returns:
         ``qid → (lang, title)`` for entities with any preferred-language
-        sitelink; ~most wikidata-only OSM tags reference items with *no*
+        sitelink; ~85% of wikidata-only OSM tags reference items with *no*
         article in any language (measured 2026-07-10) — those stay absent.
     """
     resolved: dict[str, tuple[str, str]] = {}
@@ -210,13 +228,20 @@ def resolve_qids(session: requests.Session, qids: list[str]) -> dict[str, tuple[
         )
         if body is None:
             continue
+        fresh: list[tuple[str, str, str]] = []
         for qid, entity in (body.json().get('entities') or {}).items():
             sitelinks = entity.get('sitelinks') or {}
             for site, lang in SITELINK_LANGS:
                 title = (sitelinks.get(site) or {}).get('title')
                 if title:
                     resolved[qid] = (lang, title)
+                    fresh.append((qid, lang, title))
                     break
+        if fresh:
+            out.executemany(
+                'INSERT OR REPLACE INTO resolved (wiki_key, lang, title) VALUES (?, ?, ?)', fresh
+            )
+            out.commit()
         done = min(start + QID_BATCH, len(qids))
         if done % 5000 < QID_BATCH or done == len(qids):
             print(f'  … resolved {done:,}/{len(qids):,} QIDs', file=sys.stderr)
@@ -267,7 +292,10 @@ def _get_with_retries(
         try:
             _throttle()
             response = session.get(url, params=params, timeout=30)
-            if response.status_code == 404:
+            # Any non-rate-limit 4xx is permanent (missing/rejected page) —
+            # surfacing it as "absent" records a miss instead of an error a
+            # --loop run would retry forever.
+            if 400 <= response.status_code < 500 and response.status_code != 429:
                 return None
             if response.status_code in (429, 500, 502, 503):
                 retry_after = response.headers.get('Retry-After', '')
@@ -298,7 +326,10 @@ def fetch_summary(
         The :class:`WikiRow`, or ``(key, miss_reason)``.
     """
     assert target.lang is not None and target.title is not None
-    encoded = quote(target.title.replace(' ', '_'), safe='')
+    # A few OSM tags carry pre-URL-encoded titles ('%26' for '&') — unquote
+    # first or the encode below double-encodes and the API rejects it.
+    title = unquote(target.title) if '%' in target.title else target.title
+    encoded = quote(title.replace(' ', '_'), safe='')
     response = _get_with_retries(
         session, f'https://{target.lang}.wikipedia.org/api/rest_v1/page/summary/{encoded}'
     )
@@ -349,32 +380,44 @@ def _flush(out: sqlite3.Connection, rows: list[WikiRow], misses: list[tuple[str,
     misses.clear()
 
 
-def run(args: argparse.Namespace) -> int:
-    """Drive scan → QID resolution → concurrent summary fetch → transfer DB."""
-    global _min_interval
-    _min_interval = 1.0 / args.rps
-    conn = get_connection()
-    init_db(conn)
-    print('Scanning places for wiki tags ...', file=sys.stderr)
-    targets = collect_targets(conn)
-    print(f'  {len(targets):,} distinct articles referenced', file=sys.stderr)
+def run_pass(
+    session: requests.Session,
+    out: sqlite3.Connection,
+    targets: dict[str, Target],
+    args: argparse.Namespace,
+) -> int:
+    """One resolution + fetch pass over whatever is still pending.
 
-    out = sqlite3.connect(args.out)
-    out.executescript(TRANSFER_SCHEMA)
+    Args:
+        session: The shared HTTP session.
+        out: The output DB.
+        targets: The full scan result (``key → Target``).
+        args: Parsed CLI arguments (``limit`` applies per pass).
+
+    Returns:
+        How many targets remain unfinished (0 = the cache is complete).
+    """
     done = {row[0] for row in out.execute('SELECT wiki_key FROM place_wiki')}
     done |= {row[0] for row in out.execute('SELECT wiki_key FROM misses')}
-    pending = [t for key, t in sorted(targets.items()) if key not in done]
-    print(f'  {len(done):,} already fetched, {len(pending):,} to go', file=sys.stderr)
+    known = {
+        row[0]: (row[1], row[2])
+        for row in out.execute('SELECT wiki_key, lang, title FROM resolved')
+    }
+    pending = [
+        t if t.title is not None or t.key not in known else Target(t.key, *known[t.key])
+        for key, t in sorted(targets.items())
+        if key not in done
+    ]
+    print(f'  {len(done):,} already fetched/missed, {len(pending):,} to go', file=sys.stderr)
     if args.limit is not None:
         pending = pending[: args.limit]
-
-    session = requests.Session()
-    session.headers['User-Agent'] = USER_AGENT
+    if not pending:
+        return 0
 
     unresolved = [t.key for t in pending if t.title is None]
     if unresolved:
         print(f'Resolving {len(unresolved):,} QIDs via Wikidata ...', file=sys.stderr)
-        titles = resolve_qids(session, unresolved)
+        titles = resolve_qids(session, unresolved, out)
         resolved: list[Target] = []
         no_sitelink: list[tuple[str, str]] = []
         for t in pending:
@@ -391,6 +434,7 @@ def run(args: argparse.Namespace) -> int:
     stats: Counter[str] = Counter()
     rows: list[WikiRow] = []
     misses: list[tuple[str, str]] = []
+    consecutive_errors = 0
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [pool.submit(fetch_summary, session, t, not args.no_thumbs) for t in pending]
@@ -400,8 +444,18 @@ def run(args: argparse.Namespace) -> int:
                     result = future.result()
                 except requests.RequestException as exc:
                     stats['error'] += 1
+                    consecutive_errors += 1
                     print(f'  ! {exc}', file=sys.stderr)
+                    # An unbroken error streak means the network is down, not
+                    # that these articles are bad — stop burning retry time and
+                    # let the next pass (--loop) pick them all up.
+                    if consecutive_errors >= ERROR_STREAK_ABORT:
+                        print('  ! aborting pass — network looks down', file=sys.stderr)
+                        for f in futures:
+                            f.cancel()
+                        break
                     continue
+                consecutive_errors = 0
                 if isinstance(result, WikiRow):
                     stats['fetched'] += 1
                     stats['thumbs'] += result.thumb is not None
@@ -433,11 +487,50 @@ def run(args: argparse.Namespace) -> int:
     total = out.execute('SELECT COUNT(*) FROM place_wiki').fetchone()[0]
     size_mb = Path(args.out).stat().st_size / 1e6
     print(
-        f'\n{stats["fetched"]:,} fetched ({stats["thumbs"]:,} thumbs), '
+        f'Pass done: {stats["fetched"]:,} fetched ({stats["thumbs"]:,} thumbs), '
         f'{stats["missed"]:,} misses, {stats["error"]:,} errors '
         f'→ {total:,} rows in {args.out} ({size_mb:,.0f} MB)',
         file=sys.stderr,
     )
+    return len(pending) - stats['fetched'] - stats['missed']
+
+
+def run(args: argparse.Namespace) -> int:
+    """Drive scan → passes of QID resolution + summary fetch → transfer DB.
+
+    Without ``--loop`` this is a single pass (resumable across invocations);
+    with it, passes repeat until nothing is pending — built for a box with
+    intermittent WAN (the Pi on Starlink), where each pass caches whatever
+    the current connectivity allows.
+    """
+    global _min_interval
+    _min_interval = 1.0 / args.rps
+    conn = get_connection()
+    init_db(conn)
+    print('Scanning places for wiki tags ...', file=sys.stderr)
+    targets = collect_targets(conn)
+    conn.close()
+    print(f'  {len(targets):,} distinct articles referenced', file=sys.stderr)
+
+    out = sqlite3.connect(args.out)
+    out.executescript(TRANSFER_SCHEMA)
+    session = requests.Session()
+    session.headers['User-Agent'] = USER_AGENT
+
+    while True:
+        try:
+            remaining = run_pass(session, out, targets, args)
+        except requests.RequestException as exc:
+            # Resolution-phase network failure (fetch-phase failures are
+            # handled per-article inside the pass).
+            print(f'  ! pass failed ({exc}) — network down?', file=sys.stderr)
+            remaining = -1
+        if args.loop is None or remaining == 0:
+            break
+        print(f'{remaining:,} left; next pass in {args.loop}s …', file=sys.stderr)
+        time.sleep(args.loop)
+    if args.loop is not None:
+        print('Nothing pending — the cache is complete.', file=sys.stderr)
     return 0
 
 
@@ -461,6 +554,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--concurrency', type=int, default=8, help='fetch worker threads')
     parser.add_argument(
         '--rps', type=float, default=10.0, help='global request-rate cap across workers'
+    )
+    parser.add_argument(
+        '--loop',
+        type=int,
+        metavar='SECONDS',
+        help='repeat passes (sleeping N s between) until nothing is pending — '
+        'for a box with intermittent WAN',
     )
     return parser.parse_args()
 
