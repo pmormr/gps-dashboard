@@ -15,6 +15,8 @@ class TrackStore {
   points = $state<TrackPoint[]>([])
   truncated = $state(false)
   status = $state('')
+  /** A window fetch is in flight (camera choreography waits on it — Map.svelte). */
+  loading = $state(false)
   /** Human message when the loaded window has no points ('' otherwise). */
   empty = $state('')
   // The window the current points belong to (the strip domain). 0/0 before the
@@ -56,6 +58,7 @@ class TrackStore {
       this.lastRange.windowMs === range.windowMs
     this.lastRange = range
     this.status = 'Loading…'
+    this.loading = true
     const token = ++this.fetchToken
     let data
     try {
@@ -64,10 +67,12 @@ class TrackStore {
       if (token === this.fetchToken) {
         this.status = `Error: ${e instanceof Error ? e.message : String(e)}`
         this.lastKey = '' // allow a retry on the next ensure
+        this.loading = false
       }
       return
     }
     if (token !== this.fetchToken) return // superseded by a newer window
+    this.loading = false
     this.points = data.points
     this.truncated = data.truncated ?? false
     this.status = `${data.points.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}`

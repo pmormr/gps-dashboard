@@ -138,15 +138,6 @@
       })
   })
 
-  // A zoom queued by the Places view's "Show on map" — consume it once the
-  // engine is up.
-  $effect(() => {
-    if (!view || !layers.pendingZoom) return
-    const { lat, lon, zoom } = layers.pendingZoom
-    layers.pendingZoom = null
-    view.zoomTo(lat, lon, zoom)
-  })
-
   // Places overlay follows the *viewport*: refetch when the toggle, the
   // category filter, or the map camera (placesRev) changes — the rank×zoom
   // pin gate applies inside syncPlaces. Categories/rev are only read while
@@ -215,7 +206,9 @@
   })
 
   // Trail follows the shared track store. `refit` is false on live continuations
-  // (the anchor sliding forward) so the camera stays put.
+  // (the anchor sliding forward) so the camera stays put; a queued destination
+  // zoom (pendingZoom) outranks the refit — the user asked to see a place, not
+  // the trail.
   $effect(() => {
     if (!view) return
     const pts = track.points
@@ -223,7 +216,7 @@
       view.clearTrack()
       return
     }
-    view.showTrack(pts, { fitBounds: track.refit })
+    view.showTrack(pts, { fitBounds: track.refit && !layers.pendingZoom })
     // A point annotation was just clicked: recentre on its nearest fix now that
     // the reframed window's points have landed.
     if (annotations.pendingPan) {
@@ -231,6 +224,18 @@
       annotations.pendingPan = null
       if (nearest) view.zoomTo(nearest.lat, nearest.lon, 14)
     }
+  })
+
+  // A zoom queued by the Places view's "Show on map" — consume it once the
+  // engine is up and the window fetch has settled. Defined after the trail
+  // effect on purpose: with the loading gate it makes the destination zoom the
+  // *last* camera move, so the trail's mount-time refit can't snap the camera
+  // back to the trail.
+  $effect(() => {
+    if (!view || !layers.pendingZoom || track.loading) return
+    const { lat, lon, zoom } = layers.pendingZoom
+    layers.pendingZoom = null
+    view.zoomTo(lat, lon, zoom)
   })
 
   // Annotation overlays (map pins for points, range bands for ranges) against the
