@@ -3,3 +3,4 @@ gps_history.db
 # Python
 __pycache__/
 *.pyc
+.playwright-cli/
