@@ -6,6 +6,7 @@ from api.db import get_connection, init_db
 from api.routes.annotations import annotations_bp
 from api.routes.docs import docs_bp
 from api.routes.drone import drone_bp
+from api.routes.fridge import fridge_bp
 from api.routes.globe import globe_bp
 from api.routes.obd import obd_bp
 from api.routes.passes import passes_bp
@@ -32,6 +33,7 @@ def create_app():
     app.register_blueprint(annotations_bp)
     app.register_blueprint(docs_bp)
     app.register_blueprint(drone_bp)
+    app.register_blueprint(fridge_bp)
     app.register_blueprint(globe_bp)
     app.register_blueprint(passes_bp)
     app.register_blueprint(obd_bp)
