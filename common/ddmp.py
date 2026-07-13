@@ -71,9 +71,14 @@ HISTORY_PARAMS: dict[str, list[int]] = {
 }
 
 #: span → bucket width in seconds, pinned by probing (``reference/cfx3-ddmp.md``):
-#: each span publishes 7 buckets, newest (in-progress) first, rolling on the wall
-#: boundary. Shared by the reader's flattening and the history read route.
-HISTORY_BUCKET_S: dict[str, int] = {'hour': 3600, 'day': 86400, 'week': 604800}
+#: each span publishes 7 buckets, newest (in-progress) first. Buckets are
+#: **fridge-internal sliding windows** (256 ticks each, the frame's tail byte is
+#: the tick counter), not wall-aligned — the reader anchors their absolute times
+#: on the tail byte. Shared by the flattening and the history read route.
+HISTORY_BUCKET_S: dict[str, int] = {'hour': 600, 'day': 14400, 'week': 86400}
+
+#: ticks per history bucket — the tail byte wraps at 256 as the bucket rolls.
+HISTORY_BUCKET_TICKS = 256
 
 #: presented temperature unit (u8: 0 = °C, 1 = °F) — how the fridge itself displays.
 PRESENTED_UNIT_PARAM: list[int] = [0, 0, 2, 1]
@@ -195,11 +200,12 @@ def decode_int16_array(data: list[int]) -> list[float]:
 
 
 def decode_history(data: list[int]) -> tuple[list[float], int | None]:
-    """Decode one history publish: bucket values plus the trailing position byte.
+    """Decode one history publish: bucket values plus the trailing tick byte.
 
     Probed layout (``reference/cfx3-ddmp.md``): 15 bytes — 7 × int16-LE signed
-    deci-values (deci-amps for the DC topics) followed by one tail byte that
-    tracks the position inside the newest bucket (span-wide, not per-topic).
+    deci-values (deci-amps for the DC topics) followed by one tail byte counting
+    ticks (0..255) through the in-progress bucket — the bucket rolls when it
+    wraps. The tail is span-wide (identical across a span's DC and temp topics).
 
     Args:
         data: The value bytes after the 4-byte topic param.

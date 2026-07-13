@@ -129,27 +129,46 @@ def test_poll_flattens_history_and_lifts_dc_draw(monkeypatch: pytest.MonkeyPatch
     assert hour_rows[6]['dc_current_a'] == 0.9
 
 
-def test_flatten_history_snaps_to_grid() -> None:
-    """Bucket starts snap down to the span grid, newest first, one width apart."""
-    poll_epoch = 1_784_134_836.0
-    rows = flatten_history('hour', [1.5, 0.0, 1.1], poll_epoch)
-
-    starts = [
+def _starts(rows: list[dict[str, object]]) -> list[float]:
+    return [
         datetime.fromisoformat(str(row['bucket_ts']).replace('Z', '+00:00')).timestamp()
         for row in rows
     ]
-    assert starts[0] % 3600 == 0
-    assert starts[0] <= poll_epoch < starts[0] + 3600
-    assert [starts[0] - s for s in starts] == [0, 3600, 7200]
+
+
+def test_flatten_history_anchors_on_tail() -> None:
+    """Bucket starts derive from the tick counter: newest first, one width apart,
+    snapped to the quarter-width grid."""
+    poll_epoch = 1_784_134_836.0
+    # tail 128 = half a bucket elapsed → the newest bucket started ~300 s ago.
+    rows = flatten_history('hour', [1.5, 0.0, 1.1], 128, poll_epoch)
+
+    starts = _starts(rows)
+    assert starts[0] % 150 == 0  # width/4 grid
+    assert abs(poll_epoch - 300 - starts[0]) <= 75  # within half a grid cell
+    assert [starts[0] - s for s in starts] == [0, 600, 1200]
     assert [row['dc_current_a'] for row in rows] == [1.5, 0.0, 1.1]
     assert all(row['span'] == 'hour' for row in rows)
 
 
 def test_flatten_history_is_stable_within_a_bucket() -> None:
-    """Two polls inside the same hour key the same rows (UPSERT convergence)."""
-    early = flatten_history('hour', [1.0], 1784134836.0)
-    late = flatten_history('hour', [1.2], 1784138399.0)
+    """Two polls inside one fridge bucket key the same rows (UPSERT convergence).
+
+    120 s later the tick counter has advanced ~51 ticks, so poll_time − tail·tick
+    stays put and the snap keeps the key identical while the value converges.
+    """
+    early = flatten_history('hour', [1.0], 100, 1_784_134_836.0)
+    late = flatten_history('hour', [1.2], 151, 1_784_134_956.0)
     assert early[0]['bucket_ts'] == late[0]['bucket_ts']
+
+
+def test_flatten_history_keeps_keys_across_a_roll() -> None:
+    """After a roll, the finished bucket (now index 1) keeps its pre-roll key."""
+    pre = flatten_history('hour', [1.0, 0.5], 250, 1_784_134_836.0)
+    # 30 s later the bucket rolled: tail wrapped, values shifted right.
+    post = flatten_history('hour', [0.2, 1.0, 0.5], 4, 1_784_134_866.0)
+    assert post[1]['bucket_ts'] == pre[0]['bucket_ts']
+    assert _starts(post)[0] - _starts(pre)[0] == 600
 
 
 def test_read_returns_none_when_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -188,7 +207,7 @@ def test_build_snapshot_has_ts_and_all_columns() -> None:
 
 def test_build_snapshot_carries_history_when_present() -> None:
     """History rows ride the payload only when the poll produced any."""
-    rows = flatten_history('hour', [1.0], 1_784_134_836.0)
+    rows = flatten_history('hour', [1.0], 40, 1_784_134_836.0)
     snapshot = build_snapshot(FridgePoll({}, rows))
     assert snapshot['history'] == rows
 

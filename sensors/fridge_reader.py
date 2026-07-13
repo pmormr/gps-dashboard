@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from dataclasses import dataclass, field
@@ -41,6 +40,7 @@ from typing import Protocol
 
 from common.ddmp import (
     HISTORY_BUCKET_S,
+    HISTORY_BUCKET_TICKS,
     HISTORY_PARAMS,
     TOPICS,
     DdmpClient,
@@ -106,25 +106,32 @@ def bucket_timestamp(epoch_s: float) -> str:
 
 
 def flatten_history(
-    span: str, buckets: list[float], poll_epoch_s: float
+    span: str, buckets: list[float], tail: int | None, poll_epoch_s: float
 ) -> list[dict[str, object]]:
     """Flatten one decoded history array into UPSERT rows with absolute bucket times.
 
-    Index 0 is the in-progress bucket (probed), so its start is the poll time
-    snapped *down* to the span grid and earlier buckets step back one width each.
-    Snapping makes consecutive polls key the same rows — the in-progress bucket's
-    value converges in place until it rolls.
+    The fridge's buckets are sliding, internally-clocked windows (probed:
+    256 ticks each, the frame's tail byte is the tick counter), so absolute
+    times are anchored on the tail: the in-progress bucket (index 0) started
+    ``tail`` ticks before the poll, and each earlier bucket steps back one
+    width. Starts snap to a quarter-width grid so consecutive polls key the
+    same rows — the in-progress bucket's value converges in place until it
+    rolls, and a rolled bucket keeps its key at index 1. The snap also absorbs
+    tick jitter and small fridge-clock drift (≤ width/8 mislabeling worst case).
 
     Args:
         span: A :data:`HISTORY_BUCKET_S` span.
         buckets: Decoded per-bucket average DC amps, newest first.
+        tail: The frame's tick counter (None decodes as 0 — phase unknown).
         poll_epoch_s: Unix time of the poll.
 
     Returns:
         One ``{span, bucket_ts, dc_current_a}`` row per bucket.
     """
     width = HISTORY_BUCKET_S[span]
-    newest_start = math.floor(poll_epoch_s / width) * width
+    tick = width / HISTORY_BUCKET_TICKS
+    grid = width / 4
+    newest_start = round((poll_epoch_s - (tail or 0) * tick) / grid) * grid
     return [
         {'span': span, 'bucket_ts': bucket_timestamp(newest_start - i * width), 'dc_current_a': v}
         for i, v in enumerate(buckets)
@@ -191,10 +198,10 @@ class FridgeSensor:
                 frames = client.frames_for(HISTORY_PARAMS[span])
                 if not frames:
                     continue
-                buckets, _tail = decode_history(frames[-1])
-                history.extend(flatten_history(span, buckets, poll_epoch))
+                buckets, tail = decode_history(frames[-1])
+                history.extend(flatten_history(span, buckets, tail, poll_epoch))
                 if span == 'hour' and buckets:
-                    # The in-progress hour bucket is the live DC-draw signal.
+                    # The in-progress ~10-min bucket is the live DC-draw signal.
                     values['dc_current_a'] = buckets[0]
         return FridgePoll(values, history)
 
@@ -241,7 +248,7 @@ class FakeFridge:
         history = [
             row
             for span in HISTORY_BUCKET_S
-            for row in flatten_history(span, [round(dc + 0.1 * i, 1) for i in range(7)], now)
+            for row in flatten_history(span, [round(dc + 0.1 * i, 1) for i in range(7)], 128, now)
         ]
         return FridgePoll(values, history)
 
