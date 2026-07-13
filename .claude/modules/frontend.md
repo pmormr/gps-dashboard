@@ -204,8 +204,21 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   Map.svelte consumes the zoom once the engine is up.
 - **Systems** (`Systems.svelte`) — consolidated house/van/cabin telemetry from
   `/api/sensors` + `METRIC_META` (grouped, unit-converted, per-section liveness).
-  Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below), **gpsd**
-  (`Gpsd.svelte`, `GET /api/gpsd/status`), and **ntp** (`Ntp.svelte`, `GET /api/ntp`).
+  Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below),
+  **Fridge** (`Fridge.svelte`, below), **gpsd** (`Gpsd.svelte`,
+  `GET /api/gpsd/status`), and **ntp** (`Ntp.svelte`, `GET /api/ntp`).
+- **Fridge** (`Fridge.svelte`, `/fridge` under Systems) — the CFX3 control head
+  (`/api/fridge/*` — backend in `.claude/modules/sensors.md`). Status polls every
+  15 s (DB-backed, cheap — the online banner wears the reading's age); writes are
+  zone setpoint (stepper clamped to the fridge-reported ranges, explicit Set) and
+  zone power (**inline confirm on OFF** — contents-will-warm guard; ON posts
+  directly). A successful write's live read-back overlays the ≤60 s-stale
+  snapshot until the reader catches up (`overrides` map, TTL'd). The DC history
+  card renders the stored `fridge_history` tier per span (hour/day/week) through
+  the shared `charts/Trend.svelte` — lazy-loaded like Trends so the chart stack
+  stays out of the main bundle; `lib/fridge.ts` holds the pure seam
+  (history→series adapter, setpoint clamp, presented-unit °C/°F formatting)
+  under Vitest.
 - **Trends** (`Trends.svelte`, `/trends` under Systems) — the configurable trend-graph
   explorer: a registry-driven metric picker over any sensor channel (grouped by domain,
   `chart:true` columns from `/api/sensors`), overlaid on one bucketed/aligned chart

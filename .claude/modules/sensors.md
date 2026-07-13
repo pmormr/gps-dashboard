@@ -144,28 +144,53 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   `tools/dahua_probe.py` (imports the fleet table) re-surveys the CGI endpoint set.
 - **Fridge reader** (`sensors/fridge_reader.py`) — the fridge as a sensor: polls the
   Dometic CFX3 75DZ's WiFi module, a TCP server on port `13142` speaking **DDMP**
-  (Dometic's proprietary app protocol, community-reverse-engineered — wire-format
-  reference: keshavdv/dometic-cfx3; CR-delimited JSON frames of int arrays,
-  `[action, p0, p1, p2, p3, *value_bytes]`, subscribe→publish→ack). Publishes one
-  `sensors/van/fridge` snapshot per 60 s: both zone temps + setpoints + doors +
-  per-zone power, cooler power, power source, input voltage, battery protection, and
-  the four alert flags. **Poll, don't hold**: the fridge serves one app client at a
-  time, so each cycle is a short connect→subscribe→collect→disconnect and the phone
-  app keeps working between polls. Status is loop-owned à la Victron
-  (`announce_online=False`): an unreachable fridge (WiFi off, out of range) flips the
-  stream offline; unanswered single topics store NULL without failing the cycle. The
-  DDMP *error* topics (NTC/compressor/fan) are deliberately not subscribed — the
-  reference repo's params for them are self-described mock values. No secret (the
-  DDMP port is unauthenticated); `CFX_HOST` pins the fridge IP, matched to a static
-  DHCP lease on van-edge. `--fake` for desk testing. Writes are possible in this
-  protocol (setpoints, power) but the reader is read-only by design.
+  (Dometic's proprietary app protocol, community-reverse-engineered; wire format,
+  full topic table, and probed semantics: **`reference/cfx3-ddmp.md`**). The
+  protocol core (framing, topic registry, codecs, `DdmpClient` session) lives in
+  **`common/ddmp.py`**, shared with the `/api/fridge/*` control plane — the reader
+  owns only poll policy. Publishes one `sensors/van/fridge` snapshot per 60 s:
+  both zone temps + setpoints + doors + per-zone power, cooler power, power
+  source, input voltage, battery protection, the four alert flags, and
+  `dc_current_a` (live DC draw, lifted from the hour-history's in-progress
+  bucket). The fridge's own **DC power-usage history** rides the same payload as
+  flattened `fridge_history` UPSERT rows: 7 sliding fridge-internal buckets per
+  span (hour ≈ 10 min, day ≈ 4 h, week ≈ 24 h buckets — 256 ticks each, absolute
+  times anchored on the frame's tick byte and grid-snapped for stable keys);
+  hour rides every cycle, day/week every 15th. **Poll, don't hold**: the fridge
+  serves one app client at a time, so each cycle is a short
+  connect→subscribe→collect→disconnect and the phone app keeps working between
+  polls. Status is loop-owned à la Victron (`announce_online=False`): an
+  unreachable fridge (WiFi off, out of range) flips the stream offline;
+  unanswered single topics store NULL, and a failed history read just omits that
+  span's rows. The DDMP *error* topics (NTC/compressor/fan) are deliberately not
+  subscribed — the reference repo's params for them are self-described mock
+  values. No secret (the DDMP port is unauthenticated); `CFX_HOST` pins the
+  fridge IP, matched to a static DHCP lease on van-edge — note the van LAN routes
+  from the home network too, so **local dev reaches the real fridge**. `--fake`
+  for desk testing (synthetic history included); `tools/cfx3_probe.py`
+  (stdlib-only, scp to the Pi) re-surveys the protocol — `--watch` diffs history
+  sessions, `--write-test` round-trips a setpoint write. **The reader stays
+  read-only**; writes go through the control plane below.
+- **Fridge control plane** (`api/routes/fridge.py`) — zone setpoints + per-zone
+  power writes over `DdmpClient`, modeled on the radio routes (400 bad input /
+  502 fridge NAK / 503 unreachable; one connect retry for a busy client slot;
+  live in-session read-back in every write response). `GET /api/fridge/status`
+  serves the reader's DB snapshot + registry liveness + a once-per-process live
+  fetch of the firmware-constant setpoint ranges/presented unit;
+  `GET /api/fridge/history` serves the stored `fridge_history` tier. Master
+  cooler power and battery protection are deliberately not exposed (a remote
+  whole-fridge "off" silently thaws food).
 - **Ingest subscriber** (`mqttbus/ingest.py`) — the **only** writer of sensor data.
   Subscribes `sensors/#`, auto-registers sensors, canonicalizes timestamps, inserts
   per-type rows, applies LWT status. The per-type INSERT is **column-driven** off a
   shared `READING_TABLES` spec (`api/sensor_schema.py`, imported by both ingest and the
   `/sensors` read route) — a new stream is a spec entry, not an ingest code branch.
-  Persistent session + QoS-1 so a restart loses nothing. Heartbeat with a
-  dropped-reading reason breakdown, logger-style.
+  Bucket-shaped device history (the fridge's) has a matching spec-driven path:
+  `HISTORY_TABLES` maps a payload key to per-bucket **UPSERT** rows (re-polled
+  windows converge in place; malformed rows counted in the heartbeat), so a
+  future bucket-shaped stream is also just a spec entry. Persistent session +
+  QoS-1 so a restart loses nothing. Heartbeat with a dropped-reading reason
+  breakdown, logger-style.
 - **Alarm subscriber** — planned, not built yet (`mqttbus/alarms.py`).
 - **Web app** (`api/routes/sensors.py`) — `/api/sensors`, `/api/sensors/<id>/readings`,
   and the bucketed `/api/sensors/series` JSON. Read-only, DB-backed (no MQTT): the SPA's
@@ -251,10 +276,18 @@ CPU/mem/uptime, clock drift, `record_mode` enum. Column sets are the
 (`comp0_*`/`comp1_*`; naming stays generic because either dual-zone compartment can
 run as fridge or freezer — the setpoint decides), cooler power, `power_source` enum
 (AC/DC/solar), `input_voltage_v` (the fridge's own view of its DC feed — a cross-check
-against the Victron stream), `battery_protection` enum, and the four alert flags
-(`temp_alert_cc`/`temp_alert_dcm`/door/voltage). Column names avoid the Victron
-stream's (`input_voltage_v`, not `battery_voltage`) since `METRIC_META` is keyed by
-column name. Column set is the `READING_TABLES` spec.
+against the Victron stream), `battery_protection` enum, the four alert flags
+(`temp_alert_cc`/`temp_alert_dcm`/door/voltage), and `dc_current_a` (the fridge's
+average draw over its in-progress ~10-min history bucket — chartable in Trends).
+Column names avoid the Victron stream's (`input_voltage_v`, not `battery_voltage`)
+since `METRIC_META` is keyed by column name. Column set is the `READING_TABLES` spec.
+
+`fridge_history` is the fridge's own DC consumption history, retained past its
+7-bucket window: one row per `(sensor_id, span, bucket_ts)` with `dc_current_a` +
+`updated_at`, UPSERTed via the `HISTORY_TABLES` spec (the in-progress bucket's row
+converges in place until it rolls). `bucket_ts` labels carry the tail-anchor snap
+error (≤ width/8 — see `reference/cfx3-ddmp.md`); `/api/fridge/history` is the
+read path, `/fridge` the UI.
 
 ## Conventions
 

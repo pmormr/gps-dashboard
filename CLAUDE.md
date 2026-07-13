@@ -95,7 +95,7 @@ GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pas
 
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
 
-The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `fridge_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
+The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `fridge_readings`, `fridge_history`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
 
@@ -111,6 +111,7 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster (USGS) tile proxy/cache; `?refresh=1` background-revalidates (basemaps.md)
 - `GET /api/sensors` · `GET /api/sensors/:id/readings` · `GET /api/sensors/series` — sensor registry, reading history, and the bucketed multi-metric series backing Trends (sensors.md)
 - `GET /api/obd/economy?start=&end=` — per-window drive/fuel summary, derived at read time (`common/obd.py`); pass annotation bounds for per-trip MPG
+- `GET /api/fridge/status` · `GET /api/fridge/history?span=` · `POST /api/fridge/{setpoint,power}` — CFX3 control plane: DB snapshot + liveness + cached ranges, stored DC-history reads, and zone setpoint/power writes over DDMP with live read-back; 502 = fridge NAK, 503 = unreachable (sensors.md, `reference/cfx3-ddmp.md`)
 - `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
 - `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
 - `GET /api/places[/:id]` · `GET /api/places/events[/:id]` — POI/event browse reads; `q` is FTS token-prefix search ordered match → rank → distance-to-`center`, `max_rank` is the pin-zoom gate (mandatory below rank 5 at broad-tier scale), `category`/`kind` filter; event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
@@ -120,7 +121,7 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/ntp` — chrony/NTP status (Systems drill-in)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (+ `/trends`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (+ `/trends`, `/fridge`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
@@ -138,7 +139,7 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: sensor readings ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation; GPS logging stays off the bus. Seven streams are live, each a reader publishing `sensors/<node>/<type>` through the same ingest into its own `*_readings` table: the cabin BME680 (ESPHome ESP32-C6, BSEC2 IAQ), the van's OBD-II (engine-gated Pi-side reader via an SGW-bypass harness; PID set in `reference/obd-supported-pids.md`), Victron house power, the Pi host itself, the van-edge router (SSH poll), the Dahua NVR + camera fleet (CGI/RPC2), and the Dometic CFX3 fridge (DDMP-over-WiFi poll). Adding a stream is a spec entry (`api/sensor_schema.py`), not a new pipeline. The SPA's Systems and Trends views read the ingested data from the DB. See **`.claude/modules/sensors.md`** for per-stream architecture and the remaining roadmap (*live* MQTT-over-WS push readouts + alarms are still planned).
+A second data stream beyond GPS: sensor readings ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation; GPS logging stays off the bus. Seven streams are live, each a reader publishing `sensors/<node>/<type>` through the same ingest into its own `*_readings` table: the cabin BME680 (ESPHome ESP32-C6, BSEC2 IAQ), the van's OBD-II (engine-gated Pi-side reader via an SGW-bypass harness; PID set in `reference/obd-supported-pids.md`), Victron house power, the Pi host itself, the van-edge router (SSH poll), the Dahua NVR + camera fleet (CGI/RPC2), and the Dometic CFX3 fridge (DDMP-over-WiFi poll — plus stored DC power history and a read/write control plane at `/api/fridge/*` + `/fridge`; protocol reference `reference/cfx3-ddmp.md`). Adding a stream is a spec entry (`api/sensor_schema.py`), not a new pipeline. The SPA's Systems and Trends views read the ingested data from the DB. See **`.claude/modules/sensors.md`** for per-stream architecture and the remaining roadmap (*live* MQTT-over-WS push readouts + alarms are still planned).
 
 ### Radio Control (CI-V)
 
@@ -163,6 +164,7 @@ gps-dashboard/
 │       ├── tiles.py
 │       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
 │       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
+│       ├── fridge.py           # /api/fridge/* (CFX3 setpoint/power writes + status/history reads; /fridge is SPA-served)
 │       ├── phone.py            # /api/phone/{tracks,places} (phone-history map-overlay reads)
 │       ├── docs.py             # /api/docs/* (network-docs vault: tree + raw markdown + edit PUT w/ auto-commit)
 │       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
@@ -178,6 +180,7 @@ gps-dashboard/
 │   ├── orbits.py               # inertial-frame orbit fit + propagation + pass finder
 │   ├── satcat.py               # CelesTrak SATCAT metadata fetch/cache (NORAD-keyed) for sat identity
 │   ├── obd.py                  # speed-density fuel-rate derivation + drive integration (read-time, pure)
+│   ├── ddmp.py                 # Dometic CFX3 DDMP protocol core (framing/topics/codecs + DdmpClient session)
 │   ├── humidity.py             # derived moisture channels (dew point, absolute humidity, heat index)
 │   ├── timefmt.py              # canonical_timestamp — fixed-width ms-UTC formatter shared across tiers
 │   ├── proc.py                 # subprocess + systemctl (is-active) helpers
@@ -222,13 +225,13 @@ gps-dashboard/
 │       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
 │       │   ├── places.ts       # places overlay: per-kind pin builders + viewport-driven sync (z6 gate)
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
-│       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts  # view renderers/helpers
+│       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts, fridge.ts  # view renderers/helpers
 │       │   ├── live.ts, follow.ts, wakelock.ts  # Drive view: live-fix math · follow-camera policy · screen wake lock
 │       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes)
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
 │       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet), Systems, Trends, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet), Systems, Trends, Fridge, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures
@@ -244,6 +247,7 @@ gps-dashboard/
 │   ├── ntp_validate.py
 │   ├── obd_probe.py            # OBD-II connectivity/bring-up probe (kept as a bus diagnostic)
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
+│   ├── cfx3_probe.py           # CFX3 DDMP survey probe, stdlib-only — history/range topics + --watch + --write-test (reference/cfx3-ddmp.md)
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
 │   ├── backup_db.py            # DB snapshot + opportunistic rsync to rex-nas + retention (gps-db-backup.timer)
