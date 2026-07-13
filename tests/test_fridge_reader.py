@@ -140,13 +140,13 @@ def test_flatten_history_anchors_on_tail() -> None:
     """Bucket starts derive from the tick counter: newest first, one width apart,
     snapped to the quarter-width grid."""
     poll_epoch = 1_784_134_836.0
-    # tail 128 = half a bucket elapsed → the newest bucket started ~300 s ago.
+    # tail 128 = half a bucket elapsed → the newest bucket started ~304 s ago.
     rows = flatten_history('hour', [1.5, 0.0, 1.1], 128, poll_epoch)
 
     starts = _starts(rows)
-    assert starts[0] % 150 == 0  # width/4 grid
-    assert abs(poll_epoch - 300 - starts[0]) <= 75  # within half a grid cell
-    assert [starts[0] - s for s in starts] == [0, 600, 1200]
+    assert starts[0] % 152 == 0  # width/4 grid
+    assert abs(poll_epoch - 304 - starts[0]) <= 76  # within half a grid cell
+    assert [starts[0] - s for s in starts] == [0, 608, 1216]
     assert [row['dc_current_a'] for row in rows] == [1.5, 0.0, 1.1]
     assert all(row['span'] == 'hour' for row in rows)
 
@@ -168,7 +168,7 @@ def test_flatten_history_keeps_keys_across_a_roll() -> None:
     # 30 s later the bucket rolled: tail wrapped, values shifted right.
     post = flatten_history('hour', [0.2, 1.0, 0.5], 4, 1_784_134_866.0)
     assert post[1]['bucket_ts'] == pre[0]['bucket_ts']
-    assert _starts(post)[0] - _starts(pre)[0] == 600
+    assert _starts(post)[0] - _starts(pre)[0] == 608
 
 
 def test_read_returns_none_when_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:

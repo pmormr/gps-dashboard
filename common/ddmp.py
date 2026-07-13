@@ -75,7 +75,7 @@ HISTORY_PARAMS: dict[str, list[int]] = {
 #: **fridge-internal sliding windows** (256 ticks each, the frame's tail byte is
 #: the tick counter), not wall-aligned — the reader anchors their absolute times
 #: on the tail byte. Shared by the flattening and the history read route.
-HISTORY_BUCKET_S: dict[str, int] = {'hour': 600, 'day': 14400, 'week': 86400}
+HISTORY_BUCKET_S: dict[str, int] = {'hour': 608, 'day': 14400, 'week': 86400}
 
 #: ticks per history bucket — the tail byte wraps at 256 as the bucket rolls.
 HISTORY_BUCKET_TICKS = 256

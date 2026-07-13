@@ -234,7 +234,7 @@ def test_history_default_window_and_span_filter(client, tmp_path, monkeypatch):
     _patch_client(monkeypatch, fail_enters=99)
     data = client.get('/api/fridge/history?span=hour').get_json()
     assert data['span'] == 'hour'
-    assert data['bucket_s'] == 600
+    assert data['bucket_s'] == ddmp.HISTORY_BUCKET_S['hour']
     assert [p['dc_current_a'] for p in data['points']] == [1.5]
     assert data['updated_at'] == TS
 
