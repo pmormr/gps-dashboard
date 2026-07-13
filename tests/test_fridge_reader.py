@@ -1,32 +1,56 @@
-"""Tests for the fridge reader's pure logic (``sensors/fridge_reader.py``).
+"""Tests for the fridge reader's poll policy (``sensors/fridge_reader.py``).
 
 The load-bearing contract: the reader's snapshot columns stay in lockstep with the
-shared ``fridge`` schema, DDMP framing round-trips, and value decoding handles the
-wire types (including negative decidegree temperatures — a freezer zone lives below
-zero). Also covers the synthetic source and the poll→publish loop's status ownership.
+shared ``fridge`` schema, a poll session fills the snapshot from whatever the
+fridge published (NULLing unanswered topics), and the poll→publish loop owns the
+retained status flag. Wire framing/codec tests live in ``tests/test_ddmp.py``.
 """
 
 from __future__ import annotations
 
 import json
+import socket
+from typing import Any
+
+import pytest
 
 from api.sensor_schema import READING_TABLES
+from common.ddmp import ACK, PUBLISH, TOPICS, encode_frame
 from sensors.fridge_reader import (
-    ACK,
     FRIDGE_COLUMNS,
-    NAK,
-    PING,
-    PUBLISH,
-    SUBSCRIBE,
-    TOPICS,
     FakeFridge,
     FridgeSensor,
     build_snapshot,
-    decode_value,
-    encode_frame,
     publish_loop,
-    split_frames,
 )
+
+
+class FakeSocket:
+    """Scripted socket: each ``recv`` pops one canned chunk, then times out.
+
+    Duplicated from ``tests/test_ddmp.py`` — test modules stay import-independent
+    (a cross-import maps the module under two names and breaks mypy).
+    """
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = list(chunks)
+        self.sent: list[bytes] = []
+
+    def settimeout(self, timeout: float) -> None:
+        """Accept the per-recv timeout (unused by the fake)."""
+
+    def sendall(self, data: bytes) -> None:
+        """Record one send."""
+        self.sent.append(data)
+
+    def recv(self, size: int) -> bytes:
+        """Pop the next canned chunk; raise like a quiet socket when empty."""
+        if not self.chunks:
+            raise TimeoutError
+        return self.chunks.pop(0)
+
+    def close(self) -> None:
+        """Accept the close."""
 
 
 class StubClient:
@@ -40,17 +64,6 @@ class StubClient:
         self.published.append((topic, payload))
 
 
-class StubSocket:
-    """Captures ``sendall`` frames so ``_handle`` can be driven without a socket."""
-
-    def __init__(self) -> None:
-        self.sent: list[bytes] = []
-
-    def sendall(self, data: bytes) -> None:
-        """Record one send."""
-        self.sent.append(data)
-
-
 def test_columns_match_schema() -> None:
     """The snapshot column set is exactly the shared ``fridge`` schema's metrics."""
     assert FRIDGE_COLUMNS == READING_TABLES['fridge']['metrics']
@@ -62,81 +75,49 @@ def test_columns_unique() -> None:
     assert len(params) == len(set(params))
 
 
-def test_encode_frame_wire_format() -> None:
-    """A frame is the JSON envelope + CR: what the fridge's parser expects."""
-    assert encode_frame([PING]) == b'{"ddmp": [2]}\r'
-    assert encode_frame([SUBSCRIBE, 0, 1, 1, 1]) == b'{"ddmp": [1, 0, 1, 1, 1]}\r'
+def _session_chunk(published: dict[str, list[int]]) -> bytes:
+    """Script one poll session: publishes for ``published``, then ACKs for every send.
+
+    The reader sends 1 PING + one SUBSCRIBE per column; every incoming frame is
+    handled wherever it lands in the stream, so a single chunk answering
+    everything up front is a valid fridge.
+    """
+    chunk = b''
+    for column, value_bytes in published.items():
+        chunk += encode_frame([PUBLISH, *TOPICS[column][0], *value_bytes])
+    chunk += encode_frame([ACK]) * (1 + len(FRIDGE_COLUMNS))
+    return chunk
 
 
-def test_split_frames_roundtrip() -> None:
-    """Encoded frames split back out; a trailing partial frame is kept as the tail."""
-    buf = encode_frame([ACK]) + encode_frame([PUBLISH, 0, 1, 1, 1, 20, 0]) + b'{"ddm'
-    frames, rest = split_frames(buf)
-    assert frames == [[ACK], [PUBLISH, 0, 1, 1, 1, 20, 0]]
-    assert rest == b'{"ddm'
+def test_poll_fills_answered_and_nulls_unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Published topics decode into the snapshot; silent ones stay None."""
+    chunk = _session_chunk({'comp0_temp_c': [20, 0], 'comp1_set_c': [0x6A, 0xFF]})
+    fake = FakeSocket([chunk])
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: fake)
+
+    reading = FridgeSensor('fridge', 1).read()
+
+    assert reading is not None
+    assert reading['comp0_temp_c'] == 2.0
+    assert reading['comp1_set_c'] == -15.0
+    assert reading['comp0_door_open'] is None
 
 
-def test_split_frames_skips_garbage() -> None:
-    """A malformed line is dropped without losing the frames around it."""
-    buf = b'not json\r' + encode_frame([ACK]) + b'{"other": 1}\r'
-    frames, rest = split_frames(buf)
-    assert frames == [[ACK]]
-    assert rest == b''
+def test_read_returns_none_when_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connect failure is a None reading (the loop flips the stream offline)."""
+
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise OSError('connection refused')
+
+    monkeypatch.setattr(socket, 'create_connection', refuse)
+    assert FridgeSensor('fridge', 1).read() is None
 
 
-def test_decode_value_temperatures() -> None:
-    """Decidegree int16-LE decodes, including negative (freezer) values."""
-    assert decode_value('ddegC', [20, 0]) == 2.0
-    assert decode_value('ddegC', [10, 0]) == 1.0
-    # -15.0 °C = -150 ddeg = 0xFF6A little-endian.
-    assert decode_value('ddegC', [0x6A, 0xFF]) == -15.0
-
-
-def test_decode_value_other_types() -> None:
-    """Volts scale by ten; bools and u8 pass through as ints; short data is None."""
-    assert decode_value('dV', [0x0A, 0x01]) == 26.6
-    assert decode_value('bool', [1]) == 1
-    assert decode_value('bool', [0]) == 0
-    assert decode_value('u8', [2]) == 2
-    assert decode_value('ddegC', [5]) is None
-    assert decode_value('dV', []) is None
-
-
-def test_handle_publish_decodes_and_acks() -> None:
-    """A publish for a known topic decodes into the snapshot and is ACKed back."""
-    sensor = FridgeSensor('unused', 0)
-    sock = StubSocket()
-    values: dict[str, float | int | None] = {col: None for col in FRIDGE_COLUMNS}
-
-    acked = sensor._handle(sock, [PUBLISH, 0, 1, 1, 1, 20, 0], values)
-
-    assert acked is False
-    assert values['comp0_temp_c'] == 2.0
-    assert sock.sent == [encode_frame([ACK])]
-
-
-def test_handle_unknown_publish_acked_and_ignored() -> None:
-    """A publish for an unmapped topic param is ACKed but stores nothing."""
-    sensor = FridgeSensor('unused', 0)
-    sock = StubSocket()
-    values: dict[str, float | int | None] = {col: None for col in FRIDGE_COLUMNS}
-
-    sensor._handle(sock, [PUBLISH, 9, 9, 9, 9, 1], values)
-
-    assert all(value is None for value in values.values())
-    assert sock.sent == [encode_frame([ACK])]
-
-
-def test_handle_ping_acks_and_ack_nak_signal() -> None:
-    """The fridge's PING gets an ACK; ACK/NAK report as the subscribe answer."""
-    sensor = FridgeSensor('unused', 0)
-    sock = StubSocket()
-    values: dict[str, float | int | None] = {}
-
-    assert sensor._handle(sock, [PING], values) is False
-    assert sock.sent == [encode_frame([ACK])]
-    assert sensor._handle(sock, [ACK], values) is True
-    assert sensor._handle(sock, [NAK], values) is True
+def test_read_returns_none_when_nothing_answered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fridge that ACKs but publishes nothing is as offline as a dead TCP port."""
+    fake = FakeSocket([_session_chunk({})])
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: fake)
+    assert FridgeSensor('fridge', 1).read() is None
 
 
 def test_fake_fridge_yields_every_column() -> None:

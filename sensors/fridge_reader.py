@@ -1,13 +1,12 @@
 """Pi-side fridge reader: Dometic CFX3 DDMP over WiFi → MQTT publisher.
 
-Bridges the van's Dometic CFX3 75DZ fridge into the sensor platform. The fridge's
-WiFi module speaks **DDMP** — Dometic's app protocol, reverse engineered by the
-community (keshavdv/dometic-cfx3 is the wire-format reference) — as a TCP server on
-port 13142: CR-delimited JSON frames of integer arrays, ``[action, p0, p1, p2, p3,
-*value_bytes]``, with a subscribe→publish→ack flow. This reader polls a snapshot and
-publishes it to ``sensors/<node>/fridge`` on the Pi broker, where ``mqtt-ingest``
-writes it into ``fridge_readings`` — see ``mqttbus/ingest.py`` and
-``api/sensor_schema.py``.
+Bridges the van's Dometic CFX3 75DZ fridge into the sensor platform. The wire
+protocol (DDMP framing, topic registry, codecs, and the session client) lives in
+``common/ddmp.py`` — shared with the control routes; this module owns the *poll
+policy*: what to subscribe each cycle and how the snapshot reaches the bus. Each
+cycle polls one snapshot and publishes it to ``sensors/<node>/fridge`` on the Pi
+broker, where ``mqtt-ingest`` writes it into ``fridge_readings`` — see
+``mqttbus/ingest.py`` and ``api/sensor_schema.py``.
 
 Poll, don't hold: the fridge serves one app client at a time, so each cycle is a
 short connect→subscribe→collect→disconnect and the phone app keeps working between
@@ -15,10 +14,10 @@ polls. Like the Victron reader, this one owns its retained ``status`` flag
 (``announce_online=False``): a failed poll (fridge WiFi off, out of range) flips the
 stream ``offline`` rather than leaving it online with no data.
 
-The topic table below carries only the subscriptions this reader stores. The DDMP
-error topics (NTC/compressor/fan) are deliberately absent: the reference repo's
-params for them are self-described mock-broker values, so subscribing would be
-guesswork. The four alert topics are real.
+The stored column set is ``common.ddmp.TOPICS``. The DDMP error topics
+(NTC/compressor/fan) are deliberately absent: the reference repo's params for them
+are self-described mock-broker values, so subscribing would be guesswork. The four
+alert topics are real.
 
 Run::
 
@@ -30,12 +29,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import socket
 import sys
 import time
-from typing import Protocol
 
+from common.ddmp import (
+    TOPICS,
+    DdmpClient,
+    DdmpError,
+    decode_value,
+    fridge_host,
+    fridge_port,
+)
 from common.timefmt import now_canonical
 from sensors.runner import (
     Heartbeat,
@@ -51,138 +55,20 @@ SENSOR_TYPE = 'fridge'
 # Fridge temps are slow-moving and every poll briefly claims the fridge's single
 # app slot, so poll sparsely.
 PUBLISH_INTERVAL_S = 60.0
-CONNECT_TIMEOUT_S = 5.0
-# Per-recv socket timeout while collecting publishes; the fridge answers a
-# subscribe within tens of ms on the LAN, so a quiet second means it is done.
-RECV_TIMEOUT_S = 2.0
 # Whole-poll budget: a wedged exchange abandons the cycle rather than stalling
 # the loop (the next cycle reconnects fresh).
 POLL_DEADLINE_S = 15.0
 
-DDMP_PORT = 13142
-
-# DDMP action codes (frame byte 0).
-PUBLISH, SUBSCRIBE, PING, HELLO, ACK, NAK, NOP = 0, 1, 2, 3, 4, 5, 6
-
-#: column → (topic param bytes, wire type). The param is DDMP's 4-byte topic id;
-#: the wire type picks the ``decode_value`` branch. Column order is also the
-#: snapshot/display order, pinned to the shared ``fridge`` schema by a test.
-TOPICS: dict[str, tuple[list[int], str]] = {
-    'comp0_temp_c': ([0, 1, 1, 1], 'ddegC'),
-    'comp1_temp_c': ([16, 1, 1, 1], 'ddegC'),
-    'comp0_set_c': ([0, 2, 1, 1], 'ddegC'),
-    'comp1_set_c': ([16, 2, 1, 1], 'ddegC'),
-    'comp0_door_open': ([0, 8, 1, 1], 'bool'),
-    'comp1_door_open': ([16, 8, 1, 1], 'bool'),
-    'comp0_power': ([0, 0, 1, 1], 'bool'),
-    'comp1_power': ([16, 0, 1, 1], 'bool'),
-    'cooler_power': ([0, 0, 3, 1], 'bool'),
-    'power_source': ([0, 5, 3, 1], 'u8'),
-    'input_voltage_v': ([0, 1, 3, 1], 'dV'),
-    'battery_protection': ([0, 2, 3, 1], 'u8'),
-    'temp_alert_cc': ([0, 0, 5, 1], 'bool'),
-    'temp_alert_dcm': ([0, 3, 5, 1], 'bool'),
-    'door_alert': ([0, 1, 5, 1], 'bool'),
-    'voltage_alert': ([0, 2, 5, 1], 'bool'),
-}
-
 FRIDGE_COLUMNS: list[str] = list(TOPICS)
-
-#: topic param (as a tuple) → column, for routing incoming publishes.
-_PARAM_TO_COLUMN: dict[tuple[int, ...], str] = {
-    tuple(param): column for column, (param, _kind) in TOPICS.items()
-}
-
-
-def fridge_host() -> str:
-    """Return the fridge IP from ``CFX_HOST`` (default its van-edge DHCP lease)."""
-    return os.environ.get('CFX_HOST', '192.168.42.185')
-
-
-def fridge_port() -> int:
-    """Return the fridge DDMP port from ``CFX_PORT`` (default 13142)."""
-    return int(os.environ.get('CFX_PORT', str(DDMP_PORT)))
-
-
-class _Sender(Protocol):
-    """The slice of a socket the frame handler sends ACKs through (stubbed in tests)."""
-
-    def sendall(self, data: bytes, /) -> None:
-        """Send all of ``data``."""
-
-
-def encode_frame(data: list[int]) -> bytes:
-    """Encode one DDMP frame: the JSON envelope plus the CR delimiter.
-
-    Args:
-        data: The frame ints — ``[action, *topic_param, *value_bytes]``.
-
-    Returns:
-        The wire bytes.
-    """
-    return (json.dumps({'ddmp': data}) + '\r').encode()
-
-
-def split_frames(buf: bytes) -> tuple[list[list[int]], bytes]:
-    """Split a receive buffer into complete DDMP frames plus the unconsumed tail.
-
-    Args:
-        buf: Bytes received so far (may end mid-frame).
-
-    Returns:
-        ``(frames, rest)`` — each frame as its ``ddmp`` int list; ``rest`` is the
-        trailing partial frame to prepend to the next recv. A malformed line is
-        skipped rather than raised: one garbled frame shouldn't abort a poll.
-    """
-    frames: list[list[int]] = []
-    while b'\r' in buf:
-        line, buf = buf.split(b'\r', 1)
-        if not line.strip():
-            continue
-        try:
-            payload = json.loads(line)
-            frame = payload['ddmp']
-        except (ValueError, KeyError, TypeError):
-            continue
-        if isinstance(frame, list) and frame and all(isinstance(b, int) for b in frame):
-            frames.append(frame)
-    return frames, buf
-
-
-def decode_value(kind: str, data: list[int]) -> float | int | None:
-    """Decode a published value's bytes per its topic's wire type.
-
-    Args:
-        kind: The wire type from :data:`TOPICS` — ``ddegC`` (int16-LE decidegrees
-            Celsius), ``dV`` (uint16-LE decivolts), ``bool`` (stored as 0/1 int),
-            or ``u8``.
-        data: The value bytes (JSON ints) after the 4-byte topic param.
-
-    Returns:
-        The decoded number, or None if the bytes are too short for the type.
-    """
-    try:
-        if kind == 'ddegC':
-            raw = (data[1] << 8) | data[0]
-            if raw >= 0x8000:
-                raw -= 0x10000
-            return raw / 10
-        if kind == 'dV':
-            return ((data[1] << 8) | data[0]) / 10
-        if kind in ('bool', 'u8'):
-            return int(data[0])
-    except IndexError:
-        return None
-    return None
 
 
 class FridgeSensor:
     """Polls one snapshot from the fridge's DDMP server per :meth:`read` call.
 
-    Each poll is a fresh TCP session: PING, then per column a SUBSCRIBE
-    acknowledged by the fridge, collecting the PUBLISH frames (each ACKed back)
-    that carry the values. Unanswered topics come back None — their columns store
-    NULL for that cycle rather than failing the poll.
+    Each poll is a fresh :class:`~common.ddmp.DdmpClient` session: PING, then a
+    SUBSCRIBE per column, then a drain for in-flight publishes. Unanswered topics
+    come back None — their columns store NULL for that cycle rather than failing
+    the poll.
     """
 
     def __init__(self, host: str, port: int) -> None:
@@ -199,7 +85,7 @@ class FridgeSensor:
         """
         try:
             values = self._poll()
-        except OSError:
+        except DdmpError:
             return None
         if all(value is None for value in values.values()):
             return None
@@ -208,78 +94,19 @@ class FridgeSensor:
     def _poll(self) -> dict[str, float | int | None]:
         """Run one connect→subscribe→collect→disconnect DDMP session."""
         values: dict[str, float | int | None] = {column: None for column in FRIDGE_COLUMNS}
-        deadline = time.monotonic() + POLL_DEADLINE_S
-        with socket.create_connection((self._host, self._port), timeout=CONNECT_TIMEOUT_S) as sock:
-            sock.settimeout(RECV_TIMEOUT_S)
-            buf = b''
-            sock.sendall(encode_frame([PING]))
+        with DdmpClient(self._host, self._port, deadline_s=POLL_DEADLINE_S) as client:
+            client.ping()
             for column in FRIDGE_COLUMNS:
-                if time.monotonic() > deadline:
+                if client.expired:
                     break
-                param, _kind = TOPICS[column]
-                sock.sendall(encode_frame([SUBSCRIBE, *param]))
-                buf = self._collect(sock, buf, values, deadline, until_ack=True)
+                client.request(TOPICS[column][0])
             # Drain briefly: publishes for the last subscribes may still be in flight.
-            self._collect(sock, buf, values, min(deadline, time.monotonic() + RECV_TIMEOUT_S))
+            client.drain()
+            for column, (param, kind) in TOPICS.items():
+                frames = client.frames_for(param)
+                if frames:
+                    values[column] = decode_value(kind, frames[-1])
         return values
-
-    def _collect(
-        self,
-        sock: socket.socket,
-        buf: bytes,
-        values: dict[str, float | int | None],
-        deadline: float,
-        *,
-        until_ack: bool = False,
-    ) -> bytes:
-        """Receive and handle frames until ACK/NAK (if asked), timeout, or deadline.
-
-        Args:
-            sock: The connected DDMP socket.
-            buf: Unconsumed tail bytes from the previous collect.
-            values: The snapshot being filled; publishes decode into it.
-            deadline: Monotonic cutoff for this collect.
-            until_ack: Return as soon as an ACK or NAK arrives (the fridge's answer
-                to our just-sent SUBSCRIBE; publishes interleave and are handled).
-
-        Returns:
-            The new unconsumed tail.
-        """
-        while time.monotonic() < deadline:
-            try:
-                chunk = sock.recv(4096)
-            except TimeoutError:
-                return buf
-            if not chunk:
-                return buf
-            buf += chunk
-            frames, buf = split_frames(buf)
-            for frame in frames:
-                acked = self._handle(sock, frame, values)
-                if until_ack and acked:
-                    return buf
-        return buf
-
-    def _handle(
-        self, sock: _Sender, frame: list[int], values: dict[str, float | int | None]
-    ) -> bool:
-        """Handle one incoming frame; return whether it was an ACK/NAK.
-
-        PINGs and PUBLISHes are ACKed back (the fridge retries unACKed publishes and
-        eventually drops the client). A publish for an unknown topic param is ACKed
-        and ignored.
-        """
-        action = frame[0]
-        if action == PING:
-            sock.sendall(encode_frame([ACK]))
-            return False
-        if action == PUBLISH:
-            sock.sendall(encode_frame([ACK]))
-            column = _PARAM_TO_COLUMN.get(tuple(frame[1:5]))
-            if column is not None and len(frame) > 5:
-                values[column] = decode_value(TOPICS[column][1], frame[5:])
-            return False
-        return action in (ACK, NAK)
 
 
 class FakeFridge:
