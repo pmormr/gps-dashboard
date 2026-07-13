@@ -82,6 +82,9 @@
     <button class="diag" onclick={() => router.navigate('/trends')}>
       <span>Trends</span><span class="muted">graph any channel over time</span>
     </button>
+    <button class="diag" onclick={() => router.navigate('/fridge')}>
+      <span>Fridge</span><span class="muted">zone setpoints, power, DC history</span>
+    </button>
     <button class="diag" onclick={() => router.navigate('/ntp')}>
       <span>NTP</span><span class="muted">time sync / chrony</span>
     </button>

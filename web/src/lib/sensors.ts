@@ -147,10 +147,11 @@ export const DOMAIN_LABELS: Record<string, string> = {
   victron: 'House power',
   obd: 'Van',
   bme680: 'Cabin',
+  fridge: 'Fridge',
   system: 'Pi',
 }
 
-const DOMAIN_ORDER = ['victron', 'obd', 'bme680', 'system']
+const DOMAIN_ORDER = ['victron', 'obd', 'bme680', 'fridge', 'system']
 
 /** Sensors in Van OS domain order (House power, Van, Cabin), unknowns last. */
 export function orderedSensors(sensors: SensorRow[]): SensorRow[] {

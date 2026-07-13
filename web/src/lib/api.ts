@@ -446,6 +446,85 @@ export async function postRadio(path: string, body: unknown): Promise<void> {
   }
 }
 
+// ── Fridge (Dometic CFX3 control plane + stored DC history) ──
+
+/** A setpoint range in °C, as the fridge reports it. */
+export interface FridgeRange {
+  min_c: number
+  max_c: number
+}
+
+/** One zone's firmware-constant setpoint ranges. */
+export interface FridgeZoneRanges {
+  allowed: FridgeRange | null
+  recommended: FridgeRange | null
+}
+
+/** The reader's latest stored snapshot row (timestamp + the fridge metric columns). */
+export interface FridgeReading {
+  timestamp: string
+  [metric: string]: string | number | null
+}
+
+/** `/api/fridge/status`: DB snapshot + registry liveness + cached firmware constants. */
+export interface FridgeStatus {
+  online: boolean
+  status: string
+  last_seen: string | null
+  reading: FridgeReading | null
+  ranges: { comp0: FridgeZoneRanges; comp1: FridgeZoneRanges } | null
+  /** The fridge's own display unit: 0 = °C, 1 = °F; null until fetched. */
+  temp_unit: number | null
+}
+
+/** One stored DC-history bucket (`ts` = bucket start, canonical ms-UTC). */
+export interface FridgeHistoryPoint {
+  ts: string
+  dc_current_a: number | null
+}
+
+/** `/api/fridge/history`: the retained fridge_history tier for one span. */
+export interface FridgeHistoryResponse {
+  span: string
+  bucket_s: number
+  points: FridgeHistoryPoint[]
+  updated_at: string | null
+}
+
+/** Fetch fridge control-page state (always 200; check `online` + reading age). */
+export function getFridgeStatus(): Promise<FridgeStatus> {
+  return getJSON<FridgeStatus>('/api/fridge/status')
+}
+
+/** Fetch stored DC power-usage buckets for a span (optionally bounded). */
+export function getFridgeHistory(
+  span: 'hour' | 'day' | 'week',
+  start?: string,
+  end?: string,
+): Promise<FridgeHistoryResponse> {
+  const params = new URLSearchParams({ span })
+  if (start) params.set('start', start)
+  if (end) params.set('end', end)
+  return getJSON<FridgeHistoryResponse>(`/api/fridge/history?${params}`)
+}
+
+/** POST a fridge control write; resolves to the live read-back payload. */
+export async function postFridge(
+  path: string,
+  body: unknown,
+): Promise<Record<string, unknown>> {
+  const resp = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = (await resp.json().catch(() => ({}))) as Record<string, unknown>
+  if (!resp.ok) {
+    throw new Error((data.error as string | undefined) ?? `Failed (${resp.status})`)
+  }
+  return data
+}
+
 // ── Annotations + marks (map view) ──
 
 /** A user-curated annotation. `end_time` null ⇒ point bookmark; else a range. */

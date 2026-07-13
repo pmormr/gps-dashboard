@@ -3,6 +3,7 @@ import type { Component } from 'svelte'
 import Places from '../views/Places.svelte'
 import Docs from '../views/Docs.svelte'
 import Drive from '../views/Drive.svelte'
+import Fridge from '../views/Fridge.svelte'
 import Globe from '../views/Globe.svelte'
 import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
@@ -40,6 +41,7 @@ export const routes: RouteDef[] = [
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
   { path: '/trends', component: Trends, tab: '/systems' },
+  { path: '/fridge', component: Fridge, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
 ]
 
