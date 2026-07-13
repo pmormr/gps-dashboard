@@ -2,14 +2,15 @@
 
 Turns the Pi from a GPS-only logger into a centralized data-logging platform: it
 still logs GPS unchanged, and additionally ingests other streams over an MQTT bus into
-the **same** SQLite DB, so GPS↔sensor correlation is a local join. Six stream types are
+the **same** SQLite DB, so GPS↔sensor correlation is a local join. Seven stream types are
 live: **environmental sensors** (a BME680: temperature, humidity, pressure, gas/VOC),
 **the van itself over OBD-II** (engine RPM/speed/load, temps, fuel — see *OBD-II: the
 van as a sensor* below), **house power over Victron** (a Venus OS GX: battery /
 solar / inverter / AC + DC, bridged from its own MQTT broker), **the Pi host
 itself** (CPU temp, load, memory, disk, uptime, throttle flags), **the van-edge
-router** (OpenWrt/HaLow health over SSH-poll), and **the recording fleet** (Dahua
-NVR + 4 cameras over HTTP CGI + RPC2 — one reader, five node streams). Adding a
+router** (OpenWrt/HaLow health over SSH-poll), **the recording fleet** (Dahua
+NVR + 4 cameras over HTTP CGI + RPC2 — one reader, five node streams), and **the
+fridge** (a Dometic CFX3 75DZ over its reverse-engineered DDMP WiFi protocol). Adding a
 stream is a spec entry, not a new pipeline.
 
 This module documents the sensor platform — what has **landed** and what's still open.
@@ -141,6 +142,23 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   shared WebUI password comes from `/etc/default/gps-dahua` (root-owned 600, out of
   git; the reader exits 2 without it). `--fake` for desk testing;
   `tools/dahua_probe.py` (imports the fleet table) re-surveys the CGI endpoint set.
+- **Fridge reader** (`sensors/fridge_reader.py`) — the fridge as a sensor: polls the
+  Dometic CFX3 75DZ's WiFi module, a TCP server on port `13142` speaking **DDMP**
+  (Dometic's proprietary app protocol, community-reverse-engineered — wire-format
+  reference: keshavdv/dometic-cfx3; CR-delimited JSON frames of int arrays,
+  `[action, p0, p1, p2, p3, *value_bytes]`, subscribe→publish→ack). Publishes one
+  `sensors/van/fridge` snapshot per 60 s: both zone temps + setpoints + doors +
+  per-zone power, cooler power, power source, input voltage, battery protection, and
+  the four alert flags. **Poll, don't hold**: the fridge serves one app client at a
+  time, so each cycle is a short connect→subscribe→collect→disconnect and the phone
+  app keeps working between polls. Status is loop-owned à la Victron
+  (`announce_online=False`): an unreachable fridge (WiFi off, out of range) flips the
+  stream offline; unanswered single topics store NULL without failing the cycle. The
+  DDMP *error* topics (NTC/compressor/fan) are deliberately not subscribed — the
+  reference repo's params for them are self-described mock values. No secret (the
+  DDMP port is unauthenticated); `CFX_HOST` pins the fridge IP, matched to a static
+  DHCP lease on van-edge. `--fake` for desk testing. Writes are possible in this
+  protocol (setpoints, power) but the reader is read-only by design.
 - **Ingest subscriber** (`mqttbus/ingest.py`) — the **only** writer of sensor data.
   Subscribes `sensors/#`, auto-registers sensors, canonicalizes timestamps, inserts
   per-type rows, applies LWT status. The per-type INSERT is **column-driven** off a
@@ -177,7 +195,7 @@ source of truth for the topic taxonomy (build/parse, no broker dependency).
 Sensor tables live in `gps_history.db` alongside GPS — see `api/db.py` `init_db`:
 `sensors` (registry, keyed `UNIQUE(node, type)`), `bme680_readings`, `obd_readings`,
 `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`,
-`camera_readings`, and the `alarm_rules` / `alarm_events` tables
+`camera_readings`, `fridge_readings`, and the `alarm_rules` / `alarm_events` tables
 (created now, exercised when alarms land). All
 timestamps go through `api.db.canonical_timestamp` so they join cleanly against
 `gps_points`. FKs are logical/unenforced, matching the trips↔points style. Each
@@ -229,6 +247,15 @@ this firmware), CPU/mem, clock drift. Cameras: `online` (0/1 — poll success),
 CPU/mem/uptime, clock drift, `record_mode` enum. Column sets are the
 `READING_TABLES` spec.
 
+`fridge_readings` is the fridge stream — per-zone measured/set temps + door + power
+(`comp0_*`/`comp1_*`; naming stays generic because either dual-zone compartment can
+run as fridge or freezer — the setpoint decides), cooler power, `power_source` enum
+(AC/DC/solar), `input_voltage_v` (the fridge's own view of its DC feed — a cross-check
+against the Victron stream), `battery_protection` enum, and the four alert flags
+(`temp_alert_cc`/`temp_alert_dcm`/door/voltage). Column names avoid the Victron
+stream's (`input_voltage_v`, not `battery_voltage`) since `METRIC_META` is keyed by
+column name. Column set is the `READING_TABLES` spec.
+
 ## Conventions
 
 Topics (`mqttbus/topics.py`):
@@ -254,7 +281,7 @@ times. Fallbacks are counted in the ingest heartbeat.
 
 ## Deploy & ops
 
-Services: `deploy/{mqtt-ingest,sensor-obd,sensor-victron,sensor-pi,sensor-openwrt,sensor-dahua}.service`
+Services: `deploy/{mqtt-ingest,sensor-obd,sensor-victron,sensor-pi,sensor-openwrt,sensor-dahua,sensor-fridge}.service`
 (slot into the existing systemd + post-receive model). The hook copies the new unit
 files and `mosquitto.conf` when `deploy/` changes, restarts `mqtt-ingest` when enabled,
 and restarts the `sensor-*` readers only when `sensors/` changes **and** the unit is
@@ -277,7 +304,10 @@ its one-time setup was authorizing the Pi's ed25519 key on van-edge root
 (`/etc/dropbear/authorized_keys`, done 2026-07-02). `sensor-dahua` **is enabled**
 (nodes `van-nvr` + `van-cam-*`): its secret is `/etc/default/gps-dahua`
 (`GPS_DAHUA_PASSWORD=…`, root-owned 600 — creating it is a user-run step in a real
-terminal; the `!` bash-prefix has no TTY for a silent password prompt).
+terminal; the `!` bash-prefix has no TTY for a silent password prompt). `sensor-fridge`
+**is enabled** (node `van`): no secret or gating; its one-time setup was joining the
+fridge to the van WiFi (CFX3 front panel + app) and pinning its DHCP lease
+(`84:cc:a8:55:ca:30` → `192.168.42.185`) on van-edge to match the unit's `CFX_HOST`.
 
 The ESP32 node is flashed from a dev host, not the Pi:
 `uv tool run esphome run firmware/cabin-bme680.yaml` (first flash over USB, OTA after;

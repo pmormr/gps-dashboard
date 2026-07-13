@@ -1,0 +1,30 @@
+# Fridge reader (Dometic CFX3 as a sensor): DDMP-over-WiFi poll → MQTT publisher.
+# Enabled-gated like sensor-victron — stays disabled until the fridge is joined to
+# the van WiFi, so a host without one never crash-loops. Runs continuously and
+# self-reports the stream offline when the fridge is unreachable (WiFi off, out of
+# range); each poll is a short connect→collect→disconnect so the phone app keeps
+# its slot between polls (the fridge serves one client at a time).
+#
+# No secret: the fridge's DDMP port is unauthenticated on the trusted LAN. CFX_HOST
+# pins the fridge IP — keep it matched to the static DHCP lease on van-edge.
+[Unit]
+Description=Fridge reader (Dometic CFX3 → MQTT publisher)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+Environment=GPS_SENSOR_NODE=van
+Environment=CFX_HOST=192.168.42.185
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/fridge_reader.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

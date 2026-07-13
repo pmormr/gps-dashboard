@@ -151,6 +151,27 @@ READING_TABLES: dict[str, ReadingTable] = {
             'record_mode',
         ],
     },
+    'fridge': {
+        'table': 'fridge_readings',
+        'metrics': [
+            'comp0_temp_c',
+            'comp1_temp_c',
+            'comp0_set_c',
+            'comp1_set_c',
+            'comp0_door_open',
+            'comp1_door_open',
+            'comp0_power',
+            'comp1_power',
+            'cooler_power',
+            'power_source',
+            'input_voltage_v',
+            'battery_protection',
+            'temp_alert_cc',
+            'temp_alert_dcm',
+            'door_alert',
+            'voltage_alert',
+        ],
+    },
     'system': {
         'table': 'system_readings',
         'metrics': [
@@ -311,6 +332,16 @@ _HDD_STATE = {0: 'Fault', 1: 'OK'}
 _ONLINE_STATE = {0: 'Offline', 1: 'Online'}
 #: Dahua RecordMode config enum.
 _RECORD_MODE = {0: 'Auto', 1: 'Manual', 2: 'Off'}
+#: CFX3 DDMP PowerSourceType.
+_FRIDGE_POWER_SOURCE = {0: 'AC', 1: 'DC', 2: 'Solar'}
+#: CFX3 battery-protection level (the front-panel LOW/MED/HIGH setting).
+_BATTERY_PROTECTION = {0: 'Low', 1: 'Medium', 2: 'High'}
+#: CFX3 compartment door state.
+_DOOR_STATE = {0: 'Closed', 1: 'Open'}
+#: Plain on/off (fridge cooler + per-zone power).
+_ON_OFF = {0: 'Off', 1: 'On'}
+#: CFX3 alarm flags.
+_ALERT_STATE = {0: 'OK', 1: 'Alert'}
 #: vcgencmd get_throttled bitmask. Low bits are currently-active; bits 16+ are the
 #: sticky "has occurred since boot" flags. The 0 key is the all-clear label.
 _THROTTLED_BITS = {
@@ -448,6 +479,45 @@ METRIC_META: dict[str, MetricMeta] = {
     'online': _m('Camera', dec=0, chart=False, group='health', codec='enum', codes=_ONLINE_STATE),
     'record_mode': _m(
         'Record mode', dec=0, chart=False, group='recording', codec='enum', codes=_RECORD_MODE
+    ),
+    # Dometic CFX3 fridge node (dual zone; comp0/comp1 labels stay generic because
+    # either compartment can run as fridge or freezer). Setpoints and states render
+    # as cells; the two measured temps + input voltage are the trend channels.
+    'comp0_temp_c': _m('Zone 1', '°C', dec=1, color=_BLUE, convert='c_to_f', group='cooling'),
+    'comp1_temp_c': _m('Zone 2', '°C', dec=1, color=_CYAN, convert='c_to_f', group='cooling'),
+    'comp0_set_c': _m('Zone 1 set', '°C', dec=1, chart=False, convert='c_to_f', group='cooling'),
+    'comp1_set_c': _m('Zone 2 set', '°C', dec=1, chart=False, convert='c_to_f', group='cooling'),
+    'comp0_door_open': _m(
+        'Zone 1 door', dec=0, chart=False, group='cooling', codec='enum', codes=_DOOR_STATE
+    ),
+    'comp1_door_open': _m(
+        'Zone 2 door', dec=0, chart=False, group='cooling', codec='enum', codes=_DOOR_STATE
+    ),
+    'comp0_power': _m(
+        'Zone 1 power', dec=0, chart=False, group='cooling', codec='enum', codes=_ON_OFF
+    ),
+    'comp1_power': _m(
+        'Zone 2 power', dec=0, chart=False, group='cooling', codec='enum', codes=_ON_OFF
+    ),
+    'cooler_power': _m('Cooler', dec=0, chart=False, group='cooling', codec='enum', codes=_ON_OFF),
+    'power_source': _m(
+        'Source', dec=0, chart=False, group='power', codec='enum', codes=_FRIDGE_POWER_SOURCE
+    ),
+    'input_voltage_v': _m('Input', 'V', dec=1, color=_YELLOW, group='power'),
+    'battery_protection': _m(
+        'Batt protect', dec=0, chart=False, group='power', codec='enum', codes=_BATTERY_PROTECTION
+    ),
+    'temp_alert_cc': _m(
+        'Temp alert', dec=0, chart=False, group='alerts', codec='enum', codes=_ALERT_STATE
+    ),
+    'temp_alert_dcm': _m(
+        'Temp alert (DCM)', dec=0, chart=False, group='alerts', codec='enum', codes=_ALERT_STATE
+    ),
+    'door_alert': _m(
+        'Door alert', dec=0, chart=False, group='alerts', codec='enum', codes=_ALERT_STATE
+    ),
+    'voltage_alert': _m(
+        'Voltage alert', dec=0, chart=False, group='alerts', codec='enum', codes=_ALERT_STATE
     ),
     'disk_root_pct': _m(
         'Disk (root)', '%', dec=0, color=_PURPLE, y_range=[0, 100], group='storage'

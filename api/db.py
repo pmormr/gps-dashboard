@@ -303,6 +303,40 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_camera_time
             ON camera_readings(timestamp);
 
+        -- Dometic CFX3 fridge telemetry, ingested over MQTT like the other streams.
+        -- Polled from the fridge's DDMP TCP server by sensors/fridge_reader.py (one
+        -- row per ~60s snapshot) onto the canonical ms grid. comp0/comp1 are the
+        -- dual-zone compartments (either can be fridge or freezer — the setpoint
+        -- decides, hence generic zone naming); power_source and battery_protection
+        -- are enums (INTEGER); the *_alert columns are the fridge's own alarm flags.
+        -- An unreachable fridge is a dropped cycle + stream offline, not a row.
+        -- Column set mirrors api/sensor_schema.py's 'fridge' metrics.
+        CREATE TABLE IF NOT EXISTS fridge_readings (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id          INTEGER NOT NULL,
+            timestamp          TEXT NOT NULL,
+            comp0_temp_c       REAL,
+            comp1_temp_c       REAL,
+            comp0_set_c        REAL,
+            comp1_set_c        REAL,
+            comp0_door_open    INTEGER,
+            comp1_door_open    INTEGER,
+            comp0_power        INTEGER,
+            comp1_power        INTEGER,
+            cooler_power       INTEGER,
+            power_source       INTEGER,
+            input_voltage_v    REAL,
+            battery_protection INTEGER,
+            temp_alert_cc      INTEGER,
+            temp_alert_dcm     INTEGER,
+            door_alert         INTEGER,
+            voltage_alert      INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_fridge_sensor_time
+            ON fridge_readings(sensor_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_fridge_time
+            ON fridge_readings(timestamp);
+
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id   INTEGER,

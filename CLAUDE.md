@@ -23,7 +23,7 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` and `gps-db-backup` are timer-driven oneshots, not restarted (their timers are idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`/`-fridge`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` and `gps-db-backup` are timer-driven oneshots, not restarted (their timers are idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
@@ -95,7 +95,7 @@ GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pas
 
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
 
-The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
+The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `fridge_readings`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
 
@@ -138,7 +138,7 @@ Two layers of stall detection: a 30s socket timeout catches a fully frozen gpsd 
 
 ### Sensor Platform (MQTT)
 
-A second data stream beyond GPS: sensor readings ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation; GPS logging stays off the bus. Six streams are live, each a reader publishing `sensors/<node>/<type>` through the same ingest into its own `*_readings` table: the cabin BME680 (ESPHome ESP32-C6, BSEC2 IAQ), the van's OBD-II (engine-gated Pi-side reader via an SGW-bypass harness; PID set in `reference/obd-supported-pids.md`), Victron house power, the Pi host itself, the van-edge router (SSH poll), and the Dahua NVR + camera fleet (CGI/RPC2). Adding a stream is a spec entry (`api/sensor_schema.py`), not a new pipeline. The SPA's Systems and Trends views read the ingested data from the DB. See **`.claude/modules/sensors.md`** for per-stream architecture and the remaining roadmap (*live* MQTT-over-WS push readouts + alarms are still planned).
+A second data stream beyond GPS: sensor readings ingested over a local mosquitto MQTT bus into the **same** SQLite DB, for GPS↔sensor correlation; GPS logging stays off the bus. Seven streams are live, each a reader publishing `sensors/<node>/<type>` through the same ingest into its own `*_readings` table: the cabin BME680 (ESPHome ESP32-C6, BSEC2 IAQ), the van's OBD-II (engine-gated Pi-side reader via an SGW-bypass harness; PID set in `reference/obd-supported-pids.md`), Victron house power, the Pi host itself, the van-edge router (SSH poll), the Dahua NVR + camera fleet (CGI/RPC2), and the Dometic CFX3 fridge (DDMP-over-WiFi poll). Adding a stream is a spec entry (`api/sensor_schema.py`), not a new pipeline. The SPA's Systems and Trends views read the ingested data from the DB. See **`.claude/modules/sensors.md`** for per-stream architecture and the remaining roadmap (*live* MQTT-over-WS push readouts + alarms are still planned).
 
 ### Radio Control (CI-V)
 
@@ -196,7 +196,8 @@ gps-dashboard/
 │   ├── system_reader.py        # Pi host metrics (cpu/mem/disk/temp/throttle) → sensors/pi/system (stdlib /proc + vcgencmd)
 │   ├── openwrt_reader.py       # van-edge router SSH poll → sensors/van-edge/openwrt (one sh -s round-trip per poll)
 │   ├── dahua_reader.py         # Dahua NVR + cams CGI/RPC2 fleet poll → 5 node streams (types nvr + camera)
-│   └── dahua_rpc.py            # minimal Dahua RPC2 JSON client (challenge login, object-style handles)
+│   ├── dahua_rpc.py            # minimal Dahua RPC2 JSON client (challenge login, object-style handles)
+│   └── fridge_reader.py        # Dometic CFX3 DDMP-over-WiFi poll → sensors/van/fridge
 ├── mqttbus/                    # broker-side consumers + shared MQTT helpers
 │   ├── topics.py
 │   ├── client.py
@@ -264,6 +265,7 @@ gps-dashboard/
 │   ├── sensor-pi.service        # Pi host-metrics reader unit (node pi; enabled by default — no hardware/secret/gating)
 │   ├── sensor-openwrt.service   # enabled-gated OpenWrt reader unit (node van-edge; auth = Pi SSH key on the router)
 │   ├── sensor-dahua.service     # enabled-gated Dahua fleet reader unit (5 nodes; secret via /etc/default/gps-dahua)
+│   ├── sensor-fridge.service    # enabled-gated CFX3 fridge reader unit (node van; CFX_HOST pins the fridge IP)
 │   ├── gps-drone-sync.service   # timer-driven DJI footage import (Pi → NAS container)
 │   ├── gps-drone-sync.timer
 │   ├── gps-db-backup.service    # timer-driven DB backup (snapshot → rsync to rex-nas /volume1)
