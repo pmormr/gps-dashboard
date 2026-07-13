@@ -85,11 +85,13 @@ deci-amps** + one trailing tick byte.
   hour" reading was a coincidence of one roll landing near 17:00 — an
   eliminated hypothesis; don't re-derive it from a single observation.
 - **Measured widths** (watch runs, 2026-07-13): hour-span rolls 607–608 s apart
-  across four consecutive rolls → **608 s** (tick = 2.375 s exactly);
-  day-span tick ≈ 57 s → modeled **4 h (14 400 s)**; week-span tick ≈ 6 min →
-  modeled **24 h (86 400 s)** (`common.ddmp.HISTORY_BUCKET_S`). So the spans
-  cover roughly the trailing 70 min / 28 h / 7 d in 7 buckets each. Day/week
-  widths carry more measurement error than hour (fewer observed rolls).
+  across five consecutive rolls → **608 s** (tick = 2.375 s exactly); day-span
+  tick measured 57.7 s over 62 ticks with one observed wrap-roll (tail 254 →
+  shift + 0 at ~18:01) → **≈14 700 s (~4.1 h)**; week-span tick ≈ 6 min →
+  modeled **24 h (86 400 s)**, the least-constrained (no observed roll yet)
+  (`common.ddmp.HISTORY_BUCKET_S`). So the spans cover roughly the trailing
+  70 min / 29 h / 7 d in 7 buckets each. The quarter-width snap grid tolerates
+  the residual width error across all 7 bucket indexes.
 - Values are the bucket's average DC draw in deci-amps: this unit idles
   ~0.3–0.6 A at ~26.6 V input, with ~1.5–1.8 A compressor-heavy buckets.
 - **Production mapping** (`sensors/fridge_reader.flatten_history`): the
