@@ -14,10 +14,13 @@ polls. Like the Victron reader, this one owns its retained ``status`` flag
 (``announce_online=False``): a failed poll (fridge WiFi off, out of range) flips the
 stream ``offline`` rather than leaving it online with no data.
 
-The stored column set is ``common.ddmp.TOPICS``. The DDMP error topics
-(NTC/compressor/fan) are deliberately absent: the reference repo's params for them
-are self-described mock-broker values, so subscribing would be guesswork. The four
-alert topics are real.
+The stored column set is ``common.ddmp.TOPICS`` plus ``dc_current_a`` — the live
+DC-draw signal lifted from the fridge's own hour-span history each cycle. The full
+history arrays (hour/day/week, ``HISTORY_EVERY`` cadence) ride the same payload as
+flattened ``fridge_history`` UPSERT rows (bucket semantics: ``reference/
+cfx3-ddmp.md``). The DDMP error topics (NTC/compressor/fan) are deliberately
+absent: the reference repo's params for them are self-described mock-broker
+values, so subscribing would be guesswork. The four alert topics are real.
 
 Run::
 
@@ -29,22 +32,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Protocol
 
 from common.ddmp import (
+    HISTORY_BUCKET_S,
+    HISTORY_PARAMS,
     TOPICS,
     DdmpClient,
     DdmpError,
+    decode_history,
     decode_value,
     fridge_host,
     fridge_port,
 )
-from common.timefmt import now_canonical
+from common.timefmt import canonical_timestamp, now_canonical
 from sensors.runner import (
     Heartbeat,
-    Reading,
-    SimpleSensor,
     add_publisher_args,
     bounded_walk,
     publisher_session,
@@ -59,54 +67,136 @@ PUBLISH_INTERVAL_S = 60.0
 # the loop (the next cycle reconnects fresh).
 POLL_DEADLINE_S = 15.0
 
-FRIDGE_COLUMNS: list[str] = list(TOPICS)
+# History poll cadence (bucket widths live in common.ddmp.HISTORY_BUCKET_S):
+# hour is re-polled every cycle (its front bucket is the live DC-draw signal);
+# day/week change slowly, so they ride every 15th cycle to keep sessions short
+# (slot courtesy: the poll, the app, and control writes share the fridge's
+# single client slot).
+HISTORY_EVERY: dict[str, int] = {'hour': 1, 'day': 15, 'week': 15}
+
+#: snapshot columns: every DDMP scalar topic plus the history-derived DC draw.
+FRIDGE_COLUMNS: list[str] = [*TOPICS, 'dc_current_a']
+
+
+@dataclass
+class FridgePoll:
+    """One poll's result: the flat snapshot plus flattened history bucket rows.
+
+    Attributes:
+        values: Column → value over :data:`FRIDGE_COLUMNS` (None = unanswered).
+        history: ``{span, bucket_ts, dc_current_a}`` rows for the spans polled
+            this cycle (ingest UPSERTs them into ``fridge_history``).
+    """
+
+    values: dict[str, float | int | None]
+    history: list[dict[str, object]] = field(default_factory=list)
+
+
+class FridgeSource(Protocol):
+    """A fridge poll source (real or fake) for :func:`publish_loop`."""
+
+    def read(self) -> FridgePoll | None:
+        """Return one poll, or None when the fridge is unreachable."""
+        ...
+
+
+def bucket_timestamp(epoch_s: float) -> str:
+    """Render a bucket-start epoch as a canonical ms-UTC timestamp."""
+    return canonical_timestamp(datetime.fromtimestamp(epoch_s, UTC).isoformat())
+
+
+def flatten_history(
+    span: str, buckets: list[float], poll_epoch_s: float
+) -> list[dict[str, object]]:
+    """Flatten one decoded history array into UPSERT rows with absolute bucket times.
+
+    Index 0 is the in-progress bucket (probed), so its start is the poll time
+    snapped *down* to the span grid and earlier buckets step back one width each.
+    Snapping makes consecutive polls key the same rows — the in-progress bucket's
+    value converges in place until it rolls.
+
+    Args:
+        span: A :data:`HISTORY_BUCKET_S` span.
+        buckets: Decoded per-bucket average DC amps, newest first.
+        poll_epoch_s: Unix time of the poll.
+
+    Returns:
+        One ``{span, bucket_ts, dc_current_a}`` row per bucket.
+    """
+    width = HISTORY_BUCKET_S[span]
+    newest_start = math.floor(poll_epoch_s / width) * width
+    return [
+        {'span': span, 'bucket_ts': bucket_timestamp(newest_start - i * width), 'dc_current_a': v}
+        for i, v in enumerate(buckets)
+    ]
 
 
 class FridgeSensor:
-    """Polls one snapshot from the fridge's DDMP server per :meth:`read` call.
+    """Polls one snapshot (plus due history spans) per :meth:`read` call.
 
-    Each poll is a fresh :class:`~common.ddmp.DdmpClient` session: PING, then a
-    SUBSCRIBE per column, then a drain for in-flight publishes. Unanswered topics
-    come back None — their columns store NULL for that cycle rather than failing
-    the poll.
+    Each poll is a fresh :class:`~common.ddmp.DdmpClient` session: PING, a
+    SUBSCRIBE per scalar column, the history spans due this cycle
+    (:data:`HISTORY_EVERY`), then a drain for in-flight publishes. Unanswered
+    topics come back None — their columns store NULL for that cycle rather than
+    failing the poll — and a failed history read just omits that span's rows.
     """
 
     def __init__(self, host: str, port: int) -> None:
         self._host = host
         self._port = port
+        self._cycle = 0
 
-    def read(self) -> Reading | None:
-        """Return one snapshot (column → value), or None if the fridge is unreachable.
+    def read(self) -> FridgePoll | None:
+        """Return one poll, or None if the fridge is unreachable.
 
         Returns:
-            Every :data:`FRIDGE_COLUMNS` key (None for topics the fridge didn't
-            answer), or None when the connection failed or no topic answered —
-            a fridge that ACKs but publishes nothing is as offline as a dead TCP port.
+            The poll (every :data:`FRIDGE_COLUMNS` key present, None for topics
+            the fridge didn't answer), or None when the connection failed or no
+            topic answered — a fridge that ACKs but publishes nothing is as
+            offline as a dead TCP port.
         """
+        cycle = self._cycle
+        self._cycle += 1
         try:
-            values = self._poll()
+            poll = self._poll(cycle)
         except DdmpError:
             return None
-        if all(value is None for value in values.values()):
+        if all(value is None for value in poll.values.values()):
             return None
-        return values
+        return poll
 
-    def _poll(self) -> dict[str, float | int | None]:
+    def _poll(self, cycle: int) -> FridgePoll:
         """Run one connect→subscribe→collect→disconnect DDMP session."""
         values: dict[str, float | int | None] = {column: None for column in FRIDGE_COLUMNS}
+        due_spans = [span for span, every in HISTORY_EVERY.items() if cycle % every == 0]
+        history: list[dict[str, object]] = []
         with DdmpClient(self._host, self._port, deadline_s=POLL_DEADLINE_S) as client:
             client.ping()
-            for column in FRIDGE_COLUMNS:
+            for column in TOPICS:
                 if client.expired:
                     break
                 client.request(TOPICS[column][0])
+            for span in due_spans:
+                if client.expired:
+                    break
+                client.request(HISTORY_PARAMS[span])
             # Drain briefly: publishes for the last subscribes may still be in flight.
             client.drain()
             for column, (param, kind) in TOPICS.items():
                 frames = client.frames_for(param)
                 if frames:
                     values[column] = decode_value(kind, frames[-1])
-        return values
+            poll_epoch = time.time()
+            for span in due_spans:
+                frames = client.frames_for(HISTORY_PARAMS[span])
+                if not frames:
+                    continue
+                buckets, _tail = decode_history(frames[-1])
+                history.extend(flatten_history(span, buckets, poll_epoch))
+                if span == 'hour' and buckets:
+                    # The in-progress hour bucket is the live DC-draw signal.
+                    values['dc_current_a'] = buckets[0]
+        return FridgePoll(values, history)
 
 
 class FakeFridge:
@@ -121,6 +211,7 @@ class FakeFridge:
         'comp0_temp_c': 2.0,
         'comp1_temp_c': -14.0,
         'input_voltage_v': 26.6,
+        'dc_current_a': 0.8,
     }
     _FIXED: dict[str, float | int] = {
         'comp0_set_c': 1.0,
@@ -141,27 +232,41 @@ class FakeFridge:
     def __init__(self) -> None:
         self._values = dict(self._WALKING)
 
-    def read(self) -> Reading | None:
-        """Return a full synthetic snapshot (always fresh)."""
-        snapshot: dict[str, float | int | None] = dict(self._FIXED)
-        snapshot.update(bounded_walk(self._values, self._WALKING, scale=0.02))
-        return snapshot
+    def read(self) -> FridgePoll | None:
+        """Return a full synthetic poll (always fresh), history included."""
+        values: dict[str, float | int | None] = dict(self._FIXED)
+        values.update(bounded_walk(self._values, self._WALKING, scale=0.02))
+        dc = self._values['dc_current_a']
+        now = time.time()
+        history = [
+            row
+            for span in HISTORY_BUCKET_S
+            for row in flatten_history(span, [round(dc + 0.1 * i, 1) for i in range(7)], now)
+        ]
+        return FridgePoll(values, history)
 
 
-def build_snapshot(reading: Reading) -> dict[str, object]:
-    """Build the publish payload: a timestamp plus every column from the reading.
+def build_snapshot(poll: FridgePoll) -> dict[str, object]:
+    """Build the publish payload: a timestamp, every column, and any history rows.
 
     Args:
-        reading: The polled values (columns the fridge didn't answer may be absent).
+        poll: The poll result (columns the fridge didn't answer may be absent).
 
     Returns:
-        ``{'ts': <ms-UTC>, <column>: <value-or-None>, …}`` over all columns.
+        ``{'ts': <ms-UTC>, <column>: <value-or-None>, …}`` over all columns, plus
+        ``history`` (the ``fridge_history`` UPSERT rows) when the poll carried any.
     """
-    return {'ts': now_canonical(), **{col: reading.get(col) for col in FRIDGE_COLUMNS}}
+    snapshot: dict[str, object] = {
+        'ts': now_canonical(),
+        **{col: poll.values.get(col) for col in FRIDGE_COLUMNS},
+    }
+    if poll.history:
+        snapshot['history'] = poll.history
+    return snapshot
 
 
 def publish_loop(
-    sensor: SimpleSensor,
+    sensor: FridgeSource,
     client: object,
     reading_topic: str,
     status_topic: str,
@@ -185,15 +290,15 @@ def publish_loop(
     client.publish(status_topic, 'offline', qos=1, retain=True)  # type: ignore[attr-defined]
 
     while True:
-        reading = sensor.read()
-        fresh = reading is not None
+        poll = sensor.read()
+        fresh = poll is not None
         if fresh != online:
             payload = 'online' if fresh else 'offline'
             client.publish(status_topic, payload, qos=1, retain=True)  # type: ignore[attr-defined]
             online = fresh
 
-        if reading is not None:
-            snapshot = json.dumps(build_snapshot(reading))
+        if poll is not None:
+            snapshot = json.dumps(build_snapshot(poll))
             client.publish(reading_topic, snapshot, qos=1, retain=True)  # type: ignore[attr-defined]
             hb.bump('published')
         else:

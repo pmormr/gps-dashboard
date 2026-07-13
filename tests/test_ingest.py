@@ -130,6 +130,69 @@ def test_records_nvr_and_camera_readings(conn: sqlite3.Connection) -> None:
     assert nodes == {'van-nvr', 'van-cam-front'}
 
 
+def test_records_fridge_history_upsert(conn: sqlite3.Connection) -> None:
+    """History rows UPSERT on (sensor_id, span, bucket_ts): re-polls converge in place."""
+    topic = topics.SensorTopic(node='van', type='fridge', kind='reading')
+    row = {'span': 'hour', 'bucket_ts': '2026-07-13T17:00:00.000Z', 'dc_current_a': 0.3}
+    stats = IngestStats()
+    record_reading(conn, topic, {'ts': TS, 'history': [row]}, RECEIPT, stats)
+    record_reading(
+        conn, topic, {'ts': TS, 'history': [{**row, 'dc_current_a': 1.5}]}, RECEIPT, stats
+    )
+
+    stored = conn.execute('SELECT * FROM fridge_history').fetchall()
+    assert len(stored) == 1
+    assert stored[0]['dc_current_a'] == 1.5
+    assert stored[0]['updated_at'] == TS
+    assert stats.hist_rows == 2
+
+
+def test_fridge_history_spans_key_separately(conn: sqlite3.Connection) -> None:
+    """The same bucket_ts under different spans is two rows, not one."""
+    topic = topics.SensorTopic(node='van', type='fridge', kind='reading')
+    ts = '2026-07-13T00:00:00.000Z'
+    history = [
+        {'span': 'day', 'bucket_ts': ts, 'dc_current_a': 0.5},
+        {'span': 'week', 'bucket_ts': ts, 'dc_current_a': 0.4},
+    ]
+    record_reading(conn, topic, {'ts': TS, 'history': history}, RECEIPT, IngestStats())
+
+    spans = {r['span']: r['dc_current_a'] for r in conn.execute('SELECT * FROM fridge_history')}
+    assert spans == {'day': 0.5, 'week': 0.4}
+
+
+def test_fridge_history_malformed_rows_counted_not_written(conn: sqlite3.Connection) -> None:
+    """Non-dict rows and missing/non-string key parts are skipped and counted."""
+    topic = topics.SensorTopic(node='van', type='fridge', kind='reading')
+    history = [
+        'not a dict',
+        {'span': 'hour', 'dc_current_a': 1.0},  # no bucket_ts
+        {'span': 'hour', 'bucket_ts': 12345, 'dc_current_a': 1.0},  # non-string key
+        {'span': 'hour', 'bucket_ts': '2026-07-13T17:00:00.000Z', 'dc_current_a': None},
+    ]
+    stats = IngestStats()
+    record_reading(conn, topic, {'ts': TS, 'history': history}, RECEIPT, stats)
+
+    stored = conn.execute('SELECT * FROM fridge_history').fetchall()
+    assert len(stored) == 1
+    assert stored[0]['dc_current_a'] is None  # a NULL metric is valid; bad keys are not
+    assert stats.hist_bad == 3
+    assert stats.written == 1  # the flat reading row still lands
+
+
+def test_fridge_reading_without_history_is_plain_insert(conn: sqlite3.Connection) -> None:
+    """A fridge payload with no history key writes the flat row and nothing else."""
+    topic = topics.SensorTopic(node='van', type='fridge', kind='reading')
+    record_reading(
+        conn, topic, {'ts': TS, 'comp0_temp_c': 2.0, 'dc_current_a': 0.9}, RECEIPT, IngestStats()
+    )
+
+    row = conn.execute('SELECT * FROM fridge_readings').fetchone()
+    assert row['comp0_temp_c'] == 2.0
+    assert row['dc_current_a'] == 0.9
+    assert conn.execute('SELECT COUNT(*) FROM fridge_history').fetchone()[0] == 0
+
+
 def test_unknown_type_counted_not_written(conn: sqlite3.Connection) -> None:
     """A reading for an unregistered type increments unknown_type and writes nothing."""
     topic = topics.SensorTopic(node='x', type='mystery', kind='reading')

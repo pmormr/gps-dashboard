@@ -2,25 +2,29 @@
 
 The load-bearing contract: the reader's snapshot columns stay in lockstep with the
 shared ``fridge`` schema, a poll session fills the snapshot from whatever the
-fridge published (NULLing unanswered topics), and the poll→publish loop owns the
-retained status flag. Wire framing/codec tests live in ``tests/test_ddmp.py``.
+fridge published (NULLing unanswered topics), history arrays flatten onto a stable
+bucket grid, and the poll→publish loop owns the retained status flag. Wire
+framing/codec tests live in ``tests/test_ddmp.py``.
 """
 
 from __future__ import annotations
 
 import json
 import socket
+from datetime import datetime
 from typing import Any
 
 import pytest
 
 from api.sensor_schema import READING_TABLES
-from common.ddmp import ACK, PUBLISH, TOPICS, encode_frame
+from common.ddmp import ACK, HISTORY_PARAMS, PUBLISH, TOPICS, encode_frame
 from sensors.fridge_reader import (
     FRIDGE_COLUMNS,
     FakeFridge,
+    FridgePoll,
     FridgeSensor,
     build_snapshot,
+    flatten_history,
     publish_loop,
 )
 
@@ -75,17 +79,21 @@ def test_columns_unique() -> None:
     assert len(params) == len(set(params))
 
 
-def _session_chunk(published: dict[str, list[int]]) -> bytes:
-    """Script one poll session: publishes for ``published``, then ACKs for every send.
+def _session_chunk(
+    published: dict[str, list[int]], history: dict[str, list[int]] | None = None
+) -> bytes:
+    """Script one poll session: publishes up front, then ACKs for every send.
 
-    The reader sends 1 PING + one SUBSCRIBE per column; every incoming frame is
-    handled wherever it lands in the stream, so a single chunk answering
-    everything up front is a valid fridge.
+    The reader sends 1 PING + one SUBSCRIBE per scalar column + one per due
+    history span; every incoming frame is handled wherever it lands in the
+    stream, so a single chunk answering everything up front is a valid fridge.
     """
     chunk = b''
     for column, value_bytes in published.items():
         chunk += encode_frame([PUBLISH, *TOPICS[column][0], *value_bytes])
-    chunk += encode_frame([ACK]) * (1 + len(FRIDGE_COLUMNS))
+    for span, value_bytes in (history or {}).items():
+        chunk += encode_frame([PUBLISH, *HISTORY_PARAMS[span], *value_bytes])
+    chunk += encode_frame([ACK]) * (1 + len(TOPICS) + len(HISTORY_PARAMS))
     return chunk
 
 
@@ -95,12 +103,53 @@ def test_poll_fills_answered_and_nulls_unanswered(monkeypatch: pytest.MonkeyPatc
     fake = FakeSocket([chunk])
     monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: fake)
 
-    reading = FridgeSensor('fridge', 1).read()
+    poll = FridgeSensor('fridge', 1).read()
 
-    assert reading is not None
-    assert reading['comp0_temp_c'] == 2.0
-    assert reading['comp1_set_c'] == -15.0
-    assert reading['comp0_door_open'] is None
+    assert poll is not None
+    assert poll.values['comp0_temp_c'] == 2.0
+    assert poll.values['comp1_set_c'] == -15.0
+    assert poll.values['comp0_door_open'] is None
+    assert poll.history == []
+
+
+def test_poll_flattens_history_and_lifts_dc_draw(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A history publish becomes bucket rows; the hour front bucket → dc_current_a."""
+    hour_frame = [15, 0, 0, 0, 11, 0, 10, 0, 0, 0, 10, 0, 9, 0, 25]
+    chunk = _session_chunk({'comp0_temp_c': [20, 0]}, {'hour': hour_frame})
+    fake = FakeSocket([chunk])
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: fake)
+
+    poll = FridgeSensor('fridge', 1).read()
+
+    assert poll is not None
+    assert poll.values['dc_current_a'] == 1.5
+    hour_rows = [row for row in poll.history if row['span'] == 'hour']
+    assert len(hour_rows) == 7
+    assert hour_rows[0]['dc_current_a'] == 1.5
+    assert hour_rows[6]['dc_current_a'] == 0.9
+
+
+def test_flatten_history_snaps_to_grid() -> None:
+    """Bucket starts snap down to the span grid, newest first, one width apart."""
+    poll_epoch = 1_784_134_836.0
+    rows = flatten_history('hour', [1.5, 0.0, 1.1], poll_epoch)
+
+    starts = [
+        datetime.fromisoformat(str(row['bucket_ts']).replace('Z', '+00:00')).timestamp()
+        for row in rows
+    ]
+    assert starts[0] % 3600 == 0
+    assert starts[0] <= poll_epoch < starts[0] + 3600
+    assert [starts[0] - s for s in starts] == [0, 3600, 7200]
+    assert [row['dc_current_a'] for row in rows] == [1.5, 0.0, 1.1]
+    assert all(row['span'] == 'hour' for row in rows)
+
+
+def test_flatten_history_is_stable_within_a_bucket() -> None:
+    """Two polls inside the same hour key the same rows (UPSERT convergence)."""
+    early = flatten_history('hour', [1.0], 1784134836.0)
+    late = flatten_history('hour', [1.2], 1784138399.0)
+    assert early[0]['bucket_ts'] == late[0]['bucket_ts']
 
 
 def test_read_returns_none_when_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,20 +169,28 @@ def test_read_returns_none_when_nothing_answered(monkeypatch: pytest.MonkeyPatch
     assert FridgeSensor('fridge', 1).read() is None
 
 
-def test_fake_fridge_yields_every_column() -> None:
-    """The synthetic source returns a numeric value for every column."""
-    reading = FakeFridge().read()
-    assert reading is not None
-    assert set(reading) == set(FRIDGE_COLUMNS)
-    assert all(isinstance(value, int | float) for value in reading.values())
+def test_fake_fridge_yields_every_column_and_history() -> None:
+    """The synthetic source returns numbers for every column plus history rows."""
+    poll = FakeFridge().read()
+    assert poll is not None
+    assert set(poll.values) == set(FRIDGE_COLUMNS)
+    assert all(isinstance(value, int | float) for value in poll.values.values())
+    assert {row['span'] for row in poll.history} == {'hour', 'day', 'week'}
 
 
 def test_build_snapshot_has_ts_and_all_columns() -> None:
     """The payload carries a timestamp plus every column (None when unanswered)."""
-    snapshot = build_snapshot({'comp0_temp_c': 2.0})
+    snapshot = build_snapshot(FridgePoll({'comp0_temp_c': 2.0}))
     assert set(snapshot) == {'ts', *FRIDGE_COLUMNS}
     assert snapshot['comp0_temp_c'] == 2.0
     assert snapshot['comp1_temp_c'] is None
+
+
+def test_build_snapshot_carries_history_when_present() -> None:
+    """History rows ride the payload only when the poll produced any."""
+    rows = flatten_history('hour', [1.0], 1_784_134_836.0)
+    snapshot = build_snapshot(FridgePoll({}, rows))
+    assert snapshot['history'] == rows
 
 
 def test_publish_loop_emits_full_snapshot() -> None:
@@ -150,8 +207,9 @@ def test_publish_loop_emits_full_snapshot() -> None:
     readings = [payload for topic, payload in client.published if topic == 'sensors/van/fridge']
     assert len(readings) == 1
     payload = json.loads(readings[0])
-    assert set(payload) == {'ts', *FRIDGE_COLUMNS}
+    assert set(payload) == {'ts', 'history', *FRIDGE_COLUMNS}
     assert all(isinstance(payload[col], int | float) for col in FRIDGE_COLUMNS)
+    assert all(row.keys() == {'span', 'bucket_ts', 'dc_current_a'} for row in payload['history'])
 
 
 def test_publish_loop_flips_status_online_when_reachable() -> None:

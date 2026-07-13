@@ -70,6 +70,11 @@ HISTORY_PARAMS: dict[str, list[int]] = {
     'week': [0, 66, 3, 1],
 }
 
+#: span → bucket width in seconds, pinned by probing (``reference/cfx3-ddmp.md``):
+#: each span publishes 7 buckets, newest (in-progress) first, rolling on the wall
+#: boundary. Shared by the reader's flattening and the history read route.
+HISTORY_BUCKET_S: dict[str, int] = {'hour': 3600, 'day': 86400, 'week': 604800}
+
 #: presented temperature unit (u8: 0 = °C, 1 = °F) — how the fridge itself displays.
 PRESENTED_UNIT_PARAM: list[int] = [0, 0, 2, 1]
 

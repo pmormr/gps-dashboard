@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from api.db import canonical_timestamp, get_connection, init_db
-from api.sensor_schema import READING_TABLES
+from api.sensor_schema import HISTORY_TABLES, READING_TABLES, HistoryTable
 from common.humidity import with_derived_humidity
 from mqttbus import topics
 from mqttbus.client import KEEPALIVE_SECONDS, broker_host, broker_port, make_client
@@ -41,6 +41,10 @@ FUTURE_SKEW_SECONDS = 60
 
 CLIENT_ID = 'gps-ingest'
 
+# Hard bound on history rows accepted per reading — a sane payload carries ~21
+# (7 buckets × 3 spans); anything past this is a garbage payload, not data.
+HISTORY_ROW_CAP = 500
+
 
 @dataclass
 class IngestStats:
@@ -53,6 +57,8 @@ class IngestStats:
 
     written: int = 0
     status_updates: int = 0
+    hist_rows: int = 0
+    hist_bad: int = 0
     ts_missing: int = 0
     ts_bad: int = 0
     ts_future: int = 0
@@ -63,14 +69,17 @@ class IngestStats:
     def reset_window(self) -> None:
         """Zero the per-window counters, preserving the heartbeat clock."""
         self.written = self.status_updates = 0
+        self.hist_rows = self.hist_bad = 0
         self.ts_missing = self.ts_bad = self.ts_future = 0
         self.unknown_type = self.json_err = 0
 
     def heartbeat_line(self) -> str:
         """Build a one-line summary of the current window for the journal."""
         return (
-            f'heartbeat: wrote={self.written} status={self.status_updates} | '
-            f'dropped unknown_type={self.unknown_type} json_err={self.json_err} | '
+            f'heartbeat: wrote={self.written} status={self.status_updates} '
+            f'hist={self.hist_rows} | '
+            f'dropped unknown_type={self.unknown_type} json_err={self.json_err} '
+            f'hist_bad={self.hist_bad} | '
             f'ts_fallback missing={self.ts_missing} bad={self.ts_bad} '
             f'future={self.ts_future}'
         )
@@ -172,9 +181,64 @@ def record_reading(
         f'INSERT INTO {spec["table"]} ({columns}) VALUES ({placeholders})',
         values,
     )
+    history_spec = HISTORY_TABLES.get(topic.type)
+    if history_spec is not None:
+        record_history(conn, history_spec, sensor_id, payload, receipt_iso, stats)
     conn.execute('UPDATE sensors SET last_seen = ? WHERE id = ?', (receipt_iso, sensor_id))
     conn.commit()
     stats.written += 1
+
+
+def record_history(
+    conn: sqlite3.Connection,
+    spec: HistoryTable,
+    sensor_id: int,
+    payload: dict,
+    receipt_iso: str,
+    stats: IngestStats,
+) -> None:
+    """UPSERT a reading's bucket-shaped history rows per its ``HISTORY_TABLES`` spec.
+
+    A device re-publishes its whole history window every poll, so rows conflict on
+    their bucket identity ``(sensor_id, *key)`` and update in place — an evolving
+    in-progress bucket converges instead of appending near-duplicates. Malformed
+    rows (non-dict, missing/non-string key parts) and rows past ``HISTORY_ROW_CAP``
+    are skipped and counted; an absent/non-list payload key is a no-op.
+
+    Args:
+        conn: Open SQLite connection (committed by the caller).
+        spec: The type's history spec.
+        sensor_id: The owning ``sensors.id``.
+        payload: The decoded JSON reading.
+        receipt_iso: Canonical receipt time, stored as ``updated_at``.
+        stats: Counters, mutated in place.
+    """
+    rows = payload.get(spec['payload_key'])
+    if not isinstance(rows, list):
+        return
+    key_cols, metric_cols = spec['key'], spec['metrics']
+    columns = ['sensor_id', *key_cols, *metric_cols, 'updated_at']
+    updates = ', '.join(f'{col} = excluded.{col}' for col in (*metric_cols, 'updated_at'))
+    sql = (
+        f'INSERT INTO {spec["table"]} ({", ".join(columns)}) '
+        f'VALUES ({", ".join("?" * len(columns))}) '
+        f'ON CONFLICT(sensor_id, {", ".join(key_cols)}) DO UPDATE SET {updates}'
+    )
+    stats.hist_bad += max(0, len(rows) - HISTORY_ROW_CAP)
+    for row in rows[:HISTORY_ROW_CAP]:
+        if not isinstance(row, dict) or not all(
+            isinstance(row.get(col), str) and row[col] for col in key_cols
+        ):
+            stats.hist_bad += 1
+            continue
+        values = [
+            sensor_id,
+            *(row[col] for col in key_cols),
+            *(row.get(col) for col in metric_cols),
+            receipt_iso,
+        ]
+        conn.execute(sql, values)
+        stats.hist_rows += 1
 
 
 def apply_status(

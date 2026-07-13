@@ -330,12 +330,28 @@ def init_db(conn: sqlite3.Connection) -> None:
             temp_alert_cc      INTEGER,
             temp_alert_dcm     INTEGER,
             door_alert         INTEGER,
-            voltage_alert      INTEGER
+            voltage_alert      INTEGER,
+            dc_current_a       REAL
         );
         CREATE INDEX IF NOT EXISTS idx_fridge_sensor_time
             ON fridge_readings(sensor_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_fridge_time
             ON fridge_readings(timestamp);
+
+        -- The fridge's own DC power-usage history (7 buckets per span, decoded from
+        -- the DDMP history topics), flattened by the reader to one row per bucket
+        -- and UPSERTed by ingest via the HISTORY_TABLES spec (api/sensor_schema.py)
+        -- — re-polling a window updates rows in place instead of appending
+        -- near-duplicates. bucket_ts is the grid-snapped bucket start (canonical
+        -- ms-UTC); the PK is exactly the read path (one fridge, span + time scans).
+        CREATE TABLE IF NOT EXISTS fridge_history (
+            sensor_id    INTEGER NOT NULL,
+            span         TEXT NOT NULL,      -- 'hour' | 'day' | 'week'
+            bucket_ts    TEXT NOT NULL,
+            dc_current_a REAL,
+            updated_at   TEXT NOT NULL,
+            PRIMARY KEY (sensor_id, span, bucket_ts)
+        ) WITHOUT ROWID;
 
         CREATE TABLE IF NOT EXISTS alarm_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -547,6 +563,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     """)
     conn.commit()
     _migrate_live_throttle_channels(conn)
+    _migrate_fridge_dc_current(conn)
     # The places tier lives in the ATTACHed sidecar, so its schema (and the
     # one-shot migration into it) only applies to connections that have one —
     # every get_connection() caller. Bare connections (tests, ad-hoc scripts)
@@ -867,6 +884,23 @@ _LIVE_THROTTLE_COLUMNS: dict[str, int] = {
     'throttled_now': 0x4,
     'temp_limit_now': 0x8,
 }
+
+
+def _migrate_fridge_dc_current(conn: sqlite3.Connection) -> None:
+    """One-shot: add ``fridge_readings.dc_current_a`` (the fridge's DC draw).
+
+    Sourced from the newest bucket of the fridge's own hour-span history each
+    poll cycle; no backfill is possible (the pre-migration polls never subscribed
+    the history topics). Gated on the column add, so steady-state startups pay one
+    PRAGMA. Drop once landed on the Pi's DB, like the earlier one-shot migrations.
+    """
+    # Positional index — callers pass connections with and without a row factory.
+    existing = {row[1] for row in conn.execute('PRAGMA table_info(fridge_readings)')}
+    if 'dc_current_a' in existing:
+        return
+    conn.execute('ALTER TABLE fridge_readings ADD COLUMN dc_current_a REAL')
+    conn.commit()
+    print('Migration: added fridge_readings.dc_current_a')
 
 
 def _migrate_live_throttle_channels(conn: sqlite3.Connection) -> None:

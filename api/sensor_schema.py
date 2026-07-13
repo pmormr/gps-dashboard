@@ -170,6 +170,7 @@ READING_TABLES: dict[str, ReadingTable] = {
             'temp_alert_dcm',
             'door_alert',
             'voltage_alert',
+            'dc_current_a',
         ],
     },
     'system': {
@@ -188,6 +189,42 @@ READING_TABLES: dict[str, ReadingTable] = {
             'throttled_now',
             'temp_limit_now',
         ],
+    },
+}
+
+
+class HistoryTable(TypedDict):
+    """A sensor type's bucket-shaped history spec — the UPSERT companion to
+    :class:`ReadingTable`.
+
+    Some devices keep their own windowed history (the fridge's DC power-usage
+    buckets) that a poll re-reads whole each cycle: overlapping windows must
+    *update* rows keyed by bucket identity, not append near-duplicates like the
+    flat reading INSERT. A type with an entry here may carry ``payload_key`` in
+    its reading payload — a list of row dicts — and ingest UPSERTs each row into
+    ``table`` on ``(sensor_id, *key)``. Adding a bucket-shaped stream stays a
+    spec entry, not an ingest code branch.
+
+    Attributes:
+        payload_key: Reading-payload key carrying the row list (absent = no-op).
+        table: The SQLite history table (created in ``api.db``).
+        key: Row-identity columns (TEXT, from each row dict) after ``sensor_id``.
+        metrics: Value columns UPSERTed from each row dict (NULL when absent).
+    """
+
+    payload_key: str
+    table: str
+    key: list[str]
+    metrics: list[str]
+
+
+#: ``type -> history spec`` for types that publish bucket-shaped history.
+HISTORY_TABLES: dict[str, HistoryTable] = {
+    'fridge': {
+        'payload_key': 'history',
+        'table': 'fridge_history',
+        'key': ['span', 'bucket_ts'],
+        'metrics': ['dc_current_a'],
     },
 }
 
@@ -504,6 +541,7 @@ METRIC_META: dict[str, MetricMeta] = {
         'Source', dec=0, chart=False, group='power', codec='enum', codes=_FRIDGE_POWER_SOURCE
     ),
     'input_voltage_v': _m('Input', 'V', dec=1, color=_YELLOW, group='power'),
+    'dc_current_a': _m('DC draw', 'A', dec=1, color=_ORANGE, group='power'),
     'battery_protection': _m(
         'Batt protect', dec=0, chart=False, group='power', codec='enum', codes=_BATTERY_PROTECTION
     ),

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from api.db import _migrate_live_throttle_channels
+from api.db import _migrate_fridge_dc_current, _migrate_live_throttle_channels
 
 LIVE_COLUMNS = ('undervolt_now', 'freq_capped_now', 'throttled_now', 'temp_limit_now')
 
@@ -52,3 +52,18 @@ def test_live_throttle_migration_is_idempotent() -> None:
     _migrate_live_throttle_channels(conn)
     columns = [row['name'] for row in conn.execute('PRAGMA table_info(system_readings)')]
     assert columns.count('undervolt_now') == 1
+
+
+def test_fridge_dc_current_migration_adds_column_once() -> None:
+    """The pre-history fridge_readings shape gains dc_current_a; reruns are no-ops."""
+    conn = sqlite3.connect(':memory:')
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        'CREATE TABLE fridge_readings ('
+        'id INTEGER PRIMARY KEY, sensor_id INTEGER, timestamp TEXT, comp0_temp_c REAL)'
+    )
+    _migrate_fridge_dc_current(conn)
+    _migrate_fridge_dc_current(conn)
+
+    columns = [row['name'] for row in conn.execute('PRAGMA table_info(fridge_readings)')]
+    assert columns.count('dc_current_a') == 1
