@@ -94,9 +94,13 @@ sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source 
   category/rank table `GNIS_CLASS_RANKS` in the importer — **mouth-pinned linear
   classes (Stream/Valley/Canal/Channel/Gut/Arroyo) are rank 5 on purpose**: GNIS
   pins them at the mouth coordinate, so a map pin lies about where the feature
-  is; they stay searchable by name. Rows whose `feature_id`
-  already rides in an OSM row's `gnis:feature_id` tag are skipped — so **re-run the
-  GNIS import after every OSM merge** (a fresh OSM slice moves the dedupe boundary).
+  is; they stay searchable by name. Two dedupe stages run against the live OSM
+  slice: rows whose `feature_id` already rides in an OSM row's `gnis:feature_id`
+  tag are skipped, then `outdoors` rows exact-name-matching a same-feature-category
+  OSM row (`outdoors`/`attraction`/`park`) within ~1 km (`osm_name_dupes` — the
+  untagged remainder of OSM's GNIS seeding, ~14.4k rows; towns never dedupe, the
+  OSM slice has no settlement rows). **Re-run the GNIS import after every OSM
+  merge** (a fresh OSM slice moves both dedupe boundaries).
   Pi-side import like RIDB (pipe-delimited parse, no geometry work).
 - **State parks**: no unified source exists (that's the commercial apps' manual
   aggregation). Punted — federal + OSM is the baseline.

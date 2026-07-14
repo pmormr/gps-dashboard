@@ -22,6 +22,7 @@ from tools.import_places import (
     merge_osm,
     merge_wiki,
     osm_gnis_ids,
+    osm_name_dupes,
 )
 
 _PARK = Place(
@@ -442,6 +443,41 @@ def test_osm_gnis_ids_reads_multivalue_tags(client, tmp_path) -> None:
     conn = get_connection()
     merge_osm(conn, transfer)
     assert osm_gnis_ids(conn) == {'123', '456'}
+    conn.close()
+
+
+def test_gnis_name_proximity_dedupe(client) -> None:
+    """Exact name within ~1 km of a same-feature-category OSM row → skipped.
+
+    Distance or name misses keep the row; a nearby campground sharing the
+    lake's name is a different feature (category gate); towns never dedupe
+    (the OSM slice has no settlement rows).
+    """
+    osm_rows = [
+        Place('natural=peak', 'node/1', None, 'Twin Peak', 40.0, -105.0, 'Peak', {}),
+        Place('tourism=camp_site', 'node/2', None, 'Mirror Lake', 42.0, -103.0, None, {}),
+        Place('shop=gift', 'node/3', None, 'Silverton', 41.0, -104.0, None, {}),
+    ]
+    conn = get_connection()
+    load(
+        conn,
+        osm_rows,
+        [],
+        source='osm',
+        kind_ranks={
+            'natural=peak': ('outdoors', 2),
+            'tourism=camp_site': ('camping', 4),
+            'shop=gift': ('shopping', 3),
+        },
+    )
+    gnis = [
+        Place('summit', 'G1', None, 'Twin Peak', 40.0005, -105.0005, None, {}),
+        Place('summit', 'G2', None, 'Twin Peak', 40.5, -105.0, None, {}),
+        Place('summit', 'G3', None, 'Lone Peak', 40.0, -105.0, None, {}),
+        Place('lake', 'G4', None, 'Mirror Lake', 42.0001, -103.0001, None, {}),
+        Place('populated_place', 'G5', None, 'Silverton', 41.0001, -104.0001, None, {}),
+    ]
+    assert osm_name_dupes(conn, gnis) == {'G1'}
     conn.close()
 
 

@@ -25,10 +25,13 @@ Three mutually exclusive modes, each full-replacing its own ``source`` slice of
   DomesticNames_National_Text.zip``, ~37 MB, refreshed every other month,
   public domain) into ``source='gnis'`` rows: the federal names layer for
   natural features (summits, lakes, streams, springs…) plus populated places.
-  Rows whose ``feature_id`` already rides in an OSM row's
-  ``gnis:feature_id`` tag are skipped (early OSM US imports were GNIS-seeded
-  — ~half the file), so **re-run this after every OSM merge**: a fresh OSM
-  slice can add or drop id-tagged rows either side of the dedupe.
+  Two dedupe stages run against the live OSM slice: rows whose ``feature_id``
+  already rides in an OSM row's ``gnis:feature_id`` tag are skipped (early
+  OSM US imports were GNIS-seeded — ~half the file), then ``outdoors`` rows
+  whose exact name appears on a same-feature-category OSM row within ~1 km
+  (:func:`osm_name_dupes` — the untagged remainder of the same seeding).
+  **Re-run this after every OSM merge**: a fresh OSM slice moves both
+  boundaries.
 * **Wiki merge** (``--wiki-db``) — swaps in the ``place_wiki`` summary cache
   built off-Pi by ``tools/fetch_wikipedia.py`` (offline Wikipedia blurbs +
   thumbnails, keyed by wiki id so source merges never orphan them).
@@ -1080,6 +1083,62 @@ def osm_gnis_ids(conn: sqlite3.Connection) -> set[str]:
     return ids
 
 
+#: Name+proximity dedupe box half-widths (degrees): ~1.1 km of latitude, with
+#: the lon half sized for mid-latitudes rather than cos-scaled — true dupe
+#: pairs sit tens of metres apart, the box only needs slack for imprecise pins.
+_DUPE_LAT_HALF = 0.01
+_DUPE_LON_HALF = 0.015
+#: OSM categories a GNIS ``outdoors`` row can duplicate: the same physical
+#: feature arrives in OSM as ``natural=*`` (outdoors), a ``tourism=*`` row
+#: (attraction — 'Delicate Arch'), or a park/reserve drawn around it. Anything
+#: else sharing the name nearby is a *different* feature named after it (the
+#: campground by the lake, the shop named for the town) and must not dedupe.
+#: ``community`` (populated places) never dedupes — the OSM slice carries no
+#: settlement rows, so every name hit is a false positive.
+_DUPE_OSM_CATEGORIES = ('outdoors', 'attraction', 'park')
+
+
+def osm_name_dupes(conn: sqlite3.Connection, places: list[Place]) -> set[str]:
+    """Find GNIS rows duplicating an OSM row by exact name + proximity.
+
+    The ``gnis:feature_id`` stage (:func:`osm_gnis_ids`) only catches OSM
+    elements that kept the seeded tag; the same summit/spring/falls often
+    rides untagged ('Leadville Mountain', AK — an OSM peak and a GNIS summit
+    30 m apart). Exact-name equality within the ``_DUPE_*`` box, gated to
+    the category pairings that mean "same physical feature", names the rest
+    (~14.4k rows at the 2026-07 corpus). Conservative by construction: a
+    false negative is one redundant search row, a false positive would
+    silently drop a real feature — the richer OSM row is always the keeper.
+
+    Args:
+        conn: An open, initialized connection.
+        places: Parsed GNIS rows (post id-stage).
+
+    Returns:
+        The ``source_id`` set to skip.
+    """
+    conn.execute('DROP TABLE IF EXISTS temp.gnis_cand')
+    conn.execute('CREATE TEMP TABLE gnis_cand (source_id TEXT, name TEXT, lat REAL, lon REAL)')
+    conn.executemany(
+        'INSERT INTO gnis_cand VALUES (?, ?, ?, ?)',
+        [
+            (a.source_id, a.name, a.lat, a.lon)
+            for a in places
+            if a.lat is not None and GNIS_KIND_RANKS.get(a.source_kind, ('', 0))[0] == 'outdoors'
+        ],
+    )
+    conn.execute('CREATE INDEX gnis_cand_name ON gnis_cand (name)')
+    placeholders = ','.join('?' * len(_DUPE_OSM_CATEGORIES))
+    rows = conn.execute(
+        'SELECT DISTINCT c.source_id FROM places p JOIN gnis_cand c ON c.name = p.name '
+        f"WHERE p.source = 'osm' AND p.lat IS NOT NULL AND p.category IN ({placeholders}) "
+        'AND abs(p.lat - c.lat) < ? AND abs(p.lon - c.lon) < ?',
+        (*_DUPE_OSM_CATEGORIES, _DUPE_LAT_HALF, _DUPE_LON_HALF),
+    ).fetchall()
+    conn.execute('DROP TABLE temp.gnis_cand')
+    return {row[0] for row in rows}
+
+
 # --- Load --------------------------------------------------------------------------
 
 
@@ -1349,7 +1408,15 @@ def run_gnis(args: argparse.Namespace) -> int:
     places = [a for a in places if a.source_id not in ids]
     print(
         f'Deduped {before - len(places):,} features already in the tier via OSM '
-        f'gnis:feature_id tags ({len(ids):,} ids on OSM rows); {len(places):,} to load',
+        f'gnis:feature_id tags ({len(ids):,} ids on OSM rows); {len(places):,} left',
+        flush=True,
+    )
+    dupes = osm_name_dupes(conn, places)
+    before = len(places)
+    places = [a for a in places if a.source_id not in dupes]
+    print(
+        f'Deduped {before - len(places):,} more by exact name within ~1 km of a '
+        f'same-feature-category OSM row; {len(places):,} to load',
         flush=True,
     )
     if args.dry_run:
