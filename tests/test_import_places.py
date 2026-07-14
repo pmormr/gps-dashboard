@@ -374,10 +374,20 @@ def test_parse_gnis_skips_out_of_scope_rows() -> None:
     assert parse_gnis_row(guam) is None
 
 
+def test_gnis_mouth_pinned_linear_classes_are_search_only() -> None:
+    """Stream/Valley/… pin at the mouth coordinate — a lie on the map, so
+    rank 5 keeps them searchable but never auto-pinned."""
+    for cls in ('Stream', 'Valley', 'Canal', 'Channel', 'Gut', 'Arroyo'):
+        assert GNIS_CLASS_RANKS[cls] == ('outdoors', 5)
+    # Pin-on-the-feature elongated classes keep their map presence.
+    assert GNIS_CLASS_RANKS['Ridge'][1] < 5
+    assert GNIS_CLASS_RANKS['Range'][1] < 5
+
+
 def test_gnis_kind_ranks_mirror_class_table() -> None:
     assert GNIS_KIND_RANKS['populated_place'] == ('community', 3)
     assert GNIS_KIND_RANKS['summit'] == ('outdoors', 2)
-    assert GNIS_KIND_RANKS['stream'] == ('outdoors', 4)
+    assert GNIS_KIND_RANKS['stream'] == ('outdoors', 5)  # mouth-pinned: search-only
     assert len(GNIS_KIND_RANKS) == len(GNIS_CLASS_RANKS)
 
 

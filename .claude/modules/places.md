@@ -91,7 +91,10 @@ sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source 
   The National Map staged products, refreshed every other month, public domain) — the
   federal *names* layer: summits, lakes, streams, springs, valleys… plus populated
   places (the tier's `community` category; towns searchable by name). Class →
-  category/rank table `GNIS_CLASS_RANKS` in the importer. Rows whose `feature_id`
+  category/rank table `GNIS_CLASS_RANKS` in the importer — **mouth-pinned linear
+  classes (Stream/Valley/Canal/Channel/Gut/Arroyo) are rank 5 on purpose**: GNIS
+  pins them at the mouth coordinate, so a map pin lies about where the feature
+  is; they stay searchable by name. Rows whose `feature_id`
   already rides in an OSM row's `gnis:feature_id` tag are skipped — so **re-run the
   GNIS import after every OSM merge** (a fresh OSM slice moves the dedupe boundary).
   Pi-side import like RIDB (pipe-delimited parse, no geometry work).

@@ -911,15 +911,21 @@ GNIS_MEMBER = 'Text/DomesticNames_National.txt'
 # the tier: searchable data everywhere the map renders, nothing where it doesn't.
 GNIS_BBOX = (-168.0, 7.0, -52.0, 72.0)
 
-#: Feature class → (category, rank) — the reviewable decision table (plan
-#: decisions 20–21), same axes as the OSM ``TAXONOMY``/``PLACES_KIND_RANKS``.
-#: Everything physical is ``outdoors``; ``Populated Place`` is the tier's
-#: ``community`` category (towns searchable by name; rank 3 keeps their pins
-#: from fighting the basemap's own labels below z12). Ranks mirror the OSM
-#: values for the same features (Summit=peak=2, Lake/Reservoir=2, Falls=2).
-#: Unlisted classes are skipped on purpose: Civil/Census are administrative
-#: duplicates of Populated Place; Crossing/Military/Levee/Area aren't
-#: destination features.
+#: Feature class → (category, rank) — the reviewable decision table, same axes
+#: as the OSM ``TAXONOMY``/``PLACES_KIND_RANKS``. Everything physical is
+#: ``outdoors``; ``Populated Place`` is the tier's ``community`` category
+#: (towns searchable by name; rank 3 keeps their pins from fighting the
+#: basemap's own labels below z12). Ranks mirror the OSM values for the same
+#: features (Summit=peak=2, Lake/Reservoir=2, Falls=2). Unlisted classes are
+#: skipped on purpose: Civil/Census are administrative duplicates of Populated
+#: Place; Crossing/Military/Levee/Area aren't destination features.
+#:
+#: **Mouth-pinned linear classes are rank 5 (search-only, never auto-pinned)**:
+#: GNIS pins Stream/Valley/Canal/Channel/Gut/Arroyo at the *mouth* coordinate,
+#: which for a long feature is nowhere near where you're looking — a map pin
+#: there is a lie. They stay searchable by name (the point of this source).
+#: Elongated classes whose pin sits *on* the feature (Ridge, Range) and areal
+#: ones whose pin sits inside it (Swamp, Flat, Basin…) keep their ranks.
 GNIS_CLASS_RANKS: dict[str, tuple[str, int]] = {
     'Populated Place': ('community', 3),
     'Summit': ('outdoors', 2),
@@ -927,7 +933,6 @@ GNIS_CLASS_RANKS: dict[str, tuple[str, int]] = {
     'Reservoir': ('outdoors', 2),
     'Falls': ('outdoors', 2),
     'Range': ('outdoors', 2),
-    'Valley': ('outdoors', 3),
     'Spring': ('outdoors', 3),
     'Island': ('outdoors', 3),
     'Bay': ('outdoors', 3),
@@ -940,24 +945,25 @@ GNIS_CLASS_RANKS: dict[str, tuple[str, int]] = {
     'Basin': ('outdoors', 3),
     'Crater': ('outdoors', 3),
     'Sea': ('outdoors', 3),
-    'Stream': ('outdoors', 4),
-    'Canal': ('outdoors', 4),
     'Gap': ('outdoors', 4),
     'Cliff': ('outdoors', 4),
     'Swamp': ('outdoors', 4),
     'Flat': ('outdoors', 4),
-    'Gut': ('outdoors', 4),
     'Bar': ('outdoors', 4),
     'Bend': ('outdoors', 4),
-    'Channel': ('outdoors', 4),
     'Pillar': ('outdoors', 4),
     'Woods': ('outdoors', 4),
     'Slope': ('outdoors', 4),
     'Plain': ('outdoors', 4),
-    'Arroyo': ('outdoors', 4),
     'Lava': ('outdoors', 4),
     'Bench': ('outdoors', 4),
     'Isthmus': ('outdoors', 4),
+    'Stream': ('outdoors', 5),
+    'Valley': ('outdoors', 5),
+    'Canal': ('outdoors', 5),
+    'Channel': ('outdoors', 5),
+    'Gut': ('outdoors', 5),
+    'Arroyo': ('outdoors', 5),
 }
 
 #: ``source_kind`` → (category, rank) for :func:`load` — kinds are the classes
