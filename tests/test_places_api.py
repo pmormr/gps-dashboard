@@ -3,7 +3,7 @@
 Seeds the isolated temp DB (the ``client`` fixture) through the importer's own
 :func:`tools.import_places.load`, then exercises the bbox/kind/category/rank/
 search filters, FTS prefix semantics, the OSM merge, the occurrence-window
-grouping, the detail endpoints, param validation, and the sidecar migrations.
+grouping, the detail endpoints, and param validation.
 """
 
 from __future__ import annotations
@@ -309,115 +309,6 @@ def test_rank_partial_indexes_exist(client) -> None:
     }
     conn.close()
     assert {'idx_places_latlon_r1', 'idx_places_latlon_r2', 'idx_places_latlon_r3'} <= names
-
-
-# --- sidecar migration ---------------------------------------------------------------
-
-
-def test_sidecar_migration_moves_legacy_tier(tmp_path, monkeypatch) -> None:
-    """A main DB holding the legacy attractions tables migrates into the sidecar.
-
-    Builds the pre-sidecar layout (attractions/attraction_events/
-    attraction_event_dates in the main file), then runs the real startup path
-    and asserts the rows moved (ids preserved — event_dates references them),
-    the legacy tables dropped, and a second startup is a no-op.
-    """
-    import sqlite3
-
-    import api.db as db
-
-    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'main.db')
-    monkeypatch.setattr(db, 'PLACES_DB_PATH', None)
-    legacy = sqlite3.connect(tmp_path / 'main.db')
-    legacy.executescript("""
-        CREATE TABLE attractions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL,
-            source_kind TEXT NOT NULL, source_id TEXT NOT NULL, park_code TEXT,
-            name TEXT NOT NULL, lat REAL, lon REAL, summary TEXT,
-            details TEXT NOT NULL, synced_at TEXT NOT NULL
-        );
-        CREATE TABLE attraction_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL,
-            source_id TEXT NOT NULL, park_code TEXT, name TEXT NOT NULL,
-            lat REAL, lon REAL, location_text TEXT, is_free INTEGER,
-            needs_reservation INTEGER, details TEXT NOT NULL, synced_at TEXT NOT NULL
-        );
-        CREATE TABLE attraction_event_dates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL,
-            date TEXT NOT NULL, time_start TEXT, time_end TEXT
-        );
-        INSERT INTO attractions (id, source, source_kind, source_id, park_code,
-            name, lat, lon, summary, details, synced_at)
-            VALUES (7, 'nps', 'park', 'P1', 'romo', 'Rocky', 40.4, -105.7, 'S', '{}', 'T');
-        INSERT INTO attraction_events (id, source, source_id, park_code, name,
-            lat, lon, location_text, is_free, needs_reservation, details, synced_at)
-            VALUES (9, 'nps', 'E1', 'romo', 'Walk', 40.4, -105.5, NULL, 1, 0, '{}', 'T');
-        INSERT INTO attraction_event_dates (id, event_id, date, time_start, time_end)
-            VALUES (3, 9, '2026-07-04', '07:30', '09:00');
-    """)
-    legacy.commit()
-    legacy.close()
-
-    conn = db.get_connection()
-    db.init_db(conn)
-    assert [tuple(r) for r in conn.execute('SELECT id, name FROM places')] == [(7, 'Rocky')]
-    stamped = conn.execute('SELECT category, rank FROM places WHERE id = 7').fetchone()
-    assert tuple(stamped) == ('park', 1)  # legacy copies get the kind map applied
-    assert [tuple(r) for r in conn.execute('SELECT id, name FROM place_events')] == [(9, 'Walk')]
-    assert [tuple(r) for r in conn.execute('SELECT id, event_id, date FROM place_event_dates')] == [
-        (3, 9, '2026-07-04')
-    ]
-    legacy_left = conn.execute(
-        "SELECT name FROM main.sqlite_master WHERE name LIKE 'attraction%'"
-    ).fetchall()
-    assert legacy_left == []
-    assert (tmp_path / 'places.db').exists()
-
-    db.init_db(conn)  # steady-state re-run: gate is cold, nothing changes
-    assert conn.execute('SELECT COUNT(*) FROM places').fetchone()[0] == 1
-
-
-def test_broad_columns_migration_backfills_existing_sidecar(tmp_path, monkeypatch) -> None:
-    """A pre-Phase-2 sidecar (no category/rank) gains the columns + backfill + FTS.
-
-    Mirrors the Pi's state at deploy: the sidecar exists with federal rows but
-    predates the broad-POI columns. Startup must add the columns, stamp
-    category/rank from the kind map (unknown kinds stay NULL), and leave the
-    FTS index queryable. A second startup is a no-op.
-    """
-    import api.db as db
-
-    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'main.db')
-    monkeypatch.setattr(db, 'PLACES_DB_PATH', None)
-    old = sqlite3.connect(tmp_path / 'places.db')
-    old.executescript("""
-        CREATE TABLE places (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL,
-            source_kind TEXT NOT NULL, source_id TEXT NOT NULL, park_code TEXT,
-            name TEXT NOT NULL, lat REAL, lon REAL, summary TEXT,
-            details TEXT NOT NULL, synced_at TEXT NOT NULL
-        );
-        INSERT INTO places (source, source_kind, source_id, park_code, name,
-            lat, lon, summary, details, synced_at)
-        VALUES ('nps', 'park', 'P1', 'romo', 'Rocky', 40.4, -105.7, 'S', '{}', 'T'),
-               ('ridb', 'facility', 'F1', '123', 'Some Trailhead', 39, -106, NULL, '{}', 'T'),
-               ('nps', 'mystery_kind', 'M1', NULL, 'Unknown', 1, 1, NULL, '{}', 'T');
-    """)
-    old.commit()
-    old.close()
-
-    conn = db.get_connection()
-    db.init_db(conn)
-    rows = {
-        r['source_id']: (r['category'], r['rank'])
-        for r in conn.execute('SELECT source_id, category, rank FROM places')
-    }
-    assert rows == {'P1': ('park', 1), 'F1': ('outdoors', 3), 'M1': (None, None)}
-    hit = conn.execute('SELECT rowid FROM places_fts WHERE places_fts MATCH \'"trailh"*\'')
-    assert len(hit.fetchall()) == 1
-
-    db.init_db(conn)  # steady-state: columns present, migration skips
-    assert conn.execute('SELECT COUNT(*) FROM places').fetchone()[0] == 3
 
 
 # --- GNIS ---------------------------------------------------------------------------

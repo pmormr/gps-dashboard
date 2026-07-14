@@ -22,8 +22,8 @@ DB_PATH = Path(os.environ.get('GPS_DB_PATH', Path.home() / 'gps_history.db'))
 #: Explicit places-sidecar override (env / tools / tests). When None, the sidecar
 #: rides beside the main DB (places_db_path) — a derived default on purpose: every
 #: process that opens a connection (app, logger, processor, ingest…) resolves the
-#: same pair of files by construction, so no unit file can drift and, e.g., run the
-#: one-shot sidecar migration against the wrong path.
+#: same pair of files by construction, so no unit file can drift and, e.g.,
+#: initialise a divergent sidecar file.
 _env_places = os.environ.get('GPS_PLACES_DB_PATH')
 PLACES_DB_PATH: Path | None = Path(_env_places) if _env_places else None
 
@@ -562,16 +562,12 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON phone_activities(start_time);
     """)
     conn.commit()
-    _migrate_live_throttle_channels(conn)
-    _migrate_fridge_dc_current(conn)
-    # The places tier lives in the ATTACHed sidecar, so its schema (and the
-    # one-shot migration into it) only applies to connections that have one —
-    # every get_connection() caller. Bare connections (tests, ad-hoc scripts)
-    # get the main schema only.
+    # The places tier lives in the ATTACHed sidecar, so its schema only applies
+    # to connections that have one — every get_connection() caller. Bare
+    # connections (tests, ad-hoc scripts) get the main schema only.
     schemas = {row[1] for row in conn.execute('PRAGMA database_list')}
     if 'places_db' in schemas:
         _init_places_schema(conn)
-        _migrate_places_sidecar(conn)
 
 
 def _init_places_schema(conn: sqlite3.Connection) -> None:
@@ -583,9 +579,9 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
     source on import — nothing in the sidecar needs backup.
     """
     conn.executescript("""
-        -- Places tier — the app's general POI substrate: parks/public-lands POIs
-        -- (NPS + RIDB today; OSM/Overture planned — plans/attractions-poi-plan.md),
-        -- synced by tools/import_places.py while online, browsed offline. One
+        -- Places tier — the app's general POI substrate (NPS + RIDB + the broad
+        -- OSM extract + GNIS names), synced by tools/import_places.py while
+        -- online, browsed offline. One
         -- unified table across sources/kinds: columns carry only what queries
         -- filter or sort on; display-only structure (tour stops, hours, amenities,
         -- fees) rides in the details JSON. lat/lon nullable — rows without a
@@ -676,14 +672,12 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
         );
     """)
     conn.commit()
-    _migrate_places_broad_columns(conn)
-    # After the column migration — a pre-broad-columns sidecar has no `rank`
-    # yet. Rank-gated viewport reads (the map pin gate, the browse default)
-    # would otherwise scan idx_places_latlon's whole NA latitude band and
-    # discard ~everything by rank (seconds at 10.7M rows); a partial index per
-    # gate tier makes it milliseconds. No r4: rank<=4 reads only happen at
-    # z14+, where the bbox lat band is tiny. A bound `rank <= ?` still plans
-    # onto these — SQLite considers bound parameter values when testing
+    # Rank-gated viewport reads (the map pin gate, the browse default) would
+    # otherwise scan idx_places_latlon's whole NA latitude band and discard
+    # ~everything by rank (seconds at 10.7M rows); a partial index per gate
+    # tier makes it milliseconds. No r4: rank<=4 reads only happen at z14+,
+    # where the bbox lat band is tiny. A bound `rank <= ?` still plans onto
+    # these — SQLite considers bound parameter values when testing
     # partial-index usability.
     conn.executescript("""
         CREATE INDEX IF NOT EXISTS places_db.idx_places_latlon_r1
@@ -754,176 +748,3 @@ PLACES_KIND_RANKS: dict[str, tuple[str, int]] = {
     'facility': ('outdoors', 3),
     'permit': ('outdoors', 4),
 }
-
-
-def _migrate_places_broad_columns(conn: sqlite3.Connection) -> None:
-    """One-shot: add ``category``/``rank`` to ``places`` and backfill NPS/RIDB rows.
-
-    The broad-POI columns (plan decision 11) predate only the federal sources'
-    rows — OSM rows always arrive with both set. Gated on the column add
-    (steady-state startups pay one PRAGMA); BEGIN IMMEDIATE + re-check because
-    every service's startup races this on a deploy, and a racer's ALTER would
-    otherwise die on a duplicate column. Drop once landed on the Pi's DB, like
-    the earlier one-shot migrations.
-    """
-
-    def missing() -> list[str]:
-        existing = {row[1] for row in conn.execute('PRAGMA places_db.table_info(places)')}
-        return [col for col in ('category', 'rank') if col not in existing]
-
-    if not missing():
-        return
-    conn.execute('BEGIN IMMEDIATE')
-    cols = missing()
-    if not cols:
-        conn.execute('ROLLBACK')
-        return
-    for col in cols:
-        kind = 'TEXT' if col == 'category' else 'INTEGER'
-        conn.execute(f'ALTER TABLE places_db.places ADD COLUMN {col} {kind}')
-    category_cases = ' '.join(
-        f"WHEN '{kind}' THEN '{category}'" for kind, (category, _) in PLACES_KIND_RANKS.items()
-    )
-    rank_cases = ' '.join(
-        f"WHEN '{kind}' THEN {rank}" for kind, (_, rank) in PLACES_KIND_RANKS.items()
-    )
-    backfilled = conn.execute(
-        f'UPDATE places_db.places SET '
-        f'category = CASE source_kind {category_cases} END, '
-        f'rank = CASE source_kind {rank_cases} END'
-    ).rowcount
-    conn.execute("INSERT INTO places_db.places_fts(places_fts) VALUES('rebuild')")
-    conn.commit()
-    print(f'Migration: added places column(s) {", ".join(cols)}; backfilled {backfilled} row(s)')
-
-
-def _migrate_places_sidecar(conn: sqlite3.Connection) -> None:
-    """One-shot: move the tier out of gps_history.db into the places sidecar.
-
-    Renames the tables in flight (attractions → places, attraction_events →
-    place_events, attraction_event_dates → place_event_dates), preserving ids
-    (place_event_dates.event_id references them). Gated on the old main-DB
-    tables existing, so steady-state startups pay one sqlite_master read.
-
-    Runs as two transactions so no write ever spans both files (cross-file
-    commits are not crash-atomic in WAL mode): the copy dirties only the
-    sidecar, the drop only main. Every service's startup calls init_db and a
-    deploy restarts several at once, so both steps tolerate racing and crashed
-    predecessors: the copy full-replaces the sidecar's rows under BEGIN
-    IMMEDIATE (re-checking the gate once the lock is held; WAL snapshot
-    isolation keeps its read of main consistent even if a racer drops
-    concurrently), and the drop is IF EXISTS. Drop once landed on the Pi's DB,
-    like the earlier one-shot migrations.
-    """
-
-    def gate() -> bool:
-        row = conn.execute(
-            "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name='attractions'"
-        ).fetchone()
-        return row is not None
-
-    if not gate():
-        return
-    conn.execute('BEGIN IMMEDIATE')
-    if not gate():
-        conn.execute('ROLLBACK')
-        return
-    conn.execute('DELETE FROM places_db.place_event_dates')
-    conn.execute('DELETE FROM places_db.place_events')
-    conn.execute('DELETE FROM places_db.places')
-    n_places = conn.execute(
-        'INSERT INTO places_db.places '
-        '(id, source, source_kind, source_id, park_code, name, lat, lon, summary, '
-        'details, synced_at) '
-        'SELECT id, source, source_kind, source_id, park_code, name, lat, lon, summary, '
-        'details, synced_at FROM main.attractions'
-    ).rowcount
-    n_events = conn.execute(
-        'INSERT INTO places_db.place_events '
-        '(id, source, source_id, park_code, name, lat, lon, location_text, is_free, '
-        'needs_reservation, details, synced_at) '
-        'SELECT id, source, source_id, park_code, name, lat, lon, location_text, is_free, '
-        'needs_reservation, details, synced_at FROM main.attraction_events'
-    ).rowcount
-    n_dates = conn.execute(
-        'INSERT INTO places_db.place_event_dates (id, event_id, date, time_start, time_end) '
-        'SELECT id, event_id, date, time_start, time_end FROM main.attraction_event_dates'
-    ).rowcount
-    # The legacy tables predate category/rank, so stamp the copies (idempotent
-    # re-statement of _migrate_places_broad_columns' backfill — that one-shot
-    # found the columns already present and skipped) and resync the FTS index.
-    category_cases = ' '.join(
-        f"WHEN '{kind}' THEN '{category}'" for kind, (category, _) in PLACES_KIND_RANKS.items()
-    )
-    rank_cases = ' '.join(
-        f"WHEN '{kind}' THEN {rank}" for kind, (_, rank) in PLACES_KIND_RANKS.items()
-    )
-    conn.execute(
-        f'UPDATE places_db.places SET '
-        f'category = CASE source_kind {category_cases} END, '
-        f'rank = CASE source_kind {rank_cases} END'
-    )
-    conn.execute("INSERT INTO places_db.places_fts(places_fts) VALUES('rebuild')")
-    conn.commit()
-    conn.execute('BEGIN IMMEDIATE')
-    conn.execute('DROP TABLE IF EXISTS main.attraction_event_dates')
-    conn.execute('DROP TABLE IF EXISTS main.attraction_events')
-    conn.execute('DROP TABLE IF EXISTS main.attractions')
-    conn.commit()
-    print(
-        f'Migration: moved places tier to {places_db_path()} '
-        f'({n_places} places, {n_events} events, {n_dates} dates); dropped main-DB tables'
-    )
-
-
-#: Mirrors sensors/system_reader.py LIVE_THROTTLE_CHANNELS (not imported — api does
-#: not depend on the sensors package, and this migration is temporary anyway).
-_LIVE_THROTTLE_COLUMNS: dict[str, int] = {
-    'undervolt_now': 0x1,
-    'freq_capped_now': 0x2,
-    'throttled_now': 0x4,
-    'temp_limit_now': 0x8,
-}
-
-
-def _migrate_fridge_dc_current(conn: sqlite3.Connection) -> None:
-    """One-shot: add ``fridge_readings.dc_current_a`` (the fridge's DC draw).
-
-    Sourced from the newest bucket of the fridge's own hour-span history each
-    poll cycle; no backfill is possible (the pre-migration polls never subscribed
-    the history topics). Gated on the column add, so steady-state startups pay one
-    PRAGMA. Drop once landed on the Pi's DB, like the earlier one-shot migrations.
-    """
-    # Positional index — callers pass connections with and without a row factory.
-    existing = {row[1] for row in conn.execute('PRAGMA table_info(fridge_readings)')}
-    if 'dc_current_a' in existing:
-        return
-    conn.execute('ALTER TABLE fridge_readings ADD COLUMN dc_current_a REAL')
-    conn.commit()
-    print('Migration: added fridge_readings.dc_current_a')
-
-
-def _migrate_live_throttle_channels(conn: sqlite3.Connection) -> None:
-    """One-shot: add the live-throttle 0/1 columns and backfill from the bitmask.
-
-    Gated on the column add, so steady-state startups pay one PRAGMA. The backfill
-    is pure SQL — each channel is a bit-mask of the already-stored raw ``throttled``
-    (NULL bitmask rows stay NULL). Drop once landed on the Pi's DB, like the earlier
-    one-shot migrations.
-    """
-    # Positional index — callers pass connections with and without a row factory.
-    existing = {row[1] for row in conn.execute('PRAGMA table_info(system_readings)')}
-    missing = [col for col in _LIVE_THROTTLE_COLUMNS if col not in existing]
-    if not missing:
-        return
-    for col in missing:
-        conn.execute(f'ALTER TABLE system_readings ADD COLUMN {col} INTEGER')
-    assignments = ', '.join(
-        f'{col} = (throttled & {bit}) != 0' for col, bit in _LIVE_THROTTLE_COLUMNS.items()
-    )
-    backfilled = conn.execute(f'UPDATE system_readings SET {assignments}').rowcount
-    conn.commit()
-    print(
-        f'Migration: added system_readings column(s) {", ".join(missing)}; '
-        f'backfilled {backfilled} row(s)'
-    )
