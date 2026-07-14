@@ -1,11 +1,11 @@
-# POI ↔ basemap-mark unification (prep — decisions pending)
+# POI ↔ basemap-mark unification
 
 Goal (user, 2026-07-14): make the basemap's own POI marks and the places tier
 one system on the map — every visible mark browsable/tappable like a tier POI,
 no double-rendering of the same feature, one icon language.
 
-Status: **fact-finding done, design options drafted, blocked on the decision
-questions at the bottom.** No code yet.
+Status: **all six decisions locked with the user 2026-07-14 (bottom section);
+execution not started.** The phasing below is the work plan.
 
 ## Fact base (verified 2026-07-14)
 
@@ -86,40 +86,51 @@ label-point classes to *keep excluded* (`residential`, `industrial`, `retail`,
 `administrative`, bare `water`). Additions land in `TAXONOMY` + an OSM
 re-import (the usual laptop transfer-DB → Pi merge → GNIS chain).
 
-## Phasing sketch (pending decisions)
+## Phasing (execution order)
 
-0. **Kind census** — script the gap table over a large tile sample; decide
-   inclusions with the user.
-1. **Quick fix (independent):** sprite entries for the `POI_GROUPS` kinds that
-   render text-only today.
-2. **Tap-through:** id decode + a tier lookup read (`source`+`source_id`
-   param on `/api/places` or a tiny dedicated route) + `PlaceSheet` fallback
-   for unresolved marks.
-3. **Shared sprite + symbol pins:** generate/commit the sprite, restyle
-   `pois` text to category colors, convert `place-circle`/search layers to
-   icon symbols, add the twin-suppression filter.
-4. **One filter system:** merge the Labels panel's `POI_GROUPS` and the places
-   layer's kind filter into a single POI control (they filter the same
+0. **Kind census** — script the tile-sample × `TAXONOMY` gap table. The
+   inclusion decision is made (drinking_water + toilets); the census validates
+   nothing else surprising renders and produces the exact tag → kind mapping
+   for the TAXONOMY entries and the sprite inventory.
+1. **Shared sprite** — vendor Maki/Temaki SVGs + a sprite build script;
+   committed sprite covers every surfaced basemap kind (fixes today's
+   text-only marks) + every tier pin kind (federal `site`/`campground`/…).
+2. **Canvas unification** — restyle `pois` (new sprite icons + `CATEGORY_META`
+   text colors); convert `place-circle`/search layers from circles to icon
+   symbols on the same sprite; add the twin-suppression filter (re-encode
+   overlay rows' `source_id`s → `['!', ['in', ['id'], …]]` on `pois`).
+3. **Tap-through** — id decode + a tier lookup read (`source`+`source_id`
+   param on `/api/places` or a tiny dedicated route) → `PlaceSheet`;
+   unresolved marks open the minimal sheet from tile attrs (name/kind/coords,
+   "not in the places index").
+4. **One filter system** — merge the Labels panel's `POI_GROUPS` and the
+   places layer's kind filter into a single POI control (they filter the same
    concept twice today).
-5. **TAXONOMY additions + re-import** if the census says so.
+5. **HTML UI icon swap** — `KIND_META`/`CATEGORY_META` emoji → the sprite SVGs
+   inline (chips, legends, list rows, sheet headers).
+6. **TAXONOMY additions** — `amenity=drinking_water` + `amenity=toilets`
+   (+ any census surprises the user approves): transfer-DB rebuild on the
+   laptop → Pi re-merge → GNIS chain, the usual recipe.
+7. **Twin display-time unification** — search groups name+proximity twins and
+   prefers the richer row (NPS > OSM > GNIS), pins suppress the duplicate,
+   sheets cross-link the other source's row.
 
-## Open questions (answer before code)
+## Decisions (locked with the user 2026-07-14)
 
-1. Rendering backbone: agree with **B** (basemap renders, tier resolves,
-   overlay suppresses twins), or do you want the tier to render everything (A)?
-2. Icon set: OK to vendor Maki/Temaki SVGs + a sprite build step (new vendored
-   asset + dev-time tool, offline-clean), or hand-roll a minimal set?
-3. Data gaps: which currently-excluded classes should import? Specifically
-   micro-amenities — `drinking_water`, `toilets`, `bench`, transit
-   (`bus_stop`, `platform`) — versus keeping the tier destination-oriented.
-4. Do the HTML UI chips/legends/sheets switch from emoji to the same sprite
-   icons (full unification), or does emoji stay the UI language and only the
-   map canvas unifies?
-5. Tap on an unresolved mark (tier lacks the row — vintage skew or excluded
-   kind): minimal sheet from tile attrs (name/kind/coords, no detail), or
-   nothing?
-6. Cross-source twins (the measured 2,090 NPS-site↔OSM pairs, and federal↔OSM
-   generally): unify at *display* time (group/prefer the richer row in search
-   results and sheets, suppress twin pins) or at *import* time (a keeper
-   hierarchy)? Display-time preserves all data and fits the id-bridge
-   architecture; import-time is simpler but lossy.
+1. **Rendering backbone: basemap renders, tier resolves.** Tiles draw ambient
+   POIs; taps resolve via the id bridge; the overlay keeps its
+   search/waypoint/kind-browse role and suppresses basemap twins while shown.
+2. **Icons: vendor Maki/Temaki** (CC0 SVG sources) + a dev-time sprite build
+   step; one committed sprite is the icon language for both layers.
+3. **Data gaps: import `drinking_water` and `toilets`; keep `bench` and
+   transit (`bus_stop`/`platform`/`station`) excluded** — the tier stays
+   destination-oriented plus van-practical amenities.
+4. **Full icon unification** — the HTML UI (chips, legends, list rows, sheets)
+   switches from emoji to the same sprite icons.
+5. **Unresolved-tap policy: minimal sheet** from tile attrs — every mark
+   responds; the sheet says the row isn't in the places index.
+6. **Cross-source twins: display-time unification** — keep every row; search
+   groups twins preferring the richer source, pins suppress duplicates, sheets
+   cross-link. No import-time dropping beyond the existing GNIS stages. (A
+   cached/materialized twin join is an acceptable implementation detail if
+   read-time cost demands it.)
