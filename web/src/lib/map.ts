@@ -303,6 +303,11 @@ export const MapView = (() => {
   // (the detail sheet), keeping this layer domain-free too.
   let placeData: FeatureCollection = emptyFC()
   let placeClickCb: ((id: number) => void) | null = null
+  // Search-results overlay: the Places view's pushed result set. Uniform
+  // accent styling (not per-kind) so results read as "what you searched for"
+  // over the browse pins; shares the place click/hover handlers (same rows,
+  // same detail sheet).
+  let searchData: FeatureCollection = emptyFC()
   const endpointMarkers: Marker[] = []
   const pinMarkers: Marker[] = []
 
@@ -532,6 +537,38 @@ export const MapView = (() => {
         })
       }
 
+      // Search results render above the browse pins: a soft halo under a
+      // bigger accent dot, so the pushed result set stands out from the
+      // category-colored overlay.
+      if (!m.getSource('search-results')) {
+        m.addSource('search-results', { type: 'geojson', data: searchData })
+      }
+      if (!m.getLayer('search-halo')) {
+        m.addLayer({
+          id: 'search-halo',
+          type: 'circle',
+          source: 'search-results',
+          paint: {
+            'circle-radius': 14,
+            'circle-color': '#38bdf8',
+            'circle-opacity': 0.25,
+          },
+        })
+      }
+      if (!m.getLayer('search-circle')) {
+        m.addLayer({
+          id: 'search-circle',
+          type: 'circle',
+          source: 'search-results',
+          paint: {
+            'circle-radius': 7,
+            'circle-color': '#38bdf8',
+            'circle-stroke-color': '#0c4a6e',
+            'circle-stroke-width': 2,
+          },
+        })
+      }
+
       // Drone tracks float at abs_alt as a three.js elevated-track layer (Overlay3D),
       // re-added here since setStyle drops it; onAdd rebuilds its scene from retained
       // data. Null until overlay3d.ts is wired in.
@@ -545,6 +582,7 @@ export const MapView = (() => {
       ;(m.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
       ;(m.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
       ;(m.getSource('places') as GeoJSONSource | undefined)?.setData(placeData)
+      ;(m.getSource('search-results') as GeoJSONSource | undefined)?.setData(searchData)
 
       applyTerrain()
     } catch (e) {
@@ -657,24 +695,27 @@ export const MapView = (() => {
 
   // Place pins: name tooltip on hover, row id to the registered callback on
   // click (the detail sheet lives in Svelte). Layer-scoped and registered once; a
-  // no-op until the layer exists, like the range tooltip.
+  // no-op until the layer exists, like the range tooltip. Search-result pins
+  // carry the same row shape, so they share the handlers.
   function wirePlaceInteraction(m: MlMap): void {
     placePopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
-    m.on('mouseenter', 'place-circle', () => {
-      m.getCanvas().style.cursor = 'pointer'
-    })
-    m.on('mousemove', 'place-circle', (e) => {
-      const name = e.features && e.features[0] && (e.features[0].properties.name as string)
-      if (name) placePopup!.setLngLat(e.lngLat).setText(name).addTo(m)
-    })
-    m.on('mouseleave', 'place-circle', () => {
-      m.getCanvas().style.cursor = ''
-      placePopup!.remove()
-    })
-    m.on('click', 'place-circle', (e) => {
-      const id = e.features && e.features[0] && (e.features[0].properties.id as number)
-      if (id != null && placeClickCb) placeClickCb(id)
-    })
+    for (const layer of ['place-circle', 'search-circle']) {
+      m.on('mouseenter', layer, () => {
+        m.getCanvas().style.cursor = 'pointer'
+      })
+      m.on('mousemove', layer, (e) => {
+        const name = e.features && e.features[0] && (e.features[0].properties.name as string)
+        if (name) placePopup!.setLngLat(e.lngLat).setText(name).addTo(m)
+      })
+      m.on('mouseleave', layer, () => {
+        m.getCanvas().style.cursor = ''
+        placePopup!.remove()
+      })
+      m.on('click', layer, (e) => {
+        const id = e.features && e.features[0] && (e.features[0].properties.id as number)
+        if (id != null && placeClickCb) placeClickCb(id)
+      })
+    }
   }
 
   function setRotationEnabled(on: boolean): void {
@@ -899,6 +940,21 @@ export const MapView = (() => {
     if (placeData.features.length === 0 && placePopup) placePopup.remove()
   }
 
+  // Replace the search-results overlay (the Places view's pushed result set).
+  // Clearing is setSearchResultsData(empty). Data is retained like the other
+  // overlays, so it survives style swaps and route remounts.
+  function setSearchResultsData(fc: FeatureCollection): void {
+    searchData = fc
+    if (!map) return
+    ;(map.getSource('search-results') as GeoJSONSource | undefined)?.setData(searchData)
+    if (searchData.features.length === 0 && placePopup) placePopup.remove()
+  }
+
+  /** Fit the camera to a set of coordinates (the search-results handoff). */
+  function fitToCoords(coords: { lat: number; lon: number }[]): void {
+    fitTo(coords)
+  }
+
   /** Register the place-pin click handler (receives the place row id). */
   function onPlaceClick(cb: (id: number) => void): void {
     placeClickCb = cb
@@ -1099,7 +1155,7 @@ export const MapView = (() => {
     moveEndCbs.delete(cb)
   }
 
-  function fitTo(points: MapPoint[]): void {
+  function fitTo(points: { lat: number; lon: number }[]): void {
     if (!map || !points.length) return
     const b = new maplibregl.LngLatBounds()
     for (const p of points) b.extend([p.lon, p.lat])
@@ -1174,6 +1230,8 @@ export const MapView = (() => {
     clearDroneTracks,
     setPhoneData,
     setPlacesData,
+    setSearchResultsData,
+    fitToCoords,
     onPlaceClick,
     setGhost,
     clearGhost,

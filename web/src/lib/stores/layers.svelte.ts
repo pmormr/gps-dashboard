@@ -8,6 +8,7 @@
  * the engine — it persists its own state across route remounts as a module singleton.
  */
 
+import type { Place } from '../api'
 import { ALL_GROUP_KEYS } from '../places'
 import { POI_GROUPS, type LabelSettings } from '../labels'
 
@@ -44,6 +45,15 @@ class LayersStore {
   // to consume once the engine is mounted — the engine may not exist yet when
   // the navigation happens.
   pendingZoom = $state<{ lat: number; lon: number; zoom: number } | null>(null)
+
+  // Search-results overlay: a value snapshot of the Places view's result set
+  // ("Show results on map") — not live; the next push replaces it, the legend
+  // chip's ✕ clears it. Store-held so it survives route remounts (toggle
+  // Places ↔ Map freely). pendingFit is the one-shot fit-bounds request,
+  // consumed like pendingZoom.
+  searchResults = $state<Place[] | null>(null)
+  searchResultsLabel = $state('')
+  pendingFit = $state<{ lat: number; lon: number }[] | null>(null)
 
   /** Whether the vector basemap (which alone has labels) is active. */
   get isVector(): boolean {

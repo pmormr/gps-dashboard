@@ -224,6 +224,24 @@ export function placesToFC(rows: Place[]): FeatureCollection {
 }
 
 /**
+ * Result rows → search-result pin features. No per-kind color: the engine's
+ * search layers style them uniformly (accent + halo) so the pushed result set
+ * stands out from the category-colored browse overlay.
+ */
+export function searchResultsToFC(rows: Place[]): FeatureCollection {
+  const features: Feature<Point>[] = []
+  for (const row of rows) {
+    if (row.lat == null || row.lon == null) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [row.lon, row.lat] },
+      properties: { id: row.id, kind: row.source_kind, name: row.name },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+/**
  * Flatten NPS rich-text to plain text: drop tags, decode the common entities,
  * collapse whitespace. Event descriptions arrive as HTML; the app renders them
  * as text rather than injecting source-controlled markup.

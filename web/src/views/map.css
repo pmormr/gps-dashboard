@@ -217,6 +217,26 @@
   flex-shrink: 0;
 }
 
+/* Search-results chip: the accent pin color + a clear button. */
+.legend-swatch-results {
+  background: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+}
+.legend-chip-results .legend-chip-item {
+  color: var(--text);
+}
+.legend-chip-clear {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.legend-chip-clear:hover {
+  color: var(--text);
+}
+
 /* Drone popup (engine-injected innerHTML — must be global). */
 .map-region .drone-popup-title {
   display: flex;

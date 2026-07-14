@@ -13,6 +13,7 @@ import {
   kindMeta,
   maxRankForZoom,
   placeMeta,
+  searchResultsToFC,
   stripHtml,
 } from './places'
 
@@ -141,6 +142,14 @@ describe('placesToFC', () => {
   it('colors differ across kinds (legend readability)', () => {
     const colors = new Set(KIND_META.map((m) => m.color))
     expect(colors.size).toBe(KIND_META.length)
+  })
+})
+
+describe('searchResultsToFC', () => {
+  it('builds uncolored pins (the engine styles results uniformly) and skips nocoord rows', () => {
+    const fc = searchResultsToFC([row(), row({ id: 2, lat: null, lon: null })])
+    expect(fc.features.map((f) => f.properties!.id)).toEqual([1])
+    expect(fc.features[0].properties).toEqual({ id: 1, kind: 'park', name: 'Rocky Mountain' })
   })
 })
 

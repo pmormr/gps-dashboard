@@ -236,6 +236,23 @@
     router.navigate('/map')
   }
 
+  // "Results on map": push the whole result set as the map's search-results
+  // overlay (a value snapshot — the layer doesn't follow later refetches; the
+  // next push replaces it) and queue a fit-bounds. Store-held, so toggling
+  // Places ↔ Map keeps the pins.
+  function showResultsOnMap(): void {
+    const located = places.filter((r) => r.lat != null && r.lon != null)
+    if (!located.length) return
+    layers.searchResults = located
+    layers.searchResultsLabel = searching
+      ? browse.query
+      : nearActive
+        ? `within ${browse.radiusMi} mi`
+        : 'browse'
+    layers.pendingFit = located.map((r) => ({ lat: r.lat!, lon: r.lon! }))
+    router.navigate('/map')
+  }
+
   function eventDateLabel(ev: PlaceEvent): string {
     const first = ev.dates[0]
     if (!first) return ''
@@ -331,10 +348,16 @@
           </div>
         {/if}
       {/if}
-      <div class="label-hint">
-        {#if status}{status}{/if}
-        {#if syncedAt}
-          {#if status}·{/if} data as of {fmtDate(syncedAt)}
+      <div class="label-hint places-hint">
+        <span>
+          {#if status}{status}{/if}
+          {#if syncedAt}
+            {#if status}·{/if} data as of {fmtDate(syncedAt)}
+          {/if}
+        </span>
+        {#if browse.mode === 'places' && places.length}
+          <button type="button" class="places-map-btn" onclick={showResultsOnMap}
+            >🗺 Results on map</button>
         {/if}
       </div>
     </div>

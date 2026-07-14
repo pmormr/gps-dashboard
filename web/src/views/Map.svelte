@@ -2,7 +2,13 @@
   import { onMount, untrack } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
-  import { CATEGORY_GROUPS, clearPlaces, expandGroups, syncPlaces } from '../lib/places'
+  import {
+    CATEGORY_GROUPS,
+    clearPlaces,
+    expandGroups,
+    searchResultsToFC,
+    syncPlaces,
+  } from '../lib/places'
   import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
@@ -216,11 +222,12 @@
       view.clearTrack()
       return
     }
-    // untrack: consuming the queued zoom (pendingZoom → null) must not re-run
-    // this effect — refit is still true then, and the re-run's fitTo would
-    // stomp the destination animation it just yielded to.
+    // untrack: consuming a queued camera request (pendingZoom/pendingFit →
+    // null) must not re-run this effect — refit is still true then, and the
+    // re-run's fitTo would stomp the animation it just yielded to.
     view.showTrack(pts, {
-      fitBounds: track.refit && untrack(() => layers.pendingZoom == null),
+      fitBounds:
+        track.refit && untrack(() => layers.pendingZoom == null && layers.pendingFit == null),
     })
     // A point annotation was just clicked: recentre on its nearest fix now that
     // the reframed window's points have landed.
@@ -244,6 +251,23 @@
     // next live tick recomputes refit anyway.
     track.refit = false
     view.zoomTo(lat, lon, zoom)
+  })
+
+  // Search-results overlay: render the pushed result set (store-held, so it
+  // survives route remounts and the engine re-receives it on every Map visit).
+  $effect(() => {
+    if (!view) return
+    view.setSearchResultsData(searchResultsToFC(layers.searchResults ?? []))
+  })
+
+  // The result set's fit-bounds request — same consume discipline as
+  // pendingZoom (engine up, window fetch settled, refit superseded).
+  $effect(() => {
+    if (!view || !layers.pendingFit || track.loading) return
+    const coords = layers.pendingFit
+    layers.pendingFit = null
+    track.refit = false
+    view.fitToCoords(coords)
   })
 
   // Annotation overlays (map pins for points, range bands for ranges) against the
@@ -291,8 +315,22 @@
     <button class="map-fab" title="Zoom to current location" onclick={zoomToCurrent}>⊕</button>
 
     <!-- On-map legends, visible only while that layer is on. -->
-    {#if layers.drone || layers.phone || layers.places}
+    {#if layers.drone || layers.phone || layers.places || layers.searchResults}
       <div class="map-legend-chips">
+        {#if layers.searchResults}
+          <div class="legend-chip legend-chip-results">
+            <span class="legend-chip-icon">🔎</span>
+            <span class="legend-chip-item"
+              ><span class="legend-swatch legend-swatch-results"></span
+              >{layers.searchResultsLabel} · {layers.searchResults.length}</span>
+            <button
+              type="button"
+              class="legend-chip-clear"
+              title="Clear search results"
+              aria-label="Clear search results"
+              onclick={() => (layers.searchResults = null)}>✕</button>
+          </div>
+        {/if}
         {#if layers.drone}
           <div class="legend-chip">
             <span class="legend-chip-icon">🚁</span>

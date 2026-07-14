@@ -334,6 +334,24 @@
   font-size: 10px;
 }
 
+/* Status row + the results-on-map handoff button. */
+.places-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.places-map-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--accent, #38bdf8);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 /* Near-me radius picker (one choice always active). */
 .places-radius-chips {
   align-items: center;
