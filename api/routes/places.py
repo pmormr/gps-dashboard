@@ -35,6 +35,7 @@ sync, and the UI is expected to wear that age rather than present it as live.
 from __future__ import annotations
 
 import json
+import math
 import re
 
 from flask import Blueprint, Response, jsonify, request
@@ -92,6 +93,8 @@ _FTS_CANDIDATE_LIMIT = 10_000
 _FACET_SAMPLE = 10_000
 #: Facet rows returned (distinct kinds, by descending count).
 _FACET_LIMIT = 20
+#: Metres per degree of latitude — the scale for the ``radius`` circle filter.
+_M_PER_DEG_LAT = 111_320.0
 
 
 def _parse_date(value: str | None, name: str) -> tuple[str | None, tuple[Response, int] | None]:
@@ -150,6 +153,12 @@ def list_places():
     doesn't collapse the row to itself), counted over at most
     ``_FACET_SAMPLE`` in-scope rows — ``facets_sampled`` is true when the
     sample capped and counts are proportions rather than totals.
+
+    ``radius`` (metres, requires ``center``, mutually exclusive with ``bbox``)
+    scopes the read to a circle: internally it synthesizes the bounding bbox
+    (so the latlon indexes, the FTS gate, and facets behave exactly like a
+    bbox'd read) plus a corner-trimming circle clause, so ``limit``/
+    ``truncated`` count the circle, not the square.
     """
     bbox, err = parse_bbox(request.args)
     if err:
@@ -172,6 +181,31 @@ def list_places():
             max_rank = int(max_rank_arg)
         except ValueError:
             return jsonify({'error': f'Invalid max_rank: {max_rank_arg}'}), 400
+    radius_arg = request.args.get('radius')
+    radius: float | None = None
+    cos_lat = 1.0
+    if radius_arg is not None:
+        try:
+            radius = float(radius_arg)
+        except ValueError:
+            return jsonify({'error': f'Invalid radius: {radius_arg}'}), 400
+        if not math.isfinite(radius) or radius <= 0:
+            return jsonify({'error': f'Invalid radius: {radius_arg} (want metres > 0)'}), 400
+        if center is None:
+            return jsonify({'error': 'radius requires center'}), 400
+        if bbox is not None:
+            return jsonify({'error': 'radius and bbox are mutually exclusive'}), 400
+        lat_half = radius / _M_PER_DEG_LAT
+        # The same ~cos(lat) lon compression as the ordering tiebreak; floored
+        # like the frontend's box math so polar centers can't explode the box.
+        cos_lat = max(0.2, math.cos(math.radians(center[1])))
+        lon_half = lat_half / cos_lat
+        bbox = (
+            center[0] - lon_half,
+            center[1] - lat_half,
+            center[0] + lon_half,
+            center[1] + lat_half,
+        )
 
     # Filters shared by the list read and the facet counts — everything except
     # the kind filter, which stays in its own clause so facets can scope to
@@ -183,6 +217,19 @@ def list_places():
         w, s, e, n = bbox
         where += ['p.lat BETWEEN ? AND ?', 'p.lon BETWEEN ? AND ?']
         params += [s, n, w, e]
+    if radius is not None and center is not None:
+        # Circle in the locally-scaled plane: trims the bbox corners so
+        # `truncated` counts the circle, not the square. No trig in SQL —
+        # cos²(lat) and (radius in degrees)² arrive precomputed.
+        where.append('((p.lat - ?) * (p.lat - ?) + (p.lon - ?) * (p.lon - ?) * ?) <= ?')
+        params += [
+            center[1],
+            center[1],
+            center[0],
+            center[0],
+            cos_lat**2,
+            (radius / _M_PER_DEG_LAT) ** 2,
+        ]
     kind_where: list[str] = []
     kind_params: list = []
     for column, arg, clauses, values in (

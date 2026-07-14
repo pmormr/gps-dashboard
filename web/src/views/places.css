@@ -334,6 +334,18 @@
   font-size: 10px;
 }
 
+/* Near-me radius picker (one choice always active). */
+.places-radius-chips {
+  align-items: center;
+}
+.places-radius-chips .attr-chip-toggle {
+  --chip-color: var(--accent, #38bdf8);
+}
+.places-radius-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* Raw OSM tag keys are case-sensitive identifiers — don't capitalize them. */
 .attr-tags .attr-day {
   text-transform: none;

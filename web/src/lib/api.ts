@@ -847,6 +847,8 @@ export function getPlaces(opts: {
   categories?: PlaceCategory[]
   maxRank?: number
   center?: string
+  /** Circle scope in metres — requires `center`, mutually exclusive with `bbox`. */
+  radius?: number
   park?: string
   q?: string
   limit?: number
@@ -855,6 +857,7 @@ export function getPlaces(opts: {
 }): Promise<PlacesResponse> {
   const params = new URLSearchParams()
   if (opts.bbox) params.set('bbox', opts.bbox)
+  if (opts.radius != null) params.set('radius', String(opts.radius))
   if (opts.kinds?.length) params.set('kind', opts.kinds.join(','))
   if (opts.categories?.length) params.set('category', opts.categories.join(','))
   if (opts.maxRank != null) params.set('max_rank', String(opts.maxRank))

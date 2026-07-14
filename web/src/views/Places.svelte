@@ -23,8 +23,9 @@
   // map keeps only waypoints; this view owns search/nearby/browse.
   // Browse state lives in the `browse` store so the session survives tab switches.
 
-  /** Near-me bbox half-side, degrees latitude (~110 km). */
-  const HALF_DEG = 1.0
+  /** Near-me radius choices, miles (browse.radiusMi picks one). */
+  const RADIUS_MI = [5, 10, 15, 20]
+  const M_PER_MI = 1609.344
   /** How far ahead the Events mode looks. */
   const EVENT_HORIZON_DAYS = 30
   /** Browse fill: rank ordering needs headroom for the distance re-sort. */
@@ -89,9 +90,12 @@
     }
   })
 
+  // The events endpoint has no radius param — a radius-derived bbox is close
+  // enough for sparse federal events (places reads use the server's circle).
   function nearBbox(a: { lat: number; lon: number }): string {
-    const lonHalf = HALF_DEG / Math.max(0.2, Math.cos((a.lat * Math.PI) / 180))
-    return `${a.lon - lonHalf},${a.lat - HALF_DEG},${a.lon + lonHalf},${a.lat + HALF_DEG}`
+    const halfDeg = (browse.radiusMi * M_PER_MI) / 111320
+    const lonHalf = halfDeg / Math.max(0.2, Math.cos((a.lat * Math.PI) / 180))
+    return `${a.lon - lonHalf},${a.lat - halfDeg},${a.lon + lonHalf},${a.lat + halfDeg}`
   }
 
   function localDate(offsetDays: number): string {
@@ -117,8 +121,12 @@
     const showMinor = browse.showMinor
     const a = nearActive ? anchor : null
     const center = anchor
+    // Read synchronously so the effect tracks it (async reads aren't). The
+    // server synthesizes the bbox from the circle (index paths unchanged)
+    // and trims the corners, so `truncated` counts the circle.
+    const radiusM = a ? Math.round(browse.radiusMi * M_PER_MI) : undefined
     // Facets need a bounded scope to be meaningful: a search term or the
-    // near-me box. Everywhere-browse counts would just describe the continent.
+    // near-me circle. Everywhere-browse counts would just describe the continent.
     const wantFacets = Boolean(q) || a != null
     let cancelled = false
     const controller = new AbortController()
@@ -132,16 +140,19 @@
       }
       try {
         const resp = await getPlaces({
-          bbox: a ? nearBbox(a) : undefined,
+          radius: radiusM,
           // Search covers every category; browse all-on means unfiltered —
           // that also keeps unmapped-category rows.
           categories:
             q || browse.groups.size === CATEGORY_GROUPS.length ? undefined : categories,
           kinds: kinds.length ? kinds : undefined,
-          // Minor places need a bbox: an Everywhere all-ranks read sorts the
-          // whole 10.7M-row tier server-side (minutes on the Pi).
+          // Minor places need a radius scope: an Everywhere all-ranks read
+          // sorts the whole 10.7M-row tier server-side (minutes on the Pi).
           maxRank: q || (showMinor && a) ? undefined : BROWSE_MAX_RANK,
-          center: q && center ? `${center.lon},${center.lat}` : undefined,
+          // Only with a query or a radius — a bare Everywhere browse with a
+          // distance term can't be served from the covering rank index (the
+          // 45 s shape).
+          center: center && (q || a) ? `${center.lon},${center.lat}` : undefined,
           q: q || undefined,
           limit: q ? SEARCH_LIMIT : BROWSE_LIMIT,
           facets: wantFacets,
@@ -182,6 +193,8 @@
   $effect(() => {
     if (browse.mode !== 'events' || !anchorResolved) return
     const a = nearActive ? anchor : null
+    // nearBbox reads browse.radiusMi — call synchronously so the effect tracks it.
+    const bbox = a ? nearBbox(a) : undefined
     let cancelled = false
     ;(async () => {
       status = 'Loading…'
@@ -189,7 +202,7 @@
         const resp = await getPlaceEvents({
           start: localDate(0),
           end: localDate(EVENT_HORIZON_DAYS),
-          bbox: a ? nearBbox(a) : undefined,
+          bbox,
           limit: EVENTS_LIMIT,
         })
         if (cancelled) return
@@ -254,6 +267,18 @@
           onclick={() => (browse.anchorMode = browse.anchorMode === 'near' ? 'everywhere' : 'near')}
           >📍 Near me</button>
       </div>
+      {#if nearActive}
+        <div class="places-kind-chips places-radius-chips">
+          <span class="places-radius-label">within</span>
+          {#each RADIUS_MI as mi (mi)}
+            <button
+              type="button"
+              class="attr-chip attr-chip-toggle"
+              class:active={browse.radiusMi === mi}
+              onclick={() => (browse.radiusMi = mi)}>{mi} mi</button>
+          {/each}
+        </div>
+      {/if}
       <input
         class="nearby-filter"
         type="search"

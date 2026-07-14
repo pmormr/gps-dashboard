@@ -30,6 +30,8 @@ class PlacesBrowseStore {
    */
   kinds = $state<Set<string>>(new Set())
   anchorMode = $state<AnchorMode>('near')
+  /** Near-me scope radius, miles (the user-facing unit; the API takes metres). */
+  radiusMi = $state(10)
   /**
    * Browse depth: off = rank ≤ 3 (common POIs and up); on = every rank,
    * micro furniture included. Search ignores this — `q` always covers all

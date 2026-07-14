@@ -182,6 +182,44 @@ def test_list_rejects_bad_bbox_and_limit(client) -> None:
     assert client.get('/api/places?limit=0').status_code == 400
 
 
+# --- radius ---------------------------------------------------------------------------
+
+
+def test_radius_scopes_to_a_circle_not_the_bbox_square(client) -> None:
+    """A row inside the synthesized bbox but outside the circle is trimmed."""
+    conn = get_connection()
+    load(
+        conn,
+        [
+            Place('park', 'N', None, 'North', 0.15, 0.0, None, {}),  # 16.7 km due north
+            Place('park', 'D', None, 'Diagonal', 0.15, 0.15, None, {}),  # 23.6 km out
+        ],
+        [],
+    )
+    conn.close()
+    body = client.get('/api/places?center=0,0&radius=20000').get_json()
+    assert [a['name'] for a in body['places']] == ['North']
+    body = client.get('/api/places?center=0,0&radius=25000').get_json()
+    assert {a['name'] for a in body['places']} == {'North', 'Diagonal'}
+
+
+def test_radius_param_validation(client) -> None:
+    _seed()
+    assert client.get('/api/places?center=0,0&radius=x').status_code == 400
+    assert client.get('/api/places?center=0,0&radius=0').status_code == 400
+    assert client.get('/api/places?radius=1000').status_code == 400  # needs center
+    assert client.get('/api/places?center=0,0&radius=1000&bbox=-1,-1,1,1').status_code == 400
+
+
+def test_radius_read_carries_facets_and_search(client) -> None:
+    """Radius reads behave like bbox'd reads: exact facets, full search recall."""
+    _seed()
+    body = client.get('/api/places?center=-105.7,40.36&radius=50000&facets=1&q=rocky').get_json()
+    assert [a['name'] for a in body['places']] == ['Rocky Mountain National Park']
+    assert body['facets'] == [{'kind': 'park', 'count': 1}]
+    assert body['facets_sampled'] is False
+
+
 # --- facets ---------------------------------------------------------------------------
 
 
