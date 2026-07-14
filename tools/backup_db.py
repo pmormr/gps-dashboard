@@ -29,9 +29,10 @@ siblings), run ``PRAGMA integrity_check;`` before trusting it, restart.
 The ``places.db`` sidecar (beside the main DB) is deliberately NOT in this
 backup path: the places tier is fully rebuildable from public downloads. Its
 rebuild recipe is the importers, per source — ``tools/import_places.py`` (NPS
-over WAN; RIDB via ``--ridb-zip``; later OSM/Overture merges per
-``plans/attractions-poi-plan.md``). A lost sidecar costs a re-import, never
-data.
+over WAN; RIDB via ``--ridb-zip``; the OSM transfer-DB merge via ``--osm-db``,
+then GNIS via ``--gnis-zip`` and the wiki cache via ``--wiki-db`` — sources and
+ops cadence in ``.claude/modules/places.md``). A lost sidecar costs a
+re-import, never data.
 """
 
 from __future__ import annotations

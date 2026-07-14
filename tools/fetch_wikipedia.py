@@ -1,8 +1,8 @@
 """Fetch Wikipedia summaries + thumbnails for wiki-tagged places (laptop only — never the Pi).
 
-Phase 7 of the POI expansion (``plans/attractions-poi-plan.md``): build the
-``place_wiki`` cache — an offline blurb (+ photo) for every place whose OSM
-tags name a Wikipedia article. ~166k NA rows carry a ``wikipedia`` title or a
+Builds the places tier's ``place_wiki`` cache (``.claude/modules/places.md``) —
+an offline blurb (+ photo) for every place whose OSM tags name a Wikipedia
+article. ~166k NA rows carry a ``wikipedia`` title or a
 ``wikidata`` QID; this tool runs where the WAN lives, writes a standalone
 *transfer DB*, and ``tools/import_places.py --wiki-db`` swaps it into the
 sidecar on the Pi (full-replace, same ops shape as the OSM merge).

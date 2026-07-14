@@ -20,14 +20,13 @@ pure-metadata philosophy — no FKs into synced tiers.
 
 Relationship to the other active plans:
 
-- **`plans/attractions-poi-plan.md`** — attractions move to a rebuildable,
-  un-backed-up sidecar (`attractions.db`) and grow to ~8–12M rows. Saved
+- **The places tier** (`.claude/modules/places.md` — landed) — places live in
+  a rebuildable, un-backed-up sidecar (`places.db`, ~11.6M rows). Saved
   places are user data and live in `gps_history.db` (the backed-up DB),
   **snapshotting** name/lat/lon at save time with `(source, source_id)` as a
-  soft re-link only. Neither plan blocks the other; the soft link is
-  DB-agnostic and survives both the sidecar migration and full-replace
-  re-imports. (The broad "places substrate" question is that plan's turf —
-  this table stays narrowly the want-to-go pool.)
+  soft re-link only. The soft link is DB-agnostic and survives the tier's
+  full-replace re-imports. (The broad "places substrate" question is that
+  tier's turf — this table stays narrowly the want-to-go pool.)
 - **`plans/navigation-plan.md`** — locked. The junction (navigate-to-next-stop
   from a trip) is deferred to that plan's frontend phases; nothing here
   anticipates it beyond stop ordering.

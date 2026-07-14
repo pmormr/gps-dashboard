@@ -1,12 +1,19 @@
 # Places Tier
 
-Parks/public-lands POIs + event schedules, batch-imported while online, browsed offline.
-Same tier pattern as drone/phone: import → SQLite → bbox/date-filtered API → frontend.
-The unified `places` table is the app's general POI substrate — the OSM/Overture
-expansion (`plans/attractions-poi-plan.md`) folds into it, and it's the anchor layer for
-navigation's destination search. (Renamed from "attractions" 2026-07-09, plan decision
-10 — table/route/file names all moved; the plan file and the Pi secret file
-`/etc/default/gps-attractions` keep their historical names.)
+POIs + event schedules, batch-imported while online, browsed offline. Same tier
+pattern as drone/phone: import → SQLite → bbox/date-filtered API → frontend. The
+unified `places` table is the app's general POI substrate — federal lands (NPS/RIDB),
+the broad ~10.8M-row OSM NA extract (basemap bbox `-168,7,-52,72`), and the GNIS
+names layer in one table — and the anchor layer for navigation's destination search.
+(Renamed from "attractions" 2026-07-09; the Pi secret file
+`/etc/default/gps-attractions` keeps the historical name.)
+
+Eliminated pathways (don't reopen without new facts): commercial APIs (Google Places
+ToS forbids storing results; scraping rejected on ToS grounds), **Overture Maps**
+(descoped 2026-07-10 — OSM coverage proved sufficient in real use; the
+DuckDB-GeoParquet bbox extract stays the approach if commercial-layer gaps ever
+show up), and **iOverlander** (its data now requires a paid license). State parks
+have no unified source — federal + OSM is the baseline.
 
 Schema + API surface: CLAUDE.md (Data Model, API Endpoints). Frontend (map waypoints +
 the Places destination): `.claude/modules/frontend.md`. This file keeps the storage
@@ -39,10 +46,21 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
   don't). The importer rebuilds it after every import/merge — bulk-only writes, no sync
   triggers; the rebuild dominates merge runtime (~10.7M rows ≈ 5 min laptop-class).
   Spatial reads stay on the composite `(lat, lon)` index — R*Tree benchmarked
-  indistinguishable at 10M rows and declined (plan decision 12).
-- At full scale (NPS + RIDB + OSM NA) the sidecar is ~10.7M rows / ~4.2 GB.
-- One-shot migrations in `api.db` (drop once landed on the Pi, like earlier one-shots):
-  the legacy main-DB `attractions*` move, and the `category`/`rank` column add+backfill.
+  indistinguishable at 10M rows on the bbox+rank+limit query shape and declined.
+- **Query tuning at 10M-row scale**: partial indexes `idx_places_latlon_r{1,2,3}`
+  serve the rank-gated viewport reads and `idx_places_rank_name` the no-bbox browse —
+  the route emits index-friendly plain `ORDER BY rank` only when there's no bbox, so
+  a sparse bbox can never plan onto the rank index and scan the whole tier (see
+  `api/routes/places.py`). Search is **adaptive FTS**: count matches first, unbounded
+  join ≤60k matches (full recall — a bbox'd search must see every match), top-10k bm25
+  candidate pool above (junk prefixes degrade recall exactly where ranking millions of
+  matches is meaningless). Two ops traps: benchmark new query *shapes* on the
+  full-scale local DB (`~/osm-lab/places.db`) — the laptop absorbed a 45 s Pi-only
+  sort once — and **pre-build new sidecar indexes over SSH before pushing**, or racing
+  service startups all pay the build against busy_timeout.
+- At full scale (NPS + RIDB + OSM NA + GNIS + wiki thumbs) the sidecar is ~11.6M
+  rows / ~6.8 GB (Pi 2026-07-13: osm 10,791,484 · gnis 757,329 · ridb 16,326 ·
+  nps 6,124 · 75,640 `place_wiki` rows).
 
 ## Sources
 
@@ -62,8 +80,11 @@ sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source 
 - **OSM extract** (`--osm-db <transfer file>`): the broad ~10.7M-row POI layer —
   everything from fuel/campgrounds/peaks to benches, full NA (basemap bbox). Built
   **off-Pi** by `tools/build_osm_pois.py` (Geofabrik PBFs → `osmium tags-filter`
-  prefilter → pyosmium nodes/ways/areas → transfer DB; the TAXONOMY table in that tool
-  is the category/rank decision table). The Pi only ATTACHes the finished ~3 GB file
+  prefilter → pyosmium nodes/ways/areas → transfer DB; the `TAXONOMY` table in that
+  tool is the category/rank decision table, `REFINERS` the per-kind secondary-tag
+  rules — aerodrome tiers, the named-lake gate). Ways/relations must keep geometry
+  assembly (a nodes-only scan silently drops the ~half of POIs mapped on building
+  ways). The Pi only ATTACHes the finished ~3 GB file
   and swaps the `osm` slice. Canonical PBF snapshot: `rex-nas:~/osm/` (shared with the
   navigation plan's Valhalla graph build so graph + POIs see one OSM vintage).
 - **GNIS** (`--gnis-zip <path>`): the USGS Domestic Names national export (~37 MB zip,
@@ -79,8 +100,9 @@ sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source 
 
 ## Wikipedia cache (`place_wiki`)
 
-Offline blurb + thumbnail for every wiki-tagged place (~162k distinct articles across
-~166k OSM rows). Keyed by wiki id (`api.db.place_wiki_key`: wikidata QID, else
+Offline blurb + thumbnail for every wiki-tagged place. ~166k OSM rows carry a tag,
+but ~85% of the wikidata-only QIDs have no English article — the real cache is
+~75.6k articles (~2.2 GB, thumbnails dominating). Keyed by wiki id (`api.db.place_wiki_key`: wikidata QID, else
 `lang:title`), **not** `places.id` — full-replace merges would orphan a places-keyed
 cache; the detail read resolves place → key from its tags at read time and joins.
 Built off-Pi by `tools/fetch_wikipedia.py` (resumable — fetched keys + misses persist
@@ -141,9 +163,7 @@ RIDB:
 
 ## Deferred / parked
 
-- **OSM + Overture POI expansion: ACTIVE** — `plans/attractions-poi-plan.md` (Phases 1+;
-  the Phase 0 sidecar migration is what landed here).
-- Tour-audio + thumbnail caching for offline richness (tours are already fully readable
+- Tour-audio caching for offline richness (tours are already fully readable
   offline via embedded transcripts).
 - A "today at nearby parks" Home card; per-state parks data if coverage hurts.
 - **Parked (discuss before acting):** store NPS `places` assets (~17k rows — waysides,

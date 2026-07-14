@@ -1,12 +1,12 @@
 """Build the OSM POI transfer DB for the places tier (laptop/NAS only — never the Pi).
 
-Phase 1 of the POI expansion (``plans/attractions-poi-plan.md``): turn Geofabrik
+The places tier's broad-POI source (``.claude/modules/places.md``): turn Geofabrik
 PBF extracts into a standalone SQLite *transfer DB* whose ``places`` table is
 column-compatible with the sidecar's (``api.db._init_places_schema``) plus the
 two broad-POI columns, ``category`` and ``rank``. The Pi never sees a PBF: this
 tool runs where the download lives (laptop or rex-nas), and the finished DB is
-scp'd to the Pi and merged by ``tools/import_places.py --osm-db`` (Phase 2,
-full-replace of ``source='osm'``).
+scp'd to the Pi and merged by ``tools/import_places.py --osm-db`` (full-replace
+of ``source='osm'``).
 
 Pipeline::
 

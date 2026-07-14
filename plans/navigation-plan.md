@@ -33,7 +33,7 @@ decisions inline.
 |---|----------|--------|-----------|
 | 1 | Engine | **Valhalla** | Tiled, disk-backed graph — serving RAM is a few hundred MB regardless of extent, which is what a 4 GB CM5 needs. Returns maneuvers natively; map-matching + isochrones come free for later. OSRM eliminated (whole graph in RAM — NA is far beyond 4 GB); GraphHopper is the fallback (mmap-able but drags a JVM); BRouter is bike-oriented. |
 | 2 | v1 scope | **Route line + ETA + off-route re-route** | Turn-by-turn deferred. All the risk (engine on the Pi, graph build) is in this tier; maneuvers are a rendering increment later. |
-| 3 | Graph extent | **Full North America** — the Geofabrik `north-america` extract only (Canada/Greenland/Mexico/US) | Matches the basemap philosophy (33 GB OSM, 105 GB terrain). Disk is a non-issue (739 GB free). A **Colorado build validates the pipeline first** — measures build RAM/time and route quality cheaply before committing to the NA build. **Accepted gap (2026-07-09):** the basemap/POI footprint (`-168,7,-52,72`, per `plans/attractions-poi-plan.md`) also covers Central America — routing deliberately does not; primary concern is the USA. A Central America place may be searchable/rendered but not routable. `valhalla_build_tiles` takes multiple PBFs if this is ever revisited. |
+| 3 | Graph extent | **Full North America** — the Geofabrik `north-america` extract only (Canada/Greenland/Mexico/US) | Matches the basemap philosophy (33 GB OSM, 105 GB terrain). Disk is a non-issue (739 GB free). A **Colorado build validates the pipeline first** — measures build RAM/time and route quality cheaply before committing to the NA build. **Accepted gap (2026-07-09):** the basemap/POI footprint (`-168,7,-52,72`, per `.claude/modules/places.md`) also covers Central America — routing deliberately does not; primary concern is the USA. A Central America place may be searchable/rendered but not routable. `valhalla_build_tiles` takes multiple PBFs if this is ever revisited. |
 | 4 | Build host | **NAS** (Mac permitted) | rex-nas is an i5-1235U with **32 GB RAM** — comfortable for the NA graph build — and its gigabit link beats the Mac's WiFi for the ~15 GB PBF download; it already builds containers (exiftool precedent). Same playbook as the terrain archive: build off-Pi, rsync → `.tmp`, atomic `mv`. |
 | 5 | Costing | **`auto` with `height: 2.75`** (m), height only | The van is just under 9 ft (2.74 m); 2.75 gives margin in the safe direction. Valhalla's auto costing accepts `height`/`width` directly (upstream PR #3179) — no need for `truck` costing, which drags truck-specific road restrictions that don't apply to a van. Width (~2.5 m with mirrors) deferred: OSM `maxwidth` coverage is sparse, marginal effect, slight over-caution risk — add if Phase 0 routes look wrong. |
 | 6 | Runtime shape | **pyvalhalla in-process** (`Actor` inside Flask) + **Python 3.12 bump** | A pip dep in `uv.lock` (offline-installable like everything else), maintained by Valhalla's own people (3.8.2 released 2026-07-08, aarch64 abi3 wheels), needing **no** new systemd unit, deploy-hook block, or source build. Cost accepted: wheels are cp312-abi3 → uv-managed Python 3.12+ on the Pi (one-time online download, cached; system Python is 3.11.2) and a project-wide `requires-python` + `[tool.mypy] python_version` bump. Phase 0 validates pyvalhalla against the Colorado extract before the Pi commitment; **recorded fallback** if it fails: `valhalla_service` daemon on `127.0.0.1:8002` (source build on Pi, enabled-gated unit + hook block, Flask HTTP proxy). |
@@ -133,11 +133,11 @@ Each phase independently shippable; Phase 0 is disposable validation.
 - **Phase 1 — NA graph build + ship.** NA PBF downloaded on the NAS (gigabit);
   same build script at continental scale; `valhalla-na.tar` → NVMe atomic
   swap. Write the build as a documented script (`tools/` or NAS-side) so the
-  rebuild cadence is a command, not archaeology. **PBF reuse:** if
-  `plans/attractions-poi-plan.md` Phase 1 already downloaded the Geofabrik
-  `north-america` PBF to the NAS, build from that file — one download, and
-  graph + POI DB share an OSM snapshot (no searchable-but-not-routable skew).
-  Same courtesy in reverse.
+  rebuild cadence is a command, not archaeology. **PBF reuse:** the places
+  tier's canonical Geofabrik snapshot lives at `rex-nas:~/osm/`
+  (`.claude/modules/places.md`) — build from those files, so graph + POI DB
+  share an OSM vintage (no searchable-but-not-routable skew). Same courtesy
+  in reverse when refreshing.
 - **Phase 2 — Pi runtime + `/api/route`.** uv-managed Python 3.12 on the Pi +
   `requires-python`/mypy bump + pyvalhalla dep (decision 6); module-level
   lock-guarded lazy `Actor` (decision 7). `POST /api/route` (origin, dest,
@@ -158,13 +158,12 @@ Each phase independently shippable; Phase 0 is disposable validation.
 
 - **Turn-by-turn HUD** — maneuver banner from the already-carried maneuvers;
   voice via browser SpeechSynthesis (verify offline voices on the phone).
-- **Offline destination search** — likely superseded by
-  `plans/attractions-poi-plan.md` (OSM extract → FTS5-searchable attractions
-  tier), which strictly covers what this bullet proposed: destination search =
-  search attractions → "Navigate here" → destination store, no nav-owned
-  geocoder. **Re-evaluate against that plan's state before scoping anything
-  here** — build this only if a gap remains (e.g. addresses, which the POI
-  tier won't carry).
+- **Offline destination search** — superseded by the landed places tier
+  (`.claude/modules/places.md`: ~11.6M-row FTS5-searchable POI substrate),
+  which covers what this bullet proposed: destination search = search places →
+  "Navigate here" → destination store, no nav-owned geocoder. Build anything
+  here only if a gap remains (e.g. addresses, which the POI tier doesn't
+  carry).
 - **Map-matching (Meili)** — snap GPS trails to roads; possible processor synergy.
 - **Isochrones** — "how far can I get in 2 h" overlay; engine supports it free.
 - **Elevation-aware costing** — Valhalla can ingest elevation for grade; skip
