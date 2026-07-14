@@ -59,8 +59,11 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
   sort once — and **pre-build new sidecar indexes over SSH before pushing**, or racing
   service startups all pay the build against busy_timeout.
 - At full scale (NPS + RIDB + OSM NA + GNIS + wiki thumbs) the sidecar is ~11.6M
-  rows / ~6.8 GB (Pi 2026-07-13: osm 10,791,484 · gnis 757,329 · ridb 16,326 ·
-  nps 6,124 · 75,640 `place_wiki` rows).
+  rows / ~6.8 GB (Pi 2026-07-14: osm 10,791,484 · gnis 725,946 · nps 23,256 ·
+  ridb 16,326 · 75,640 `place_wiki` rows). Cross-source twins that survive on
+  purpose: ~2,090 NPS `site` rows name-match an OSM row within ~1 km — the NPS
+  side is the richer twin, so display-time unification is the open question in
+  `plans/poi-map-unification-plan.md`, not an import filter.
 
 ## Sources
 

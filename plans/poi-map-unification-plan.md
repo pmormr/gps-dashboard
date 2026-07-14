@@ -30,6 +30,13 @@ questions at the bottom.** No code yet.
   label points (`residential`, `industrial`, `retail`, `administrative`) and
   natural labels (`water`, `glacier`) alongside true POIs. Any "import the
   marks" pass must exclude the label-point classes deliberately.
+- **Cross-source twins exist beyond GNIS.** Measured on the Pi 2026-07-14:
+  2,090 of 16,320 located NPS `site` rows (~13%) have a same-name OSM row
+  within ~1 km (266 vs GNIS) — e.g. "Bear Lake": the OSM lake and the NPS
+  interpretive destination. Unlike GNIS (name-only stubs, dropped at import),
+  the NPS row is the *richer* twin, so import-time skipping loses curated
+  content. Left in place deliberately — resolving "which row represents a
+  feature" belongs to this plan's identity story, not another import filter.
 - **Tier pins are anonymous colored circles** (`place-circle` GL layer,
   per-kind color, no icon, no label); the emoji in `KIND_META`/`CATEGORY_META`
   are HTML-UI only (chips, legends, sheets). Search results get a halo+dot.
@@ -111,3 +118,8 @@ re-import (the usual laptop transfer-DB → Pi merge → GNIS chain).
 5. Tap on an unresolved mark (tier lacks the row — vintage skew or excluded
    kind): minimal sheet from tile attrs (name/kind/coords, no detail), or
    nothing?
+6. Cross-source twins (the measured 2,090 NPS-site↔OSM pairs, and federal↔OSM
+   generally): unify at *display* time (group/prefer the richer row in search
+   results and sheets, suppress twin pins) or at *import* time (a keeper
+   hierarchy)? Display-time preserves all data and fits the id-bridge
+   architecture; import-time is simpler but lossy.
