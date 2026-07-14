@@ -21,9 +21,11 @@ sync, and the UI is expected to wear that age rather than present it as live.
   ``_FTS_UNBOUNDED_MAX``) are answered from a bounded bm25 candidate pool,
   trading recall for latency on exactly the queries where ranking millions
   of matches is meaningless anyway.
-* ``GET /api/places/<id>`` — one POI with parsed ``details``, plus its cached
-  Wikipedia summary (``wiki``) when the ``place_wiki`` cache has the row's
-  wiki tag (resolved at read time — see ``api.db.place_wiki_key``).
+* ``GET /api/places/<id>`` — one POI with parsed ``details``, its cached
+  Wikipedia summary (``wiki``, resolved at read time — see
+  ``api.db.place_wiki_key``), and its cross-source ``twins``.
+* ``GET /api/places/lookup`` — ``(source, source_id)`` natural key → row id
+  (the basemap tap-through bridge).
 * ``GET /api/places/<id>/photo`` — the cached Wikipedia thumbnail bytes.
 * ``GET /api/places/events`` — occurrences (event × date × time window) in
   a calendar-date window, grouped per event. Dates are park-local
@@ -96,7 +98,7 @@ _FACET_LIMIT = 20
 #: Metres per degree of latitude — the scale for the ``radius`` circle filter.
 _M_PER_DEG_LAT = 111_320.0
 
-#: Display-time twin unification (unification plan, decision 6): source
+#: Display-time twin unification (places.md): source
 #: preference when one physical feature has rows in several sources — the
 #: curated side wins ('Bear Lake' the NPS interpretive page over the bare OSM
 #: water row). GNIS is deliberately absent: its true OSM twins are already

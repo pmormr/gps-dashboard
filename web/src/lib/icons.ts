@@ -1,5 +1,5 @@
 /**
- * The one map-icon language (plans/poi-map-unification-plan.md).
+ * The one map-icon language (see .claude/modules/basemaps.md § pois marks).
  *
  * Sprite icon names come from the `poi` multi-sprite —
  * `static/vendor/basemap/sprite-poi/`, built by `tools/build_poi_sprite.py`

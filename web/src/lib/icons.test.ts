@@ -62,7 +62,7 @@ describe('planetiler feature-id codec', () => {
 
   it('matches the observed tile encodings', () => {
     // Verified against real tiles: The UPS Store (node) and the Denver
-    // Municipal Animal Shelter (way) — see the unification plan's fact base.
+    // Municipal Animal Shelter (way) — decoded from real archive tiles.
     expect(decodeFeatureId(17598587138042)).toBe('node/6401093626')
     expect(decodeFeatureId(35185339696080)).toBe('way/967607248')
   })

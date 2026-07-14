@@ -36,7 +36,7 @@ class LayersStore {
 
   // Places overlay (the POI tier). Viewport-driven, not time-windowed —
   // Map.svelte refetches it on map movement while it's on. `placeGroups` is
-  // THE POI category selection (one control, unification plan): the same
+  // THE POI category selection (one control by design): the same
   // category-group chips filter the overlay pins *and* the basemap's own
   // pois marks. Default all-on — the rank×zoom pin gate (places.ts) and the
   // tiles' per-feature min_zoom already curb map noise.

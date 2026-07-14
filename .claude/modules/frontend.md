@@ -85,11 +85,14 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   extent, and it always renders — an empty window stays navigable. Hover emits
   `track.hoverMs` (the map's ghost dot) + tooltips.
 - **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🛰 **Data
-  layers** (`DataLayers.svelte`: drone + phone + places toggles, the latter with a
-  per-kind filter), 🎨 **Map style**
-  (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, labels via `labels.ts`,
-  3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark Start/End → Use
-  Marks reframes the window; panel-local state), 📊 **Inspect** (`InspectPanel.svelte`:
+  layers** (`DataLayers.svelte`: drone + phone + places toggles, plus **the one POI
+  category filter** — the group chips govern the basemap's own `pois` marks *and* the
+  places overlay together; `layers.placeGroups` is the single selection, the old
+  labels `POI_GROUPS` is gone), 🎨 **Map style**
+  (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, label *density* via
+  `labels.ts`, 3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark
+  Start/End → Use Marks reframes the window; panel-local state), 📊 **Inspect**
+  (`InspectPanel.svelte`:
   derived window stats from `GET /api/obd/economy` — duration/distance/speeds/fuel/MPG/
   moving/idle; fetches only while mounted = open). Exclusive-open; desktop = anchored
   card, mobile = bottom sheet; defaults closed. Below a separator, **⛶ viewport filter**:
@@ -99,10 +102,17 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   Drone/phone/places **legends are on-map chips** under the top-left annotations
   cluster, shown only while that layer is on. Drone: `drone.ts` lazily imports
   `overlay3d.ts` (three.js tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb +
-  visit pins, following the window; places: `places.ts` per-kind pins —
-  **viewport-driven** (moveend refetch, parks-only below z6), *not* time-windowed. The
-  map's places role is **waypoints only**: pin click → `PlaceSheet.svelte`, a
-  thin container over the shared `PlaceDetail.svelte`; browsing/search lives in the
+  visit pins, following the window; places: `places.ts` pins (colored circle + the
+  unified sprite icon) — **viewport-driven** (moveend refetch, parks-only below z6),
+  *not* time-windowed. **One icon language** (`icons.ts`): the basemap `pois` layer,
+  the overlay pins, and the HTML chips/legends/sheets (`PoiIcon.svelte`, CSS-mask
+  SVGs) all render the vendored Maki/Temaki set, category-colored. **Every basemap
+  mark is a tap target**: the tile feature id decodes (`icons.ts` codec,
+  planetiler `type·2⁴⁴+osm_id`) → `/api/places/lookup` → the same `PlaceSheet.svelte`
+  a pin opens; unresolved marks (vintage skew/excluded kind) get the sheet's minimal
+  stub mode. Overlay rows suppress their basemap twins (`labels.ts` composes the
+  `pois` filter: categories × zoom gate × suppressed feature ids). The
+  map's places role is **waypoints only**: browsing/search lives in the
   Places destination. Subsystems: **`.claude/modules/drone.md`**,
   **`.claude/modules/phone.md`**; places tier: **`.claude/modules/places.md`**.
 - **Annotations** (`AnnotationsDrawer.svelte`, `AnnotationForm.svelte`, store) —

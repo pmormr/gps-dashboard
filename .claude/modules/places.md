@@ -62,8 +62,20 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
   rows / ~6.8 GB (Pi 2026-07-14: osm 10,791,484 · gnis 725,946 · nps 23,256 ·
   ridb 16,326 · 75,640 `place_wiki` rows). Cross-source twins that survive on
   purpose: ~2,090 NPS `site` rows name-match an OSM row within ~1 km — the NPS
-  side is the richer twin, so display-time unification is the open question in
-  `plans/poi-map-unification-plan.md`, not an import filter.
+  side is the richer twin, kept and **unified at display time**, not import-filtered.
+- **Display-time twin unification** (`group_twins` in `api/routes/places.py`): every
+  list read's returned page collapses exact-name (casefolded) ~1 km cross-source
+  rows — nps > ridb > osm preference, the kept row carries `twins` refs (with
+  `source_id`, so the client also suppresses a grouped-out OSM twin's basemap mark).
+  GNIS never groups: its true twins are import-deduped; survivors sharing a name are
+  *different* features (a town must not collapse into a shop). Same-source rows never
+  group (two chain outlets are two places). **Page-local by design** — a nationwide
+  exact-name search ('bear lake', 200+ exact matches) can cut a twin out of the page,
+  but bbox'd browse/pin reads always co-locate twins, and the *detail* read finds
+  them page-independently (box-first via the latlon index — never FTS-first, a
+  generic name would score millions of matches). `GET /api/places/lookup` resolves a
+  `(source, source_id)` natural key to the row id — the basemap tap-through bridge
+  (tile feature id = planetiler `type·2⁴⁴ + osm_id`; codec in `web/src/lib/icons.ts`).
 
 ## Sources
 

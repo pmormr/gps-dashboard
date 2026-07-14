@@ -1,6 +1,6 @@
 """Build the unified POI sprite from the vendored Maki/Temaki SVGs.
 
-The one icon language for the map (`plans/poi-map-unification-plan.md`): both
+The one icon language for the map (basemaps.md § pois marks): both
 the basemap ``pois`` layer and the places-tier pin layers reference this
 sprite (MapLibre multi-sprite id ``poi``), and the HTML UI renders the same
 SVGs directly from ``static/vendor/poi-icons/svg/``.

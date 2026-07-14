@@ -10,7 +10,7 @@ Users connect via phone or laptop over the van's WiFi. No authentication is requ
 
 ## Documentation layout
 
-This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`, `places`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`, `navigation`, `trip-planner`, `poi-map-unification`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
+This file is the architectural map and router: base architecture + pointers. Landed subsystem detail lives in `.claude/modules/` (`frontend`, `basemaps`, `hardware`, `processor`, `sensors`, `observatory`, `drone`, `phone`, `places`); **active/in-flight** plans live in `plans/` (`motion-imu`, `radio-platform`, `meshtastic-platform`, `sensor-ideas`, `navigation`, `trip-planner`). Keep all of it to **current state, critical traps, and eliminated pathways** — the back-and-forth that produced a decision belongs in git history, not here. When a plan lands, fold its durable bits into the relevant module and drop the plan. The same rule governs code comments: when a plan lands, comments state the resulting invariant in place — plan/phase codenames ("Phase 3", "C7") dangle once the plan file is dropped. Pointers to *active* plan files are fine.
 
 `reference/` holds vendored equipment docs (vendor manuals, datasheets) plus captured device-capability dumps (e.g. the van's supported-PID set) for hardware we may need to consult off-grid — committed rather than gitignored so they ride to the headless Pi. Alongside each PDF, commit a `pdftotext -layout` extraction (same basename, `.txt`) so the doc stays grep-able over SSH without poppler installed on the Pi.
 
@@ -114,7 +114,7 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/fridge/status` · `GET /api/fridge/history?span=` · `POST /api/fridge/{setpoint,power}` — CFX3 control plane: DB snapshot + liveness + cached ranges, stored DC-history reads, and zone setpoint/power writes over DDMP with live read-back; 502 = fridge NAK, 503 = unreachable (sensors.md, `reference/cfx3-ddmp.md`)
 - `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
 - `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
-- `GET /api/places[/:id]` · `GET /api/places/events[/:id]` — POI/event browse reads; `q` is FTS token-prefix search ordered match → rank → distance-to-`center`, `max_rank` is the pin-zoom gate (mandatory below rank 5 at broad-tier scale), `category`/`kind` filter, `center`+`radius` = near-me circle scope, `facets=1` = kind-refinement counts; event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
+- `GET /api/places[/:id]` · `GET /api/places/lookup` · `GET /api/places/events[/:id]` — POI/event browse reads; `q` is FTS token-prefix search ordered exact-name → match → rank → distance-to-`center`, `max_rank` is the pin-zoom gate (mandatory below rank 5 at broad-tier scale), `category`/`kind` filter, `center`+`radius` = near-me circle scope, `facets=1` = kind-refinement counts; list pages group cross-source twins (`twins` refs; places.md), `lookup` resolves a `(source, source_id)` natural key (the basemap tap-through bridge); event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
 - `GET /api/gpsd/sky` · `GET /api/gpsd/status` · `GET /api/gpsd/live` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in) + the Drive view's 1 Hz TPV-only fix poll
 - `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
 - `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band}` — ID-5100A readout/control via rigctld, **active main band only**; 502 = rig refusal, 503 = rigctld unreachable
@@ -220,7 +220,8 @@ gps-dashboard/
 │       │   ├── map.ts          # MapView MapLibre façade (npm maplibre/pmtiles)
 │       │   ├── mapHost.ts      # persistent keep-alive map host (alive across routes)
 │       │   ├── timestrip.ts    # canvas timeline island (density + stops + drag-to-zoom)
-│       │   ├── labels.ts       # POI/label GL-style controls (vector base)
+│       │   ├── icons.ts        # the one POI icon language (sprite maps + planetiler id codec)
+│       │   ├── labels.ts       # basemap pois-layer composer (categories × density × twin suppression)
 │       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
 │       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
 │       │   ├── places.ts       # places overlay: per-kind pin builders + viewport-driven sync (z6 gate)

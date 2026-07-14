@@ -5,9 +5,19 @@ single `maplibregl.Map` (`MapView`, `web/src/lib/map.ts`) renders everything —
 MapLibre GL (not Leaflet) so the map can pitch and drape on terrain. The map's right
 icon rail drives it via the **Map style** panel (`web/src/views/MapStyle.svelte`):
 basemap switch, terrain draping + exaggeration (off = flat 2D, north-up; on unlocks
-pitch + rotate), and label tuning (vector only, `web/src/lib/labels.ts` — POI
-categories, label density, minor-street-name visibility) driving the MapLibre map
-directly.
+pitch + rotate), and label *density* / minor-street-name tuning (vector only). The
+basemap's **`pois` marks** are fully owned at runtime by the composer in
+`web/src/lib/labels.ts`: one function sets the layer's filter (the shared POI
+category selection × per-feature `min_zoom` density gate × twin-suppression feature
+ids), `icon-image`, and category-colored `icon-color`/`text-color` from the unified
+icon language (`web/src/lib/icons.ts`). Icons come from a second, SDF **`poi`
+multi-sprite** (`static/vendor/basemap/sprite-poi/`, built by
+`tools/build_poi_sprite.py` from the vendored CC0 Maki/Temaki SVGs in
+`static/vendor/poi-icons/`; SDF = one monochrome set, tinted at render time). The
+raster style carries the `poi` sprite too, so overlay pins keep their icons on USGS.
+Marks are tappable — the tile feature id is planetiler-encoded (`type·2⁴⁴ + osm_id`)
+and round-trips to the places tier's `source_id` (codec in `icons.ts`; resolution
+via `GET /api/places/lookup`).
 
 ## OSM — vector (default)
 
