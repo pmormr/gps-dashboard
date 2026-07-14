@@ -226,7 +226,9 @@
   color: var(--text);
 }
 /* The clear button needs a finger-sized hit area (~40px), not an 11px glyph.
-   Negative margins absorb the padding so the chip keeps its visual height. */
+   Negative margins absorb the padding so the chip keeps its visual height.
+   pointer-events restores interactivity inside .map-legend-chips, whose
+   `none` lets map gestures pass through the (otherwise informational) legends. */
 .legend-chip-clear {
   display: inline-flex;
   align-items: center;
@@ -240,6 +242,7 @@
   font-size: 14px;
   cursor: pointer;
   touch-action: manipulation;
+  pointer-events: auto;
 }
 .legend-chip-clear:hover {
   color: var(--text);
