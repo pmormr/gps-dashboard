@@ -5,8 +5,9 @@
     getPointsLatest,
     type Place,
     type PlaceEvent,
+    type PlaceFacet,
   } from '../lib/api'
-  import { CATEGORY_META, placeMeta } from '../lib/places'
+  import { CATEGORY_GROUPS, expandGroups, facetLabel, placeMeta } from '../lib/places'
   import { fmtDate, fmtDistance, haversineMeters } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { browse } from '../lib/stores/places.svelte'
@@ -26,28 +27,47 @@
   const HALF_DEG = 1.0
   /** How far ahead the Events mode looks. */
   const EVENT_HORIZON_DAYS = 30
-  const PLACES_LIMIT = 2000
+  /** Browse fill: rank ordering needs headroom for the distance re-sort. */
+  const BROWSE_LIMIT = 2000
+  /**
+   * Search fill: results are relevance-ordered server-side, so the top slice
+   * is the *right* slice — and a 2000-row payload costs ~0.4 s of HaLow
+   * transfer per keystroke for list rows nobody scrolls.
+   */
+  const SEARCH_LIMIT = 200
   const EVENTS_LIMIT = 2000
   const QUERY_DEBOUNCE_MS = 300
-  /** 1-char prefixes match millions of rows — browse until a real query forms. */
-  const MIN_QUERY_CHARS = 2
-  /** Browse depth without the minor-places toggle (decision 16). */
+  /**
+   * 1–2-char prefixes are junk-prefix shapes — millions of matches, answered
+   * from the bounded bm25 pool at seconds each — so browse until a real query
+   * forms.
+   */
+  const MIN_QUERY_CHARS = 3
+  /** Browse depth without the minor-places toggle. */
   const BROWSE_MAX_RANK = 3
 
   let anchor = $state<{ lat: number; lon: number } | null>(null)
   let anchorResolved = $state(false)
   let places = $state<(Place & { distance_m: number | null })[]>([])
   let events = $state<PlaceEvent[]>([])
+  let facets = $state<PlaceFacet[]>([])
+  let facetsSampled = $state(false)
   let status = $state('Loading…')
   let syncedAt = $state<string | null>(null)
 
   // The search input is local and pushes to the store debounced, so each
-  // keystroke doesn't refetch.
+  // keystroke doesn't refetch. A new query clears the facet-kind refinement —
+  // a stale type filter against fresh search text silently empties results.
   let queryInput = $state(browse.query)
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   function onQueryInput(): void {
     clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(() => (browse.query = queryInput.trim()), QUERY_DEBOUNCE_MS)
+    debounceTimer = setTimeout(() => {
+      const next = queryInput.trim()
+      if (next === browse.query) return
+      browse.kinds = new Set()
+      browse.query = next
+    }, QUERY_DEBOUNCE_MS)
   }
 
   // Resolve the live fix once per mount. No fix → Everywhere-only browsing.
@@ -81,37 +101,51 @@
   }
 
   const nearActive = $derived(browse.anchorMode === 'near' && anchor != null)
+  const searching = $derived(browse.query.length >= MIN_QUERY_CHARS)
 
-  // Places fetch: mode/filters/search → one list. Browsing gates at
-  // BROWSE_MAX_RANK (unless minor places are toggled on) and, near-me, sorts
-  // by distance; searching covers all ranks and keeps the server's
-  // match → rank → distance-to-anchor order (decision 9).
+  // Places fetch: mode/filters/search → one list. Browsing filters by group
+  // and gates at BROWSE_MAX_RANK (unless minor places are toggled on) and,
+  // near-me, sorts by distance; searching covers all groups and ranks and
+  // keeps the server's match → rank → distance-to-anchor order. Facet-kind
+  // chips refine both. The cleanup aborts the superseded fetch so a stale
+  // keystroke's payload stops consuming the (slow) link, not just the UI.
   $effect(() => {
     if (browse.mode !== 'places' || !anchorResolved) return
-    const categories = [...browse.categories]
-    const q = browse.query.length >= MIN_QUERY_CHARS ? browse.query : ''
+    const q = searching ? browse.query : ''
+    const categories = q ? [] : expandGroups(browse.groups)
+    const kinds = [...browse.kinds]
     const showMinor = browse.showMinor
     const a = nearActive ? anchor : null
     const center = anchor
+    // Facets need a bounded scope to be meaningful: a search term or the
+    // near-me box. Everywhere-browse counts would just describe the continent.
+    const wantFacets = Boolean(q) || a != null
     let cancelled = false
+    const controller = new AbortController()
     ;(async () => {
       status = 'Loading…'
-      if (!categories.length) {
+      if (!q && !categories.length) {
         places = []
-        status = 'No categories selected'
+        facets = []
+        status = 'No groups selected'
         return
       }
       try {
         const resp = await getPlaces({
           bbox: a ? nearBbox(a) : undefined,
-          // All-on means unfiltered — that also keeps unmapped-category rows.
-          categories: categories.length === CATEGORY_META.length ? undefined : categories,
+          // Search covers every category; browse all-on means unfiltered —
+          // that also keeps unmapped-category rows.
+          categories:
+            q || browse.groups.size === CATEGORY_GROUPS.length ? undefined : categories,
+          kinds: kinds.length ? kinds : undefined,
           // Minor places need a bbox: an Everywhere all-ranks read sorts the
           // whole 10.7M-row tier server-side (minutes on the Pi).
           maxRank: q || (showMinor && a) ? undefined : BROWSE_MAX_RANK,
           center: q && center ? `${center.lon},${center.lat}` : undefined,
           q: q || undefined,
-          limit: PLACES_LIMIT,
+          limit: q ? SEARCH_LIMIT : BROWSE_LIMIT,
+          facets: wantFacets,
+          signal: controller.signal,
         })
         if (cancelled) return
         let rows = resp.places.map((r) => ({
@@ -124,6 +158,8 @@
         if (a && !q)
           rows = rows.sort((x, y) => (x.distance_m ?? Infinity) - (y.distance_m ?? Infinity))
         places = rows
+        facets = resp.facets ?? []
+        facetsSampled = resp.facets_sampled ?? false
         syncedAt = rows[0]?.synced_at ?? syncedAt
         status = rows.length
           ? resp.truncated
@@ -131,11 +167,13 @@
             : ''
           : 'No matches'
       } catch (err) {
-        if (!cancelled) status = `Error: ${err instanceof Error ? err.message : String(err)}`
+        if (cancelled || controller.signal.aborted) return
+        status = `Error: ${err instanceof Error ? err.message : String(err)}`
       }
     })()
     return () => {
       cancelled = true
+      controller.abort()
     }
   })
 
@@ -227,27 +265,46 @@
       />
       {#if browse.mode === 'places'}
         <div class="places-kind-chips">
-          {#each CATEGORY_META as c (c.category)}
+          {#each CATEGORY_GROUPS as g (g.key)}
             <button
               type="button"
               class="attr-chip attr-chip-toggle"
-              class:active={browse.categories.has(c.category)}
-              style:--chip-color={c.color}
-              onclick={() => browse.toggleCategory(c.category, !browse.categories.has(c.category))}
-              >{c.icon} {c.label}</button>
+              class:active={browse.groups.has(g.key) && !searching}
+              disabled={searching}
+              style:--chip-color={g.color}
+              title={searching
+                ? 'Search covers all categories — refine with the type chips below'
+                : g.categories.map((c) => c.replace(/_/g, ' ')).join(' · ')}
+              onclick={() => browse.toggleGroup(g.key, !browse.groups.has(g.key))}
+              >{g.icon} {g.label}</button>
           {/each}
           <button
             type="button"
             class="attr-chip attr-chip-toggle places-minor-toggle"
             class:active={browse.showMinor && nearActive}
-            disabled={browse.query.length >= MIN_QUERY_CHARS || !nearActive}
-            title={browse.query.length >= MIN_QUERY_CHARS
+            disabled={searching || !nearActive}
+            title={searching
               ? 'Search always covers all places'
               : nearActive
                 ? 'Include minor places (benches, markers, micro furniture)'
                 : 'Minor places need Near me (the full set is too big to list everywhere)'}
             onclick={() => (browse.showMinor = !browse.showMinor)}>+ minor places</button>
         </div>
+        {#if facets.length}
+          <div class="places-kind-chips places-facet-chips">
+            {#each facets.slice(0, 12) as f (f.kind)}
+              <button
+                type="button"
+                class="attr-chip attr-chip-toggle"
+                class:active={browse.kinds.has(f.kind)}
+                title={f.kind}
+                onclick={() => browse.toggleKind(f.kind, !browse.kinds.has(f.kind))}
+                >{facetLabel(f.kind)}
+                <span class="facet-count">{facetsSampled ? '~' : ''}{f.count.toLocaleString()}</span
+                ></button>
+            {/each}
+          </div>
+        {/if}
       {/if}
       <div class="label-hint">
         {#if status}{status}{/if}

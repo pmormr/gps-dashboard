@@ -132,8 +132,8 @@ export interface Status {
   ntp: { synced: boolean | null } | null
 }
 
-async function getJSON<T>(url: string): Promise<T> {
-  const resp = await fetch(url)
+async function getJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const resp = await fetch(url, { signal })
   if (!resp.ok) throw new Error(`${url} → ${resp.status}`)
   return resp.json() as Promise<T>
 }
@@ -789,10 +789,20 @@ export interface PlaceDetails {
   [key: string]: unknown
 }
 
+/** One type-refinement facet: a `source_kind` and how many in-scope rows carry it. */
+export interface PlaceFacet {
+  kind: PlaceKind
+  count: number
+}
+
 export interface PlacesResponse {
   places: Place[]
   count: number
   truncated: boolean
+  /** Present only with `facets: true`; counts scope to every filter except `kinds`. */
+  facets?: PlaceFacet[]
+  /** True when the facet sample capped — counts are proportions, not totals. */
+  facets_sampled?: boolean
 }
 
 /** One expanded event occurrence; park-local calendar date, not the ms-UTC axis. */
@@ -840,6 +850,8 @@ export function getPlaces(opts: {
   park?: string
   q?: string
   limit?: number
+  facets?: boolean
+  signal?: AbortSignal
 }): Promise<PlacesResponse> {
   const params = new URLSearchParams()
   if (opts.bbox) params.set('bbox', opts.bbox)
@@ -850,7 +862,8 @@ export function getPlaces(opts: {
   if (opts.park) params.set('park', opts.park)
   if (opts.q) params.set('q', opts.q)
   if (opts.limit != null) params.set('limit', String(opts.limit))
-  return getJSON<PlacesResponse>(`/api/places?${params}`)
+  if (opts.facets) params.set('facets', '1')
+  return getJSON<PlacesResponse>(`/api/places?${params}`, opts.signal)
 }
 
 /**

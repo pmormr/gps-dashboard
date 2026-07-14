@@ -1,6 +1,5 @@
 <script lang="ts">
-  import type { PlaceCategory } from '../lib/api'
-  import { CATEGORY_META } from '../lib/places'
+  import { CATEGORY_GROUPS } from '../lib/places'
   import { setDroneEnabled } from '../lib/drone'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers } from '../lib/stores/layers.svelte'
@@ -41,8 +40,8 @@
     layers.placesStatus = on ? 'Loading…' : ''
   }
 
-  function onPlaceCategory(category: PlaceCategory, e: Event): void {
-    layers.togglePlaceCategory(category, (e.currentTarget as HTMLInputElement).checked)
+  function onPlaceGroup(key: string, e: Event): void {
+    layers.togglePlaceGroup(key, (e.currentTarget as HTMLInputElement).checked)
   }
 </script>
 
@@ -67,15 +66,15 @@
     <div class="label-hint">POIs (NPS · federal · OSM) · follows the map view · more pins as you zoom</div>
     {#if layers.places}
       <div class="place-kinds">
-        {#each CATEGORY_META as c (c.category)}
+        {#each CATEGORY_GROUPS as g (g.key)}
           <label class="label-check">
             <input
               type="checkbox"
-              checked={layers.placeCategories.has(c.category)}
-              onchange={(e) => onPlaceCategory(c.category, e)}
+              checked={layers.placeGroups.has(g.key)}
+              onchange={(e) => onPlaceGroup(g.key, e)}
             />
-            <span class="legend-swatch" style:background={c.color}></span>
-            {c.icon} {c.label}
+            <span class="legend-swatch" style:background={g.color}></span>
+            {g.icon} {g.label}
           </label>
         {/each}
       </div>

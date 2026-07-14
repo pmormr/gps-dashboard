@@ -73,6 +73,89 @@ export const CATEGORY_META: {
 
 const CATEGORY_BY_KEY = new Map(CATEGORY_META.map((m) => [m.category as string, m]))
 
+/**
+ * Browse-level grouping of the categories — 19 chips wrapped to three rows on
+ * a phone, so the filter UI works in groups (one row) and fine-grained
+ * refinement happens through kind facets instead of per-category toggles.
+ * Every CATEGORY_META category belongs to exactly one group (tested); group
+ * colors reuse a representative member's so pins and legend stay related.
+ * `defaultOn: false` marks browse noise (infrastructure/civic) that stays one
+ * tap away.
+ */
+export const CATEGORY_GROUPS: {
+  key: string
+  label: string
+  icon: string
+  color: string
+  categories: PlaceCategory[]
+  defaultOn: boolean
+}[] = [
+  {
+    key: 'nature',
+    label: 'Nature',
+    icon: '⛰',
+    color: '#059669',
+    categories: ['park', 'outdoors', 'recreation'],
+    defaultOn: true,
+  },
+  {
+    key: 'see',
+    label: 'See & do',
+    icon: '🎡',
+    color: '#eab308',
+    categories: ['attraction', 'historic', 'landmark'],
+    defaultOn: true,
+  },
+  {
+    key: 'stay',
+    label: 'Stay',
+    icon: '⛺',
+    color: '#d97706',
+    categories: ['camping', 'lodging'],
+    defaultOn: true,
+  },
+  {
+    key: 'food',
+    label: 'Food & shops',
+    icon: '🍽',
+    color: '#f97316',
+    categories: ['food_drink', 'grocery', 'shopping'],
+    defaultOn: true,
+  },
+  {
+    key: 'fuel',
+    label: 'Fuel & transport',
+    icon: '⛽',
+    color: '#f43f5e',
+    categories: ['automotive', 'transport'],
+    defaultOn: true,
+  },
+  {
+    key: 'towns',
+    label: 'Towns',
+    icon: '🏘',
+    color: '#a16207',
+    categories: ['community'],
+    defaultOn: true,
+  },
+  {
+    key: 'services',
+    label: 'Services',
+    icon: '🏦',
+    color: '#94a3b8',
+    categories: ['services', 'health', 'emergency', 'civic', 'utility'],
+    defaultOn: false,
+  },
+]
+
+/** Group keys in display order (the all-on default for the map overlay). */
+export const ALL_GROUP_KEYS = CATEGORY_GROUPS.map((g) => g.key)
+
+/** Expand selected group keys to their member categories (the API's axis). */
+export function expandGroups(keys: ReadonlySet<string>): PlaceCategory[] {
+  return CATEGORY_GROUPS.filter((g) => keys.has(g.key)).flatMap((g) => g.categories)
+}
+
 /** Presentation meta for one category (neutral fallback for unmapped rows). */
 export function categoryMeta(category: string | null): {
   label: string
@@ -82,6 +165,18 @@ export function categoryMeta(category: string | null): {
   return (
     (category && CATEGORY_BY_KEY.get(category)) || { label: 'Other', icon: '📍', color: '#94a3b8' }
   )
+}
+
+/**
+ * Human label for one facet kind: federal kinds use their per-kind meta; OSM's
+ * open-ended kinds ('amenity=cafe') humanize the tag value ('Cafe').
+ */
+export function facetLabel(kind: string): string {
+  const federal = KIND_BY_KEY.get(kind)
+  if (federal) return federal.label
+  const value = kind.includes('=') ? kind.split('=', 2)[1] : kind
+  const text = value.replace(/_/g, ' ')
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 /**
@@ -152,8 +247,11 @@ function emptyFC(): FeatureCollection {
 }
 
 // A monotonic token drops a stale fetch: while panning, an earlier viewport's
-// response must not overwrite a later one's (the same guard the phone layer uses).
+// response must not overwrite a later one's (the same guard the phone layer
+// uses). The AbortController goes further and kills the superseded transfer
+// itself — a 2000-row payload is ~0.4 s of HaLow bandwidth per pan otherwise.
 let token = 0
+let inflight: AbortController | null = null
 
 /**
  * Fetch the POIs for the current viewport and push them to the map. The
@@ -168,18 +266,28 @@ export async function syncPlaces(
   categories: PlaceCategory[],
 ): Promise<string> {
   const mine = ++token
+  inflight?.abort()
   if (!categories.length) {
     view.setPlacesData(emptyFC())
-    return 'No categories selected'
+    return 'No groups selected'
   }
+  const controller = new AbortController()
+  inflight = controller
   const maxRank = maxRankForZoom(zoom)
-  const resp = await getPlaces({
-    bbox: bbox ?? undefined,
-    // All-on means unfiltered — that also keeps unmapped-category rows.
-    categories: categories.length === CATEGORY_META.length ? undefined : categories,
-    maxRank,
-    limit: 2000,
-  })
+  let resp
+  try {
+    resp = await getPlaces({
+      bbox: bbox ?? undefined,
+      // All-on means unfiltered — that also keeps unmapped-category rows.
+      categories: categories.length === CATEGORY_META.length ? undefined : categories,
+      maxRank,
+      limit: 2000,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (controller.signal.aborted) return ''
+    throw err
+  }
   if (mine !== token) return ''
   view.setPlacesData(placesToFC(resp.places))
   const gated = maxRank < 4 ? ' · zoom in for more' : ''
@@ -190,5 +298,6 @@ export async function syncPlaces(
 /** Clear the overlay and cancel any in-flight sync. */
 export function clearPlaces(view: View): void {
   token++
+  inflight?.abort()
   view.setPlacesData(emptyFC())
 }

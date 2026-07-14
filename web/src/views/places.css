@@ -325,6 +325,15 @@
   opacity: 0.3;
 }
 
+/* Facet (type-refinement) chips: active ones keep the neutral accent. */
+.places-facet-chips .attr-chip-toggle {
+  --chip-color: var(--accent, #38bdf8);
+}
+.facet-count {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
 /* Raw OSM tag keys are case-sensitive identifiers — don't capitalize them. */
 .attr-tags .attr-day {
   text-transform: none;

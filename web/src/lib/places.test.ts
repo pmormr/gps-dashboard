@@ -4,8 +4,11 @@ import { describe, expect, it } from 'vitest'
 import type { Place, PlaceCategory, PlaceKind } from './api'
 import {
   placesToFC,
+  CATEGORY_GROUPS,
   CATEGORY_META,
   categoryMeta,
+  expandGroups,
+  facetLabel,
   KIND_META,
   kindMeta,
   maxRankForZoom,
@@ -65,6 +68,43 @@ describe('categoryMeta / placeMeta', () => {
   it('category colors differ (chip/pin readability)', () => {
     const colors = new Set(CATEGORY_META.map((m) => m.color))
     expect(colors.size).toBe(CATEGORY_META.length)
+  })
+})
+
+describe('CATEGORY_GROUPS / expandGroups', () => {
+  it('partitions CATEGORY_META: every category in exactly one group', () => {
+    const grouped = CATEGORY_GROUPS.flatMap((g) => g.categories)
+    expect(grouped.length).toBe(CATEGORY_META.length)
+    expect(new Set(grouped).size).toBe(grouped.length)
+    const declared = new Set<string>(CATEGORY_META.map((m) => m.category))
+    for (const c of grouped) expect(declared.has(c)).toBe(true)
+  })
+
+  it('expands selected groups to their member categories', () => {
+    expect(expandGroups(new Set(['stay']))).toEqual(['camping', 'lodging'])
+    expect(expandGroups(new Set())).toEqual([])
+    const all = expandGroups(new Set(CATEGORY_GROUPS.map((g) => g.key)))
+    expect(all.length).toBe(CATEGORY_META.length)
+  })
+
+  it('group colors differ (legend readability)', () => {
+    const colors = new Set(CATEGORY_GROUPS.map((g) => g.color))
+    expect(colors.size).toBe(CATEGORY_GROUPS.length)
+  })
+})
+
+describe('facetLabel', () => {
+  it('uses the per-kind meta for federal kinds', () => {
+    expect(facetLabel('campground')).toBe('Campgrounds')
+  })
+
+  it('humanizes OSM tag values', () => {
+    expect(facetLabel('amenity=fast_food')).toBe('Fast food')
+    expect(facetLabel('tourism=camp_site')).toBe('Camp site')
+  })
+
+  it('passes bare unknown kinds through capitalized', () => {
+    expect(facetLabel('stream')).toBe('Stream')
   })
 })
 

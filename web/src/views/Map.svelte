@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte'
 
   import { getPointsLatest } from '../lib/api'
-  import { CATEGORY_META, clearPlaces, syncPlaces } from '../lib/places'
+  import { CATEGORY_GROUPS, clearPlaces, expandGroups, syncPlaces } from '../lib/places'
   import type { TrackPoint } from '../lib/geo'
   import { hookLabels } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
@@ -139,8 +139,8 @@
   })
 
   // Places overlay follows the *viewport*: refetch when the toggle, the
-  // category filter, or the map camera (placesRev) changes — the rank×zoom
-  // pin gate applies inside syncPlaces. Categories/rev are only read while
+  // group filter, or the map camera (placesRev) changes — the rank×zoom
+  // pin gate applies inside syncPlaces. Groups/rev are only read while
   // the layer is on, so an off overlay costs nothing per pan.
   $effect(() => {
     if (!view) return
@@ -151,7 +151,7 @@
     }
     view.onMoveEnd(onPlacesMoved)
     void placesRev
-    const categories = [...layers.placeCategories]
+    const categories = expandGroups(layers.placeGroups)
     syncPlaces(view, view.getBbox(), view.getZoom(), categories)
       .then((label) => {
         if (label) layers.placesStatus = label
@@ -312,8 +312,8 @@
         {#if layers.places}
           <div class="legend-chip">
             <span class="legend-chip-icon">🏞</span>
-            {#each CATEGORY_META.filter((c) => layers.placeCategories.has(c.category)) as c (c.category)}
-              <span class="legend-chip-item"><span class="legend-swatch" style:background={c.color}></span>{c.label}</span>
+            {#each CATEGORY_GROUPS.filter((g) => layers.placeGroups.has(g.key)) as g (g.key)}
+              <span class="legend-chip-item"><span class="legend-swatch" style:background={g.color}></span>{g.label}</span>
             {/each}
           </div>
         {/if}

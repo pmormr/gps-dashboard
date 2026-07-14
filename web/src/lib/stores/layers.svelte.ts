@@ -8,8 +8,7 @@
  * the engine — it persists its own state across route remounts as a module singleton.
  */
 
-import type { PlaceCategory } from '../api'
-import { CATEGORY_META } from '../places'
+import { ALL_GROUP_KEYS } from '../places'
 import { POI_GROUPS, type LabelSettings } from '../labels'
 
 export type BaseLayer = 'osm' | 'usgs'
@@ -35,11 +34,12 @@ class LayersStore {
   phoneStatus = $state('')
 
   // Places overlay (the POI tier). Viewport-driven, not time-windowed —
-  // Map.svelte refetches it on map movement while it's on. Categories default
-  // all-on; the rank×zoom pin gate (places.ts) always applies on top.
+  // Map.svelte refetches it on map movement while it's on. Filtered by
+  // category *group* (CATEGORY_GROUPS), default all-on — the rank×zoom pin
+  // gate (places.ts) already curbs map noise, unlike the browse list.
   places = $state(false)
   placesStatus = $state('')
-  placeCategories = $state<Set<PlaceCategory>>(new Set(CATEGORY_META.map((m) => m.category)))
+  placeGroups = $state<Set<string>>(new Set(ALL_GROUP_KEYS))
   // A zoom queued by another view ("Show on map" in Places) for Map.svelte
   // to consume once the engine is mounted — the engine may not exist yet when
   // the navigation happens.
@@ -63,12 +63,12 @@ class LayersStore {
     this.labelGroups = next
   }
 
-  /** Toggle a place category (reassigns the Set so $state reacts). */
-  togglePlaceCategory(category: PlaceCategory, on: boolean): void {
-    const next = new Set(this.placeCategories)
-    if (on) next.add(category)
-    else next.delete(category)
-    this.placeCategories = next
+  /** Toggle a place category group (reassigns the Set so $state reacts). */
+  togglePlaceGroup(key: string, on: boolean): void {
+    const next = new Set(this.placeGroups)
+    if (on) next.add(key)
+    else next.delete(key)
+    this.placeGroups = next
   }
 }
 

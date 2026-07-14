@@ -6,8 +6,7 @@
  * controls pins, this one controls the browser.
  */
 
-import type { PlaceCategory } from '../api'
-import { CATEGORY_META } from '../places'
+import { CATEGORY_GROUPS } from '../places'
 
 export type BrowseMode = 'places' | 'events'
 export type AnchorMode = 'near' | 'everywhere'
@@ -15,12 +14,26 @@ export type AnchorMode = 'near' | 'everywhere'
 class PlacesBrowseStore {
   mode = $state<BrowseMode>('places')
   query = $state('')
-  categories = $state<Set<PlaceCategory>>(new Set(CATEGORY_META.map((m) => m.category)))
+  /**
+   * Coarse filter: category *groups* (CATEGORY_GROUPS), not the 19 raw
+   * categories — fine-grained refinement is the kind facets below. The
+   * Services group (infrastructure/civic noise) defaults off in browse;
+   * search ignores groups entirely (`q` covers every category).
+   */
+  groups = $state<Set<string>>(
+    new Set(CATEGORY_GROUPS.filter((g) => g.defaultOn).map((g) => g.key)),
+  )
+  /**
+   * Fine filter: facet-selected `source_kind` values ('amenity=cafe',
+   * 'campground'). Applies to browse and search alike; cleared on a new
+   * query (a stale type refinement against fresh search text is a trap).
+   */
+  kinds = $state<Set<string>>(new Set())
   anchorMode = $state<AnchorMode>('near')
   /**
-   * Browse depth (plan decision 16): off = rank ≤ 3 (common POIs and up);
-   * on = every rank, micro furniture included. Search ignores this — `q`
-   * always covers all ranks.
+   * Browse depth: off = rank ≤ 3 (common POIs and up); on = every rank,
+   * micro furniture included. Search ignores this — `q` always covers all
+   * ranks.
    */
   showMinor = $state(false)
 
@@ -31,12 +44,20 @@ class PlacesBrowseStore {
   /** Mobile only: the detail pane is showing (list otherwise). */
   detailOpen = $state(false)
 
-  /** Toggle a category chip (reassigns the Set so $state reacts). */
-  toggleCategory(category: PlaceCategory, on: boolean): void {
-    const next = new Set(this.categories)
-    if (on) next.add(category)
-    else next.delete(category)
-    this.categories = next
+  /** Toggle a group chip (reassigns the Set so $state reacts). */
+  toggleGroup(key: string, on: boolean): void {
+    const next = new Set(this.groups)
+    if (on) next.add(key)
+    else next.delete(key)
+    this.groups = next
+  }
+
+  /** Toggle a facet kind chip (reassigns the Set so $state reacts). */
+  toggleKind(kind: string, on: boolean): void {
+    const next = new Set(this.kinds)
+    if (on) next.add(kind)
+    else next.delete(kind)
+    this.kinds = next
   }
 
   /** The current mode's selected row id (null = nothing selected). */
