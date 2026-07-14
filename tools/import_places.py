@@ -49,9 +49,12 @@ NPS shape notes that drive the code:
   ``pagesize``/``pagenumber`` (**1-based**).
 * Coordinates arrive as strings and are sometimes empty; kinds without their own
   coordinate fall back to their park's. Tour stops carry no coordinates — they
-  reference NPS ``places`` assets by id, so that endpoint is fetched purely as a
-  coordinate/name join (NPS places assets are not stored as tier rows — an open
-  plan item; distinct from our ``places`` table despite the name).
+  reference NPS ``places`` assets by id, resolved via a coordinate join over the
+  same fetch. The assets also load as kind ``site`` rows (waysides, monuments,
+  buildings; distinct from our ``places`` table despite the name):
+  ``isMapPinHidden``/coordless records demote to search-only rank 5, and assets
+  name-shadowed by a same-park visitor-center/campground/park row are skipped —
+  the dedicated endpoints carry the richer structured detail.
 * ``events`` carry a pre-expanded ``dates`` array (concrete upcoming dates), so
   no RRULE parsing: each date × time window becomes one ``place_event_dates``
   row. Dates are park-local calendar dates, kept as published — not ms-UTC.
@@ -148,6 +151,8 @@ class Place:
         lon: Longitude (deg), or None.
         summary: Short plain-text teaser for list views.
         details: Trimmed source record (display-only structure), stored as JSON.
+        rank_override: Per-row pin-rank override (e.g. pin-hidden assets demote
+            to search-only rank 5); None takes the kind table's rank.
     """
 
     source_kind: str
@@ -158,6 +163,7 @@ class Place:
     lon: float | None
     summary: str | None
     details: dict[str, Any]
+    rank_override: int | None = None
 
 
 @dataclass(frozen=True)
@@ -425,6 +431,55 @@ def parse_facility(kind: str, record: dict[str, Any]) -> Place:
         summary=summarize(record.get('description')),
         details=_trim_details(record),
     )
+
+
+def parse_asset(record: dict[str, Any]) -> Place:
+    """Transform one ``places`` asset record (waysides, monuments, buildings).
+
+    NPS's own ``isMapPinHidden`` flag and coordless records demote to the
+    search-only rank (5, the GNIS mouth-pin precedent): the row stays
+    browsable, but we never pin a spot the source says not to pin — or one
+    the park fallback would have to invent.
+
+    Args:
+        record: The raw API record.
+
+    Returns:
+        The asset as an :class:`Place` (kind ``site``).
+    """
+    parks = record.get('relatedParks') or []
+    lat = _coord(record.get('latitude'))
+    unpinnable = record.get('isMapPinHidden') == '1' or lat is None
+    return Place(
+        source_kind='site',
+        source_id=record['id'],
+        park_code=parks[0].get('parkCode') if parks else None,
+        name=record.get('title') or '',
+        lat=lat,
+        lon=_coord(record.get('longitude')),
+        summary=summarize(record.get('listingDescription') or record.get('bodyText')),
+        details=_trim_details(record),
+        rank_override=5 if unpinnable else None,
+    )
+
+
+def drop_name_shadowed(assets: list[Place], others: list[Place]) -> list[Place]:
+    """Drop assets whose (park, name) already rides on a richer NPS row.
+
+    The ``places`` endpoint re-lists many visitor centers/campgrounds the
+    dedicated endpoints already cover with structured detail (hours,
+    amenities) — same park + same name means the same feature, and the
+    dedicated row is the keeper.
+
+    Args:
+        assets: Parsed ``site`` rows.
+        others: The non-asset NPS rows.
+
+    Returns:
+        The assets that survive.
+    """
+    taken = {(a.park_code, a.name.casefold()) for a in others}
+    return [a for a in assets if (a.park_code, a.name.casefold()) not in taken]
 
 
 def parse_event(record: dict[str, Any]) -> Event:
@@ -1160,9 +1215,15 @@ def load(
         events: The event rows with expanded dates.
         source: The source whose slice to replace (``'nps'``/``'ridb'``/``'gnis'``).
         kind_ranks: ``source_kind → (category, rank)`` stamp table; defaults to
-            the federal :data:`api.db.PLACES_KIND_RANKS`.
+            the federal :data:`api.db.PLACES_KIND_RANKS`. A row's
+            ``rank_override`` beats the table's rank.
     """
     ranks = PLACES_KIND_RANKS if kind_ranks is None else kind_ranks
+
+    def stamp(a: Place) -> tuple[str | None, int | None]:
+        category, rank = ranks.get(a.source_kind, (None, None))
+        return category, rank if a.rank_override is None else a.rank_override
+
     now = now_canonical()
     with conn:
         conn.execute(
@@ -1188,7 +1249,7 @@ def load(
                     a.summary,
                     json.dumps(a.details),
                     now,
-                    *ranks.get(a.source_kind, (None, None)),
+                    *stamp(a),
                 )
                 for a in places
             ],
@@ -1494,8 +1555,9 @@ def run(args: argparse.Namespace) -> int:
         return rows
 
     parks = [parse_park(r) for r in fetch('parks')]
+    asset_records = fetch('places')
     place_coords = {
-        r['id']: (_coord(r.get('latitude')), _coord(r.get('longitude'))) for r in fetch('places')
+        r['id']: (_coord(r.get('latitude')), _coord(r.get('longitude'))) for r in asset_records
     }
     places = dedupe_by_source_id(
         parks
@@ -1504,7 +1566,14 @@ def run(args: argparse.Namespace) -> int:
         + [parse_facility('visitorcenter', r) for r in fetch('visitorcenters')]
         + [parse_facility('campground', r) for r in fetch('campgrounds')]
     )
-    places = apply_park_fallback(places)
+    assets = drop_name_shadowed([parse_asset(r) for r in asset_records], places)
+    n_demoted = sum(1 for a in assets if a.rank_override is not None)
+    print(
+        f'  {len(asset_records) - len(assets)} assets name-shadowed by richer NPS rows; '
+        f'{len(assets)} site rows kept ({n_demoted} unpinnable, demoted to search-only)',
+        flush=True,
+    )
+    places = apply_park_fallback(dedupe_by_source_id(places + assets))
 
     print('Fetching events ...', flush=True)
     events = dedupe_by_source_id([parse_event(r) for r in fetch_events(session, api_key)])

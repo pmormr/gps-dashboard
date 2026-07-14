@@ -446,6 +446,22 @@ def test_osm_gnis_ids_reads_multivalue_tags(client, tmp_path) -> None:
     conn.close()
 
 
+def test_load_honors_rank_override(client) -> None:
+    """A row-level rank override (unpinnable NPS assets) beats the kind table."""
+    rows = [
+        Place('site', 'S1', 'romo', 'Wayside A', 40.0, -105.0, None, {}),
+        Place('site', 'S2', 'romo', 'Wayside B', 40.1, -105.1, None, {}, rank_override=5),
+    ]
+    conn = get_connection()
+    load(conn, rows, [])
+    conn.close()
+    found = client.get('/api/places?kind=site').get_json()['places']
+    assert {(a['name'], a['category'], a['rank']) for a in found} == {
+        ('Wayside A', 'historic', 4),
+        ('Wayside B', 'historic', 5),
+    }
+
+
 def test_gnis_name_proximity_dedupe(client) -> None:
     """Exact name within ~1 km of a same-feature-category OSM row → skipped.
 

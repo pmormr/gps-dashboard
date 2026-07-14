@@ -747,4 +747,5 @@ PLACES_KIND_RANKS: dict[str, tuple[str, int]] = {
     'tour': ('attraction', 3),
     'facility': ('outdoors', 3),
     'permit': ('outdoors', 4),
+    'site': ('historic', 4),
 }

@@ -23,7 +23,9 @@ from tools.import_places import (
     apply_park_fallback,
     build_ridb_places,
     dedupe_by_source_id,
+    drop_name_shadowed,
     parse_ampm,
+    parse_asset,
     parse_event,
     parse_facility,
     parse_gnis_row,
@@ -123,6 +125,48 @@ def test_parse_facility_keeps_operating_hours_in_details() -> None:
     )
     assert facility.source_kind == 'campground'
     assert facility.details['operatingHours'] == hours
+
+
+_ASSET = {
+    'id': 'A1',
+    'title': 'Holzwarth Historic Site',
+    'listingDescription': 'A preserved <b>dude ranch</b>.',
+    'relatedParks': [{'parkCode': 'romo'}],
+    'latitude': '40.4205',
+    'longitude': '-105.8503',
+    'isMapPinHidden': '0',
+    'relevanceScore': 1.0,
+}
+
+
+def test_parse_asset_builds_site_row() -> None:
+    asset = parse_asset(_ASSET)
+    assert asset.source_kind == 'site'
+    assert asset.park_code == 'romo'
+    assert (asset.lat, asset.lon) == (40.4205, -105.8503)
+    assert asset.summary == 'A preserved dude ranch.'
+    assert asset.rank_override is None
+    assert 'relevanceScore' not in asset.details
+
+
+def test_parse_asset_unpinnable_demotes_to_search_only() -> None:
+    """Pin-hidden and coordless assets carry the search-only override (rank 5)."""
+    hidden = parse_asset({**_ASSET, 'isMapPinHidden': '1'})
+    assert hidden.rank_override == 5
+    coordless = parse_asset({k: v for k, v in _ASSET.items() if k != 'latitude'})
+    assert coordless.rank_override == 5
+    assert coordless.lat is None
+
+
+def test_drop_name_shadowed_same_park_same_name() -> None:
+    """An asset re-listing a dedicated NPS row (same park, same name) is dropped."""
+    vc = Place('visitorcenter', 'V1', 'romo', 'Alpine Visitor Center', 40.44, -105.75, None, {})
+    shadowed = parse_asset({**_ASSET, 'title': 'alpine visitor center'})
+    kept = parse_asset(_ASSET)
+    other_park = parse_asset(
+        {**_ASSET, 'title': 'Alpine Visitor Center', 'relatedParks': [{'parkCode': 'glac'}]}
+    )
+    assert drop_name_shadowed([shadowed, kept, other_park], [vc]) == [kept, other_park]
 
 
 def test_parse_event_expands_dates_times_and_coerces_string_bools() -> None:

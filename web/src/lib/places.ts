@@ -29,6 +29,7 @@ export const KIND_META: { kind: PlaceKind; label: string; icon: string; color: s
   { kind: 'facility', label: 'Trailheads & sites', icon: '🚩', color: '#14b8a6' },
   { kind: 'tour', label: 'Self-guided tours', icon: '🎧', color: '#6366f1' },
   { kind: 'thingstodo', label: 'Things to do', icon: '🥾', color: '#eab308' },
+  { kind: 'site', label: 'Park sites', icon: '🪧', color: '#b45309' },
   { kind: 'permit', label: 'Permits', icon: '🎫', color: '#f43f5e' },
 ]
 

@@ -70,7 +70,8 @@ sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source 
 (below).
 
 - **NPS API** (`developer.nps.gov/api/v1/`, api.data.gov key): parks, thingstodo, tours,
-  visitorcenters, campgrounds, events. Whole-country dataset ≲100 MB JSON — sync it all,
+  visitorcenters, campgrounds, `places` assets (kind `site` — waysides, monuments,
+  historic buildings), events. Whole-country dataset ≲100 MB JSON — sync it all,
   no regional scoping. Key resolution: `--api-key` → `NPS_API_KEY` env →
   `/etc/default/gps-attractions` (on the Pi, root:pmorgan 640). `DEMO_KEY` is 30 req/hr —
   spike-only, never the importer.
@@ -132,6 +133,11 @@ NPS:
   API's own asset type, unrelated to our `places` table); the importer fetches that
   endpoint as a coordinate join and embeds lat/lon per stop. The tour pins at its
   first located stop, else its park. `thingstodo` sometimes lacks lat/lon → park fallback.
+- The assets also load as kind `site` rows (~17k): `isMapPinHidden`/coordless records
+  demote to search-only rank 5 via `Place.rank_override` (never pin a spot the source
+  hides or the park fallback invents), and assets name-shadowed by a same-park
+  dedicated row (visitor center/campground/park) are skipped — those endpoints carry
+  the richer structured detail.
 
 RIDB:
 - **The export has no operating-hours table** — descriptions/directions/fee text/phone
@@ -173,5 +179,15 @@ RIDB:
 - Tour-audio caching for offline richness (tours are already fully readable
   offline via embedded transcripts).
 - A "today at nearby parks" Home card; per-state parks data if coverage hurts.
-- **Parked (discuss before acting):** store NPS `places` assets (~17k rows — waysides,
-  monuments) as place rows; today they're only a tour-stop coordinate join.
+
+Eliminated (2026-07-14 backlog wrap-up — don't reopen without new evidence):
+
+- **Events server-side `q`** — the events corpus (NPS programs, hundreds–low
+  thousands of rows) fits entirely inside the client's 2000-row fetch, so the
+  client-side filter is complete. Revisit only if the corpus outgrows the fetch.
+- **Places list virtualization** — search caps at 200 rows, browse at 2000;
+  neither has hurt on-device. If browse ever does, slice incrementally
+  ("show more"), don't add a virtualization lib.
+- **`moveend` coalescing for the pins overlay** — `syncPlaces` aborts the
+  in-flight fetch per moveend (correctness handled); coalescing would only save
+  redundant warm bbox queries at tens of ms each.

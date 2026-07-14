@@ -684,6 +684,7 @@ export type PlaceKind =
   | 'tour'
   | 'visitorcenter'
   | 'campground'
+  | 'site' // NPS places assets: waysides, monuments, historic buildings
   // RIDB (recreation.gov) kinds — the other federal agencies (FS/USACE/BLM/FWS…):
   | 'recarea' // the park-analog container (forest, lake project, refuge)
   | 'facility' // the generic place type: trailheads, cabins, boat ramps, day-use sites
