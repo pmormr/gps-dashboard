@@ -8,6 +8,7 @@
     type PlaceFacet,
   } from '../lib/api'
   import { CATEGORY_GROUPS, expandGroups, facetLabel, placeMeta } from '../lib/places'
+  import { rowIcon } from '../lib/icons'
   import { fmtDate, fmtDistance, haversineMeters } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { browse } from '../lib/stores/places.svelte'
@@ -15,6 +16,7 @@
   import './places.css'
   import PlaceDetail from './PlaceDetail.svelte'
   import EventDetail from './EventDetail.svelte'
+  import PoiIcon from './PoiIcon.svelte'
 
   // The Places destination — the "where do we go next" browser. Master-
   // detail (email-client) layout: list pane with mode/search/filters, detail pane
@@ -318,7 +320,7 @@
                 ? 'Search covers all categories — refine with the type chips below'
                 : g.categories.map((c) => c.replace(/_/g, ' ')).join(' · ')}
               onclick={() => browse.toggleGroup(g.key, !browse.groups.has(g.key))}
-              >{g.icon} {g.label}</button>
+              ><PoiIcon icon={g.sprite} color={g.color} size={13} /> {g.label}</button>
           {/each}
           <button
             type="button"
@@ -372,8 +374,8 @@
               class:selected={browse.selectedPlace === row.id}
               onclick={() => browse.select(row.id)}
             >
-              <span class="nearby-icon" style:color={placeMeta(row).color}
-                >{placeMeta(row).icon}</span>
+              <span class="nearby-icon"
+                ><PoiIcon icon={rowIcon(row)} color={placeMeta(row).color} size={16} /></span>
               <span class="nearby-main">
                 <span class="nearby-name">{row.name}</span>
                 <span class="nearby-meta">

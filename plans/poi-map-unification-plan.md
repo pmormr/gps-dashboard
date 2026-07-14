@@ -88,10 +88,17 @@ re-import (the usual laptop transfer-DB → Pi merge → GNIS chain).
 
 ## Phasing (execution order)
 
-0. **Kind census** — script the tile-sample × `TAXONOMY` gap table. The
-   inclusion decision is made (drinking_water + toilets); the census validates
-   nothing else surprising renders and produces the exact tag → kind mapping
-   for the TAXONOMY entries and the sprite inventory.
+0. **Kind census — DONE 2026-07-14** (26 tiles, 222 kinds, 5,156 ids checked
+   against the tier): every *POI-shaped* kind resolves ~100% through the id
+   bridge — including all POI_GROUPS kinds — so tap-through gets full detail
+   for every mark visible today. The unresolvable mass is map furniture the
+   style never surfaces (`tree`, `crossing`, `street_lamp`,
+   `traffic_signals`, landuse/boundary label points, transit). **Decision 3
+   was already satisfied**: `amenity=drinking_water` and `amenity=toilets`
+   are in `TAXONOMY` (`utility`, rank 3) and in the tier — no re-import
+   needed (phase 6 is a no-op; `bench` is `utility`/5, also already in).
+   Sprite gap confirmed: 23 of the ~40 surfaced kinds have no icon (hotel,
+   fuel, parking, hospital, camp_site, place_of_worship, bank…).
 1. **Shared sprite** — vendor Maki/Temaki SVGs + a sprite build script;
    committed sprite covers every surfaced basemap kind (fixes today's
    text-only marks) + every tier pin kind (federal `site`/`campground`/…).

@@ -17,6 +17,7 @@ export default defineConfig(({ command }) => ({
     proxy: {
       '/api': API_TARGET,
       '/tiles': API_TARGET,
+      '/static': API_TARGET,
     },
   },
 }))

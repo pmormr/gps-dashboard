@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { POI_GROUPS, reapply } from '../lib/labels'
+  import { reapply } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
   import './layers.css'
 
-  // The Map-style rail-panel content: base map + labels +
+  // The Map-style rail-panel content: base map + label density +
   // 3D terrain — the rarely-touched styling, split from the Data-layers panel
-  // (DataLayers.svelte). Binds to the map-local `layers` store and pushes intent
+  // (DataLayers.svelte). POI mark *selection* is not here: the shared category
+  // chips in Data layers govern basemap marks and overlay pins together (one
+  // control). Binds to the map-local `layers` store and pushes intent
   // into the engine via the passed MapView façade (`view` is a prop so this never
   // imports map.ts — that would pull MapLibre into the main bundle). The rail
   // owns open/close; this is body-only.
   let { view }: { view?: typeof MapViewType } = $props()
-
-  const GROUPS = Object.keys(POI_GROUPS)
 
   function onBase(e: Event): void {
     const base = (e.currentTarget as HTMLSelectElement).value as BaseLayer
@@ -28,11 +28,6 @@
   function onRefresh(e: Event): void {
     layers.refresh = (e.currentTarget as HTMLInputElement).checked
     view?.setRefreshMode(layers.refresh)
-  }
-
-  function onGroup(group: string, e: Event): void {
-    layers.toggleGroup(group, (e.currentTarget as HTMLInputElement).checked)
-    if (view) reapply(view, layers.labelSettings)
   }
 
   function onOffset(): void {
@@ -72,22 +67,15 @@
   {#if layers.isVector}
     <div class="layers-section">
       <h4>Labels</h4>
-      <div class="label-cats">
-        {#each GROUPS as g (g)}
-          <label class="label-check">
-            <input type="checkbox" checked={layers.labelGroups.has(g)} onchange={(e) => onGroup(g, e)} />
-            {g}
-          </label>
-        {/each}
-      </div>
       <div class="label-row">
         <h4>Density <span class="label-val">{layers.labelOffset}</span></h4>
         <input type="range" min="-4" max="0" step="1" bind:value={layers.labelOffset} oninput={onOffset} />
-        <div class="label-hint">left = labels appear earlier / denser</div>
+        <div class="label-hint">left = POI marks appear earlier / denser</div>
       </div>
       <label class="label-check">
         <input type="checkbox" checked={layers.minorRoads} onchange={onMinor} /> Minor street names (z13+)
       </label>
+      <div class="label-hint">POI categories live in Data layers — one filter for marks and pins</div>
     </div>
   {/if}
 

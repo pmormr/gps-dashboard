@@ -16,9 +16,13 @@
 import type { Feature, FeatureCollection, Point } from 'geojson'
 
 import { getPlaces, type Place, type PlaceCategory, type PlaceKind } from './api'
+import { CATEGORY_META, encodeFeatureId, rowIcon, spriteRef } from './icons'
+import { setSuppressedIds } from './labels'
 import type { MapView as MapViewType } from './map'
 
 type View = typeof MapViewType
+
+export { CATEGORY_META }
 
 /** Per-kind presentation, in display order (legend, panel filters, sheet header). */
 export const KIND_META: { kind: PlaceKind; label: string; icon: string; color: string }[] = [
@@ -40,38 +44,6 @@ export function kindMeta(kind: string): { label: string; icon: string; color: st
   return KIND_BY_KEY.get(kind) ?? { label: kind, icon: '📍', color: '#94a3b8' }
 }
 
-/**
- * Per-category presentation (the unified taxonomy, plan decisions 11+15), in
- * display order — the Places view's browse chips and the fallback meta for
- * OSM rows, whose open-ended kinds ('amenity=cafe') have no per-kind entry.
- */
-export const CATEGORY_META: {
-  category: PlaceCategory
-  label: string
-  icon: string
-  color: string
-}[] = [
-  { category: 'park', label: 'Parks', icon: '🏞', color: '#10b981' },
-  { category: 'outdoors', label: 'Outdoors', icon: '⛰', color: '#059669' },
-  { category: 'camping', label: 'Camping', icon: '⛺', color: '#d97706' },
-  { category: 'attraction', label: 'Attractions', icon: '🎡', color: '#eab308' },
-  { category: 'historic', label: 'Historic', icon: '🏛', color: '#b45309' },
-  { category: 'landmark', label: 'Landmarks', icon: '🗼', color: '#8b5cf6' },
-  { category: 'recreation', label: 'Recreation', icon: '⚽', color: '#14b8a6' },
-  { category: 'lodging', label: 'Lodging', icon: '🛏', color: '#6366f1' },
-  { category: 'food_drink', label: 'Food & drink', icon: '🍽', color: '#f97316' },
-  { category: 'grocery', label: 'Grocery', icon: '🛒', color: '#84cc16' },
-  { category: 'shopping', label: 'Shopping', icon: '🛍', color: '#ec4899' },
-  { category: 'automotive', label: 'Fuel & auto', icon: '⛽', color: '#f43f5e' },
-  { category: 'transport', label: 'Transport', icon: '🚌', color: '#0ea5e9' },
-  { category: 'health', label: 'Health', icon: '🏥', color: '#ef4444' },
-  { category: 'emergency', label: 'Emergency', icon: '🚨', color: '#dc2626' },
-  { category: 'community', label: 'Communities', icon: '🏘', color: '#a16207' },
-  { category: 'civic', label: 'Civic', icon: '🏫', color: '#64748b' },
-  { category: 'services', label: 'Services', icon: '🏦', color: '#94a3b8' },
-  { category: 'utility', label: 'Utilities', icon: '🚰', color: '#78716c' },
-]
-
 const CATEGORY_BY_KEY = new Map(CATEGORY_META.map((m) => [m.category as string, m]))
 
 /**
@@ -85,6 +57,7 @@ const CATEGORY_BY_KEY = new Map(CATEGORY_META.map((m) => [m.category as string, 
  */
 export const CATEGORY_GROUPS: {
   key: string
+  sprite: string
   label: string
   icon: string
   color: string
@@ -93,6 +66,7 @@ export const CATEGORY_GROUPS: {
 }[] = [
   {
     key: 'nature',
+    sprite: 'mountain',
     label: 'Nature',
     icon: '⛰',
     color: '#059669',
@@ -101,6 +75,7 @@ export const CATEGORY_GROUPS: {
   },
   {
     key: 'see',
+    sprite: 'attraction',
     label: 'See & do',
     icon: '🎡',
     color: '#eab308',
@@ -109,6 +84,7 @@ export const CATEGORY_GROUPS: {
   },
   {
     key: 'stay',
+    sprite: 'campsite',
     label: 'Stay',
     icon: '⛺',
     color: '#d97706',
@@ -117,6 +93,7 @@ export const CATEGORY_GROUPS: {
   },
   {
     key: 'food',
+    sprite: 'restaurant',
     label: 'Food & shops',
     icon: '🍽',
     color: '#f97316',
@@ -125,6 +102,7 @@ export const CATEGORY_GROUPS: {
   },
   {
     key: 'fuel',
+    sprite: 'fuel',
     label: 'Fuel & transport',
     icon: '⛽',
     color: '#f43f5e',
@@ -133,6 +111,7 @@ export const CATEGORY_GROUPS: {
   },
   {
     key: 'towns',
+    sprite: 'village',
     label: 'Towns',
     icon: '🏘',
     color: '#a16207',
@@ -141,6 +120,7 @@ export const CATEGORY_GROUPS: {
   },
   {
     key: 'services',
+    sprite: 'suitcase',
     label: 'Services',
     icon: '🏦',
     color: '#94a3b8',
@@ -218,6 +198,7 @@ export function placesToFC(rows: Place[]): FeatureCollection {
         kind: row.source_kind,
         name: row.name,
         color: placeMeta(row).color,
+        icon: spriteRef(rowIcon(row)),
       },
     })
   }
@@ -227,7 +208,8 @@ export function placesToFC(rows: Place[]): FeatureCollection {
 /**
  * Result rows → search-result pin features. No per-kind color: the engine's
  * search layers style them uniformly (accent + halo) so the pushed result set
- * stands out from the category-colored browse overlay.
+ * stands out from the category-colored browse overlay — but the icon still
+ * names the kind, same language as everything else.
  */
 export function searchResultsToFC(rows: Place[]): FeatureCollection {
   const features: Feature<Point>[] = []
@@ -236,10 +218,29 @@ export function searchResultsToFC(rows: Place[]): FeatureCollection {
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [row.lon, row.lat] },
-      properties: { id: row.id, kind: row.source_kind, name: row.name },
+      properties: {
+        id: row.id,
+        kind: row.source_kind,
+        name: row.name,
+        icon: spriteRef(rowIcon(row)),
+      },
     })
   }
   return { type: 'FeatureCollection', features }
+}
+
+/**
+ * Tile feature ids for the OSM rows in a drawn set — the twin-suppression
+ * feed: a basemap mark whose row is already a pin must not render twice.
+ */
+export function suppressionIds(rows: Place[]): number[] {
+  const ids: number[] = []
+  for (const row of rows) {
+    if (row.source !== 'osm') continue
+    const fid = encodeFeatureId(row.source_id)
+    if (fid != null) ids.push(fid)
+  }
+  return ids
 }
 
 /**
@@ -309,14 +310,16 @@ export async function syncPlaces(
   }
   if (mine !== token) return ''
   view.setPlacesData(placesToFC(resp.places))
+  setSuppressedIds(view, 'browse', suppressionIds(resp.places))
   const gated = maxRank < 4 ? ' · zoom in for more' : ''
   const truncated = resp.truncated ? ' (truncated — zoom in)' : ''
   return `${resp.count.toLocaleString()} places${truncated}${gated}`
 }
 
-/** Clear the overlay and cancel any in-flight sync. */
+/** Clear the overlay (and its mark suppression) and cancel any in-flight sync. */
 export function clearPlaces(view: View): void {
   token++
   inflight?.abort()
   view.setPlacesData(emptyFC())
+  setSuppressedIds(view, 'browse', [])
 }

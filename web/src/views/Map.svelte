@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
 
-  import { getPointsLatest } from '../lib/api'
+  import { getPointsLatest, lookupPlace } from '../lib/api'
   import {
     CATEGORY_GROUPS,
     clearPlaces,
     expandGroups,
     searchResultsToFC,
+    suppressionIds,
     syncPlaces,
   } from '../lib/places'
   import type { TrackPoint } from '../lib/geo'
-  import { hookLabels } from '../lib/labels'
-  import type { MapView as MapViewType } from '../lib/map'
+  import { decodeFeatureId } from '../lib/icons'
+  import { hookLabels, setPoiCategories, setSuppressedIds } from '../lib/labels'
+  import type { MapView as MapViewType, BasemapPoiHit } from '../lib/map'
   import { clearPhone, MODE_COLORS, MODE_LEGEND, syncPhone } from '../lib/phone'
   import { annotations } from '../lib/stores/annotations.svelte'
   import { layers } from '../lib/stores/layers.svelte'
@@ -23,6 +25,7 @@
   import AnnotationForm from './AnnotationForm.svelte'
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
   import PlaceSheet from './PlaceSheet.svelte'
+  import PoiIcon from './PoiIcon.svelte'
   import DataLayers from './DataLayers.svelte'
   import InspectPanel from './InspectPanel.svelte'
   import MapStyle from './MapStyle.svelte'
@@ -59,8 +62,34 @@
   }
 
   // Places detail sheet: the open row id (from a pin click or the Nearby
-  // panel), null = closed.
+  // panel), null = closed. `placeStub` is the unresolved-basemap-mark case:
+  // the tier has no row for the tapped feature (vintage skew / excluded
+  // kind), so the sheet renders the tile's own attrs instead of a detail row.
   let placeId = $state<number | null>(null)
+  let placeStub = $state<{ name: string; kind: string | null; lat: number; lon: number } | null>(
+    null,
+  )
+
+  // A tapped basemap mark resolves through the id bridge: tile feature id →
+  // OSM source_id → tier row (the same sheet a pin opens). Misses fall back
+  // to the minimal stub sheet — every mark responds to touch.
+  async function onBasemapPoi(hit: BasemapPoiHit): Promise<void> {
+    const sourceId = hit.featureId != null ? decodeFeatureId(hit.featureId) : null
+    if (sourceId) {
+      try {
+        const id = await lookupPlace('osm', sourceId)
+        if (id != null) {
+          placeStub = null
+          placeId = id
+          return
+        }
+      } catch {
+        // Lookup unreachable — the stub still names what was tapped.
+      }
+    }
+    placeId = null
+    placeStub = { name: hit.name ?? 'Unnamed place', kind: hit.kind, lat: hit.lat, lon: hit.lon }
+  }
 
   // Places overlay: viewport-driven, so map movement (not the time window)
   // invalidates it. The moveend callback just bumps a revision the sync effect
@@ -110,7 +139,12 @@
       // Re-apply label settings whenever the vector base (re)loads its style.
       hookLabels(mod.MapView, () => layers.labelSettings)
       // Pin taps open the detail sheet (the engine only hands back the row id).
-      mod.MapView.onPlaceClick((id) => (placeId = id))
+      mod.MapView.onPlaceClick((id) => {
+        placeStub = null
+        placeId = id
+      })
+      // Basemap marks are tap targets too — resolved via the id bridge.
+      mod.MapView.onBasemapPoiClick((hit) => void onBasemapPoi(hit))
     })
     annotations.reload()
     return () => {
@@ -142,6 +176,13 @@
       .catch((err) => {
         layers.phoneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
       })
+  })
+
+  // The shared POI category selection drives the basemap's own marks too —
+  // independent of the places-overlay toggle (marks are a basemap feature).
+  $effect(() => {
+    if (!view) return
+    setPoiCategories(view, new Set(expandGroups(layers.placeGroups)))
   })
 
   // Places overlay follows the *viewport*: refetch when the toggle, the
@@ -255,9 +296,12 @@
 
   // Search-results overlay: render the pushed result set (store-held, so it
   // survives route remounts and the engine re-receives it on every Map visit).
+  // Result rows suppress their basemap twins like browse pins do.
   $effect(() => {
     if (!view) return
-    view.setSearchResultsData(searchResultsToFC(layers.searchResults ?? []))
+    const rows = layers.searchResults ?? []
+    view.setSearchResultsData(searchResultsToFC(rows))
+    setSuppressedIds(view, 'search', suppressionIds(rows))
   })
 
   // The result set's fit-bounds request — same consume discipline as
@@ -351,7 +395,7 @@
           <div class="legend-chip">
             <span class="legend-chip-icon">🏞</span>
             {#each CATEGORY_GROUPS.filter((g) => layers.placeGroups.has(g.key)) as g (g.key)}
-              <span class="legend-chip-item"><span class="legend-swatch" style:background={g.color}></span>{g.label}</span>
+              <span class="legend-chip-item"><PoiIcon icon={g.sprite} color={g.color} size={12} />{g.label}</span>
             {/each}
           </div>
         {/if}
@@ -406,6 +450,14 @@
 
 <AnnotationsDrawer bind:open={drawerOpen} />
 <AnnotationForm />
-{#if placeId != null}
-  <PlaceSheet id={placeId} {view} onClose={() => (placeId = null)} />
+{#if placeId != null || placeStub}
+  <PlaceSheet
+    id={placeId}
+    stub={placeStub}
+    {view}
+    onClose={() => {
+      placeId = null
+      placeStub = null
+    }}
+  />
 {/if}

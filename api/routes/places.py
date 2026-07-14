@@ -332,6 +332,29 @@ def list_places():
     return jsonify(payload)
 
 
+@places_bp.get('/api/places/lookup')
+def lookup_place():
+    """Resolve a ``(source, source_id)`` natural key to its tier row id.
+
+    The basemap tap-through bridge: a pois mark's planetiler feature id
+    decodes client-side to an OSM ``source_id`` (``node/…``/``way/…``); this
+    read maps it onto the tier's numeric id via the unique natural-key index.
+    404 means the tier doesn't carry the feature (archive/tier vintage skew or
+    an excluded kind) — the client falls back to the minimal tile-attrs sheet.
+    """
+    source = request.args.get('source')
+    source_id = request.args.get('source_id')
+    if not source or not source_id:
+        return jsonify({'error': 'source and source_id are required'}), 400
+    conn = get_connection()
+    row = conn.execute(
+        'SELECT id FROM places WHERE source = ? AND source_id = ?', (source, source_id)
+    ).fetchone()
+    if row is None:
+        return jsonify({'error': 'place not found'}), 404
+    return jsonify({'id': row['id']})
+
+
 @places_bp.get('/api/places/<int:place_id>')
 def get_place(place_id: int):
     """One POI with its full parsed ``details`` (tour stops, hours, amenities…).

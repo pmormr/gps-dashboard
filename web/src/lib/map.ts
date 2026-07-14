@@ -116,10 +116,17 @@ maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile)
 // so sprite/glyphs are absolutized against location.origin (portable across
 // localhost and the LAN IP); the pmtiles source URL stays root-relative.
 let vectorStyle: maplibregl.StyleSpecification | null = null
+// The unified POI icon sprite (SDF — tintable), second sprite beside the
+// style's own: GL refs are 'poi:<name>' (see icons.ts).
+const POI_SPRITE = '/static/vendor/basemap/sprite-poi/poi'
+
 const vectorStyleReady = fetch('/static/vendor/basemap/style.json')
   .then((r) => r.json())
   .then((s) => {
-    s.sprite = location.origin + s.sprite
+    s.sprite = [
+      { id: 'default', url: location.origin + s.sprite },
+      { id: 'poi', url: location.origin + POI_SPRITE },
+    ]
     s.glyphs = location.origin + s.glyphs
     vectorStyle = s
     return s
@@ -141,6 +148,9 @@ function buildRasterStyle(layer: string, refresh: boolean): maplibregl.StyleSpec
   const cfg = TILE_LAYERS[layer]
   return {
     version: 8,
+    // The pin overlays reference 'poi:' icons, so the raster base carries the
+    // POI sprite too (no 'default' sprite — raster has no styled symbols).
+    sprite: [{ id: 'poi', url: location.origin + POI_SPRITE }],
     sources: {
       [layer]: {
         type: 'raster',
@@ -269,6 +279,16 @@ function puckElement(): HTMLDivElement {
 }
 
 /** A camera pose the Drive follow loop hard-sets each frame. */
+/** A tapped basemap pois mark, decoded from the tile feature. */
+export interface BasemapPoiHit {
+  /** planetiler feature id (icons.ts decodes it to a tier source_id), or null. */
+  featureId: number | null
+  name: string | null
+  kind: string | null
+  lon: number
+  lat: number
+}
+
 export interface CameraPose {
   lat: number
   lon: number
@@ -303,6 +323,10 @@ export const MapView = (() => {
   // (the detail sheet), keeping this layer domain-free too.
   let placeData: FeatureCollection = emptyFC()
   let placeClickCb: ((id: number) => void) | null = null
+  // Basemap pois marks are tap targets too (the id bridge): a click hands the
+  // decoded tile attrs to the registered callback, which resolves it to a
+  // tier row (or the minimal sheet). Kept domain-free like the pin callback.
+  let basemapPoiClickCb: ((hit: BasemapPoiHit) => void) | null = null
   // Search-results overlay: the Places view's pushed result set. Uniform
   // accent styling (not per-kind) so results read as "what you searched for"
   // over the browse pins; shares the place click/hover handlers (same rows,
@@ -529,11 +553,29 @@ export const MapView = (() => {
           type: 'circle',
           source: 'places',
           paint: {
-            'circle-radius': 6,
+            'circle-radius': 9,
             'circle-color': ['get', 'color'],
             'circle-stroke-color': '#fff',
             'circle-stroke-width': 1.5,
           },
+        })
+      }
+      // The unified icon language (icons.ts) on top of the category-colored
+      // circle: SDF sprite refs baked into the feature ('poi:campsite'),
+      // tinted white. Overlap allowed — the circle already marks the spot,
+      // a collision-hidden glyph would read as a different (empty) pin kind.
+      if (!m.getLayer('place-icon')) {
+        m.addLayer({
+          id: 'place-icon',
+          type: 'symbol',
+          source: 'places',
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': 0.75,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: { 'icon-color': '#ffffff' },
         })
       }
 
@@ -561,11 +603,25 @@ export const MapView = (() => {
           type: 'circle',
           source: 'search-results',
           paint: {
-            'circle-radius': 7,
+            'circle-radius': 9,
             'circle-color': '#38bdf8',
             'circle-stroke-color': '#0c4a6e',
             'circle-stroke-width': 2,
           },
+        })
+      }
+      if (!m.getLayer('search-icon')) {
+        m.addLayer({
+          id: 'search-icon',
+          type: 'symbol',
+          source: 'search-results',
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': 0.75,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: { 'icon-color': '#0c4a6e' },
         })
       }
 
@@ -693,6 +749,37 @@ export const MapView = (() => {
     })
   }
 
+  // Basemap pois marks: cursor affordance + the decoded tile attrs to the
+  // registered callback on click. The feature id is planetiler-encoded
+  // (icons.ts decodes it to a tier source_id); name/kind ride along for the
+  // unresolved-mark minimal sheet. Vector-base only (the layer doesn't exist
+  // on raster; layer-scoped listeners no-op there).
+  function wirePoisInteraction(m: MlMap): void {
+    m.on('mouseenter', 'pois', () => {
+      m.getCanvas().style.cursor = 'pointer'
+    })
+    m.on('mouseleave', 'pois', () => {
+      m.getCanvas().style.cursor = ''
+    })
+    m.on('click', 'pois', (e) => {
+      const f = e.features && e.features[0]
+      if (!f || !basemapPoiClickCb) return
+      // A pin drawn over the mark wins the tap — both layer handlers fire for
+      // the same click, and the pin's sheet is the richer one.
+      const pinLayers = ['place-circle', 'search-circle'].filter((l) => m.getLayer(l))
+      if (pinLayers.length && m.queryRenderedFeatures(e.point, { layers: pinLayers }).length) {
+        return
+      }
+      basemapPoiClickCb({
+        featureId: typeof f.id === 'number' ? f.id : null,
+        name: (f.properties?.name as string | undefined) ?? null,
+        kind: (f.properties?.kind as string | undefined) ?? null,
+        lon: e.lngLat.lng,
+        lat: e.lngLat.lat,
+      })
+    })
+  }
+
   // Place pins: name tooltip on hover, row id to the registered callback on
   // click (the detail sheet lives in Svelte). Layer-scoped and registered once; a
   // no-op until the layer exists, like the range tooltip. Search-result pins
@@ -753,6 +840,7 @@ export const MapView = (() => {
     wireDronePopup(map)
     wirePhonePopup(map)
     wirePlaceInteraction(map)
+    wirePoisInteraction(map)
     // Dispatch on a microtask: MapLibre fires moveend *synchronously* for
     // no-op camera moves (e.g. re-fitting an unchanged bounds), which would
     // run subscribers inside whatever $effect triggered the move — a
@@ -958,6 +1046,11 @@ export const MapView = (() => {
   /** Register the place-pin click handler (receives the place row id). */
   function onPlaceClick(cb: (id: number) => void): void {
     placeClickCb = cb
+  }
+
+  /** Register the basemap-mark click handler (receives the decoded tile hit). */
+  function onBasemapPoiClick(cb: (hit: BasemapPoiHit) => void): void {
+    basemapPoiClickCb = cb
   }
 
   // ── Hover-scrub ghost dot (time → space) ──
@@ -1233,6 +1326,7 @@ export const MapView = (() => {
     setSearchResultsData,
     fitToCoords,
     onPlaceClick,
+    onBasemapPoiClick,
     setGhost,
     clearGhost,
     setPuck,

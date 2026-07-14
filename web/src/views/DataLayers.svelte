@@ -4,6 +4,7 @@
   import type { MapView as MapViewType } from '../lib/map'
   import { layers } from '../lib/stores/layers.svelte'
   import './layers.css'
+  import PoiIcon from './PoiIcon.svelte'
 
   // The Data-layers rail-panel content: the frequent overlay
   // toggles — drone flights, phone track. Map *style* (base/labels/terrain) is a
@@ -64,21 +65,23 @@
       <input type="checkbox" checked={layers.places} onchange={onPlaces} /> 🏞 Places
     </label>
     <div class="label-hint">POIs (NPS · federal · OSM) · follows the map view · more pins as you zoom</div>
-    {#if layers.places}
-      <div class="place-kinds">
-        {#each CATEGORY_GROUPS as g (g.key)}
-          <label class="label-check">
-            <input
-              type="checkbox"
-              checked={layers.placeGroups.has(g.key)}
-              onchange={(e) => onPlaceGroup(g.key, e)}
-            />
-            <span class="legend-swatch" style:background={g.color}></span>
-            {g.icon} {g.label}
-          </label>
-        {/each}
-      </div>
-    {/if}
     {#if layers.placesStatus}<p class="label-hint">{layers.placesStatus}</p>{/if}
+  </div>
+  <div class="layers-section">
+    <h4>POI categories</h4>
+    <div class="label-hint">one filter: the basemap's own marks + the Places pins</div>
+    <div class="place-kinds">
+      {#each CATEGORY_GROUPS as g (g.key)}
+        <label class="label-check">
+          <input
+            type="checkbox"
+            checked={layers.placeGroups.has(g.key)}
+            onchange={(e) => onPlaceGroup(g.key, e)}
+          />
+          <PoiIcon icon={g.sprite} color={g.color} size={14} />
+          {g.label}
+        </label>
+      {/each}
+    </div>
   </div>
 </div>

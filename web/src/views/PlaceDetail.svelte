@@ -8,9 +8,11 @@
     type PlaceWiki,
   } from '../lib/api'
   import { placeMeta, stripHtml } from '../lib/places'
+  import { rowIcon } from '../lib/icons'
   import { fmtDate } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { destination } from '../lib/stores/destination.svelte'
+  import PoiIcon from './PoiIcon.svelte'
 
   // One place's full detail — title, the always-on data-age banner, summary,
   // amenities, hours, fees, tour stops with transcripts, and the park's upcoming
@@ -148,7 +150,7 @@
 
 {#if row}
   <h2 class="attr-title">
-    {#if meta}<span style:color={meta.color}>{meta.icon}</span>{/if}
+    {#if meta && row}<PoiIcon icon={rowIcon(row)} color={meta.color} size={20} />{/if}
     {row.name}
   </h2>
 

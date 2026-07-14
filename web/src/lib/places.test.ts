@@ -149,7 +149,12 @@ describe('searchResultsToFC', () => {
   it('builds uncolored pins (the engine styles results uniformly) and skips nocoord rows', () => {
     const fc = searchResultsToFC([row(), row({ id: 2, lat: null, lon: null })])
     expect(fc.features.map((f) => f.properties!.id)).toEqual([1])
-    expect(fc.features[0].properties).toEqual({ id: 1, kind: 'park', name: 'Rocky Mountain' })
+    expect(fc.features[0].properties).toEqual({
+      id: 1,
+      kind: 'park',
+      name: 'Rocky Mountain',
+      icon: 'poi:park',
+    })
   })
 })
 

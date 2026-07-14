@@ -10,7 +10,7 @@
 
 import type { Place } from '../api'
 import { ALL_GROUP_KEYS } from '../places'
-import { POI_GROUPS, type LabelSettings } from '../labels'
+import type { LabelSettings } from '../labels'
 
 export type BaseLayer = 'osm' | 'usgs'
 
@@ -20,8 +20,8 @@ class LayersStore {
   terrain = $state(false)
   exaggeration = $state(1.3)
 
-  // Label settings (vector-only). Groups default all-on.
-  labelGroups = $state<Set<string>>(new Set(Object.keys(POI_GROUPS)))
+  // Label settings (vector-only): text density + minor-road labels. The POI
+  // marks themselves are governed by the shared category selection below.
   labelOffset = $state(-1)
   minorRoads = $state(true)
 
@@ -35,9 +35,11 @@ class LayersStore {
   phoneStatus = $state('')
 
   // Places overlay (the POI tier). Viewport-driven, not time-windowed —
-  // Map.svelte refetches it on map movement while it's on. Filtered by
-  // category *group* (CATEGORY_GROUPS), default all-on — the rank×zoom pin
-  // gate (places.ts) already curbs map noise, unlike the browse list.
+  // Map.svelte refetches it on map movement while it's on. `placeGroups` is
+  // THE POI category selection (one control, unification plan): the same
+  // category-group chips filter the overlay pins *and* the basemap's own
+  // pois marks. Default all-on — the rank×zoom pin gate (places.ts) and the
+  // tiles' per-feature min_zoom already curb map noise.
   places = $state(false)
   placesStatus = $state('')
   placeGroups = $state<Set<string>>(new Set(ALL_GROUP_KEYS))
@@ -62,18 +64,10 @@ class LayersStore {
 
   /** A snapshot of the label settings for applyLabels/reapply. */
   get labelSettings(): LabelSettings {
-    return { groups: this.labelGroups, offset: this.labelOffset, minorRoads: this.minorRoads }
+    return { offset: this.labelOffset, minorRoads: this.minorRoads }
   }
 
-  /** Toggle a POI category (reassigns the Set so $state reacts). */
-  toggleGroup(group: string, on: boolean): void {
-    const next = new Set(this.labelGroups)
-    if (on) next.add(group)
-    else next.delete(group)
-    this.labelGroups = next
-  }
-
-  /** Toggle a place category group (reassigns the Set so $state reacts). */
+  /** Toggle a POI category group (reassigns the Set so $state reacts). */
   togglePlaceGroup(key: string, on: boolean): void {
     const next = new Set(this.placeGroups)
     if (on) next.add(key)

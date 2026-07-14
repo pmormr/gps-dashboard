@@ -446,6 +446,16 @@ def test_osm_gnis_ids_reads_multivalue_tags(client, tmp_path) -> None:
     conn.close()
 
 
+def test_lookup_resolves_natural_key(client) -> None:
+    """The basemap tap-through bridge: (source, source_id) → row id, 404 on miss."""
+    _seed()
+    listed = client.get('/api/places?q=holzwarth').get_json()['places'][0]
+    body = client.get('/api/places/lookup?source=nps&source_id=TR1').get_json()
+    assert body == {'id': listed['id']}
+    assert client.get('/api/places/lookup?source=osm&source_id=node/999').status_code == 404
+    assert client.get('/api/places/lookup?source=osm').status_code == 400
+
+
 def test_load_honors_rank_override(client) -> None:
     """A row-level rank override (unpinnable NPS assets) beats the kind table."""
     rows = [

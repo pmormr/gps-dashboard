@@ -1,86 +1,124 @@
 /**
- * Label / POI density controls for the vector basemap.
+ * Basemap `pois` layer composer — the vector base's POI marks.
  *
- * Drives the live MapLibre GL style of the map's vector base directly — settings
- * are global (one panel applies to the vector base and is re-applied whenever its
- * style reloads, e.g. after a base swap). This module is runtime-MapLibre-free: it
- * operates on the `gl` map handed to it by the `MapView` façade, so importing it
- * doesn't pull MapLibre into a bundle.
+ * One function owns the layer's live GL state (filter, icons, colors), fed by
+ * three writers: the Map style panel (text density + minor roads), the shared
+ * POI category selection (the same category groups that filter the places
+ * overlay — one control, plan decision), and the overlay's twin-suppression
+ * ids (a mark whose tier row is currently drawn as a pin must not render
+ * twice). Icons and colors come from the unified language in `icons.ts`
+ * (`poi` SDF sprite + category colors), so basemap marks and tier pins read
+ * as one system.
+ *
+ * Runtime-MapLibre-free: operates on the `gl` map handed over by the
+ * `MapView` façade, so importing it doesn't pull MapLibre into a bundle.
  */
 
 import type { ExpressionSpecification, Map as MlMap } from 'maplibre-gl'
 
 import type { MapView as MapViewType } from './map'
+import { BASEMAP_KINDS, spriteRef } from './icons'
+import { CATEGORY_META } from './places'
 
 type View = typeof MapViewType
 
-/** Current label-panel settings (a snapshot the store exposes). */
+/** Current style-panel settings (a snapshot the store exposes). */
 export interface LabelSettings {
-  groups: ReadonlySet<string>
   offset: number
   minorRoads: boolean
 }
 
-/** POI category → the `kind` values it surfaces in the Protomaps schema. */
-export const POI_GROUPS: Record<string, string[]> = {
-  Fuel: ['fuel'],
-  Lodging: ['hotel', 'motel', 'hostel', 'guest_house'],
-  Food: ['restaurant', 'cafe', 'fast_food', 'bar', 'pub', 'brewery'],
-  Medical: ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist'],
-  Parking: ['parking'],
-  Shops: ['supermarket', 'convenience', 'mall', 'marketplace'],
-  Outdoors: ['park', 'peak', 'viewpoint', 'camp_site', 'picnic_site', 'beach', 'information'],
-  Civic: [
-    'library', 'museum', 'post_office', 'townhall', 'school',
-    'university', 'college', 'place_of_worship', 'theatre', 'bank',
-  ],
+const CATEGORY_COLOR = new Map(CATEGORY_META.map((m) => [m.category as string, m.color]))
+/** Mark color for kinds whose category has no meta (should not happen). */
+const NEUTRAL = '#3a3a3a'
+
+// Composer inputs beyond the style panel: the shared category selection and
+// the overlay's suppression ids, each pushed by its own writer.
+let poiCategories: ReadonlySet<string> = new Set(CATEGORY_META.map((m) => m.category as string))
+const suppressed: { browse: number[]; search: number[] } = { browse: [], search: [] }
+let getSettings: (() => LabelSettings) | null = null
+
+/** The kinds visible under the current category selection. */
+function visibleKinds(): string[] {
+  return Object.keys(BASEMAP_KINDS).filter((k) => poiCategories.has(BASEMAP_KINDS[k].category))
 }
 
-// The shipped style's pois `text-color` is a case on `kind` with no branch for the
-// kinds we surface (fuel, hospital, …), so they fall to the #e2dfda fallback —
-// identical to text-halo-color, i.e. invisible. Recolor only that fallback to a
-// readable dark; covered kinds keep their category colors.
-const READABLE_FALLBACK = '#3a3a3a'
+/** kind → sprite ref for every mapped kind (unmapped kinds never pass the filter). */
+function iconExpression(): ExpressionSpecification {
+  const pairs = Object.entries(BASEMAP_KINDS).flatMap(([k, m]) => [k, spriteRef(m.icon)])
+  // The spread defeats TS's tuple checking for match expressions — the shape
+  // is (input, ...label/output pairs, fallback), which this builds by hand.
+  return ['match', ['get', 'kind'], ...pairs, spriteRef('marker')] as unknown as ExpressionSpecification
+}
+
+/** kind → its category color (icons and text share it). */
+function colorExpression(): ExpressionSpecification {
+  const pairs = Object.entries(BASEMAP_KINDS).flatMap(([k, m]) => [
+    k,
+    CATEGORY_COLOR.get(m.category) ?? NEUTRAL,
+  ])
+  return ['match', ['get', 'kind'], ...pairs, NEUTRAL] as unknown as ExpressionSpecification
+}
 
 /**
- * Push the current settings into a GL map: widen the `pois` layer to the surfaced
- * kinds gated by the density offset, gate minor-road labels, and fix the invisible
- * fallback color. Idempotent and safe to call on every style (re)load; a no-op
- * until the style + `pois` layer exist.
+ * Push the composed state into a GL map: filter the `pois` layer to the
+ * selected categories' kinds gated by the density offset minus any suppressed
+ * twin ids, restyle its icons/colors to the unified language, and gate
+ * minor-road labels. Idempotent and safe to call on every style (re)load; a
+ * no-op until the style + `pois` layer exist.
  */
 export function applyLabels(gl: MlMap, s: LabelSettings): void {
   if (!gl.isStyleLoaded() || !gl.getLayer('pois')) return
-  const kinds = new Set<string>()
-  for (const g of s.groups) for (const k of POI_GROUPS[g] ?? []) kinds.add(k)
+  const clauses: ExpressionSpecification[] = [
+    ['in', ['get', 'kind'], ['literal', visibleKinds()]] as ExpressionSpecification,
+    ['>=', ['zoom'], ['+', ['get', 'min_zoom'], s.offset]] as ExpressionSpecification,
+  ]
+  const ids = [...suppressed.browse, ...suppressed.search]
+  if (ids.length) {
+    clauses.push(['!', ['in', ['id'], ['literal', ids]]] as ExpressionSpecification)
+  }
   try {
-    gl.setFilter('pois', [
-      'all',
-      ['in', ['get', 'kind'], ['literal', [...kinds]]],
-      ['>=', ['zoom'], ['+', ['get', 'min_zoom'], s.offset]],
-    ] as ExpressionSpecification)
+    gl.setFilter('pois', ['all', ...clauses] as ExpressionSpecification)
     gl.setLayerZoomRange('roads_labels_minor', s.minorRoads ? 13 : 24, 24)
-    const tc = gl.getPaintProperty('pois', 'text-color')
-    if (Array.isArray(tc) && tc[tc.length - 1] !== READABLE_FALLBACK) {
-      const fixed = tc.slice()
-      fixed[fixed.length - 1] = READABLE_FALLBACK
-      gl.setPaintProperty('pois', 'text-color', fixed)
-    }
+    gl.setLayoutProperty('pois', 'icon-image', iconExpression())
+    gl.setPaintProperty('pois', 'icon-color', colorExpression())
+    gl.setPaintProperty('pois', 'icon-halo-color', '#ffffff')
+    gl.setPaintProperty('pois', 'icon-halo-width', 1)
+    gl.setPaintProperty('pois', 'text-color', colorExpression())
   } catch (e) {
     console.error('label controls:', e)
   }
 }
 
 /**
- * Wire label application to the vector base: re-apply current settings whenever the
- * vector style (re)loads. `onVectorBase` stores a single callback (latest wins), so
- * calling this on each Map mount is safe — no listener accumulation.
+ * Wire label application to the vector base: re-apply the composed state
+ * whenever the vector style (re)loads. `onVectorBase` stores a single callback
+ * (latest wins), so calling this on each Map mount is safe — no listener
+ * accumulation. The stored settings getter also serves the other writers'
+ * re-applies (categories / suppression pushes).
  */
-export function hookLabels(view: View, getSettings: () => LabelSettings): void {
-  view.onVectorBase((gl) => applyLabels(gl, getSettings()))
+export function hookLabels(view: View, settings: () => LabelSettings): void {
+  getSettings = settings
+  view.onVectorBase((gl) => applyLabels(gl, settings()))
 }
 
-/** Re-apply settings to the current vector base now (on a panel change). No-op on raster. */
+/** Re-apply to the current vector base now (on a panel change). No-op on raster. */
 export function reapply(view: View, settings: LabelSettings): void {
   const gl = view.getVectorBase()
   if (gl) applyLabels(gl, settings)
+}
+
+/** Push the shared POI category selection (the places-overlay group chips). */
+export function setPoiCategories(view: View, categories: ReadonlySet<string>): void {
+  poiCategories = categories
+  if (getSettings) reapply(view, getSettings())
+}
+
+/**
+ * Push twin-suppression ids: tile feature ids whose tier rows the overlay is
+ * currently drawing (browse pins and search results are independent writers).
+ */
+export function setSuppressedIds(view: View, key: 'browse' | 'search', ids: number[]): void {
+  suppressed[key] = ids
+  if (getSettings) reapply(view, getSettings())
 }

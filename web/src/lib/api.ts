@@ -888,6 +888,19 @@ export function getPlace(id: number): Promise<Place & { details: PlaceDetails; w
   return getJSON<Place & { details: PlaceDetails; wiki: PlaceWiki | null }>(`/api/places/${id}`)
 }
 
+/**
+ * Resolve a (source, source_id) natural key to its tier row id — the basemap
+ * tap-through bridge. Null when the tier doesn't carry the feature (vintage
+ * skew or an excluded kind); the caller shows the minimal tile-attrs sheet.
+ */
+export async function lookupPlace(source: string, sourceId: string): Promise<number | null> {
+  const params = new URLSearchParams({ source, source_id: sourceId })
+  const resp = await fetch(`/api/places/lookup?${params}`)
+  if (resp.status === 404) return null
+  if (!resp.ok) throw new Error(`lookup failed: ${resp.status}`)
+  return ((await resp.json()) as { id: number }).id
+}
+
 /** One event with parsed details and its full occurrence list. */
 export function getPlaceEvent(
   id: number,
