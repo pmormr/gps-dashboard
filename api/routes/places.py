@@ -143,10 +143,11 @@ def list_places():
     ``park``, ``q``, ``center``, ``facets`` — all optional.
 
     ``q`` searches the FTS5 index with token-prefix semantics (module
-    docstring). Search results order by match quality → rank → distance to
-    ``center`` (``lon,lat`` — pass the map center, or the current fix when
-    there's no map context); non-search reads order by rank → name, so the
-    most significant places survive ``limit`` truncation.
+    docstring). Search results order by exact-name match (case-insensitive)
+    → match quality → rank → distance to ``center`` (``lon,lat`` — pass the
+    map center, or the current fix when there's no map context); non-search
+    reads order by rank → name, so the most significant places survive
+    ``limit`` truncation.
 
     ``facets=1`` adds type-refinement counts: distinct ``source_kind`` values
     within the scope of every filter *except* ``kind`` (so a selected kind chip
@@ -256,6 +257,15 @@ def list_places():
     base_params: list = []
     q = request.args.get('q')
     if q:
+        # Exact-name matches outrank everything: bm25 normalizes by whole-
+        # document length across all four indexed columns, so a row whose
+        # summary is longer scores *worse* than a longer-named neighbour
+        # ('Leadville' the town loses to 'Leadville Mountain'). Searching a
+        # thing's exact name must find that thing first. In bounded-candidate
+        # mode the boost only reorders the pool — an exact-named row bm25
+        # ranked out of the pool stays out (junk-prefix queries only).
+        order.append('p.name = ? COLLATE NOCASE DESC')
+        order_params.append(q.strip())
         match = _fts_query(q)
         if match is not None:
             n_matches = conn.execute(

@@ -121,6 +121,33 @@ def test_search_matches_summary_text(client) -> None:
     assert [a['name'] for a in body['places']] == ['Rocky Mountain National Park']
 
 
+def test_search_exact_name_outranks_bm25(client) -> None:
+    """Searching a thing's exact name finds that thing first.
+
+    bm25 normalizes by whole-document length, so the town 'Leadville' (longer
+    summary) scores worse than the peak 'Leadville Mountain' (summary 'Peak')
+    — the exact-name boost tier must override that, case-insensitively.
+    """
+    town = Place(
+        'populated_place',
+        'G1',
+        None,
+        'Leadville',
+        39.25,
+        -106.29,
+        'Populated Place · Lake, Colorado',
+        {},
+    )
+    peak = Place('peak', 'N1', None, 'Leadville Mountain', 41.09, -119.43, 'Peak', {})
+    conn = get_connection()
+    load(conn, [town], [], source='gnis', kind_ranks=GNIS_KIND_RANKS)
+    load(conn, [peak], [], source='osm')
+    conn.close()
+    for q in ('leadville', 'LEADVILLE'):
+        names = [a['name'] for a in client.get(f'/api/places?q={q}').get_json()['places']]
+        assert names == ['Leadville', 'Leadville Mountain']
+
+
 def test_search_bounded_candidate_mode(client, monkeypatch) -> None:
     """Huge match sets switch to the bounded bm25 candidate pool.
 
