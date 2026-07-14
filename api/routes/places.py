@@ -68,17 +68,30 @@ _EVENT_COLUMNS = (
 )
 _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 
-#: Above this many FTS matches, ``q`` switches to bounded-candidate mode:
-#: bm25 scores every match before anything else applies, so a junk-prefix
-#: query ('c', 'park' — millions of rows NA-wide) costs seconds. Below it the
-#: unbounded join keeps full recall: bbox/category/rank filters see every
-#: match. Counting matches first is cheap (doclist sizes, no scoring).
+#: Above this many FTS matches, a *bbox'd* ``q`` switches to bounded-candidate
+#: mode: bm25 scores every match before anything else applies, so a
+#: junk-prefix query ('c', 'park' — millions of rows NA-wide) costs seconds.
+#: Below it the unbounded join keeps full recall: bbox/category/rank filters
+#: see every match. Counting matches first is cheap (doclist sizes, no
+#: scoring). Without a bbox the gate is _FTS_CANDIDATE_LIMIT instead — the
+#: join itself (one places lookup per match) is what costs seconds at tens of
+#: thousands of matches ('coffee', 55k ≈ 2.7 s), a bbox is what makes it
+#: cheap, and an unscoped search is pure relevance-ranking anyway, so the
+#: top-of-pool slice is the answer by definition.
 _FTS_UNBOUNDED_MAX = 60_000
 #: Candidate pool in bounded mode — the top-N by bm25 *before* the other
 #: filters apply, so recall degrades on those queries (a bbox'd search only
 #: sees in-bbox rows that made the NA-wide top-N). Acceptable: only match
 #: sets too unspecific to rank meaningfully ever hit this path.
 _FTS_CANDIDATE_LIMIT = 10_000
+#: Facet counts run over at most this many in-scope rows. Exact facets over a
+#: no-bbox FTS join cost seconds at 10M rows (55k-match GROUP BY ≈ 2 s local);
+#: an unordered sample this size is ~15 ms with proportions that track the
+#: exact counts. Counts are exact whenever the scope fits inside the sample —
+#: ``facets_sampled`` tells the client which it got.
+_FACET_SAMPLE = 10_000
+#: Facet rows returned (distinct kinds, by descending count).
+_FACET_LIMIT = 20
 
 
 def _parse_date(value: str | None, name: str) -> tuple[str | None, tuple[Response, int] | None]:
@@ -124,13 +137,19 @@ def _fts_query(q: str) -> str | None:
 @places_bp.get('/api/places')
 def list_places():
     """POI list: ``bbox``, ``kind``/``category`` (comma-separated), ``max_rank``,
-    ``park``, ``q``, ``center`` — all optional.
+    ``park``, ``q``, ``center``, ``facets`` — all optional.
 
     ``q`` searches the FTS5 index with token-prefix semantics (module
     docstring). Search results order by match quality → rank → distance to
     ``center`` (``lon,lat`` — pass the map center, or the current fix when
     there's no map context); non-search reads order by rank → name, so the
     most significant places survive ``limit`` truncation.
+
+    ``facets=1`` adds type-refinement counts: distinct ``source_kind`` values
+    within the scope of every filter *except* ``kind`` (so a selected kind chip
+    doesn't collapse the row to itself), counted over at most
+    ``_FACET_SAMPLE`` in-scope rows — ``facets_sampled`` is true when the
+    sample capped and counts are proportions rather than totals.
     """
     bbox, err = parse_bbox(request.args)
     if err:
@@ -154,18 +173,27 @@ def list_places():
         except ValueError:
             return jsonify({'error': f'Invalid max_rank: {max_rank_arg}'}), 400
 
+    # Filters shared by the list read and the facet counts — everything except
+    # the kind filter, which stays in its own clause so facets can scope to
+    # "all the other filters" (a selected kind must not collapse the facet row
+    # to itself).
     where: list[str] = []
     params: list = []
     if bbox is not None:
         w, s, e, n = bbox
         where += ['p.lat BETWEEN ? AND ?', 'p.lon BETWEEN ? AND ?']
         params += [s, n, w, e]
-    for column, arg in (('source_kind', 'kind'), ('category', 'category')):
+    kind_where: list[str] = []
+    kind_params: list = []
+    for column, arg, clauses, values in (
+        ('source_kind', 'kind', kind_where, kind_params),
+        ('category', 'category', where, params),
+    ):
         value = request.args.get(arg)
         if value:
             wanted = [v.strip() for v in value.split(',') if v.strip()]
-            where.append(f'p.{column} IN ({",".join("?" * len(wanted))})')
-            params += wanted
+            clauses.append(f'p.{column} IN ({",".join("?" * len(wanted))})')
+            values += wanted
     if max_rank is not None:
         where.append('p.rank <= ?')
         params.append(max_rank)
@@ -176,6 +204,9 @@ def list_places():
 
     conn = get_connection()
     order: list[str] = []
+    order_params: list = []
+    base_from = 'FROM places p'
+    base_params: list = []
     q = request.args.get('q')
     if q:
         match = _fts_query(q)
@@ -183,28 +214,23 @@ def list_places():
             n_matches = conn.execute(
                 'SELECT count(*) FROM places_fts WHERE places_fts MATCH ?', (match,)
             ).fetchone()[0]
-            if n_matches > _FTS_UNBOUNDED_MAX:
-                sql = (
-                    f'SELECT {_PLACE_COLUMNS_Q} FROM ('
-                    'SELECT rowid, bm25(places_fts) AS fts_score FROM places_fts '
+            unbounded_max = _FTS_UNBOUNDED_MAX if bbox is not None else _FTS_CANDIDATE_LIMIT
+            if n_matches > unbounded_max:
+                base_from = (
+                    'FROM (SELECT rowid, bm25(places_fts) AS fts_score FROM places_fts '
                     f'WHERE places_fts MATCH ? ORDER BY fts_score LIMIT {_FTS_CANDIDATE_LIMIT}'
                     ') fts JOIN places p ON p.id = fts.rowid'
                 )
+                base_params.append(match)
                 order.append('fts.fts_score')
             else:
-                sql = (
-                    f'SELECT {_PLACE_COLUMNS_Q} FROM places_fts '
-                    'JOIN places p ON p.id = places_fts.rowid'
-                )
+                base_from = 'FROM places_fts JOIN places p ON p.id = places_fts.rowid'
                 where.insert(0, 'places_fts MATCH ?')
+                params.insert(0, match)
                 order.append('bm25(places_fts)')
-            params.insert(0, match)
         else:
-            sql = f'SELECT {_PLACE_COLUMNS_Q} FROM places p'
             where.append('p.name LIKE ?')
             params.append(f'%{q}%')
-    else:
-        sql = f'SELECT {_PLACE_COLUMNS_Q} FROM places p'
     # A rank gate excludes NULL ranks, so plain `rank` is equivalent — and on
     # non-bbox reads it lets idx_places_rank_name serve the top-N without
     # sorting the whole gate tier (~45 s at 10.7M rows). Bbox'd reads keep
@@ -220,14 +246,33 @@ def list_places():
         # to matter behind match quality and rank. NULL-coord rows sort last,
         # not first (NULL is smaller than every number in ASC).
         order.append('COALESCE((p.lat - ?) * (p.lat - ?) + (p.lon - ?) * (p.lon - ?), 1e18)')
-        params += [center[1], center[1], center[0], center[0]]
+        order_params += [center[1], center[1], center[0], center[0]]
     order.append('p.name ASC')
 
-    if where:
-        sql += ' WHERE ' + ' AND '.join(where)
+    sql = f'SELECT {_PLACE_COLUMNS_Q} {base_from}'
+    if where or kind_where:
+        sql += ' WHERE ' + ' AND '.join(where + kind_where)
     sql += f' ORDER BY {", ".join(order)} LIMIT ?'
-    rows = [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
-    return jsonify({'places': rows, 'count': len(rows), 'truncated': len(rows) == limit})
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            sql, [*base_params, *params, *kind_params, *order_params, limit]
+        ).fetchall()
+    ]
+    payload = {'places': rows, 'count': len(rows), 'truncated': len(rows) == limit}
+
+    if request.args.get('facets') == '1':
+        inner = f'SELECT p.source_kind AS kind {base_from}'
+        if where:
+            inner += ' WHERE ' + ' AND '.join(where)
+        inner += f' LIMIT {_FACET_SAMPLE}'
+        groups = conn.execute(
+            f'SELECT kind, COUNT(*) AS n FROM ({inner}) GROUP BY kind ORDER BY n DESC, kind',
+            [*base_params, *params],
+        ).fetchall()
+        payload['facets'] = [{'kind': g['kind'], 'count': g['n']} for g in groups[:_FACET_LIMIT]]
+        payload['facets_sampled'] = sum(g['n'] for g in groups) >= _FACET_SAMPLE
+    return jsonify(payload)
 
 
 @places_bp.get('/api/places/<int:place_id>')

@@ -182,6 +182,59 @@ def test_list_rejects_bad_bbox_and_limit(client) -> None:
     assert client.get('/api/places?limit=0').status_code == 400
 
 
+# --- facets ---------------------------------------------------------------------------
+
+
+def test_facets_count_kinds_ordered_by_count_then_kind(client) -> None:
+    _seed()
+    body = client.get('/api/places?facets=1').get_json()
+    assert body['facets_sampled'] is False
+    assert body['facets'] == [
+        {'kind': 'campground', 'count': 1},
+        {'kind': 'park', 'count': 1},
+        {'kind': 'thingstodo', 'count': 1},
+        {'kind': 'tour', 'count': 1},
+    ]
+
+
+def test_facets_absent_without_param(client) -> None:
+    _seed()
+    assert 'facets' not in client.get('/api/places').get_json()
+
+
+def test_facets_ignore_kind_filter_but_respect_others(client) -> None:
+    """A selected kind narrows the list, never its own facet row."""
+    _seed()
+    body = client.get('/api/places?facets=1&kind=park&park=romo').get_json()
+    assert {a['source_kind'] for a in body['places']} == {'park'}
+    assert {f['kind'] for f in body['facets']} == {'park', 'tour', 'thingstodo'}
+
+
+def test_facets_with_search_and_bounded_mode(client, monkeypatch) -> None:
+    """Facets follow the search scope in both FTS modes (unbounded + pool)."""
+    import api.routes.places as places_routes
+
+    _seed()
+    body = client.get('/api/places?facets=1&q=holzwarth').get_json()
+    assert body['facets'] == [{'kind': 'tour', 'count': 1}]
+    # Force bounded mode (a bbox keeps the gate on _FTS_UNBOUNDED_MAX).
+    monkeypatch.setattr(places_routes, '_FTS_UNBOUNDED_MAX', 0)
+    body = client.get('/api/places?facets=1&q=holzwarth&kind=park&bbox=-106,40,-105,41').get_json()
+    assert body['places'] == []  # kind filter applies to the list…
+    assert body['facets'] == [{'kind': 'tour', 'count': 1}]  # …not the facets
+
+
+def test_search_without_bbox_uses_pool_above_candidate_limit(client, monkeypatch) -> None:
+    """Unscoped searches never join more than the candidate pool."""
+    import api.routes.places as places_routes
+
+    _seed()
+    # Gate is the pool size when there's no bbox: 4 matches > 0 → bounded mode.
+    monkeypatch.setattr(places_routes, '_FTS_CANDIDATE_LIMIT', 0)
+    assert client.get('/api/places?q=holzwarth').get_json()['count'] == 0  # pool LIMIT 0
+    assert client.get('/api/places?q=holzwarth&bbox=-106,40,-105,41').get_json()['count'] == 1
+
+
 def test_detail_includes_parsed_details(client) -> None:
     _seed()
     listed = client.get('/api/places?q=holzwarth').get_json()['places'][0]
