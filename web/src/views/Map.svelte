@@ -459,5 +459,9 @@
       placeId = null
       placeStub = null
     }}
+    onOpenPlace={(pid) => {
+      placeStub = null
+      placeId = pid
+    }}
   />
 {/if}

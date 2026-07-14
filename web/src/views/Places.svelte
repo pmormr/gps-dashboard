@@ -420,7 +420,11 @@
     <button type="button" class="places-back" onclick={() => (browse.detailOpen = false)}
       >← Back to list</button>
     {#if browse.mode === 'places' && browse.selectedPlace != null}
-      <PlaceDetail id={browse.selectedPlace} onShowMap={showOnMap} />
+      <PlaceDetail
+        id={browse.selectedPlace}
+        onShowMap={showOnMap}
+        onOpenPlace={(pid) => browse.select(pid)}
+      />
     {:else if browse.mode === 'events' && browse.selectedEvent != null}
       <EventDetail id={browse.selectedEvent} onShowMap={showOnMap} />
     {:else}

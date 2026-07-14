@@ -23,7 +23,19 @@
   let {
     id,
     onShowMap,
-  }: { id: number; onShowMap?: (lat: number, lon: number, zoom: number) => void } = $props()
+    onOpenPlace,
+  }: {
+    id: number
+    onShowMap?: (lat: number, lon: number, zoom: number) => void
+    onOpenPlace?: (id: number) => void
+  } = $props()
+
+  /** Display names for the twin cross-links' sources. */
+  const SOURCE_LABELS: Record<string, string> = {
+    nps: 'NPS',
+    ridb: 'Recreation.gov',
+    osm: 'OpenStreetMap',
+  }
 
   // Syncs older than this read as a warning, not just a note. Federal rows
   // carry schedule-ish data (hours, events) that degrades in weeks; the OSM
@@ -163,6 +175,20 @@
       {:else}verify at a visitor center{/if}
     {/if}
   </div>
+
+  {#if row.twins?.length}
+    <div class="attr-meta-line">
+      Also listed in
+      {#each row.twins as twin (twin.id)}
+        {#if onOpenPlace}
+          <button type="button" class="attr-link" onclick={() => onOpenPlace(twin.id)}
+            >{SOURCE_LABELS[twin.source] ?? twin.source}</button>
+        {:else}
+          {SOURCE_LABELS[twin.source] ?? twin.source}
+        {/if}
+      {/each}
+    </div>
+  {/if}
 
   <div class="attr-meta-line">
     {meta?.label}

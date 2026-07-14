@@ -15,11 +15,13 @@
     stub = null,
     view,
     onClose,
+    onOpenPlace,
   }: {
     id: number | null
     stub?: { name: string; kind: string | null; lat: number; lon: number } | null
     view?: typeof MapViewType
     onClose: () => void
+    onOpenPlace?: (id: number) => void
   } = $props()
 
   const stubMeta = $derived.by(() => {
@@ -44,7 +46,7 @@
   </div>
   <div class="attr-sheet-body">
     {#if id != null}
-      <PlaceDetail {id} onShowMap={showOnMap} />
+      <PlaceDetail {id} onShowMap={showOnMap} {onOpenPlace} />
     {:else if stub}
       <div class="attr-detail">
         <h3>{stub.name}</h3>

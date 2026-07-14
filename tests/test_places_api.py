@@ -446,6 +446,55 @@ def test_osm_gnis_ids_reads_multivalue_tags(client, tmp_path) -> None:
     conn.close()
 
 
+def test_twin_grouping_prefers_richer_source(client) -> None:
+    """One feature, rows in three sources → NPS heads the page with an OSM twin.
+
+    GNIS never groups (its true twins are import-deduped; survivors are
+    different features), and the detail read cross-links the same pair.
+    """
+    conn = get_connection()
+    load(conn, [Place('site', 'N1', 'romo', 'Bear Lake', 40.31, -105.64, None, {})], [])
+    load(
+        conn,
+        [Place('natural=water', 'way/1', None, 'Bear Lake', 40.3105, -105.6405, None, {})],
+        [],
+        source='osm',
+        kind_ranks={'natural=water': ('outdoors', 2)},
+    )
+    load(
+        conn,
+        [Place('lake', 'G9', None, 'Bear Lake', 40.3102, -105.6403, None, {})],
+        [],
+        source='gnis',
+        kind_ranks=GNIS_KIND_RANKS,
+    )
+    conn.close()
+    body = client.get('/api/places?q=bear%20lake').get_json()
+    by_source = {p['source']: p for p in body['places']}
+    assert set(by_source) == {'nps', 'gnis'}
+    assert [t['source'] for t in by_source['nps']['twins']] == ['osm']
+    assert by_source['nps']['twins'][0]['source_id'] == 'way/1'
+    detail = client.get(f'/api/places/{by_source["nps"]["id"]}').get_json()
+    assert [t['source'] for t in detail['twins']] == ['osm']
+
+
+def test_twin_grouping_never_merges_same_source(client) -> None:
+    """Two nearby same-name rows of one source are two places (chain outlets)."""
+    conn = get_connection()
+    load(
+        conn,
+        [
+            Place('amenity=cafe', 'node/1', None, 'Starbucks', 40.0, -105.0, None, {}),
+            Place('amenity=cafe', 'node/2', None, 'Starbucks', 40.001, -105.001, None, {}),
+        ],
+        [],
+        source='osm',
+        kind_ranks={'amenity=cafe': ('food_drink', 4)},
+    )
+    conn.close()
+    assert client.get('/api/places?q=starbucks').get_json()['count'] == 2
+
+
 def test_lookup_resolves_natural_key(client) -> None:
     """The basemap tap-through bridge: (source, source_id) → row id, 404 on miss."""
     _seed()

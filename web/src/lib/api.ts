@@ -716,6 +716,14 @@ export type PlaceCategory =
   // GNIS populated places (plan decision 20) — towns searchable by name.
   | 'community'
 
+/** Another source's row for the same physical feature (display-time twin). */
+export interface PlaceTwin {
+  id: number
+  source: string
+  source_id: string
+  source_kind: PlaceKind
+}
+
 /** One POI list row (queryable columns + summary teaser; details fetched per-row). */
 export interface Place {
   id: number
@@ -734,6 +742,8 @@ export interface Place {
   category: PlaceCategory | null
   /** Pin-zoom tier: 1 major destination … 5 micro furniture (search-only). */
   rank: number | null
+  /** Cross-source rows this one absorbed in the page (richer source wins). */
+  twins?: PlaceTwin[]
 }
 
 /** A self-guided tour stop; lat/lon joined from the NPS `places` asset at import. */

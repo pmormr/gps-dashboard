@@ -231,14 +231,20 @@ export function searchResultsToFC(rows: Place[]): FeatureCollection {
 
 /**
  * Tile feature ids for the OSM rows in a drawn set — the twin-suppression
- * feed: a basemap mark whose row is already a pin must not render twice.
+ * feed: a basemap mark whose feature is already drawn as a pin must not
+ * render twice. Absorbed twins count: a grouped-out OSM row's mark would
+ * otherwise reappear beside the richer pin that replaced it.
  */
 export function suppressionIds(rows: Place[]): number[] {
   const ids: number[] = []
-  for (const row of rows) {
-    if (row.source !== 'osm') continue
-    const fid = encodeFeatureId(row.source_id)
+  const push = (source: string, sourceId: string): void => {
+    if (source !== 'osm') return
+    const fid = encodeFeatureId(sourceId)
     if (fid != null) ids.push(fid)
+  }
+  for (const row of rows) {
+    push(row.source, row.source_id)
+    for (const twin of row.twins ?? []) push(twin.source, twin.source_id)
   }
   return ids
 }

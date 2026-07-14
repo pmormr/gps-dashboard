@@ -96,6 +96,75 @@ _FACET_LIMIT = 20
 #: Metres per degree of latitude — the scale for the ``radius`` circle filter.
 _M_PER_DEG_LAT = 111_320.0
 
+#: Display-time twin unification (unification plan, decision 6): source
+#: preference when one physical feature has rows in several sources — the
+#: curated side wins ('Bear Lake' the NPS interpretive page over the bare OSM
+#: water row). GNIS is deliberately absent: its true OSM twins are already
+#: dropped at import, and what survives (towns, category-incompatible name
+#: hits) is *not* the same feature — grouping it would collapse a town into a
+#: shop that shares its name.
+_TWIN_SOURCE_RANK = {'nps': 0, 'ridb': 1, 'osm': 2}
+#: Same ~1 km proximity box as the GNIS import dedupe.
+_TWIN_LAT_HALF = 0.01
+_TWIN_LON_HALF = 0.015
+
+
+def _twin_ref(row: dict) -> dict:
+    """The compact cross-link a kept row carries for one grouped-out twin."""
+    return {
+        'id': row['id'],
+        'source': row['source'],
+        'source_id': row['source_id'],
+        'source_kind': row['source_kind'],
+    }
+
+
+def group_twins(rows: list[dict]) -> list[dict]:
+    """Collapse cross-source same-feature rows within one returned page.
+
+    Exact name (casefolded) within the ~1 km box across *different* sources in
+    :data:`_TWIN_SOURCE_RANK` = one feature: the preferred source's row keeps
+    the page position and carries ``twins`` refs for the rows it absorbed
+    (``source_id`` included so the client can suppress a dropped OSM twin's
+    basemap mark too). Same-source rows never group — two nearby cafes of one
+    chain are two places. Page-local by design: twins co-occur in bbox'd
+    reads, and a search page holds every match for the name.
+
+    Args:
+        rows: The ordered page of place dicts (mutated: ``twins`` keys added).
+
+    Returns:
+        The page with absorbed twins removed.
+    """
+    kept: list[dict] = []
+    heads: dict[str, list[int]] = {}
+    for row in rows:
+        rank = _TWIN_SOURCE_RANK.get(row['source'])
+        name, lat, lon = row['name'], row['lat'], row['lon']
+        if rank is None or not name or lat is None or lon is None:
+            kept.append(row)
+            continue
+        key = name.casefold()
+        merged = False
+        for i in heads.get(key, []):
+            head = kept[i]
+            if (
+                head['source'] != row['source']
+                and abs(head['lat'] - lat) < _TWIN_LAT_HALF
+                and abs(head['lon'] - lon) < _TWIN_LON_HALF
+            ):
+                if rank < _TWIN_SOURCE_RANK[head['source']]:
+                    row['twins'] = [*head.pop('twins', []), _twin_ref(head)]
+                    kept[i] = row
+                else:
+                    kept[i].setdefault('twins', []).append(_twin_ref(row))
+                merged = True
+                break
+        if not merged:
+            heads.setdefault(key, []).append(len(kept))
+            kept.append(row)
+    return kept
+
 
 def _parse_date(value: str | None, name: str) -> tuple[str | None, tuple[Response, int] | None]:
     """Validate an optional ``YYYY-MM-DD`` calendar-date param.
@@ -316,7 +385,9 @@ def list_places():
             sql, [*base_params, *params, *kind_params, *order_params, limit]
         ).fetchall()
     ]
-    payload = {'places': rows, 'count': len(rows), 'truncated': len(rows) == limit}
+    truncated = len(rows) == limit
+    rows = group_twins(rows)
+    payload = {'places': rows, 'count': len(rows), 'truncated': truncated}
 
     if request.args.get('facets') == '1':
         inner = f'SELECT p.source_kind AS kind {base_from}'
@@ -362,6 +433,10 @@ def get_place(place_id: int):
     ``wiki`` carries the cached Wikipedia summary (title, extract, page_url,
     has_thumb — the blob itself is served by the photo endpoint) or null; the
     extract is CC BY-SA 4.0, which the UI must attribute.
+
+    ``twins`` cross-links the same physical feature's rows in other sources
+    (same casefolded name within ~1 km, :data:`_TWIN_SOURCE_RANK` sources
+    only) — display-time unification, the data itself keeps every row.
     """
     conn = get_connection()
     row = conn.execute(
@@ -372,6 +447,27 @@ def get_place(place_id: int):
         return jsonify({'error': 'place not found'}), 404
     record = dict(row)
     record['details'] = json.loads(record['details'])
+    record['twins'] = []
+    if record['name'] and record['lat'] is not None and record['source'] in _TWIN_SOURCE_RANK:
+        # Box-first via the latlon index (a ±1 km box is a few hundred rows);
+        # an FTS-first join on a generic name would score millions of matches.
+        candidates = conn.execute(
+            'SELECT id, source, source_id, source_kind, name FROM places '
+            'WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? '
+            'AND id != ? AND source != ? AND name = ? COLLATE NOCASE',
+            (
+                record['lat'] - _TWIN_LAT_HALF,
+                record['lat'] + _TWIN_LAT_HALF,
+                record['lon'] - _TWIN_LON_HALF,
+                record['lon'] + _TWIN_LON_HALF,
+                place_id,
+                record['source'],
+                record['name'],
+            ),
+        ).fetchall()
+        record['twins'] = [
+            _twin_ref(dict(c)) for c in candidates if c['source'] in _TWIN_SOURCE_RANK
+        ]
     record['wiki'] = None
     wiki_key = place_wiki_key(record['details'])
     if wiki_key is not None:
