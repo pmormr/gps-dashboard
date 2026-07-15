@@ -97,14 +97,20 @@ the pyosmium build pass on the Pi.
 
 ## Phases
 
-- [x] **Phase 1 — see** (landed 2026-07-15): `updater/chunks.py` + probes,
-  `GET /api/data/status`, read-only `/data` drill-in (chunk list, freshness,
-  staleness badges, derived ordering warnings like "GNIS predates OSM slice").
-  No runner. Landed deviations: the wiki-gap count (an OSM-slice scan, minutes
-  on the Pi) became the `max(place_wiki.fetched_at)`-vs-OSM ordering signal
-  backed by a new `idx_place_wiki_fetched` index — the exact gap count moves
-  to the Phase 3 wiki job's preflight; non-places staleness tiers set at
-  SATCAT 30 d, basemap 180 d, terrain/raster/phone/drone/docs informational.
+- [x] **Phase 1 — see** (landed + deployed + live-verified 2026-07-15):
+  `updater/chunks.py` + probes, `GET /api/data/status`, read-only `/data`
+  drill-in (chunk list, freshness, staleness badges, derived ordering
+  warnings like "GNIS predates OSM slice"). No runner. Landed deviations:
+  the wiki-gap count (an OSM-slice scan, minutes on the Pi) became the
+  `max(place_wiki.fetched_at)`-vs-OSM ordering signal backed by a new
+  `idx_place_wiki_fetched` index — the exact gap count moves to the Phase 3
+  wiki job's preflight; non-places staleness tiers set at SATCAT 30 d,
+  basemap 180 d, terrain/raster/phone/drone/docs informational. Live facts:
+  the status read costs ~2.3–3 s warm on the Pi (the OSM slice `count(*)` +
+  the raster-dir walk dominate; if that ever matters, cache the counts keyed
+  on the sidecar file's mtime — still derived, never trusted state), and the
+  glance immediately surfaced a real gap: the Pi has **no SATCAT cache**
+  (only ever fetched laptop-side) — the natural first Phase 2 run.
 - [ ] **Phase 2 — run (small)**: runner + `update_runs` + POST/cancel + log
   tail UI. Chunks: NPS, RIDB, GNIS, SATCAT (direct download + import), OSM
   merge + wiki merge from *staged* files, phone timeline from staged Takeout.
