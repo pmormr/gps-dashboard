@@ -43,7 +43,8 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
   build tool's TAXONOMY; NPS/RIDB kinds map via `api.db.PLACES_KIND_RANKS` at import.
   `places_fts` (FTS5, external content over name/summary/category/kind) backs `q=` with
   **token-prefix** semantics ('creek' matches "Clear Creek Trail"; mid-token substrings
-  don't). The importer rebuilds it after every import/merge — bulk-only writes, no sync
+  don't). The importer rebuilds it after every *places* import/merge (the wiki merge
+  skips it — `place_wiki` isn't FTS content) — bulk-only writes, no sync
   triggers; the rebuild dominates merge runtime (~10.7M rows ≈ 5 min laptop-class).
   Spatial reads stay on the composite `(lat, lon)` index — R*Tree benchmarked
   indistinguishable at 10M rows on the bbox+rank+limit query shape and declined.
@@ -54,7 +55,9 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
   `api/routes/places.py`). Search is **adaptive FTS**: count matches first, unbounded
   join ≤60k matches (full recall — a bbox'd search must see every match), top-10k bm25
   candidate pool above (junk prefixes degrade recall exactly where ranking millions of
-  matches is meaningless). Two ops traps: benchmark new query *shapes* on the
+  matches is meaningless). The 60k gate applies only to bbox'd searches: without a
+  bbox the join itself is the cost, so an unscoped search goes bounded above 10k
+  matches — pure relevance ranking, where the top-of-pool slice is the answer anyway. Two ops traps: benchmark new query *shapes* on the
   full-scale local DB (`~/osm-lab/places.db`) — the laptop absorbed a 45 s Pi-only
   sort once — and **pre-build new sidecar indexes over SSH before pushing**, or racing
   service startups all pay the build against busy_timeout.
@@ -129,8 +132,9 @@ but ~85% of the wikidata-only QIDs have no English article — the real cache is
 `lang:title`), **not** `places.id` — full-replace merges would orphan a places-keyed
 cache; the detail read resolves place → key from its tags at read time and joins.
 Built off-Pi by `tools/fetch_wikipedia.py` (resumable — fetched keys + misses persist
-in the output DB; QID-only rows resolve to their English article via the Wikidata
-API), merged with `--wiki-db`. Extracts are CC BY-SA 4.0 — the detail sheet
+in the output DB; QID-only rows resolve to an article via the Wikidata API with
+en → es → fr sitelink preference — Mexico/Québec places often have no enwiki),
+merged with `--wiki-db`. Extracts are CC BY-SA 4.0 — the detail sheet
 attributes; the thumbnail blob is served by `/api/places/<id>/photo`. Re-run the fetch
 after OSM rebuilds to pick up newly tagged rows (existing keys are skipped, so
 incremental runs are cheap).

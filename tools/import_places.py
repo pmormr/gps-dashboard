@@ -36,9 +36,10 @@ Three mutually exclusive modes, each full-replacing its own ``source`` slice of
   built off-Pi by ``tools/fetch_wikipedia.py`` (offline Wikipedia blurbs +
   thumbnails, keyed by wiki id so source merges never orphan them).
 
-Every mode finishes by rebuilding ``places_fts`` (the external-content FTS5
-search index) — writes to the tier are bulk-only, so there are no sync
-triggers, and at ~10M rows the rebuild dominates the merge's runtime.
+Every *places* mode finishes by rebuilding ``places_fts`` (the external-content
+FTS5 search index) — writes to the tier are bulk-only, so there are no sync
+triggers, and at ~10M rows the rebuild dominates the merge's runtime. The wiki
+merge skips the rebuild: ``place_wiki`` is a detail-read join, not FTS content.
 NPS/RIDB rows get ``category``/``rank`` stamped from ``api.db.PLACES_KIND_RANKS``
 at load time, so one rank×zoom gate governs every source's pins.
 
