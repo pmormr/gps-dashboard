@@ -21,6 +21,7 @@ import { Protocol } from 'pmtiles'
 
 import { fmtAltitude, fmtDate, fmtDuration, fmtTime } from './geo'
 import { DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
+import { prefetchTiles } from './prefetch'
 
 /**
  * The three.js elevated-data overlay (drone tracks float at MSL altitude). It's a
@@ -648,6 +649,14 @@ export const MapView = (() => {
       ;(m.getSource('places') as GeoJSONSource | undefined)?.setData(placeData)
       ;(m.getSource('search-results') as GeoJSONSource | undefined)?.setData(searchData)
 
+      // Pitched-view tile cover: allow more distinct zoom levels on screen and a
+      // larger high-pitch tile budget so the far field loads without a camera
+      // nudge (no effect at pitch 0; values from the MapLibre LOD example,
+      // verified to pull extra far-field detail at pitch ~78). Runs here so
+      // every source — basemap, DEMs, overlays — gets the params on every
+      // style (re)load.
+      m.setSourceTileLodParams(4, 3)
+
       applyTerrain()
     } catch (e) {
       console.error('reinstallOverlays:', e)
@@ -868,7 +877,36 @@ export const MapView = (() => {
       if ((e as { originalEvent?: Event }).originalEvent) userMoveCbs.forEach((cb) => cb())
     })
     wireLongPress(map)
+    map.on('idle', idlePrefetch)
     applyBasemap(currentLayer)
+  }
+
+  // Idle-time raster prefetch: once the camera settles, warm the tiles the
+  // user is likely to need next (parents for zoom-out, a ring for panning) —
+  // tile math in prefetch.ts. Raster-only; each GET also lands in the Pi's
+  // disk cache, so online browsing doubles as offline precache. The session
+  // dedupe set keeps repeat idles at the same camera free.
+  const prefetched = new Set<string>()
+  function idlePrefetch(): void {
+    if (!map || currentLayer === 'osm') return
+    const cfg = TILE_LAYERS[currentLayer]
+    const b = map.getBounds()
+    // 256px raster sources load tiles one level above the display zoom
+    // (rounded — MapLibre raster cover uses roundZoom), so key the parents
+    // and ring to the zoom actually on screen, not the camera zoom.
+    const tileZoom = Math.round(map.getZoom() + 1)
+    const tiles = prefetchTiles(
+      { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() },
+      tileZoom,
+      { maxzoom: cfg.maxzoom },
+    )
+    if (prefetched.size > 4000) prefetched.clear()
+    for (const t of tiles) {
+      const key = `${currentLayer}/${t.z}/${t.x}/${t.y}`
+      if (prefetched.has(key)) continue
+      prefetched.add(key)
+      void fetch(`/tiles/${key}.png`, { priority: 'low' }).catch(() => {})
+    }
   }
 
   function setLayer(layer: string): void {

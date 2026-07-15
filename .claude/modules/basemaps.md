@@ -40,14 +40,30 @@ are *generated*, not hand-vendored: `npm run gen:styles` (in `web/`) runs
 `web/scripts/generate-basemap-styles.mjs`, which emits every built-in
 `@protomaps/basemaps` flavor plus local overrides — zoom-interpolated road-name sizes
 (Medium face for majors), scaled shields, and a readable early floor for POI-mark text.
-The Map style panel switches themes at runtime (`MapView.setVectorTheme`; per-theme
-style docs fetched + cached on first use); `applyLabels` re-applies mark styling on
+**Dark is the boot default** (`DEFAULT_BASEMAP_THEME`, `labels.ts`); the Map style
+panel switches themes at runtime (`MapView.setVectorTheme`; per-theme style docs
+fetched + cached on first use); `applyLabels` re-applies mark styling on
 every style load and swaps the mark halo dark on the dark-ground themes. Regeneration
 caveats: the npm package's output must target the served archive's tile schema version
 (v4.x — check `pmtiles show`), and the runtime addresses layers by id (`pois`,
 `roads_labels_minor`), so diff `.layers[].id` old-vs-new before committing a bump.
 Dark/black themes use the vendored `sprite/dark` variant (shields, oneway arrows,
 townspots); `sprite-poi` is theme-independent (SDF, tinted at runtime).
+
+**Pitched-view tile cover.** `reinstallOverlays` sets
+`setSourceTileLodParams(4, 3)` on every style (re)load — more distinct zoom levels on
+screen and a bigger high-pitch tile budget, so the far field loads without a camera
+nudge (no effect at pitch 0; verified to pull extra far-field detail at pitch ~78 in a
+headless harness — final judgment is on-device in the van).
+
+**Idle prefetch (raster only).** On map `idle` with a raster base active, the engine
+warms the tiles the user likely needs next (`web/src/lib/prefetch.ts`, pure tile math +
+vitest): parents of the on-screen cover at tileZoom−1..−3 (the zoom-out gesture; USGS
+is a 256px source, so tileZoom = round(display zoom + 1)) plus a one-tile pan ring,
+capped ~48/settle, deduped per session. Every GET goes through the tile proxy, so
+online browsing doubles as offline precache. Vector/DEM are excluded on purpose: plain
+GETs can't warm a byte-ranged PMTiles archive, and the in-session MapLibre cache
+already covers vector zoom-out.
 
 **Trap:** `map.ts` loads the style as an object and absolutizes `sprite`/`glyphs`
 against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL
@@ -57,8 +73,9 @@ stays root-relative.
 features only **one zoom ahead** of the tile's own zoom (z10 tiles hold `min_zoom` ≤ 11,
 z12 → ≤ 13, …). The density slider's `-1` offset therefore already reveals everything
 physically present at browse zooms; more-negative offsets only matter near the z15
-max-zoom. "More icons when zoomed out" must come from the places-tier overlay (API-read,
-not tile-bound), not the basemap filter.
+max-zoom. "More icons when zoomed out" comes from the places-tier overlay instead
+(API-read, not tile-bound): the same slider shifts the overlay's rank×zoom pin gate
+(places.md).
 
 ## USGS — raster
 
