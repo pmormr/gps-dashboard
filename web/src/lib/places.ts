@@ -177,11 +177,19 @@ export function placeMeta(row: { source_kind: string; category: string | null })
  * to its tier — 1 = major destination (any zoom), 2 ~z9+, 3 ~z12+, 4 ~z14+.
  * Rank 5 (micro furniture) is search-only, never auto-pinned; one gate
  * governs every source, since NPS/RIDB rows carry ranks from the same scale.
+ *
+ * `offset` is the Map style panel's density slider (-4..0): each step left
+ * gates as if one zoom closer, so slider-left genuinely means "more pins,
+ * earlier". (The basemap's own marks can't match this — their tiles carry
+ * only one zoom of headroom; see basemaps.md — which is why the pin gate is
+ * the slider's real lever.) Below z6 the shift is ignored: a continent-scale
+ * bbox at rank ≥ 2 is soup and burns the row budget.
  */
-export function maxRankForZoom(zoom: number): number {
-  if (zoom >= 14) return 4
-  if (zoom >= 12) return 3
-  if (zoom >= 9) return 2
+export function maxRankForZoom(zoom: number, offset = 0): number {
+  const eff = zoom >= 6 ? zoom - offset : zoom
+  if (eff >= 14) return 4
+  if (eff >= 12) return 3
+  if (eff >= 9) return 2
   return 1
 }
 
@@ -290,6 +298,7 @@ export async function syncPlaces(
   bbox: string | null,
   zoom: number,
   categories: PlaceCategory[],
+  densityOffset = 0,
 ): Promise<string> {
   const mine = ++token
   inflight?.abort()
@@ -299,7 +308,7 @@ export async function syncPlaces(
   }
   const controller = new AbortController()
   inflight = controller
-  const maxRank = maxRankForZoom(zoom)
+  const maxRank = maxRankForZoom(zoom, densityOffset)
   let resp
   try {
     resp = await getPlaces({

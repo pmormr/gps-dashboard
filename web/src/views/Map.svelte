@@ -186,9 +186,10 @@
   })
 
   // Places overlay follows the *viewport*: refetch when the toggle, the
-  // group filter, or the map camera (placesRev) changes — the rank×zoom
-  // pin gate applies inside syncPlaces. Groups/rev are only read while
-  // the layer is on, so an off overlay costs nothing per pan.
+  // group filter, the density slider, or the map camera (placesRev) changes —
+  // the rank×zoom pin gate applies inside syncPlaces (shifted by the slider).
+  // Groups/rev/offset are only read while the layer is on, so an off overlay
+  // costs nothing per pan.
   $effect(() => {
     if (!view) return
     if (!layers.places) {
@@ -199,7 +200,7 @@
     view.onMoveEnd(onPlacesMoved)
     void placesRev
     const categories = expandGroups(layers.placeGroups)
-    syncPlaces(view, view.getBbox(), view.getZoom(), categories)
+    syncPlaces(view, view.getBbox(), view.getZoom(), categories, layers.labelOffset)
       .then((label) => {
         if (label) layers.placesStatus = label
       })

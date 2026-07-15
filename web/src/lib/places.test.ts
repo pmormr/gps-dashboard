@@ -120,6 +120,19 @@ describe('maxRankForZoom', () => {
 
   it('never admits rank 5 (micro furniture is search-only)', () => {
     expect(maxRankForZoom(22)).toBe(4)
+    expect(maxRankForZoom(22, -4)).toBe(4)
+  })
+
+  it('shifts tiers earlier by the density-slider offset', () => {
+    expect(maxRankForZoom(9, 0)).toBe(2)
+    expect(maxRankForZoom(8, -1)).toBe(2)
+    expect(maxRankForZoom(10, -2)).toBe(3)
+    expect(maxRankForZoom(10, -4)).toBe(4)
+  })
+
+  it('ignores the shift below z6 (continent-scale soup guard)', () => {
+    expect(maxRankForZoom(5.9, -4)).toBe(1)
+    expect(maxRankForZoom(6, -4)).toBe(2)
   })
 })
 

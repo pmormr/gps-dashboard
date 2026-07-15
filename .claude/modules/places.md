@@ -41,6 +41,11 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
   `places.rank` (pin-zoom tier: 1 major destination ~z5+ … 5 micro furniture,
   search-only) govern every source through one gate — OSM rows arrive stamped by the
   build tool's TAXONOMY; NPS/RIDB kinds map via `api.db.PLACES_KIND_RANKS` at import.
+  Client-side, the Map style panel's density slider *shifts* the rank×zoom gate
+  (`maxRankForZoom(zoom, offset)`, web `places.ts`) — slider-left admits deeper ranks
+  earlier; the shift is ignored below z6 (continent-bbox soup guard). The slider is the
+  pin-density lever *by design*: the basemap's own marks max out at −1 (tile-data floor,
+  basemaps.md).
   `places_fts` (FTS5, external content over name/summary/category/kind) backs `q=` with
   **token-prefix** semantics ('creek' matches "Clear Creek Trail"; mid-token substrings
   don't). The importer rebuilds it after every *places* import/merge (the wiki merge

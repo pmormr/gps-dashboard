@@ -85,7 +85,7 @@
       <div class="label-row">
         <h4>Density <span class="label-val">{layers.labelOffset}</span></h4>
         <input type="range" min="-4" max="0" step="1" bind:value={layers.labelOffset} oninput={onOffset} />
-        <div class="label-hint">left = POI marks appear earlier / denser</div>
+        <div class="label-hint">left = POI marks &amp; pins appear earlier / denser</div>
       </div>
       <label class="label-check">
         <input type="checkbox" checked={layers.minorRoads} onchange={onMinor} /> Minor street names (z13+)
