@@ -18,9 +18,7 @@ import argparse
 from pathlib import Path
 
 from common.cli import run_cli
-from common.satcat import SatMeta, load_satcat
-
-_DEFAULT_CACHE = Path.home() / '.cache' / 'gps-dashboard' / 'gnss-satcat.json'
+from common.satcat import DEFAULT_CACHE_PATH, SatMeta, load_satcat
 
 
 def _constellation(name: str) -> str:
@@ -73,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('--cache', default=str(_DEFAULT_CACHE), help='SATCAT snapshot path')
+    parser.add_argument('--cache', default=str(DEFAULT_CACHE_PATH), help='SATCAT snapshot path')
     parser.add_argument(
         '--max-age',
         type=float,

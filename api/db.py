@@ -670,6 +670,12 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             thumb_mime TEXT,
             fetched_at TEXT NOT NULL
         );
+
+        -- The freshness probe (updater/probes.py) reads max(fetched_at); without
+        -- an index that is a full-table scan that walks every thumbnail's
+        -- overflow chain (~GBs), with it an O(1) seek.
+        CREATE INDEX IF NOT EXISTS places_db.idx_place_wiki_fetched
+            ON place_wiki(fetched_at);
     """)
     conn.commit()
     # Rank-gated viewport reads (the map pin gate, the browse default) would

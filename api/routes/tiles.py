@@ -1,36 +1,11 @@
-import os
 import threading
-from pathlib import Path
 
 import requests
 from flask import Blueprint, abort, request, send_file
 
-from api.tile_layers import LAYERS
+from api.tile_layers import LAYERS, PMTILES_PATH, TERRAIN_PMTILES_PATH, TILE_CACHE_DIR
 
 tiles_bp = Blueprint('tiles', __name__)
-
-TILE_CACHE_DIR = Path(
-    os.environ.get('GPS_TILE_CACHE_DIR', Path.home() / '.cache' / 'gps-dashboard' / 'tiles')
-)
-
-# Vector OSM basemap: a single immutable PMTiles archive served with byte-range
-# support, read client-side by pmtiles.js. Persistent asset (not a cache), so it
-# has its own env var rather than deriving from GPS_TILE_CACHE_DIR.
-PMTILES_PATH = Path(
-    os.environ.get(
-        'GPS_PMTILES_PATH', Path.home() / '.cache' / 'gps-dashboard' / 'northamerica.pmtiles'
-    )
-)
-
-# Terrarium-encoded elevation tiles, also a single immutable PMTiles archive.
-# Read client-side by MapLibre via the pmtiles protocol + a raster-dem source
-# with `encoding: 'terrarium'`. Same operational model as the OSM archive.
-TERRAIN_PMTILES_PATH = Path(
-    os.environ.get(
-        'GPS_TERRAIN_PMTILES_PATH',
-        Path.home() / '.cache' / 'gps-dashboard' / 'northamerica-terrain.pmtiles',
-    )
-)
 
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
 

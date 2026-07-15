@@ -28,6 +28,11 @@ import requests
 SATCAT_URL = 'https://celestrak.org/satcat/records.php'
 _USER_AGENT = 'gps-dashboard satcat fetch (https://github.com/pmormr/gps-dashboard)'
 
+#: Where the fetched catalogue lives. Shared by the fetch CLI
+#: (tools/fetch_satcat.py) and the offline-data freshness probe
+#: (updater/probes.py) so both sides look at the same file.
+DEFAULT_CACHE_PATH = Path.home() / '.cache' / 'gps-dashboard' / 'gnss-satcat.json'
+
 
 @dataclass(frozen=True)
 class SatMeta:
