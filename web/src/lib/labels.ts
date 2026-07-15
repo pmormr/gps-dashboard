@@ -35,7 +35,7 @@ export const BASEMAP_THEMES: { id: BasemapTheme; label: string }[] = [
 ]
 
 /** The boot theme — the store's initial state and the engine's warm fetch. */
-export const DEFAULT_BASEMAP_THEME: BasemapTheme = 'light'
+export const DEFAULT_BASEMAP_THEME: BasemapTheme = 'dark'
 
 /** Themes with a dark ground — marks swap to a dark halo so they don't glow. */
 const DARK_THEMES: ReadonlySet<BasemapTheme> = new Set(['dark', 'black'])
@@ -48,8 +48,8 @@ export interface LabelSettings {
 }
 
 const CATEGORY_COLOR = new Map(CATEGORY_META.map((m) => [m.category as string, m.color]))
-/** Mark color for kinds whose category has no meta (should not happen). */
-const NEUTRAL = '#3a3a3a'
+/** Mark color for kinds whose category has no meta (should not happen) — a mid-grey that reads on light and dark grounds. */
+const NEUTRAL = '#8a919c'
 
 // Composer inputs beyond the style panel: the shared category selection and
 // the overlay's suppression ids, each pushed by its own writer.
