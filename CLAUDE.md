@@ -119,9 +119,10 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
 - `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band}` — ID-5100A readout/control via rigctld, **active main band only**; 502 = rig refusal, 503 = rigctld unreachable
 - `GET /api/ntp` — chrony/NTP status (Systems drill-in)
+- `GET /api/data/status` — offline-data chunk freshness, derived at read time from the `updater/` registry (Systems → `/data` drill-in; read-only until the plan's Phase 2 runner lands — `plans/data-update-plan.md`)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (+ `/trends`, `/fridge`, `/gpsd`, `/ntp` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (+ `/trends`, `/fridge`, `/gpsd`, `/ntp`, `/data` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
@@ -160,6 +161,7 @@ gps-dashboard/
 │   └── routes/
 │       ├── points.py
 │       ├── annotations.py
+│       ├── data.py             # /api/data/status (offline-data chunk freshness; /data is SPA-served)
 │       ├── places.py           # /api/places* (POI/tours/events/hours tier reads)
 │       ├── tiles.py
 │       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
@@ -191,6 +193,9 @@ gps-dashboard/
 ├── processor/                  # processed-tier deriver (tails raw → track_points/track_events)
 │   ├── gps_processor.py
 │   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
+├── updater/                    # offline-data chunk manager (plans/data-update-plan.md)
+│   ├── chunks.py               # declarative CHUNKS registry + derived status/ordering warnings
+│   └── probes.py               # derived-freshness probes (DB slices, archives, caches) — never stored state
 ├── sensors/                    # Pi-side sensor readers (publish to the MQTT bus)
 │   ├── runner.py               # shared reader framework (run_simple_publisher/run_fleet_publisher, LWT status, heartbeat)
 │   ├── bme680.py               # synthetic pipeline test harness (the live BME680 is the ESP32 node)
@@ -232,7 +237,7 @@ gps-dashboard/
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
 │       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet), Systems, Trends, Fridge, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet), Systems, Trends, Fridge, Data, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures

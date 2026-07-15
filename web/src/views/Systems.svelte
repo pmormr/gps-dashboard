@@ -85,6 +85,9 @@
     <button class="diag" onclick={() => router.navigate('/fridge')}>
       <span>Fridge</span><span class="muted">zone setpoints, power, DC history</span>
     </button>
+    <button class="diag" onclick={() => router.navigate('/data')}>
+      <span>Offline data</span><span class="muted">chunk freshness — ready to go dark?</span>
+    </button>
     <button class="diag" onclick={() => router.navigate('/ntp')}>
       <span>NTP</span><span class="muted">time sync / chrony</span>
     </button>

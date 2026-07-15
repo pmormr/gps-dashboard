@@ -95,10 +95,14 @@ list in CLAUDE.md): `osmium-tool` (apt), `pmtiles` (ARM64 Go binary). The
 
 ## Phases
 
-- [ ] **Phase 1 — see**: `updater/chunks.py` + probes, `GET /api/data/status`,
-  read-only `/data` drill-in (chunk list, freshness, staleness badges, derived
-  ordering warnings like "GNIS predates OSM slice"). No runner. Immediate
-  value: the pre-trip glance exists.
+- [x] **Phase 1 — see** (landed 2026-07-15): `updater/chunks.py` + probes,
+  `GET /api/data/status`, read-only `/data` drill-in (chunk list, freshness,
+  staleness badges, derived ordering warnings like "GNIS predates OSM slice").
+  No runner. Landed deviations: the wiki-gap count (an OSM-slice scan, minutes
+  on the Pi) became the `max(place_wiki.fetched_at)`-vs-OSM ordering signal
+  backed by a new `idx_place_wiki_fetched` index — the exact gap count moves
+  to the Phase 3 wiki job's preflight; non-places staleness tiers set at
+  SATCAT 30 d, basemap 180 d, terrain/raster/phone/drone/docs informational.
 - [ ] **Phase 2 — run (small)**: runner + `update_runs` + POST/cancel + log
   tail UI. Chunks: NPS, RIDB, GNIS, SATCAT (direct download + import), OSM
   merge + wiki merge from *staged* files, phone timeline from staged Takeout.

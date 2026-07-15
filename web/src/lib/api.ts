@@ -980,3 +980,33 @@ export async function putDocFile(
   const body = (await resp.json()) as { committed: boolean }
   return { committed: body.committed, etag: resp.headers.get('ETag') ?? '' }
 }
+
+/** One offline-data chunk's derived freshness (the /data drill-in row). */
+export interface DataChunk {
+  id: string
+  label: string
+  section: string
+  /** Target update path: pi_run | staged_file | recipe_only | readonly. */
+  action: string
+  cadence: string
+  transfer: string | null
+  stale_days: number | null
+  synced_at: string | null
+  age_days: number | null
+  state: 'ok' | 'stale' | 'missing' | 'error'
+  /** Probe-specific facts (row counts, file sizes, paths). */
+  detail: Record<string, unknown>
+  /** Derived ordering warnings (e.g. GNIS predating the OSM slice). */
+  warnings: string[]
+  error?: string
+}
+
+export interface DataStatus {
+  generated_at: string
+  chunks: DataChunk[]
+}
+
+/** Fetch offline-data freshness for every registered chunk. */
+export function getDataStatus(): Promise<DataStatus> {
+  return getJSON<DataStatus>('/api/data/status')
+}

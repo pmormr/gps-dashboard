@@ -1,6 +1,7 @@
 import type { Component } from 'svelte'
 
 import Places from '../views/Places.svelte'
+import Data from '../views/Data.svelte'
 import Docs from '../views/Docs.svelte'
 import Drive from '../views/Drive.svelte'
 import Fridge from '../views/Fridge.svelte'
@@ -40,6 +41,7 @@ export const routes: RouteDef[] = [
   { path: '/skyplot', component: Skyplot, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
+  { path: '/data', component: Data, tab: '/systems' },
   { path: '/trends', component: Trends, tab: '/systems' },
   { path: '/fridge', component: Fridge, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
