@@ -237,7 +237,7 @@ gps-dashboard/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures
 │   └── vendor/
-│       ├── basemap/            # Protomaps style.json + glyphs + sprite (data, served as-is)
+│       ├── basemap/            # generated theme styles (web/scripts/generate-basemap-styles.mjs) + glyphs + sprites
 ├── tools/
 │   ├── precache.py
 │   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)

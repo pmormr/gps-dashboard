@@ -10,12 +10,13 @@
 
 import type { Place } from '../api'
 import { ALL_GROUP_KEYS } from '../places'
-import type { LabelSettings } from '../labels'
+import { DEFAULT_BASEMAP_THEME, type BasemapTheme, type LabelSettings } from '../labels'
 
 export type BaseLayer = 'osm' | 'usgs'
 
 class LayersStore {
   base = $state<BaseLayer>('osm')
+  theme = $state<BasemapTheme>(DEFAULT_BASEMAP_THEME)
   refresh = $state(false)
   terrain = $state(false)
   exaggeration = $state(1.3)
@@ -64,7 +65,7 @@ class LayersStore {
 
   /** A snapshot of the label settings for applyLabels/reapply. */
   get labelSettings(): LabelSettings {
-    return { offset: this.labelOffset, minorRoads: this.minorRoads }
+    return { offset: this.labelOffset, minorRoads: this.minorRoads, theme: this.theme }
   }
 
   /** Toggle a POI category group (reassigns the Set so $state reacts). */

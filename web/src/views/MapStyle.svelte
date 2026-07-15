@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { reapply } from '../lib/labels'
+  import { BASEMAP_THEMES, reapply, type BasemapTheme } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
   import './layers.css'
@@ -23,6 +23,11 @@
       layers.refresh = false
       view?.setRefreshMode(false)
     }
+  }
+
+  function onTheme(e: Event): void {
+    layers.theme = (e.currentTarget as HTMLSelectElement).value as BasemapTheme
+    view?.setVectorTheme(layers.theme)
   }
 
   function onRefresh(e: Event): void {
@@ -56,6 +61,16 @@
       <option value="osm">OSM (vector)</option>
       <option value="usgs">USGS Topo</option>
     </select>
+    {#if layers.isVector}
+      <div class="label-row">
+        <h4>Theme</h4>
+        <select value={layers.theme} onchange={onTheme}>
+          {#each BASEMAP_THEMES as t (t.id)}
+            <option value={t.id}>{t.label}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
     {#if !layers.isVector}
       <label class="label-check">
         <input type="checkbox" checked={layers.refresh} onchange={onRefresh} /> ↻ Refresh tiles

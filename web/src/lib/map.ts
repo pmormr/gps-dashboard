@@ -20,6 +20,7 @@ import type { GeoJSONSource, Map as MlMap, Marker, Popup } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 
 import { fmtAltitude, fmtDate, fmtDuration, fmtTime } from './geo'
+import { DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
 
 /**
  * The three.js elevated-data overlay (drone tracks float at MSL altitude). It's a
@@ -112,25 +113,30 @@ function rasterTileUrl(layer: string, refresh: boolean): string {
 const pmtilesProtocol = new Protocol()
 maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile)
 
-// Fetch + patch the vector style once. MapLibre rejects a root-relative sprite URL,
-// so sprite/glyphs are absolutized against location.origin (portable across
-// localhost and the LAN IP); the pmtiles source URL stays root-relative.
-let vectorStyle: maplibregl.StyleSpecification | null = null
+// Fetch + patch a vector theme's style on first use (then cached). MapLibre
+// rejects a root-relative sprite URL, so sprite/glyphs are absolutized against
+// location.origin (portable across localhost and the LAN IP); the pmtiles
+// source URL stays root-relative.
+const vectorStyleCache = new Map<BasemapTheme, maplibregl.StyleSpecification>()
 // The unified POI icon sprite (SDF — tintable), second sprite beside the
 // style's own: GL refs are 'poi:<name>' (see icons.ts).
 const POI_SPRITE = '/static/vendor/basemap/sprite-poi/poi'
 
-const vectorStyleReady = fetch('/static/vendor/basemap/style.json')
-  .then((r) => r.json())
-  .then((s) => {
-    s.sprite = [
-      { id: 'default', url: location.origin + s.sprite },
-      { id: 'poi', url: location.origin + POI_SPRITE },
-    ]
-    s.glyphs = location.origin + s.glyphs
-    vectorStyle = s
-    return s
-  })
+async function loadVectorStyle(theme: BasemapTheme): Promise<maplibregl.StyleSpecification> {
+  const cached = vectorStyleCache.get(theme)
+  if (cached) return cached
+  const s = await (await fetch(`/static/vendor/basemap/style-${theme}.json`)).json()
+  s.sprite = [
+    { id: 'default', url: location.origin + s.sprite },
+    { id: 'poi', url: location.origin + POI_SPRITE },
+  ]
+  s.glyphs = location.origin + s.glyphs
+  vectorStyleCache.set(theme, s)
+  return s
+}
+
+// Warm the boot theme so the first map mount doesn't wait on the fetch.
+void loadVectorStyle(DEFAULT_BASEMAP_THEME)
 
 // Minimal style the map boots with so `map` exists synchronously; replaced by the
 // real basemap as soon as its style is ready.
@@ -140,8 +146,9 @@ const BOOTSTRAP_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0f172a' } }],
 }
 
-function buildVectorStyle(): maplibregl.StyleSpecification {
-  return JSON.parse(JSON.stringify(vectorStyle))
+// setStyle receives a deep copy so MapLibre never mutates the cached document.
+function cloneStyle(doc: maplibregl.StyleSpecification): maplibregl.StyleSpecification {
+  return JSON.parse(JSON.stringify(doc))
 }
 
 function buildRasterStyle(layer: string, refresh: boolean): maplibregl.StyleSpecification {
@@ -300,6 +307,7 @@ export interface CameraPose {
 export const MapView = (() => {
   let map: MlMap | undefined
   let currentLayer = 'osm'
+  let currentTheme: BasemapTheme = DEFAULT_BASEMAP_THEME
   let currentRefresh = false
   let onVectorBaseCb: ((map: MlMap) => void) | null = null
 
@@ -658,12 +666,21 @@ export const MapView = (() => {
 
   function applyBasemap(layer: string): void {
     if (layer === 'osm') {
-      vectorStyleReady.then(() => {
-        if (currentLayer === 'osm' && map) map.setStyle(buildVectorStyle())
+      const theme = currentTheme
+      loadVectorStyle(theme).then((doc) => {
+        // Stale-guard: the user may have switched base or theme mid-fetch.
+        if (currentLayer === 'osm' && currentTheme === theme && map) map.setStyle(cloneStyle(doc))
       })
     } else if (map) {
       map.setStyle(buildRasterStyle(layer, currentRefresh))
     }
+  }
+
+  /** Swap the vector basemap theme (no-op while raster is active beyond recording it). */
+  function setVectorTheme(theme: BasemapTheme): void {
+    if (theme === currentTheme) return
+    currentTheme = theme
+    if (currentLayer === 'osm' && map) applyBasemap('osm')
   }
 
   // Range-name tooltip on hover. Registered once; the layer-scoped handler is a
@@ -1313,6 +1330,7 @@ export const MapView = (() => {
     invalidateSize,
     setRefreshMode,
     setLayer,
+    setVectorTheme,
     getVectorBase,
     onVectorBase,
     setLabelScale,

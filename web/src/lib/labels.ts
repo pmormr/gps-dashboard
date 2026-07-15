@@ -22,10 +22,29 @@ import { CATEGORY_META } from './places'
 
 type View = typeof MapViewType
 
+/** The generated vector-basemap themes (web/scripts/generate-basemap-styles.mjs). */
+export type BasemapTheme = 'light' | 'dark' | 'white' | 'grayscale' | 'black'
+
+/** Panel-facing theme list, in display order. */
+export const BASEMAP_THEMES: { id: BasemapTheme; label: string }[] = [
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+  { id: 'white', label: 'White' },
+  { id: 'grayscale', label: 'Grayscale' },
+  { id: 'black', label: 'Black' },
+]
+
+/** The boot theme — the store's initial state and the engine's warm fetch. */
+export const DEFAULT_BASEMAP_THEME: BasemapTheme = 'light'
+
+/** Themes with a dark ground — marks swap to a dark halo so they don't glow. */
+const DARK_THEMES: ReadonlySet<BasemapTheme> = new Set(['dark', 'black'])
+
 /** Current style-panel settings (a snapshot the store exposes). */
 export interface LabelSettings {
   offset: number
   minorRoads: boolean
+  theme: BasemapTheme
 }
 
 const CATEGORY_COLOR = new Map(CATEGORY_META.map((m) => [m.category as string, m.color]))
@@ -77,14 +96,16 @@ export function applyLabels(gl: MlMap, s: LabelSettings): void {
   if (ids.length) {
     clauses.push(['!', ['in', ['id'], ['literal', ids]]] as ExpressionSpecification)
   }
+  const halo = DARK_THEMES.has(s.theme) ? '#14181c' : '#ffffff'
   try {
     gl.setFilter('pois', ['all', ...clauses] as ExpressionSpecification)
     gl.setLayerZoomRange('roads_labels_minor', s.minorRoads ? 13 : 24, 24)
     gl.setLayoutProperty('pois', 'icon-image', iconExpression())
     gl.setPaintProperty('pois', 'icon-color', colorExpression())
-    gl.setPaintProperty('pois', 'icon-halo-color', '#ffffff')
+    gl.setPaintProperty('pois', 'icon-halo-color', halo)
     gl.setPaintProperty('pois', 'icon-halo-width', 1)
     gl.setPaintProperty('pois', 'text-color', colorExpression())
+    gl.setPaintProperty('pois', 'text-halo-color', halo)
   } catch (e) {
     console.error('label controls:', e)
   }

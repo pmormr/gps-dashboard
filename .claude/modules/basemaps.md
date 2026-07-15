@@ -4,8 +4,9 @@ Two basemaps served two different ways, plus an elevation source for 3D renderin
 single `maplibregl.Map` (`MapView`, `web/src/lib/map.ts`) renders everything — pure
 MapLibre GL (not Leaflet) so the map can pitch and drape on terrain. The map's right
 icon rail drives it via the **Map style** panel (`web/src/views/MapStyle.svelte`):
-basemap switch, terrain draping + exaggeration (off = flat 2D, north-up; on unlocks
-pitch + rotate), and label *density* / minor-street-name tuning (vector only). The
+basemap switch, vector *theme* picker, terrain draping + exaggeration (off = flat 2D,
+north-up; on unlocks pitch + rotate), and label *density* / minor-street-name tuning
+(vector only). The
 basemap's **`pois` marks** are fully owned at runtime by the composer in
 `web/src/lib/labels.ts`: one function sets the layer's filter (the shared POI
 category selection × per-feature `min_zoom` density gate × twin-suppression feature
@@ -27,16 +28,37 @@ support (`send_file(conditional=True)`); `pmtiles.js` issues range requests for 
 header, directories, and tiles. Path from `$GPS_PMTILES_PATH`
 (`/mnt/nvme/tiles/northamerica.pmtiles` on the Pi; dev fallback
 `~/.cache/gps-dashboard/northamerica.pmtiles`). MapLibre and pmtiles are npm deps
-bundled into the committed SPA build (`static/dist/`); the Protomaps "light" style +
-full Noto Sans BMP glyphs + sprite are data assets under `static/vendor/basemap/` —
-no CDN at runtime. Crisp overzoom past z15
+bundled into the committed SPA build (`static/dist/`); the five theme styles +
+full Noto Sans BMP glyphs + sprites (light + dark variants) are data assets under
+`static/vendor/basemap/` — no CDN at runtime. Crisp overzoom past z15
 is free. The archive is a persistent asset (like the DB), updated only by a full
 re-extract + atomic file replace (see Archive build notes below), never per-tile —
 there is no `?refresh` for vector.
 
+**Themes.** The five style documents (`style-{light,dark,white,grayscale,black}.json`)
+are *generated*, not hand-vendored: `npm run gen:styles` (in `web/`) runs
+`web/scripts/generate-basemap-styles.mjs`, which emits every built-in
+`@protomaps/basemaps` flavor plus local overrides — zoom-interpolated road-name sizes
+(Medium face for majors), scaled shields, and a readable early floor for POI-mark text.
+The Map style panel switches themes at runtime (`MapView.setVectorTheme`; per-theme
+style docs fetched + cached on first use); `applyLabels` re-applies mark styling on
+every style load and swaps the mark halo dark on the dark-ground themes. Regeneration
+caveats: the npm package's output must target the served archive's tile schema version
+(v4.x — check `pmtiles show`), and the runtime addresses layers by id (`pois`,
+`roads_labels_minor`), so diff `.layers[].id` old-vs-new before committing a bump.
+Dark/black themes use the vendored `sprite/dark` variant (shields, oneway arrows,
+townspots); `sprite-poi` is theme-independent (SDF, tinted at runtime).
+
 **Trap:** `map.ts` loads the style as an object and absolutizes `sprite`/`glyphs`
 against `location.origin` (MapLibre rejects a relative sprite); the pmtiles source URL
 stays root-relative.
+
+**Tile-data floor (measured 2026-07-15):** the archive's `pois` source-layer carries
+features only **one zoom ahead** of the tile's own zoom (z10 tiles hold `min_zoom` ≤ 11,
+z12 → ≤ 13, …). The density slider's `-1` offset therefore already reveals everything
+physically present at browse zooms; more-negative offsets only matter near the z15
+max-zoom. "More icons when zoomed out" must come from the places-tier overlay (API-read,
+not tile-bound), not the basemap filter.
 
 ## USGS — raster
 
