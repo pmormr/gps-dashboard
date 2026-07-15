@@ -91,7 +91,9 @@ every caller — CLI or runner — inherits it. `--force` overrides.
 
 One-time Pi system installs (join `libhamlib-utils` in the offline-carve-out
 list in CLAUDE.md): `osmium-tool` (apt), `pmtiles` (ARM64 Go binary). The
-`osmium` Python package is already a main dependency.
+`osmium` Python package is a **dev** dependency today (pyproject
+`[dependency-groups]`) — promote it to a main dependency when Phase 3 puts
+the pyosmium build pass on the Pi.
 
 ## Phases
 
