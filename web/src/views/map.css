@@ -77,11 +77,6 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
-.map-rail-sep {
-  height: 1px;
-  margin: 2px 6px;
-  background: var(--border);
-}
 
 /* Drive-view puck (engine-injected marker element — must be global). A chevron
    pointing up = heading 0; MapLibre map-aligns the rotation to the live heading. */

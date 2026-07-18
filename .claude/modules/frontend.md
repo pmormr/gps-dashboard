@@ -84,21 +84,22 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   bands/ticks + the rubber-band. Its axis is the **requested window**, not the data
   extent, and it always renders — an empty window stays navigable. Hover emits
   `track.hoverMs` (the map's ghost dot) + tooltips.
-- **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🛰 **Data
-  layers** (`DataLayers.svelte`: drone + phone + places toggles, plus **the one POI
-  category filter** — the group chips govern the basemap's own `pois` marks *and* the
+- **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🗂 **Data
+  layers** (`DataLayers.svelte`: drone + phone + places toggles, plus **everything
+  POI** — the one category filter *and* the density slider: the group chips +
+  `labels.ts` zoom offset govern the basemap's own `pois` marks *and* the
   places overlay together; `layers.placeGroups` is the single selection, the old
   labels `POI_GROUPS` is gone), 🎨 **Map style**
-  (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, label *density* via
-  `labels.ts`, 3D terrain + exaggeration), 📊 **Inspect**
+  (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, minor street
+  names, 3D terrain + exaggeration), 📊 **Inspect**
   (`InspectPanel.svelte`:
   derived window stats from `GET /api/obd/economy` — duration/distance/speeds/fuel/MPG/
   moving/idle; fetches only while mounted = open). Exclusive-open; desktop = anchored
-  card, mobile = bottom sheet; defaults closed. Below a separator, **⛶ viewport filter**:
-  a mode toggle passing the map bbox into the shared `/api/points` fetch so the strip's
-  density shows only time spent in view ("when was I ever at this campsite") — updates on
-  moveend, suppresses refit (no fit→move→refetch loop), resets on toggle-off/route leave.
-  Drone/phone/places **legends are on-map chips** under the top-left annotations
+  card, mobile = bottom sheet; defaults closed. (Two former rail items are gone by
+  choice: the Marks panel — the timestrip's drag-to-zoom + Create Range replaced live
+  range construction — and the ⛶ viewport filter, a bbox mode on the shared
+  `/api/points` fetch judged more confusing than useful; the API's `bbox` param
+  remains.) Drone/phone/places **legends are on-map chips** under the top-left annotations
   cluster, shown only while that layer is on. Drone: `drone.ts` lazily imports
   `overlay3d.ts` (three.js tracks at MSL); phone: `phone.ts` color-by-mode breadcrumb +
   visit pins, following the window; places: `places.ts` pins (colored circle + the
@@ -125,7 +126,7 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   position (`track.hoverMs` → binary-search nearest fix → a DOM marker).
 
 **View behavior.** Default Live, last 24h. The map re-centers only on a fresh (non-live-
-tick, non-bbox) window load or an annotation/⊕ click — otherwise free pan/zoom (browsing
+tick) window load or an annotation/⊕ click — otherwise free pan/zoom (browsing
 ≠ navigation). Returning to the Map tab does not refetch or refit (the store dedups; the
 camera keeps your place). Decimation is server-side + size-aware: the client always
 asks `limit=20000`.

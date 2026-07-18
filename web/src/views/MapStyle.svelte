@@ -4,11 +4,11 @@
   import { layers, type BaseLayer } from '../lib/stores/layers.svelte'
   import './layers.css'
 
-  // The Map-style rail-panel content: base map + label density +
+  // The Map-style rail-panel content: base map + minor-road labels +
   // 3D terrain — the rarely-touched styling, split from the Data-layers panel
-  // (DataLayers.svelte). POI mark *selection* is not here: the shared category
-  // chips in Data layers govern basemap marks and overlay pins together (one
-  // control). Binds to the map-local `layers` store and pushes intent
+  // (DataLayers.svelte). Everything POI — category chips *and* the density
+  // slider — lives in Data layers, one panel for "which POIs, how many".
+  // Binds to the map-local `layers` store and pushes intent
   // into the engine via the passed MapView façade (`view` is a prop so this never
   // imports map.ts — that would pull MapLibre into the main bundle). The rail
   // owns open/close; this is body-only.
@@ -33,10 +33,6 @@
   function onRefresh(e: Event): void {
     layers.refresh = (e.currentTarget as HTMLInputElement).checked
     view?.setRefreshMode(layers.refresh)
-  }
-
-  function onOffset(): void {
-    if (view) reapply(view, layers.labelSettings)
   }
 
   function onMinor(e: Event): void {
@@ -70,6 +66,9 @@
           {/each}
         </select>
       </div>
+      <label class="label-check">
+        <input type="checkbox" checked={layers.minorRoads} onchange={onMinor} /> Minor street names (z13+)
+      </label>
     {/if}
     {#if !layers.isVector}
       <label class="label-check">
@@ -78,21 +77,6 @@
       <div class="label-hint">re-checks upstream; reload to see updates</div>
     {/if}
   </div>
-
-  {#if layers.isVector}
-    <div class="layers-section">
-      <h4>Labels</h4>
-      <div class="label-row">
-        <h4>Density <span class="label-val">{layers.labelOffset}</span></h4>
-        <input type="range" min="-4" max="0" step="1" bind:value={layers.labelOffset} oninput={onOffset} />
-        <div class="label-hint">left = POI marks &amp; pins appear earlier / denser</div>
-      </div>
-      <label class="label-check">
-        <input type="checkbox" checked={layers.minorRoads} onchange={onMinor} /> Minor street names (z13+)
-      </label>
-      <div class="label-hint">POI categories live in Data layers — one filter for marks and pins</div>
-    </div>
-  {/if}
 
   <div class="layers-section">
     <h4>3D terrain</h4>

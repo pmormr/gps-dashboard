@@ -461,14 +461,8 @@ export interface PointsResponse {
 }
 
 /** Trail/history for a time window (stops always kept; moving thinned by importance). */
-export function getPoints(
-  start: string,
-  end: string,
-  limit = 5000,
-  bbox?: string | null,
-): Promise<PointsResponse> {
+export function getPoints(start: string, end: string, limit = 5000): Promise<PointsResponse> {
   const params = new URLSearchParams({ start, end, limit: String(limit) })
-  if (bbox) params.set('bbox', bbox)
   return getJSON<PointsResponse>(`/api/points?${params}`)
 }
 

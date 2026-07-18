@@ -25,17 +25,9 @@ class TrackStore {
   loadedToMs = $state(0)
   /**
    * Whether the map should refit to the new points — false when the fetch was a
-   * live continuation (the anchor sliding forward) or a bbox-filtered fetch
-   * (refitting to in-view points would move the viewport → new bbox → loop).
+   * live continuation (the anchor sliding forward).
    */
   refit = $state(true)
-
-  /**
-   * Viewport filter: when set (W,S,E,N), fetches pass it as
-   * `bbox` so the density lane shows only time spent in view. Map.svelte owns it
-   * (updates on moveend while the toggle is on; null on toggle-off/unmount).
-   */
-  bbox = $state<string | null>(null)
 
   /** The strip's hovered moment (ms), for the map's hover-scrub ghost dot. */
   hoverMs = $state<number | null>(null)
@@ -46,8 +38,7 @@ class TrackStore {
 
   /** Fetch the window unless it's the one already loaded (or in flight). */
   async ensure(range: Range): Promise<void> {
-    const bbox = this.bbox
-    const key = `${range.from.getTime()}:${range.to.getTime()}:${bbox ?? ''}`
+    const key = `${range.from.getTime()}:${range.to.getTime()}`
     if (key === this.lastKey) return
     this.lastKey = key
     const isLiveTick =
@@ -62,7 +53,7 @@ class TrackStore {
     const token = ++this.fetchToken
     let data
     try {
-      data = await getPoints(range.from.toISOString(), range.to.toISOString(), 20000, bbox)
+      data = await getPoints(range.from.toISOString(), range.to.toISOString(), 20000)
     } catch (e) {
       if (token === this.fetchToken) {
         this.status = `Error: ${e instanceof Error ? e.message : String(e)}`
@@ -79,7 +70,7 @@ class TrackStore {
     this.empty = data.points.length ? '' : 'No GPS points for this window'
     this.loadedFromMs = range.from.getTime()
     this.loadedToMs = range.to.getTime()
-    this.refit = !isLiveTick && bbox == null
+    this.refit = !isLiveTick
   }
 }
 

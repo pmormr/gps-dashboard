@@ -1,16 +1,19 @@
 <script lang="ts">
   import { CATEGORY_GROUPS } from '../lib/places'
   import { setDroneEnabled } from '../lib/drone'
+  import { reapply } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
   import { layers } from '../lib/stores/layers.svelte'
   import './layers.css'
   import PoiIcon from './PoiIcon.svelte'
 
   // The Data-layers rail-panel content: the frequent overlay
-  // toggles — drone flights, phone track. Map *style* (base/labels/terrain) is a
-  // separate rail panel (MapStyle.svelte); legends live on-map as chips
-  // (Map.svelte), shown only while the layer is on. The rail owns open/close;
-  // this is body-only. `view` is a prop so this never imports map.ts.
+  // toggles — drone flights, phone track, places — plus everything POI: the
+  // category chips and the density slider, one panel for "which POIs, how
+  // many". Map *style* (base/roads/terrain) is a separate rail panel
+  // (MapStyle.svelte); legends live on-map as chips (Map.svelte), shown only
+  // while the layer is on. The rail owns open/close; this is body-only.
+  // `view` is a prop so this never imports map.ts.
   let { view }: { view?: typeof MapViewType } = $props()
 
   async function onDrone(e: Event): Promise<void> {
@@ -43,6 +46,12 @@
 
   function onPlaceGroup(key: string, e: Event): void {
     layers.togglePlaceGroup(key, (e.currentTarget as HTMLInputElement).checked)
+  }
+
+  // The density slider gates the basemap's own marks (labels.ts zoom offset);
+  // the places-overlay pins follow via Map.svelte's effect reading labelOffset.
+  function onOffset(): void {
+    if (view) reapply(view, layers.labelSettings)
   }
 </script>
 
@@ -82,6 +91,11 @@
           {g.label}
         </label>
       {/each}
+    </div>
+    <div class="label-row">
+      <h4>POI density <span class="label-val">{layers.labelOffset}</span></h4>
+      <input type="range" min="-4" max="0" step="1" bind:value={layers.labelOffset} oninput={onOffset} />
+      <div class="label-hint">left = POI marks &amp; pins appear earlier / denser</div>
     </div>
   </div>
 </div>

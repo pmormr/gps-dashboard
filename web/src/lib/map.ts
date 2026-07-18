@@ -1276,7 +1276,7 @@ export const MapView = (() => {
     userMoveCbs.delete(cb)
   }
 
-  /** The current viewport as a `/api/points` bbox string (W,S,E,N); null pre-init. */
+  /** The current viewport as an API bbox string (W,S,E,N — the places sync reads it); null pre-init. */
   function getBbox(): string | null {
     if (!map) return null
     const b = map.getBounds()

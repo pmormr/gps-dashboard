@@ -48,7 +48,7 @@
   // aren't related tasks.
   type RailPanel = 'data' | 'style' | 'inspect'
   const RAIL: { id: RailPanel; icon: string; label: string }[] = [
-    { id: 'data', icon: '🛰', label: 'Data layers' },
+    { id: 'data', icon: '🗂', label: 'Data layers' },
     { id: 'style', icon: '🎨', label: 'Map style' },
     { id: 'inspect', icon: '📊', label: 'Inspect window' },
   ]
@@ -97,27 +97,6 @@
     placesRev++
   }
 
-  // Viewport filter: while on, the shared track fetch carries
-  // the map bbox, so the strip's density shows only time spent in view ("when was
-  // I ever at this campsite"). Updates on moveend; resets on toggle-off/unmount.
-  let bboxFilter = $state(false)
-
-  function onMoved(): void {
-    if (view) track.bbox = view.getBbox()
-  }
-
-  function toggleBboxFilter(): void {
-    if (!view) return
-    bboxFilter = !bboxFilter
-    if (bboxFilter) {
-      track.bbox = view.getBbox()
-      view.onMoveEnd(onMoved)
-    } else {
-      view.offMoveEnd(onMoved)
-      track.bbox = null
-    }
-  }
-
   // On-map legend chips (swatch colors mirror DRONE_COLORS in map.ts and
   // MODE_COLORS in phone.ts) — shown only while that layer is on.
   const DRONE_LEGEND = [
@@ -147,10 +126,6 @@
     annotations.reload()
     return () => {
       cancelled = true
-      if (bboxFilter) {
-        view?.offMoveEnd(onMoved)
-        track.bbox = null
-      }
       view?.offMoveEnd(onPlacesMoved)
       view?.clearGhost()
       hide?.()
@@ -412,14 +387,6 @@
         onclick={() => toggleRail(r.id)}
       >{r.icon}</button>
     {/each}
-    <div class="map-rail-sep"></div>
-    <button
-      type="button"
-      class:active={bboxFilter}
-      title="Filter time density to the current map view"
-      aria-label="Filter time density to the current map view"
-      onclick={toggleBboxFilter}
-    >⛶</button>
   </div>
 
   {#if openPanel}
