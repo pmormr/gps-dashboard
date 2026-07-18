@@ -271,9 +271,16 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       **watching the rig**: the clearer's open() blips RTS for ~ms (kernel
       behavior, accepted) — confirm it doesn't meaningfully key TX and that
       post-boot RTS reads clear (`journalctl -u digirig-rts-clear -b`). (2)
-      Threshold field-check (−40/−45 defaults): the transient capture above
-      suggests squelch crackle can cross −40 — if false positives pile up,
-      raise `GPS_RADIO_OPEN_DBFS` in the unit. (3) The RAWSTR-pegged/DCD-false
+      Threshold field-check (−40/−45 defaults): confirmed chattery around rig
+      interaction — a 147.420 live-TX test (2026-07-18, captured fine: 10.9 s
+      + 7.1 s voice rows) also logged ~19 minimum-length (≈5.2 s) captures of
+      **touchscreen beeps/kerchunks** (peaks −17/−18, `dcd_main=0` — local
+      audio, not RF; the confidence marker separates them cleanly). Options if
+      it grates: raise `GPS_RADIO_OPEN_DBFS`, kill the rig's key-beep, or (2d
+      discussion) require ≥N loud blocks before a capture commits, dropping
+      one-block beeps. Also seen: `dcd_main=0` on a real voice capture whose
+      gate likely opened on a beep a beat before squelch — treat `dcd_main` as
+      a confidence hint, not truth. (3) The RAWSTR-pegged/DCD-false
       anomaly did **not** reproduce (RAWSTR 17 + DCD false = sane; DCD read 1
       when open) — keep an eye out, but both reads look healthy.
 - [ ] **2d — map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.**
