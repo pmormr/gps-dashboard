@@ -376,25 +376,32 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
 
 ## Phase 2f — Live listen / network audio stream (R10)
 
-- [ ] **2f-a — dsnoop layer.** `deploy/asound.conf` (dsnoop `digirig_dsnoop` +
-      plug `digirig_shared`; S16_LE 48 k mono, 100 ms periods / 2 s ring) +
-      recorder unit env `GPS_RADIO_ALSA_DEVICE=digirig_shared` (env edit only,
-      no Python change). Manual install, then live re-verify the recorder
-      heartbeat/capture on the shared PCM. Fallback if the dsnoop open fails:
-      un-pin `period_size`/`buffer_size` and re-test.
-- [ ] **2f-b — hub.** MediaMTX **v1.19.2** binary → `/mnt/nvme/mediamtx/mediamtx`
-      (manual install, offline-safe thereafter), `deploy/mediamtx.yml` (RTSP +
-      WebRTC only, read from the deploy checkout so config edits deploy on
-      push) + `deploy/mediamtx.service`.
-- [ ] **2f-c — publisher.** `deploy/radio-stream.service`: ffmpeg
-      `digirig_shared` → Opus 48 k mono → `rtsp://127.0.0.1:8554/radio`,
-      enabled-gated. ffmpeg already on the Pi (verified 2026-07-18). Opens only
-      the ALSA codec — never `/dev/digirig` (RTS = PTT).
-- [ ] **2f-d — deploy + live verify.** Pi-side hook stanzas (`mediamtx` on unit
-      or `deploy/mediamtx.yml` change; `radio-stream` on unit change), enable
-      both, then: recorder heartbeat still clean on dsnoop, an end-to-end
-      capture still lands, VLC plays the RTSP URL, the WebRTC page plays on a
-      phone.
+- [x] **2f-a — dsnoop layer — DEPLOYED 2026-07-18.** `deploy/asound.conf`
+      (dsnoop `digirig_dsnoop` + plug `digirig_shared`; S16_LE 48 k mono,
+      100 ms periods / 2 s ring) + recorder unit env
+      `GPS_RADIO_ALSA_DEVICE=digirig_shared` (env edit only, no Python change).
+      The pinned 4800/96000 period/buffer opened clean on the C-Media — the
+      recorder came back at full cadence (heartbeat `blocks=600`/min, floor
+      −55/−49 dBFS = the known closed-squelch floor).
+- [x] **2f-b — hub — DEPLOYED 2026-07-18.** MediaMTX **v1.19.2** binary →
+      `/mnt/nvme/mediamtx/mediamtx` (manual install, offline-safe thereafter),
+      `deploy/mediamtx.yml` (RTSP + WebRTC only, read from the deploy checkout
+      so config edits deploy on push) + `deploy/mediamtx.service`. Live
+      finding: v1.19.2 ships a **MoQ listener on by default** (tried to
+      self-generate TLS certs, warned) — `moq: false` added.
+- [x] **2f-c — publisher — DEPLOYED 2026-07-18.** `deploy/radio-stream.service`:
+      ffmpeg `digirig_shared` → Opus 48 k mono → `rtsp://127.0.0.1:8554/radio`,
+      enabled-gated. ffmpeg was already on the Pi. Opens only the ALSA codec —
+      never `/dev/digirig` (RTS = PTT).
+- [x] **2f-d — deploy + live verify — DONE 2026-07-18.** Hook stanzas added
+      Pi-side (`.bak` kept; `mediamtx` on `^deploy/mediamtx`, `radio-stream` on
+      its unit) and validated end-to-end by the MoQ-disable push ("MediaMTX
+      restarted"). Verified from the laptop: ffprobe reads the RTSP stream
+      (Opus 48 k; SDP says `channels=2` — the RFC 7587 Opus-RTP convention,
+      payload is mono), a 3 s pull measured RMS −50 dBFS = the recorder's
+      heartbeat floor at that moment (both consumers demonstrably on the same
+      capture), WebRTC page serves its player. Residual for Paul's ears: VLC /
+      phone-browser playback of live traffic.
 - [ ] **2f-e — deferred polish:** Listen-live embed on `/radio` (WHEP = bare
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.
