@@ -29,6 +29,8 @@ CPM → µSv/h. The lowest-friction electrical fit in this whole list.
   documented for ESPHome.
 - **GGreg20_V3** — ~$60–70, better engineered (isolated HV, clean pulse out);
   has an **official ESPHome external component** (`ggreg20_v3`, Oct 2025).
+  **Purchased 2026-07** — datasheet vendored at
+  `reference/GGreg20_V3-Datasheet-ENG-2026.pdf` (+ grep-able `.txt`).
 
 ### 🫁 Real CO₂ — Sensirion SCD41 (~$25–35; ~$40 Grove/DFRobot breakout)
 Upgrades the BME680's *fake* `co2_equivalent` (BSEC estimates it from VOCs) to a

@@ -1,0 +1,245 @@
+GGreg20_V3 Datasheet - 2026/05/15
+
+
+
+GGreg20_V3 Ionizing Radiation Detector
+
+                                                        Description
+                                                        The     ionizing     radiation    detector
+                                                        GGreg20_V3        -     a     ready-to-use
+                                                        redesigned new generation device with
+                                                        Geiger tube J305 and pulse counting
+                                                        output to the controller. Designed by
+                                                        IoT-devices in Kyiv, Ukraine.
+
+
+Purpose                                           Specifications
+Radioactive particles detector - an electronic        1.​ Module dimensions - 30 x 126 x 12
+sensor module for building a personal ionizing            mm. Weight 30 g.
+radiation level counter. For this purpose, the        2.​ Power supply:
+detector includes an impulse counting output to                ○​ from a rechargeable battery or a
+a host controller. Arduino, Adafruit, ESP8266,                    battery:
+ESP32, and others can be used as a host                               i.​ 1 cell Li (3.7V) battery
+controller.                                                           ii.​ 2 cell Ni (2.4V) battery
+                                                                      iii.​ 3 cell (4.5V) battery
+The radiation level is displayed by light and                               connecting to port "Bat";
+sound signals. Sounds can be muted by the                      ○​ from a 5 Volt charger.
+user (jumper J1 - buzzer on/off).                     3.​ Power supply of the J305 tube - built-in
+                                                          adjustable       high     voltage    DC-DC
+GGreg20_V3 - a cheap and useful device for                converter. The target 400V voltage
+checking the "purity" of:                                 level is regulated by a potentiometer.
+   -​ mushrooms,                                          The module is sold with fine-tuned
+   -​ berries,                                            parameters and ready for use.
+   -​ vegetables,                                     4.​ Consumption current - 35 mA at 5V or
+   -​ firewood, etc.                                      52 mA at 3.7V.
+                                                      5.​ GGreg20_v3 is compatible with logic
+This module is useful to build smart                      signal levels (3V3 ACTIVE-LOW: 3 to
+measurement devices for ionizing radiation                3.3V in HIGH state and about 0.7V in
+power sensing in handheld / pocket design                 LOW state) of ESP8266 / ESP32, and
+style or in stationary mode both for indoor or            will work even with a 5V logic input.
+outdoor operation.
+The only thing you need to start measuring the
+power of ionizing radiation with any GGreg20
+module is any microcontroller that can count
+the number of pulses per unit of time on GPIO.
+
+
+
+
+Copyright 2021-2026 IoT-devices, Kyiv, Ukraine    For info please visit: https://iot-devices.com.ua
+GGreg20_V3 Datasheet - 2026/05/15
+
+
+Dimensions and Pin assignments
+
+GGreg20_V3 module pin assignments are as follows:
+  -​ BAT - Power supply input 2.2V - 5.5 V;
+  -​ ON/OFF - Main switch on/off;
+  -​ OUT - Pulse output, active-low;
+  -​ BUZ - Buzzer enable jumper.
+
+Sizes and dimensions of GGreg20_V3 module are as follows:
+   -​ X: 126 mm;
+   -​ Y: 30 mm;
+   -​ Z: 12 mm.
+
+
+
+
+Copyright 2021-2026 IoT-devices, Kyiv, Ukraine      For info please visit: https://iot-devices.com.ua
+GGreg20_V3 Datasheet - 2026/05/15
+
+
+Differences and compatibility with the previous versions of GGreg20
+
+ Names of                 GGreg20_V3 (NEW)                           GGreg20_V1          Improvement
+ characteristics                                                                         status
+ Design                   monomodular                       two-module                   Improved
+ Calculation formula                                      No change
+ The design and size      Same, except placing the power                                 mostly unchanged
+ compatibility            switch
+ Stability of detection   In the range of 2.4 - 5.5 volts   Only at a supply             Improved
+ results during battery   (see note 2 and note 3)           voltage of 5
+ discharge                                                  volts (uUSB
+                                                            input)
+ Measurement              20%                               20%                          no change
+ accuracy
+ Power supply             2.2 - 5.5 volts (see note 2 and note 3)    3.7 - 5.5 volts     Improved
+ voltage range
+ Current consumption      near 35 мА                                 near 35 мА          no change
+ Autonomous power         1 cell Li (3.7V) or 2 cell Ni (2.4V)       1 cell Li (3,7V)    Improved
+ supply                   or battery 3V or AC / DC                   or 3 cell Ni
+                          adapter 2.4 - 5.5 V (see note 2 and        (3,6V) or 3 cell
+                          note 3
+                                )                                    battery (4,5V) or
+                                                                     AC/DC (5V)
+                                                                     adapter
+ User interfaces          LED, buzzer, Output connector              LED, buzzer,        no change
+                                                                     Output
+                                                                     connector
+ The complexity of      Two connectors and one jumper                Three               Simplified
+ integration in devices (total 6 pin)                                connectors and
+                                                                     a jumper (11 pin
+                                                                     in total)
+ Protection against       Key connectors used and                    Not provided        Improved
+ connection errors        Schottky diode installed (see note
+                          2 and note 3
+                                      )
+Note 1
+     GGreg20_V2 module version was not included in comparison because it was designed for other
+design solutions (and it does not provide space for J305 / SBM-20 tube on plate placement).
+
+Note 2
+     By default, the module board has a protection diode against false reversal when connecting the
+battery. This narrows the voltage range of the input power supply: 3 - 5.5 volts.
+
+Note 3
+      If you want to power the GGreg20_V3 from a 2.4 volt source, you need to short the Schottky
+diode shown in the figure below with a wire or replace it with a 0 ohm resistor. Note, however, that
+this correction will disable the module's power supply polarity reverse protection.
+
+
+
+
+Copyright 2021-2026 IoT-devices, Kyiv, Ukraine                  For info please visit: https://iot-devices.com.ua
+GGreg20_V3 Datasheet - 2026/05/15
+
+
+
+
+ Fig. GGreg20_V3 Reverse Polarity Protection Diode Manual Replacement Example
+
+
+
+
+Switching-on and measurements
+
+                 This module is ready for use. The GGreg20_V3 modules are adjusted, configured
+       !         and tested for compliance with the declared technical data before being shipped.
+                 Any adjustments or settings made by the customer may damage the module or
+                 introduce technical inconsistencies.
+
+Connect the power input from the selected power source.
+
+Turn on the power supply and in 10-15 seconds, you will hear the sound and see light signals when
+active particles enter the tube.
+
+With a normal background level of radiation, the tube registers and generates 20-30 pulses per
+minute. The number of pulses can fluctuate depending on the weather or cosmic radiation.
+Consider the average number of signals per minute.
+
+If you receive more than 60 signals per minute, be careful. Your detector has "felt" the effects of
+ionizing radiation emissions from the ambient environment or food, mushrooms, or wood, etc.
+
+In short, the formula is simple: you need to accumulate the number of ingoing GPIO pulses per
+minute and then multiply by a factor. Like this:
+
+microsieverts per hour = (impulses per minute) * 0.0092
+
+where 0.0092 coefficient is obtained from the manufacturer’s documentation on the tube.
+
+
+Copyright 2021-2026 IoT-devices, Kyiv, Ukraine       For info please visit: https://iot-devices.com.ua
+GGreg20_V3 Datasheet - 2026/05/15
+
+
+Tubes may vary (+-20%), so we recommend using a conversion factor from 0.0054 to 0.0092 and
+calibrate your calculations against a trusted (certified) device.
+
+
+
+Product kit sets:
+
+GGreg20_V3 basic
+
+   1.​ GGreg20_V3 module --- 1 pc.
+   2.​ J305 / SBM-20 tube --- 1 pc.
+
+
+Connectors (installed) and cables
+
+   3.​ GGreg20_V3 module --- 1 pc.
+
+   4.​ J305 / SBM-20 tube --- 1 pc.
+
+   5.​ Connectors JST XH 2P male straight --- 2 pcs.
+       installed on the module board;
+
+   6.​ Pulse output cable 15 cm with connectors --- 1 pc:
+          a.​ JST XH 2P female on one side and
+          b.​ Dupont 2x1P female on the other side
+
+   7.​ Power supply input cable 15 cm with JST XH 2P female connector on one side --- 1 pc.
+
+
+
+
+Copyright 2021-2026 IoT-devices, Kyiv, Ukraine         For info please visit: https://iot-devices.com.ua
+GGreg20_V3 Datasheet - 2026/05/15
+
+
+References
+
+ Manufacturer site                                 https://iot-devices.com.ua/en/
+
+ Shop on website                                   https://iot-devices.com.ua/en/shop-2/
+
+ Shop on Etsy                                      https://iotdevicesllc.etsy.com
+
+ Shop on Tindie                                    https://www.tindie.com/stores/iotdev/
+
+ Examples on GitHub                                https://github.com/iotdevicesdev
+
+ Facebook page                                     https://www.facebook.com/IoT-devices-1147468
+                                                   16966582
+
+ Twitter                                           https://twitter.com/iotdevicescomua
+
+ YouTube                                           https://www.youtube.com/channel/UCHpPOVVlb
+                                                   bdtYtvLUDt1NZw
+
+ Email                                             info@iot-devices.com.ua
+
+
+
+
+Document update history
+2021/05/13 - initial document.
+2021/11/20 - minor fixes and additions on reverse protection diode.
+2026/05/15 - minor fixes of current consumption values.
+
+
+
+
+Manufacturer message
+Dear Reader! Thank you for your interest in our products. We hope that you enjoy this device.
+IoT-devices was born thanks to the support of our customers and thanks to our experience and love
+for Electronics.
+
+Designed and made by IoT-devices with freedom & wisdom in Ukraine - 2021. All rights reserved.
+
+
+
+
+Copyright 2021-2026 IoT-devices, Kyiv, Ukraine        For info please visit: https://iot-devices.com.ua
+
