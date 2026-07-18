@@ -1,0 +1,29 @@
+# Live radio audio publisher (R10 in plans/radio-platform-plan.md) — shared
+# Digirig capture (dsnoop, deploy/asound.conf) → Opus 48 kHz mono → the
+# MediaMTX hub. Listeners attach to the hub, never to this unit:
+#   VLC/OBS  rtsp://<pi>:8554/radio
+#   browser  http://<pi>:8889/radio   (WebRTC, sub-second — the tuning path)
+#
+# Enabled-gated like radio-recorder — needs the Digirig wired and
+# /etc/asound.conf installed (manual, like the udev rules). Opus ~48 kbps keeps
+# the stream light enough to listen from home over the HaLow bridge. This unit
+# opens only the ALSA codec — never /dev/digirig (RTS hardware-keys PTT).
+[Unit]
+Description=Radio audio stream publisher (Digirig -> MediaMTX)
+After=sound.target mediamtx.service
+Wants=mediamtx.service
+
+[Service]
+Type=simple
+User=pmorgan
+ExecStart=/usr/bin/ffmpeg -hide_banner -loglevel warning -nostdin \
+    -f alsa -sample_rate 48000 -channels 1 -i digirig_shared \
+    -c:a libopus -b:a 48k -application voip \
+    -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/radio
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

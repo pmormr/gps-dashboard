@@ -91,6 +91,28 @@ The clone cable touches only the control plane.
   discards too — K is the knob if that ever stings. (ZCR turned out to be a
   weak discriminator — the rig's speaker path band-limits even static; noted
   so nobody re-derives it. FM-quieting detection stays in the pocket as v2.)
+- **R10 — live listen / streaming architecture (2f, 2026-07-18).** **MediaMTX is
+  the media hub** (single static arm64 binary on the NVMe — offline-safe once
+  installed, same reading as Hamlib) fed by an enabled-gated ffmpeg publisher
+  (`radio-stream`): shared Digirig capture → Opus 48 kHz mono ~48 kbps → RTSP
+  publish on localhost. Listeners attach to the hub, never the publisher: VLC
+  `rtsp://<pi>:8554/radio` (~0.5–1 s), the built-in WebRTC page
+  `http://<pi>:8889/radio` (sub-second — the level-tuning path), OBS media
+  source. **Multicast rejected**: WiFi multicast is sent at base rate with no
+  retransmit (power-saving phones miss frames wholesale) and dies at the HaLow
+  bridge; the camera plan it would "mirror" is really RTSP unicast (Dahua) — the
+  thing to mirror is the *hub*, which later proxies the cams for OBS via
+  `paths:` entries. **Capture sharing = ALSA dsnoop** (`/etc/asound.conf`,
+  manual install like the udev rules): the hw device is single-open, dsnoop
+  lets recorder + publisher capture independently — so listening works while
+  `radio-recorder` is stopped or being reconfigured, exactly the tuning
+  scenario. The slave pins the recorder's native format (S16_LE 48 k mono) with
+  a 2 s ring so the recorder's overrun margin survives. (Chose the hub over an
+  in-app chunked-Ogg Flask route — no camera future, 1–3 s latency — and over
+  Icecast — highest latency, serves neither goal. Chose dsnoop over a
+  recorder-side FIFO tee — the tee couples streaming to the recorder's
+  lifecycle and grows the one daemon that must never break.) `/radio`
+  Listen-live embed (WHEP) deferred to polish.
 - **R5 — announcements are Part-97 gated (Phase 3).** Automated TX carries FCC
   obligations: station ID (§97.119), a control operator, automatic-control limits, no
   broadcasting/music. Designed in (call-sign ID injection + a sane trigger model), not
@@ -351,6 +373,31 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       cable for the Digirig serial jack, explicit `rts_state`/`dtr_state` OFF in
       rigctld (RTS = PTT on this port!), and live validation. Current CH343 path
       is deployed and proven — no urgency.
+
+## Phase 2f — Live listen / network audio stream (R10)
+
+- [ ] **2f-a — dsnoop layer.** `deploy/asound.conf` (dsnoop `digirig_dsnoop` +
+      plug `digirig_shared`; S16_LE 48 k mono, 100 ms periods / 2 s ring) +
+      recorder unit env `GPS_RADIO_ALSA_DEVICE=digirig_shared` (env edit only,
+      no Python change). Manual install, then live re-verify the recorder
+      heartbeat/capture on the shared PCM. Fallback if the dsnoop open fails:
+      un-pin `period_size`/`buffer_size` and re-test.
+- [ ] **2f-b — hub.** MediaMTX **v1.19.2** binary → `/mnt/nvme/mediamtx/mediamtx`
+      (manual install, offline-safe thereafter), `deploy/mediamtx.yml` (RTSP +
+      WebRTC only, read from the deploy checkout so config edits deploy on
+      push) + `deploy/mediamtx.service`.
+- [ ] **2f-c — publisher.** `deploy/radio-stream.service`: ffmpeg
+      `digirig_shared` → Opus 48 k mono → `rtsp://127.0.0.1:8554/radio`,
+      enabled-gated. ffmpeg already on the Pi (verified 2026-07-18). Opens only
+      the ALSA codec — never `/dev/digirig` (RTS = PTT).
+- [ ] **2f-d — deploy + live verify.** Pi-side hook stanzas (`mediamtx` on unit
+      or `deploy/mediamtx.yml` change; `radio-stream` on unit change), enable
+      both, then: recorder heartbeat still clean on dsnoop, an end-to-end
+      capture still lands, VLC plays the RTSP URL, the WebRTC page plays on a
+      phone.
+- [ ] **2f-e — deferred polish:** Listen-live embed on `/radio` (WHEP = bare
+      `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
+      entries so OBS pulls everything from the one hub.
 
 ## Phase 3 — Announcements (needs TX audio + PTT)
 

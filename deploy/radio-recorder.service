@@ -22,6 +22,9 @@ User=pmorgan
 WorkingDirectory=/mnt/nvme/gps-dashboard
 Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
 Environment=GPS_RADIO_AUDIO_DIR=/mnt/nvme/data/radio-audio
+# Shared dsnoop PCM (deploy/asound.conf) so radio-stream can capture too; the
+# codec's hw device is single-open. Requires /etc/asound.conf installed.
+Environment=GPS_RADIO_ALSA_DEVICE=digirig_shared
 ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m radio.recorder
 Restart=always
 RestartSec=5

@@ -1,0 +1,22 @@
+# MediaMTX media hub (R10 in plans/radio-platform-plan.md) — RTSP + WebRTC
+# fan-out for the radio audio stream now, Dahua camera proxying later.
+#
+# The binary is a manual install (static arm64 build at /mnt/nvme/mediamtx/;
+# the deploy hook copies only *.service/*.timer). The config lives in the
+# deploy checkout so edits deploy on push. Enabled-gated like radio-recorder —
+# stays disabled until the stream plane is wired and validated.
+[Unit]
+Description=MediaMTX media hub (RTSP/WebRTC)
+After=network.target
+
+[Service]
+Type=simple
+User=pmorgan
+ExecStart=/mnt/nvme/mediamtx/mediamtx /mnt/nvme/gps-dashboard/deploy/mediamtx.yml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
