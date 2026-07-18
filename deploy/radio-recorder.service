@@ -25,6 +25,10 @@ Environment=GPS_RADIO_AUDIO_DIR=/mnt/nvme/data/radio-audio
 # Shared dsnoop PCM (deploy/asound.conf) so radio-stream can capture too; the
 # codec's hw device is single-open. Requires /etc/asound.conf installed.
 Environment=GPS_RADIO_ALSA_DEVICE=digirig_shared
+# AF calibrated 2026-07-18 via the stream: capture-chain floor is −50 dBFS and
+# AF-invariant, so AF is free SNR until static clips — 0.25 puts open-squelch
+# static peaks at −4.6 dBFS (the ceiling). Recalibrate if the SP1 pad lands.
+Environment=GPS_RADIO_PIN_AF=0.25
 ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m radio.recorder
 Restart=always
 RestartSec=5

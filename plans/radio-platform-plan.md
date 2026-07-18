@@ -402,6 +402,21 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       heartbeat floor at that moment (both consumers demonstrably on the same
       capture), WebRTC page serves its player. Residual for Paul's ears: VLC /
       phone-browser playback of live traffic.
+- [x] **2f-f — level recalibration via the stream (2026-07-18).** First fruit
+      of live listening: Paul heard hum + quiet voice. Measured: the capture
+      chain's floor is **−50 dBFS rms and AF-invariant** (closed-squelch floor
+      ≡ carrier-no-voice; AF 0.15→0.25 didn't move it) — so raising AF is free
+      SNR until static clips. **AF re-pinned 0.15 → 0.25** (unit env
+      `GPS_RADIO_PIN_AF`): open-squelch static peak −4.6 dBFS = the ceiling
+      (0.35 would clip), voice peaks −20 → −8..−13, VOX thresholds unchanged
+      (floor didn't move; margins widened). Hum fingerprint: a **120/240 Hz
+      mains-family comb + a 250/500/750/1000 Hz switcher comb, both
+      intermittent** (came and went between captures; not the inverter/charger
+      per Paul's unplug test) — **ground-loop isolator added to the purchase
+      list**; catch-it-in-the-act via the stream when it swells. A ~1.34 kHz
+      tone riding one take was **monitor feedback** (listening to the stream
+      open-air while keying) — gone when muted; keep monitors muted/earbuds
+      when transmitting. Recalibrate AF when the SP1 Y-split + pad land.
 - [ ] **2f-e — deferred polish:** Listen-live embed on `/radio` (WHEP = bare
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.
