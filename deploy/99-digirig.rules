@@ -9,6 +9,8 @@
 # Manual install (the deploy hook copies only *.service/*.timer):
 #   sudo cp deploy/99-digirig.rules /etc/udev/rules.d/ && sudo udevadm control --reload
 SUBSYSTEM=="usb", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ENV{ID_MM_DEVICE_IGNORE}="1"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="digirig", GROUP="dialout"
+# SYSTEMD_WANTS pulls in the boot-time RTS/DTR clearer on every enumeration
+# (deploy/digirig-rts-clear.service) — the virgin RTS state is untrusted.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="digirig", GROUP="dialout", TAG+="systemd", ENV{SYSTEMD_WANTS}+="digirig-rts-clear.service"
 # Pin the ALSA card id so capture opens as hw:CARD=Digirig regardless of card number.
 SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{idVendor}=="0d8c", ATTRS{idProduct}=="0012", ATTR{id}="Digirig"

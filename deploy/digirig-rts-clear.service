@@ -1,0 +1,22 @@
+# Digirig boot-time RTS/DTR clearer — the last layer of the PTT guard stack.
+#
+# RTS on the Digirig's CP2102N hardware-keys the radio's PTT, and the port's
+# virgin modem-line state on a fresh enumeration is untrusted. udev pulls this
+# oneshot in via ENV{SYSTEMD_WANTS} on the tty rule (99-digirig.rules), so it
+# runs on every enumeration — boot coldplug, replug, bus reset. No [Install]
+# section on purpose: the device unit is the only trigger.
+#
+# The tty open itself blips RTS for a few ms (kernel behavior, unavoidable) —
+# accepted in plans/radio-platform-plan.md (2b); a ms blip beats a held key.
+[Unit]
+Description=Digirig RTS/DTR clearer (PTT guard)
+After=dev-digirig.device
+RequiresMountsFor=/mnt/nvme/gps-dashboard
+
+[Service]
+Type=oneshot
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.digirig_clear_rts
+StandardOutput=journal
+StandardError=journal
