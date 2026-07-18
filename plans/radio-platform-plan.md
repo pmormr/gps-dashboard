@@ -254,20 +254,28 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       1 MiB pipe + 2 s ALSA buffer so a slow gate-open snapshot can't overrun),
       `deploy/radio-recorder.service` (enabled-gated), 30 tests. Suite 728
       green, ruff+mypy clean.
-- [ ] **2c-live — deploy + on-Pi validation.** (1) Pi hook: add the
-      `radio-recorder` per-unit restart block (new-service rule). (2) Reinstall
-      `99-digirig.rules` + `udevadm control --reload` (SYSTEMD_WANTS line is
-      new). (3) Verify `alsa-utils` present and the amixer control names —
-      `Auto Gain Control`/`Mic` are assumed; if the codec names them
-      differently, override `GPS_RADIO_MIXER_SETS` in the unit, no code change.
-      (4) Enable `radio-recorder`; watch a capture land end-to-end. (5) Reboot
-      test **watching the rig**: the clearer's open() blips RTS for ~ms
-      (kernel behavior, accepted) — confirm it doesn't meaningfully key TX and
-      that post-boot RTS reads clear. (6) Field-check gate thresholds
-      (−40/−45 dBFS defaults) against real traffic. (7) The RAWSTR-pegged/
-      DCD-false anomaly (seen twice on 146.52): check against the on-rig
-      S-meter — DCD is metadata-only so it can't drop recordings, but
-      `dcd_main` is only worth storing if the read isn't garbage.
+- [x] **2c-live — deployed + verified 2026-07-18** (pushed `35735c8`; hook
+      installed units automatically). Done: hook's `radio-recorder` restart
+      block added (Pi-side, `.bak` kept); rules reinstalled + udev reloaded;
+      **amixer control names matched the assumed defaults exactly** (`Auto Gain
+      Control` off / `Mic` capture 10 = −2 dB, verified pinned); AF pinned
+      0.15; service enabled. **End-to-end capture verified** via a squelch-open
+      test: 10.2 s WAV (3 s pre-roll + 5 s open + 2 s hang), byte-exact size,
+      row carried freq 146.520/FM, `dcd_main=1`, GPS snap, peak −16.0 dBFS
+      (identical to the 2a static measurement). Heartbeat floor −52/−47 dBFS —
+      matches the 2a −49 floor. Live facts: the `/api/radio/level` payload key
+      is `level` (lowercase name), and a second 5.9 s `dcd_main=0` capture
+      fired on a transient ~5 s post-test — the confidence marker works, but
+      see the threshold watch-item below.
+- [ ] **2c-tail — needs Paul at the rig / in the field.** (1) Reboot test
+      **watching the rig**: the clearer's open() blips RTS for ~ms (kernel
+      behavior, accepted) — confirm it doesn't meaningfully key TX and that
+      post-boot RTS reads clear (`journalctl -u digirig-rts-clear -b`). (2)
+      Threshold field-check (−40/−45 defaults): the transient capture above
+      suggests squelch crackle can cross −40 — if false positives pile up,
+      raise `GPS_RADIO_OPEN_DBFS` in the unit. (3) The RAWSTR-pegged/DCD-false
+      anomaly did **not** reproduce (RAWSTR 17 + DCD false = sane; DCD read 1
+      when open) — keep an eye out, but both reads look healthy.
 - [ ] **2d — map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.**
 - [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
       the 10–20 dB pad (decouples cabin listening volume from record level —
