@@ -22,6 +22,7 @@ playback: false
 rtmp: false
 hls: false
 srt: false
+moq: false
 
 rtsp: true
 rtspAddress: :8554
