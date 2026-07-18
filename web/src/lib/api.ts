@@ -568,7 +568,7 @@ export async function postFridge(
   return data
 }
 
-// ── Annotations + marks (map view) ──
+// ── Annotations (map view) ──
 
 /** A user-curated annotation. `end_time` null ⇒ point bookmark; else a range. */
 export interface Annotation {
@@ -622,22 +622,6 @@ export function updateAnnotation(
 /** Delete an annotation. */
 export function deleteAnnotation(id: number): Promise<void> {
   return sendJSON<void>(`/api/annotations/${id}`, 'DELETE')
-}
-
-/** The persisted live range-construction marks (either key may be absent). */
-export interface Marks {
-  start?: string
-  end?: string
-}
-
-/** Read the persisted start/end marks. */
-export function getMarks(): Promise<Marks> {
-  return getJSON<Marks>('/api/annotations/mark')
-}
-
-/** Stamp the given mark with the current UTC time; returns the full mark set. */
-export function markTimestamp(marker: 'start' | 'end'): Promise<Marks> {
-  return sendJSON<Marks>('/api/annotations/mark', 'POST', { marker })
 }
 
 /** Per-window drive summary (derived OBD fuel ÷ GPS-track distance + speed/time). */

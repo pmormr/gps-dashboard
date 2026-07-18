@@ -29,13 +29,12 @@
   import DataLayers from './DataLayers.svelte'
   import InspectPanel from './InspectPanel.svelte'
   import MapStyle from './MapStyle.svelte'
-  import MarksPanel from './MarksPanel.svelte'
   import TimeDock from './TimeDock.svelte'
 
   // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
   // (map.ts + MapLibre, ~283 kB gz) is dynamic-imported so it's a Map-only chunk;
   // the main bundle stays small. `view` is passed to chrome children (Layers) so
-  // they never import map.ts directly. Map-local state (Layers/Marks) lives in
+  // they never import map.ts directly. Map-local state (Layers) lives in
   // stores that persist across the cheap chrome remount; the engine itself
   // persists too, so on a fresh load the two agree without reading back. The
   // window fetch itself lives in the shared track store (driven by the TimeDock);
@@ -47,11 +46,10 @@
   // closes the rest. Default closed (a clean map); resets on remount. Data layers
   // and map style are separate buttons — overlay toggles and basemap styling
   // aren't related tasks.
-  type RailPanel = 'data' | 'style' | 'marks' | 'inspect'
+  type RailPanel = 'data' | 'style' | 'inspect'
   const RAIL: { id: RailPanel; icon: string; label: string }[] = [
     { id: 'data', icon: '🛰', label: 'Data layers' },
     { id: 'style', icon: '🎨', label: 'Map style' },
-    { id: 'marks', icon: '🚩', label: 'Marks' },
     { id: 'inspect', icon: '📊', label: 'Inspect window' },
   ]
   let openPanel = $state<RailPanel | null>(null)
@@ -435,8 +433,6 @@
           <DataLayers {view} />
         {:else if openPanel === 'style'}
           <MapStyle {view} />
-        {:else if openPanel === 'marks'}
-          <MarksPanel />
         {:else}
           <InspectPanel />
         {/if}

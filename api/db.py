@@ -83,11 +83,6 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_annotations_start_time
             ON annotations(start_time);
 
-        CREATE TABLE IF NOT EXISTS marks (
-            key       TEXT PRIMARY KEY,
-            timestamp TEXT NOT NULL
-        );
-
         CREATE TABLE IF NOT EXISTS sensors (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             node        TEXT NOT NULL,

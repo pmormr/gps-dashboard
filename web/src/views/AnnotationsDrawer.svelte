@@ -53,7 +53,7 @@
       <p class="error">Failed to load: {annotations.loadError}</p>
     {:else if !annotations.list.length}
       <p class="empty-state">
-        No annotations yet. Mark a range on the slider and Create Range, or Bookmark Here for a
+        No annotations yet. Zoom the strip to a range and Create Range, or Bookmark Here for a
         single moment.
       </p>
     {:else}

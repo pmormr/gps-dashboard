@@ -90,8 +90,7 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   places overlay together; `layers.placeGroups` is the single selection, the old
   labels `POI_GROUPS` is gone), 🎨 **Map style**
   (`MapStyle.svelte`: base map OSM-vector/USGS-raster + refresh, label *density* via
-  `labels.ts`, 3D terrain + exaggeration), 🚩 **Marks** (`MarksPanel.svelte`: Mark
-  Start/End → Use Marks reframes the window; panel-local state), 📊 **Inspect**
+  `labels.ts`, 3D terrain + exaggeration), 📊 **Inspect**
   (`InspectPanel.svelte`:
   derived window stats from `GET /api/obd/economy` — duration/distance/speeds/fuel/MPG/
   moving/idle; fetches only while mounted = open). Exclusive-open; desktop = anchored
@@ -294,9 +293,11 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   mid-zoom doesn't clear the zoom-out stack, so "Zoom out" can step to a pre-zoom window
   rather than the manually-picked one (every restored window is still valid; clearing on
   a foreign picker change is awkward because the live tick mutates `range`).
-- **Marks continuation** — mark *types* (campsite / fuel / scenic / repair); and
-  **stops → marks** — promoting a processor `kind='stop'` / `track_events` stop to a
-  curated mark (deferred from the denoise work; see `.claude/modules/processor.md`). *(Window
+- **Annotation continuation** — annotation *types* (campsite / fuel / scenic / repair); and
+  **stops → annotations** — promoting a processor `kind='stop'` / `track_events` stop to a
+  curated annotation (deferred from the denoise work; see `.claude/modules/processor.md`).
+  (The old Marks panel — persisted live start/end range construction — was removed
+  2026-07-18; the timestrip's drag-to-zoom + Create Range replaced that workflow.) *(Window
   **energy** from Victron is the remaining Inspect stat, deferred until the
   power-integration endpoint lands.)*
 - **Drive continuation** — SSE transport (replace the 1 Hz poll with a gpsd-bridged

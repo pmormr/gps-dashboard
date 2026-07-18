@@ -332,26 +332,3 @@
   color: var(--text);
   border: 1px solid var(--border);
 }
-
-/* ── Marks rail-panel content ── */
-.tl-mark-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.tl-mark-row .btn-secondary {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.tl-mark-status {
-  color: var(--text-dim);
-  font-size: 12px;
-  margin: 6px 0 0;
-}

@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from api.db import get_connection, now_canonical
+from api.db import get_connection
 from api.params import parse_time
 
 annotations_bp = Blueprint('annotations', __name__)
@@ -117,31 +117,3 @@ def delete_annotation(annotation_id):
     conn.execute('DELETE FROM annotations WHERE id = ?', (annotation_id,))
     conn.commit()
     return '', 204
-
-
-@annotations_bp.get('/api/annotations/mark')
-def get_marks():
-    conn = get_connection()
-    rows = conn.execute('SELECT key, timestamp FROM marks').fetchall()
-    return jsonify({r['key']: r['timestamp'] for r in rows})
-
-
-@annotations_bp.post('/api/annotations/mark')
-def mark_timestamp():
-    body = request.get_json(silent=True) or {}
-    marker = body.get('marker', '')
-    if marker not in ('start', 'end'):
-        return jsonify({'error': "'marker' must be 'start' or 'end'"}), 400
-
-    timestamp = now_canonical()
-    conn = get_connection()
-    conn.execute(
-        'INSERT INTO marks (key, timestamp) VALUES (?, ?) '
-        'ON CONFLICT(key) DO UPDATE SET timestamp = excluded.timestamp',
-        (marker, timestamp),
-    )
-    conn.commit()
-
-    rows = conn.execute('SELECT key, timestamp FROM marks').fetchall()
-    result = {r['key']: r['timestamp'] for r in rows}
-    return jsonify(result)

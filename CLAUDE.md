@@ -68,7 +68,6 @@ SQLite (`gps_history.db`). Core GPS tables:
 
 - `gps_points(id, timestamp, lat, lon, speed, altitude, track, epx, epy, epv, eps, climb, mode)` — raw append-only stream; the per-fix accuracy/quality columns feed the denoise processor. `timestamp` is fixed-width ms UTC (`canonical_timestamp`), uniform across all tiers.
 - `annotations(id, name, start_time, end_time, notes)` — pure metadata; no foreign keys. `end_time` nullable: NULL = point-in-time bookmark; non-NULL = range, whose points come from `WHERE timestamp BETWEEN start_time AND end_time` against `gps_points`.
-- `marks(key, timestamp)` — two rows max (`start`, `end`); persists live range-construction timestamps across restarts.
 
 Processed/denoise tier — derived from raw by `gps-processor`, fully rebuildable (see `.claude/modules/processor.md`):
 
@@ -112,7 +111,6 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/points/latest` — most-recent **raw** fix (the live dot reads `gps_points`, not the processed tier)
 - `GET /api/points/recent?minutes=&limit=` — raw trailing window, stride-decimated (the Drive breadcrumb seed; the processed tier would lag the processor's cursor)
 - `GET/POST/PATCH/DELETE /api/annotations[/:id]` — user-curated bookmarks/ranges (`end_time` NULL = point bookmark)
-- `GET/POST /api/annotations/mark` — persisted `start`/`end` marks (live range construction survives reloads)
 - `GET /tiles/osm.pmtiles` · `GET /tiles/terrain.pmtiles` — vector basemap + terrain DEM archives with HTTP range support (basemaps.md)
 - `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster (USGS) tile proxy/cache; `?refresh=1` background-revalidates (basemaps.md)
 - `GET /api/sensors` · `GET /api/sensors/:id/readings` · `GET /api/sensors/series` — sensor registry, reading history, and the bucketed multi-metric series backing Trends (sensors.md)
