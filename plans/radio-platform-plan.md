@@ -417,6 +417,30 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       tone riding one take was **monitor feedback** (listening to the stream
       open-air while keying) — gone when muted; keep monitors muted/earbuds
       when transmitting. Recalibrate AF when the SP1 Y-split + pad land.
+- [x] **2f-g — floor localization (2026-07-18, all via the stream).** Two
+      decisive tests: **(1) rig powered off → floor unchanged** (−50.4 vs
+      −50.2, same spectrum) — the floor is generated at the **Digirig/USB
+      end**, not in the rig or through the audio cable, so an audio-path
+      ground-loop isolator **cannot** fix it (purchase redirected). **(2) Mic
+      PGA sweep 10→25 → floor scales dB-for-dB** (−50/−46/−41/−36) — the noise
+      is **input-referred**, so no software gain arrangement can improve SNR;
+      the AF 0.25 / Mic 10 structure is provably optimal for this hardware.
+      (Test used the dsnoop decoupling as designed: recorder stopped, stream
+      kept serving, recorder restart re-pinned everything.) **Next experiment
+      (Paul, free): feed the Digirig clean USB power** (powered hub / laptop on
+      battery) — floor drops ⇒ Pi 5 V rail noise ⇒ buy a **USB isolator or
+      powered hub**; floor stays ⇒ codec self-noise = the hardware floor ⇒
+      de-noise filter is the legitimate last step (publisher-side or a second
+      `radio-clean` MediaMTX path; WAVs stay raw). Replug caveat: enumeration
+      fires the RTS clearer (~ms PTT blip) + bounces the recorder session.
+- [ ] **2f-h — PROPOSED (discuss): heartbeat AF re-pin.** Live finding: **the
+      rig does NOT retain CI-V-set levels across a power cycle** (came back AF
+      0.337/SQL 0.173 — the latter nearly the storm-flap level). The
+      recorder's AF pin runs only at session start, so a rig power cycle
+      mid-session leaves levels wrong until the next recorder restart. Cheap
+      fix candidate: re-assert the AF pin on the recorder's 60 s heartbeat
+      (one CI-V transaction/min). Until decided: after powering the rig, reset
+      levels via the API or restart radio-recorder.
 - [ ] **2f-e — deferred polish:** Listen-live embed on `/radio` (WHEP = bare
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.
