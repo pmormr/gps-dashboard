@@ -197,10 +197,48 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
   - Level stability synergy: the recorder can **pin AF via `POST /api/radio/level`**
     (1.5b) before capture for reproducible record levels.
 - [x] Pick + order the USB audio interface (see Q4 above).
-- [ ] Wire it when it arrives: SP1 Y-split + RJ-45 leg, `arecord` smoke test.
-- [ ] `radio_transmissions` schema (R4) + a squelch/VOX-gated recorder process
-      (standalone, like the logger), writing audio files + GPS-snapped rows.
-- [ ] Map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.
+- [x] **2a — wire + smoke test — DONE (2026-07-15, direct SP1 leg, no Y-split yet).**
+      The Digirig is a two-chip composite behind its own hub: C-Media codec
+      `0d8c:0012` (mono S16_LE, 44.1/48 kHz) + CP2102N serial `10c4:ea60`. Clean
+      capture end-to-end: AF pinned 0.15 via the API + capture gain 10/35 (≈0 dB)
+      → open-squelch static at −16 dBFS peak / −28 RMS; closed-squelch floor
+      −49 dBFS RMS. **C-Media power-on defaults are max gain (+23 dB) + AGC ON —
+      the recorder must pin mixer state (AGC off, gain) at startup**, since a USB
+      replug resets them.
+  - **⚠ Dead-key incident (2026-07-15), the durable trap: the Digirig keys PTT
+    whenever CP2102N RTS is asserted, and stock Linux asserts RTS on any port
+    open.** On first plug-in BOTH ModemManager and gpsd's USB hotplug
+    (`10c4:ea60` is a common GPS-dongle chip) grabbed the port and held
+    RTS — the rig dead-keyed 146.520 at ~83 % power until the audio cable was
+    pulled. The TX also crashed the Digirig's USB interface (error −71, needed a
+    power-cycle) → **RF-ingress watch-item: first Phase 3 TX tests at low power.**
+    Guard stack now live on the Pi: **ModemManager masked · `USBAUTO="false"` in
+    `/etc/default/gpsd` (M9N is static `DEVICES`, unaffected) ·
+    `deploy/99-digirig.rules`** (MM-ignore + `/dev/digirig` + ALSA card id
+    `Digirig`; manual install like the other udev rules). Guards verified: replug
+    with the mic leg connected no longer keys.
+- [ ] **2b — boot-time RTS clearer.** Residual exposure: the CP2102N's virgin
+      RTS state on a fresh boot/enumeration is untested (only ever observed
+      post-clear). Tiny tool (open `/dev/digirig`, `TIOCMBIC` RTS+DTR, close) run
+      from a udev-triggered oneshot so a reboot can never hold PTT. Build with 2c.
+- [ ] **2c — `radio_transmissions` schema (R4) + a squelch/VOX-gated recorder
+      process** (standalone, like the logger), writing audio files + GPS-snapped
+      rows. Design walk-through first: gate choice (DCD poll reads the *main band
+      only* while SP1 audio is the A+B mix — sub-band-only signals would go
+      ungated; options DCD-only / audio-VOX / hybrid), pre-roll (continuous
+      `arecord` pipe → ring buffer so the gate's poll latency doesn't clip
+      openings), format/rate, NVMe file layout + retention. Recorder pins mixer
+      state + AF level at startup for reproducible levels.
+- [ ] **2d — map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.**
+- [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
+      the 10–20 dB pad (decouples cabin listening volume from record level —
+      without it, cranking AF for the speaker also cranks the Digirig leg).
+- [ ] **Flagged (discuss before acting): CI-V-via-Digirig consolidation.** The
+      Digirig serial port could replace the CH343 CI-V adapter (TX/RX bridged =
+      same single-wire topology), freeing a USB port. Needs a separate CI-V
+      cable for the Digirig serial jack, explicit `rts_state`/`dtr_state` OFF in
+      rigctld (RTS = PTT on this port!), and live validation. Current CH343 path
+      is deployed and proven — no urgency.
 
 ## Phase 3 — Announcements (needs TX audio + PTT)
 

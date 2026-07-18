@@ -1,0 +1,14 @@
+# Digirig Mobile (CP2102N serial + C-Media codec behind its own hub).
+#
+# RTS on the serial port hardware-keys the radio's PTT through the mic-jack leg —
+# nothing may probe or hold this port casually. On first plug-in BOTH ModemManager
+# and gpsd's USB hotplug grabbed it and held RTS asserted, dead-keying the rig
+# (2026-07-15). The full guard stack is: ModemManager masked, USBAUTO="false" in
+# /etc/default/gpsd, and the MM-ignore tags below.
+#
+# Manual install (the deploy hook copies only *.service/*.timer):
+#   sudo cp deploy/99-digirig.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+SUBSYSTEM=="usb", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="digirig", GROUP="dialout"
+# Pin the ALSA card id so capture opens as hw:CARD=Digirig regardless of card number.
+SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{idVendor}=="0d8c", ATTRS{idProduct}=="0012", ATTR{id}="Digirig"

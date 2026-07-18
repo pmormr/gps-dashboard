@@ -285,7 +285,8 @@ gps-dashboard/
 │   ├── chrony-gps-only.conf
 │   ├── chrony-gps-pps.conf
 │   ├── 99-gps-dongle.rules
-│   └── 99-icom-civ.rules        # pins the CI-V cable (WCH CH343 1a86:55d3) → /dev/icom-civ
+│   ├── 99-icom-civ.rules        # pins the CI-V cable (WCH CH343 1a86:55d3) → /dev/icom-civ
+│   └── 99-digirig.rules         # Digirig guard: MM-ignore (RTS keys PTT!) + /dev/digirig + ALSA id
 ├── plans/                      # active/in-flight plans (landed ones fold into .claude/modules/)
 ├── reference/                  # vendored equipment manuals/datasheets (PDF + grep-able .txt) for off-grid lookup
 └── pyproject.toml
@@ -380,6 +381,6 @@ uv run mypy .                  # type check (must be clean)
 
 All runtime dependencies must work without internet. Frontend libraries are npm deps that Vite **bundles into the committed `static/dist/`** (the bundle is offline; the Pi never builds — rebuild + commit before pushing); basemap *data* assets stay in `static/vendor/basemap/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (bundled MapLibre/pmtiles + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
 
-A few runtime deps are **system packages** that work offline once installed but aren't carried by `uv sync` — install them on the Pi while online (one-time): `libhamlib-utils` for the radio `rigctld` service, and the udev rules (`99-gps-dongle.rules`, `99-icom-civ.rules`), which the deploy hook does **not** copy (it installs only `deploy/*.service`/`*.timer`). This matches the project's reading of the offline constraint: it governs *runtime* off-grid correctness, not avoiding cacheable dev-time/system installs.
+A few runtime deps are **system packages** that work offline once installed but aren't carried by `uv sync` — install them on the Pi while online (one-time): `libhamlib-utils` for the radio `rigctld` service, and the udev rules (`99-gps-dongle.rules`, `99-icom-civ.rules`, `99-digirig.rules`), which the deploy hook does **not** copy (it installs only `deploy/*.service`/`*.timer`). This matches the project's reading of the offline constraint: it governs *runtime* off-grid correctness, not avoiding cacheable dev-time/system installs.
 
 Development happens with internet available. Building the vector PMTiles archive, pre-caching USGS tiles, and vendoring assets are intentional prep steps before going off-grid.
