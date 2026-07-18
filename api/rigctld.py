@@ -12,6 +12,7 @@ dummy backend and is pinned in ``tests/test_rigctld.py``.
 
 from __future__ import annotations
 
+import re
 import socket
 import types
 from dataclasses import dataclass, field
@@ -130,6 +131,17 @@ class Rigctld:
             buf += chunk
         return buf.decode(errors='replace')
 
+    def _read_line(self) -> str:
+        """Read one newline-terminated line (non-extended replies have no ``RPRT``)."""
+        assert self._sock is not None
+        buf = b''
+        while b'\n' not in buf:
+            chunk = self._sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+        return buf.decode(errors='replace')
+
     def command(self, cmd: str, check: bool = True) -> Reply:
         """Send one long-form command in extended mode and parse the reply.
 
@@ -191,7 +203,58 @@ class Rigctld:
         if rprt != 0:
             raise RigctldError(f'rigctld send_cmd failed (RPRT {rprt})', rprt=rprt)
 
+    def read_civ(
+        self, payload: bytes, data_len: int = 1, addr: int = 0x8C, ctrl: int = 0xE0
+    ) -> bytes | None:
+        """Send a raw CI-V *read* and return the reply frame's data bytes.
+
+        Uses rigctld's **non-extended** ``send_cmd_rx`` — the extended (``+\\``)
+        form returns no reply bytes at all (captured live 2026-07-18). The
+        single-wire CI-V bus echoes the sent frame back first, so the expected
+        read length is echo + reply frame; the reply line is the hex-escaped
+        bytes plus a trailing count, no ``RPRT``. Degrades to ``None`` when the
+        reply is short or malformed (rig silent, NAK) — like the other getters.
+
+        Args:
+            payload: Command/sub-command bytes from the manual's CI-V table.
+            data_len: Data bytes expected in the reply frame.
+            addr: The rig's CI-V address.
+            ctrl: The controller's CI-V address.
+
+        Returns:
+            The reply's data bytes, or ``None`` when unreadable.
+        """
+        if self._sock is None:
+            raise RigctldError('read_civ() called outside a "with Rigctld()" block')
+        frame = bytes((0xFE, 0xFE, addr, ctrl)) + payload + b'\xfd'
+        expect = len(frame) + 4 + len(payload) + data_len + 1
+        arg = ''.join(f'\\0x{b:02x}' for b in frame)
+        try:
+            self._sock.sendall(f'\\send_cmd_rx {arg} {expect}\n'.encode())
+            raw = self._read_line()
+        except OSError as exc:
+            raise RigctldError(f'rigctld I/O error on send_cmd_rx: {exc}') from exc
+        received = bytes(int(t, 16) for t in re.findall(r'\\0x([0-9A-Fa-f]{2})', raw))
+        reply = received[len(frame) :]
+        prefix = bytes((0xFE, 0xFE, ctrl, addr)) + payload
+        wellformed = (
+            reply.startswith(prefix)
+            and reply.endswith(b'\xfd')
+            and len(reply) == len(prefix) + data_len + 1
+        )
+        return reply[len(prefix) : -1] if wellformed else None
+
     # --- reads (degrade to None for capabilities the ID-5100 backend lacks) ---
+
+    def get_dualwatch(self) -> bool | None:
+        """Dualwatch (True) / single watch (False) via raw CI-V ``16 59`` read.
+
+        Not modeled by the Hamlib backend; ``None`` when the rig doesn't answer.
+        """
+        data = self.read_civ(b'\x16\x59')
+        if data is None or data[0] not in (0, 1):
+            return None
+        return data[0] == 1
 
     def get_freq(self) -> int:
         """Active VFO frequency in Hz."""

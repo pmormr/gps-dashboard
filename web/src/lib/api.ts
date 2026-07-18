@@ -401,6 +401,7 @@ export interface RadioStatus {
   rptr_offset_hz?: number | null
   dcd?: boolean
   ptt?: boolean
+  dualwatch?: boolean | null
 }
 
 /** Fetch live radio state (always 200; check `online`). */

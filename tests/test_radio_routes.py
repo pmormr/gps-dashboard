@@ -53,6 +53,9 @@ class FakeRig:
     def get_ptt(self) -> bool | None:
         return False
 
+    def get_dualwatch(self) -> bool | None:
+        return True
+
     def _write(self, name: str, *args: object) -> None:
         self.calls.append((name, *args))
         if self._set_rprt is not None:
@@ -100,6 +103,7 @@ def test_status_online(client, monkeypatch):
     assert data['levels'] == {'af': 0.4, 'sql': 0.25, 'rfpower': 1.0}
     assert data['ctcss_tone_hz'] == 100.0  # 1000 tenths → 100.0 Hz
     assert data['rptr_shift'] == 'plus'
+    assert data['dualwatch'] is True
 
 
 def test_set_band_sends_civ_frame(client, monkeypatch):
@@ -113,6 +117,20 @@ def test_set_band_sends_civ_frame(client, monkeypatch):
 def test_set_band_rejects_unknown(client, monkeypatch):
     _patch_rig(monkeypatch)
     assert client.post('/api/radio/band', json={'band': 'c'}).status_code == 400
+
+
+def test_set_dualwatch_sends_civ_frame(client, monkeypatch):
+    fake = FakeRig()
+    monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: fake)
+    assert client.post('/api/radio/dualwatch', json={'on': False}).status_code == 200
+    assert client.post('/api/radio/dualwatch', json={'on': True}).status_code == 200
+    assert fake.calls == [('send_civ', b'\x16\x59\x00'), ('send_civ', b'\x16\x59\x01')]
+
+
+def test_set_dualwatch_rejects_non_bool(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    assert client.post('/api/radio/dualwatch', json={'on': 1}).status_code == 400
+    assert client.post('/api/radio/dualwatch', json={}).status_code == 400
 
 
 def test_set_level_ok(client, monkeypatch):

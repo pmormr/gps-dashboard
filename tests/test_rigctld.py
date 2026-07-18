@@ -64,7 +64,9 @@ class FakeSocket:
     def sendall(self, data: bytes) -> None:
         cmd = data.decode()
         self.sent.append(cmd)
-        key = cmd[2:].rstrip('\n')  # strip the "+\\" prefix and trailing newline
+        # Strip the extended "+\\" or non-extended "\\" prefix, and the newline.
+        key = cmd.rstrip('\n')
+        key = key[2:] if key.startswith('+\\') else key.removeprefix('\\')
         self._buf += self._table.get(key, 'RPRT -1\n').encode()
 
     def recv(self, _n: int) -> bytes:
@@ -131,6 +133,36 @@ def test_get_rptr_shift_and_offs():
 def test_get_dcd():
     rig = make_rig({'get_dcd': 'get_dcd:\nDCD: 0\nRPRT 0\n'})
     assert rig.get_dcd() is False
+
+
+# --- raw CI-V reads (non-extended send_cmd_rx) ----------------------------------------
+
+# The live wire exchange captured against the real rig (2026-07-18). The reply line is
+# the single-wire bus echo of our frame + the rig's reply frame, hex-escaped, then a
+# byte count — no RPRT. (The extended "+\\" form returns no reply bytes at all.)
+DUALWATCH_READ = 'send_cmd_rx \\0xfe\\0xfe\\0x8c\\0xe0\\0x16\\0x59\\0xfd 15'
+DUALWATCH_REPLY = (
+    '\\0xFE\\0xFE\\0x8C\\0xE0\\0x16\\0x59\\0xFD'
+    '\\0xFE\\0xFE\\0xE0\\0x8C\\0x16\\0x59\\0x01\\0xFD 15\n'
+)
+
+
+def test_read_civ_parses_reply_data():
+    rig = make_rig({DUALWATCH_READ: DUALWATCH_REPLY})
+    assert rig.read_civ(b'\x16\x59') == b'\x01'
+
+
+def test_read_civ_short_reply_is_none():
+    # Rig silent: rigctld returns only the bus echo of our own frame.
+    rig = make_rig({DUALWATCH_READ: '\\0xFE\\0xFE\\0x8C\\0xE0\\0x16\\0x59\\0xFD 7\n'})
+    assert rig.read_civ(b'\x16\x59') is None
+
+
+def test_get_dualwatch_on_off_and_unreadable():
+    assert make_rig({DUALWATCH_READ: DUALWATCH_REPLY}).get_dualwatch() is True
+    off = DUALWATCH_REPLY.replace('\\0x01', '\\0x00')
+    assert make_rig({DUALWATCH_READ: off}).get_dualwatch() is False
+    assert make_rig({}).get_dualwatch() is None  # RPRT fallback line has no hex bytes
 
 
 # --- setters: wire format + error mapping ---------------------------------------------

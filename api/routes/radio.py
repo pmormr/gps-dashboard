@@ -50,6 +50,11 @@ LEVELS = {'af': 'AF', 'sql': 'SQL', 'rfpower': 'RFPOWER'}
 # unreadable (no get-VFO), but an explicit set pins it before any read/write.
 BAND_SELECT = {'a': b'\x07\xd0', 'b': b'\x07\xd1'}
 
+# CI-V cmd 16 59: single watch (00) / dualwatch (01), send+read (manual §13-17).
+# Raw frames like band select — not modeled by the Hamlib backend. Single watch
+# mutes the sub band everywhere, including the recorder's SP1 (A+B) feed.
+DUALWATCH = b'\x16\x59'
+
 # Transmission-log columns returned to the client. audio_path stays server-side
 # (the client fetches bytes by id through the audio route); has_audio tells the
 # UI whether a play control makes sense — the retention pruner NULLs audio_path
@@ -109,6 +114,7 @@ def status():
             offs = rig.get_rptr_offs()
             dcd = rig.get_dcd()
             ptt = rig.get_ptt()
+            dualwatch = rig.get_dualwatch()
     except RigctldError as exc:
         return jsonify({'online': False, 'service': proc.service_state(SERVICE), 'error': str(exc)})
 
@@ -126,6 +132,7 @@ def status():
             'rptr_offset_hz': offs,
             'dcd': dcd,
             'ptt': ptt,
+            'dualwatch': dualwatch,
         }
     )
 
@@ -148,6 +155,20 @@ def set_band():
     if band not in BAND_SELECT:
         return _err(f"'band' must be one of {tuple(BAND_SELECT)}", 400)
     return _apply(lambda rig: rig.send_civ(BAND_SELECT[band]))
+
+
+@radio_bp.post('/api/radio/dualwatch')
+def set_dualwatch():
+    """Enable or disable dualwatch. Body: ``{"on": true|false}``.
+
+    Single watch keeps the current main band and mutes the sub band — which
+    also removes the sub band from the recorder's SP1 audio feed.
+    """
+    data = request.get_json(silent=True) or {}
+    on = data.get('on')
+    if not isinstance(on, bool):
+        return _err("'on' must be a boolean", 400)
+    return _apply(lambda rig: rig.send_civ(DUALWATCH + (b'\x01' if on else b'\x00')))
 
 
 @radio_bp.post('/api/radio/level')

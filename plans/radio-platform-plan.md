@@ -199,6 +199,17 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
 - [x] ~~**1.5d — D-STAR heard log (mini-phase).**~~ **DROPPED 2026-07-02** — Paul
       doesn't use D-STAR. (Was: poll cmd `20 02` → `radio_dstar_heard`, GPS-joined.)
       The CI-V DV-heard commands remain in the manual's table if this ever revives.
+- [x] **1.5f — dualwatch control + read — BUILT 2026-07-18** (driven by the 2e
+      noise-storm diagnosis: the sub band feeds SP1 but its squelch is CI-V-
+      invisible, so killing the sub *watch* is the remote lever). Raw CI-V
+      `16 59` (00 single / 01 dual, manual §13-17) via `send_civ`; **reads use
+      rigctld's *non-extended* `send_cmd_rx`** (`Rigctld.read_civ` — the
+      extended `+\` form returns no reply bytes; wire format captured live and
+      pinned in tests: reply = bus echo of our frame + the rig's reply frame,
+      hex-escaped, trailing count, no RPRT). `/api/radio/status` gains
+      `dualwatch`, `POST /api/radio/dualwatch {on}`, Watch-mode segment on
+      `/radio`. Sub-band **squelch level** needs no new code: pin the sub band
+      as main (`07 D0/D1`), set SQL (`14 03` = Hamlib SQL), pin back.
 - [ ] **1.5e — cross-band repeater support (PROPOSED).** Repeater Mode itself is
       **not CI-V-controllable** — the manual's command table has no enter/exit
       command (no `1A` extended family on this rig), community sources show no

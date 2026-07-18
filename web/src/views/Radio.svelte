@@ -120,6 +120,7 @@
     )
 
   const setBand = (b: string): Promise<void> => write('/api/radio/band', { band: b })
+  const setDualwatch = (on: boolean): Promise<void> => write('/api/radio/dualwatch', { on })
   const setLevel = (level: string, value: number): Promise<void> =>
     write('/api/radio/level', { level, value })
   const rfActive = (v: number): boolean =>
@@ -310,6 +311,22 @@
   <div class="note">
     The rig can't report which band is active, so pin it here before tuning — the radio's
     touchscreen can change it silently.
+  </div>
+  <div class="sub-label">Watch mode</div>
+  <div class="seg">
+    <button
+      class:active={s?.online && s.dualwatch === false}
+      onclick={() => setDualwatch(false)}
+    >
+      Single
+    </button>
+    <button class:active={s?.online && s.dualwatch === true} onclick={() => setDualwatch(true)}>
+      Dualwatch
+    </button>
+  </div>
+  <div class="note">
+    Single watch mutes the sub band everywhere — including the recorder's feed, so sub-band
+    noise can't trigger captures.
   </div>
 </div>
 
