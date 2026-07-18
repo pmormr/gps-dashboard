@@ -433,14 +433,32 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       de-noise filter is the legitimate last step (publisher-side or a second
       `radio-clean` MediaMTX path; WAVs stay raw). Replug caveat: enumeration
       fires the RTS clearer (~ms PTT blip) + bounces the recorder session.
-- [ ] **2f-h — PROPOSED (discuss): heartbeat AF re-pin.** Live finding: **the
-      rig does NOT retain CI-V-set levels across a power cycle** (came back AF
-      0.337/SQL 0.173 — the latter nearly the storm-flap level). The
-      recorder's AF pin runs only at session start, so a rig power cycle
-      mid-session leaves levels wrong until the next recorder restart. Cheap
-      fix candidate: re-assert the AF pin on the recorder's 60 s heartbeat
-      (one CI-V transaction/min). Until decided: after powering the rig, reset
-      levels via the API or restart radio-recorder.
+- [x] **2f-h — level keeper — BUILT 2026-07-18** (scope refined with Paul over
+      two rounds: SQL config-pinning REJECTED — squelch is an operator control
+      tracking the local RF floor, esp. while driving; his stuck-low/stuck-high
+      scenarios added). Trigger: **the rig does NOT retain CI-V-set levels
+      across a power cycle** (came back AF 0.337/SQL 0.173 — a hair above the
+      storm-flap level). Design: **AF = calibration, config-owned** —
+      re-asserted every 60 s heartbeat (a bumped volume knob reverts within a
+      minute; revisit when the Y-split speaker lands). **SQL = operator-owned**
+      via `radio/levels.py` `LevelKeeper` (pure/clockless like the VOX gate;
+      heartbeats + blocks are the clock): (1) *memory* — each heartbeat's
+      reading is adopted as the operator's truth, restored after an offline
+      gap (power cycle) — enforces *their* value, never config; (2) *deaf
+      clamp* — readings > `GPS_RADIO_SQL_SANE_MAX` (0.5) never adopted,
+      clamped back after 2 heartbeats (silence carries no evidence; the value
+      itself is the tell); (3) *guard raises*, evidence-backed, bounded
+      (`GPS_RADIO_GUARD_MAX_SQL` 0.35), never auto-lowered ("quiet band" and
+      "too tight" are indistinguishable): *flap storm* = ≥
+      `GPS_RADIO_GUARD_DISCARDS` (15) discards / 10 min → +0.03 per 10 min;
+      *stuck-open static* = unbroken ≥3 min above-OPEN run with block-RMS
+      stddev < 2.5 dB (voice breathes, static doesn't — discards would never
+      fire on SQL-0 static, it just holds the gate open) → +0.03 per 2 min
+      until the gate closes (lands ≈ the minimum holding squelch — crude
+      auto-tune for free). Keeper outlives sessions (memory survives arecord
+      bounces; a daemon restart re-adopts current as truth — acceptable, the
+      guards backstop it). 25 new tests (suite 783). Floor advisory (RAWSTR
+      percentile → suggested SQL on /radio) deferred.
 - [ ] **2f-e — deferred polish:** Listen-live embed on `/radio` (WHEP = bare
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.

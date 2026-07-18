@@ -11,6 +11,12 @@
 # The gate thresholds and mixer control names are env-tunable here — field
 # tweaks are a unit edit + push, not a code change (see radio/recorder.py for
 # the full env surface and defaults).
+#
+# Levels: AF is re-asserted every heartbeat (the rig forgets CI-V-set levels
+# across a power cycle). Squelch is operator-owned — the dial always wins
+# live; the keeper (radio/levels.py) only restores it after a rig power
+# cycle, clamps accidental too-high settings, and raises it a bounded notch
+# on the flap-storm / stuck-open-static signatures.
 [Unit]
 Description=Radio transmission recorder (Digirig VOX capture)
 After=sound.target radio-control.service

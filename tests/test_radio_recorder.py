@@ -13,6 +13,7 @@ import pytest
 import radio.recorder as recorder
 from api.db import init_db, now_canonical
 from api.rigctld import RigctldError
+from radio.levels import LevelKeeper
 from radio.recorder import Capture, audio_rel_path, gps_snap, prune_selection, read_block
 from radio.vox import block_energy
 
@@ -118,6 +119,63 @@ class _FakeDcdRig:
 
     def get_dcd(self) -> bool | None:
         return self._dcd
+
+
+class _FakeLevelsRig:
+    """Context-manager Rigctld stand-in scripting SQL reads + capturing sets."""
+
+    def __init__(self, sql: float | None = 0.2, fail: bool = False) -> None:
+        self._sql = sql
+        self._fail = fail
+        self.sets: list[tuple[str, float]] = []
+
+    def __enter__(self) -> _FakeLevelsRig:
+        if self._fail:
+            raise RigctldError('cannot reach rigctld')
+        return self
+
+    def __exit__(self, *exc: object) -> None: ...
+
+    def set_level(self, name: str, value: float) -> None:
+        self.sets.append((name, value))
+
+    def get_level(self, name: str) -> float | None:
+        return self._sql
+
+
+class TestHeartbeatLevels:
+    def test_pins_af_and_adopts_sql(self, monkeypatch):
+        rig = _FakeLevelsRig(sql=0.2)
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: rig)
+        monkeypatch.setattr(recorder, 'PIN_AF', '0.25')
+        keeper = LevelKeeper(open_dbfs=-40.0)
+        assert recorder.heartbeat_levels(keeper)
+        assert rig.sets == [('AF', 0.25)]
+        assert keeper.known_sql == 0.2
+
+    def test_applies_keeper_action(self, monkeypatch):
+        keeper = LevelKeeper(open_dbfs=-40.0)
+        keeper.heartbeat(0.2)
+        keeper.heartbeat(None)  # offline gap; the power-cycle revert follows
+        rig = _FakeLevelsRig(sql=0.173)
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: rig)
+        monkeypatch.setattr(recorder, 'PIN_AF', '0.25')
+        assert recorder.heartbeat_levels(keeper)
+        assert ('SQL', 0.2) in rig.sets
+
+    def test_unreachable_marks_keeper_offline(self, monkeypatch):
+        keeper = LevelKeeper(open_dbfs=-40.0)
+        keeper.heartbeat(0.2)
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: _FakeLevelsRig(fail=True))
+        assert not recorder.heartbeat_levels(keeper)
+        assert not keeper.online
+
+    def test_pin_disabled_by_empty_env(self, monkeypatch):
+        rig = _FakeLevelsRig(sql=0.2)
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: rig)
+        monkeypatch.setattr(recorder, 'PIN_AF', '')
+        assert recorder.heartbeat_levels(LevelKeeper(open_dbfs=-40.0))
+        assert rig.sets == []
 
 
 class TestPollDcd:

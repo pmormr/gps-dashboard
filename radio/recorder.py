@@ -24,6 +24,13 @@ Commit rule (2e): the gate discards captures with fewer than
 sit at exactly voice level, so activity, not level, separates them (see the
 corpus analysis in ``plans/radio-platform-plan.md``). Captures buffer in RAM
 until they cross the rule; a discard never touches disk or the DB.
+
+Levels: AF is the record-level calibration and is re-asserted on **every**
+heartbeat, not just session start — the rig forgets CI-V-set levels across a
+power cycle. Squelch is operator-owned; the ``LevelKeeper`` (``radio/
+levels.py``) remembers the dialed value, restores it after a rig power cycle,
+clamps accidental too-high settings, and raises it one bounded step on the
+two evidence-backed too-low signatures (flap storm / stuck-open static).
 """
 
 from __future__ import annotations
@@ -44,6 +51,7 @@ from typing import IO
 from api.db import _canonical, get_connection, init_db
 from api.rigctld import Rigctld, RigctldError
 from common.proc import run
+from radio.levels import LevelKeeper
 from radio.paths import audio_dir
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
 
@@ -71,8 +79,16 @@ MIXER_CARD = os.environ.get('GPS_RADIO_MIXER_CARD', 'Digirig')
 #: ``control:value`` pairs pinned via amixer at session start. Control names are
 #: env-overridable so a codec-revision rename is a unit edit, not a code change.
 MIXER_SETS = os.environ.get('GPS_RADIO_MIXER_SETS', 'Auto Gain Control:off,Mic:10')
-#: Rig AF level pinned at session start (reproducible record level); '' disables.
-PIN_AF = os.environ.get('GPS_RADIO_PIN_AF', '0.15')
+#: Rig AF level, re-asserted every heartbeat (the record-level calibration —
+#: see the unit file for the calibration note); '' disables.
+PIN_AF = os.environ.get('GPS_RADIO_PIN_AF', '0.25')
+#: Squelch guard rails (radio/levels.py): SQL readings above SANE_MAX are
+#: clamped back as accidents ('' disables); GUARD_DISCARDS discards per
+#: rolling 10-minute window triggers a bounded flap-storm raise (0 disables),
+#: never above GUARD_MAX_SQL.
+SQL_SANE_MAX = os.environ.get('GPS_RADIO_SQL_SANE_MAX', '0.5')
+GUARD_DISCARDS = int(os.environ.get('GPS_RADIO_GUARD_DISCARDS', '15'))
+GUARD_MAX_SQL = float(os.environ.get('GPS_RADIO_GUARD_MAX_SQL', '0.35'))
 
 AUDIO_DIR = audio_dir()
 MAX_AGE_DAYS = float(os.environ.get('GPS_RADIO_AUDIO_MAX_DAYS', '180'))
@@ -296,16 +312,38 @@ def pin_mixer() -> None:
             print(f'mixer pin failed ({name}={value}): {detail}', file=sys.stderr, flush=True)
 
 
-def pin_af() -> None:
-    """Pin the rig's AF level for a reproducible record level (best-effort)."""
-    if not PIN_AF:
-        return
+def heartbeat_levels(keeper: LevelKeeper, announce: bool = False) -> bool:
+    """One best-effort rigctld levels pass: re-pin AF, read SQL, apply the keeper.
+
+    Runs at session start and on every heartbeat — AF must be *continuously*
+    asserted because a rig power cycle silently reverts CI-V-set levels.
+
+    Args:
+        keeper: The squelch state machine; its returned action is applied.
+        announce: Log the successful AF pin (session start / recovery only,
+            so a powered-off rig doesn't spam the journal once a minute).
+
+    Returns:
+        True when the rig was reachable.
+    """
     try:
         with Rigctld(timeout=RIGCTLD_TIMEOUT_SECONDS) as rig:
-            rig.set_level('AF', float(PIN_AF))
-        print(f'AF pinned to {PIN_AF}', flush=True)
+            if PIN_AF:
+                rig.set_level('AF', float(PIN_AF))
+            sql = rig.get_level('SQL')
+            action = keeper.heartbeat(sql)
+            if action is not None and sql is not None:
+                reason, value = action
+                rig.set_level('SQL', value)
+                print(f'squelch {reason}: SQL {sql:.3f} -> {value:.3f}', flush=True)
     except RigctldError as exc:
-        print(f'AF pin failed (level unpinned): {exc}', file=sys.stderr, flush=True)
+        keeper.heartbeat(None)
+        if announce:
+            print(f'levels unpinned (rig unreachable): {exc}', file=sys.stderr, flush=True)
+        return False
+    if announce and PIN_AF:
+        print(f'AF pinned to {PIN_AF}', flush=True)
+    return True
 
 
 def prune_audio(conn: Connection) -> None:
@@ -403,7 +441,7 @@ def read_block(pipe: IO[bytes]) -> bytes:
     return buf
 
 
-def run_session(conn: Connection) -> None:
+def run_session(conn: Connection, keeper: LevelKeeper) -> None:
     """Run one capture session: spawn arecord and gate blocks until it dies.
 
     Raises on arecord exit (device unplugged, ALSA error) so the caller's
@@ -412,6 +450,8 @@ def run_session(conn: Connection) -> None:
 
     Args:
         conn: Open DB connection.
+        keeper: The squelch state machine (outlives sessions, so operator
+            memory survives arecord bounces).
     """
     proc = subprocess.Popen(ARECORD_CMD, stdout=subprocess.PIPE)
     assert proc.stdout is not None
@@ -429,6 +469,7 @@ def run_session(conn: Connection) -> None:
     rms_min = rms_max = rms_last = 0.0
     last_heartbeat = last_prune = time.monotonic()
     first_window = True
+    levels_ok = True
     try:
         while True:
             block = read_block(proc.stdout)
@@ -436,6 +477,7 @@ def run_session(conn: Connection) -> None:
                 raise RuntimeError(f'arecord exited (rc={proc.poll()})')
             sq, peak, n = block_energy(block)
             rms = rms_dbfs(sq, n)
+            keeper.feed_block(rms)
             blocks += 1
             rms_last = rms
             if first_window:
@@ -460,10 +502,12 @@ def run_session(conn: Connection) -> None:
                 cap = None
             elif event is GateEvent.DISCARD and cap is not None:
                 discarded += 1
+                keeper.note_discard()
                 cap = None
 
             now = time.monotonic()
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
+                levels_ok = heartbeat_levels(keeper, announce=not levels_ok)
                 state = 'open' if gate.is_open else 'closed'
                 print(
                     f'heartbeat: blocks={blocks} captures={captures} discarded={discarded} '
@@ -494,17 +538,24 @@ def main() -> None:
     conn = get_connection()
     init_db(conn)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    keeper = LevelKeeper(
+        open_dbfs=OPEN_DBFS,
+        sane_max=float(SQL_SANE_MAX) if SQL_SANE_MAX else None,
+        guard_discards=GUARD_DISCARDS,
+        guard_max_sql=GUARD_MAX_SQL,
+    )
     print(
         f'radio recorder started (device={ALSA_DEVICE}, audio={AUDIO_DIR}, '
-        f'gate {OPEN_DBFS:g}/{CLOSE_DBFS:g} dBFS, commit >= {MIN_LOUD_BLOCKS} loud)',
+        f'gate {OPEN_DBFS:g}/{CLOSE_DBFS:g} dBFS, commit >= {MIN_LOUD_BLOCKS} loud, '
+        f'sql guard {GUARD_DISCARDS} discards / max {GUARD_MAX_SQL:g})',
         flush=True,
     )
     while True:
         try:
             pin_mixer()
-            pin_af()
+            heartbeat_levels(keeper, announce=True)
             prune_audio(conn)
-            run_session(conn)
+            run_session(conn, keeper)
         except KeyboardInterrupt:
             print('radio recorder stopped', flush=True)
             break
