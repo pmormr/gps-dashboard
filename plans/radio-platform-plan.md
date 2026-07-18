@@ -199,9 +199,15 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
 - [x] ~~**1.5d — D-STAR heard log (mini-phase).**~~ **DROPPED 2026-07-02** — Paul
       doesn't use D-STAR. (Was: poll cmd `20 02` → `radio_dstar_heard`, GPS-joined.)
       The CI-V DV-heard commands remain in the manual's table if this ever revives.
-- [x] **1.5f — dualwatch control + read — BUILT 2026-07-18** (driven by the 2e
-      noise-storm diagnosis: the sub band feeds SP1 but its squelch is CI-V-
-      invisible, so killing the sub *watch* is the remote lever). Raw CI-V
+- [x] **1.5f — dualwatch control + read — BUILT + LIVE 2026-07-18** (built for
+      the 2e noise-storm diagnosis; the live flip then **disproved the sub-band
+      hypothesis** — single watch did not stop the storm. Real root cause: the
+      **main band's squelch sat marginally low (0.165 ≈ 42/255)** and flapped
+      open on RF noise — 2e's per-second DCD polling caught `dcd_main=1` on
+      half the post-flip captures, the smoking gun. **Raising SQL to 0.25 via
+      `POST /api/radio/level` killed the storm dead**: heartbeat rms max
+      collapsed −28 → −47 dBFS, `captures=0 discarded=0`. Squelch level is the
+      first knob to check if chatter ever returns.) Raw CI-V
       `16 59` (00 single / 01 dual, manual §13-17) via `send_civ`; **reads use
       rigctld's *non-extended* `send_cmd_rx`** (`Rigctld.read_civ` — the
       extended `+\` form returns no reply bytes; wire format captured live and
@@ -301,10 +307,11 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       chatter (~19 captures during the 147.420 test, then an overnight flood —
       156 of 227 rows, some every ~4 s) is now killed by the commit rule, and
       the corpus analysis proved raising `GPS_RADIO_OPEN_DBFS` could never
-      work (blip transients sit at voice level). **New at-the-rig lead:** the
-      overnight blips ran `dcd_main=0` — main squelch closed while SP1 (A+B)
-      heard bursts — so suspect the **sub band's squelch** is marginal; check
-      sub squelch/dualwatch when at the rig. (3) The RAWSTR-pegged/DCD-false
+      work (blip transients sit at voice level). ~~Suspect the sub band's
+      squelch~~ **RESOLVED same day (see 1.5f): the main band's squelch was
+      marginal at 0.165; raised to 0.25 via the API — storm dead.** The
+      snapshot-only `dcd_main=0` reads had simply missed the brief main-squelch
+      opens; 2e's polled DCD exposed them. (3) The RAWSTR-pegged/DCD-false
       anomaly did **not** reproduce (RAWSTR 17 + DCD false = sane; DCD read 1
       when open) — keep an eye out, but both reads look healthy. `dcd_main` is
       now polled across the capture (2e), so it's a much stronger hint.
