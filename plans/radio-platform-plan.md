@@ -233,6 +233,9 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
 - [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
       the 10–20 dB pad (decouples cabin listening volume from record level —
       without it, cranking AF for the speaker also cranks the Digirig leg).
+      **No isolator needed so far** — the engine-off floor was clean hiss, no
+      hum (−49 dBFS RMS). Re-check with the **engine running** (alternator whine
+      is the classic van ground-loop source) before calling it closed.
 - [ ] **Flagged (discuss before acting): CI-V-via-Digirig consolidation.** The
       Digirig serial port could replace the CH343 CI-V adapter (TX/RX bridged =
       same single-wire topology), freeing a USB port. Needs a separate CI-V
