@@ -15,7 +15,15 @@ by construction.
 Metadata honesty: the rigctld snapshot at gate-open reads the *active main
 band only*, while SP1 audio is the A+B mix — a sub-band signal can carry a
 wrong freq/mode tag, and ``dcd_main`` records what the main band's squelch
-said so readers can judge the tag's confidence.
+said (sampled at gate-open *and* ~1 Hz across the capture — a squelch that
+opens a beat after the VOX trigger still reads true) so readers can judge the
+tag's confidence.
+
+Commit rule (2e): the gate discards captures with fewer than
+``MIN_LOUD_BLOCKS`` above-threshold blocks — squelch-crackle/beep transients
+sit at exactly voice level, so activity, not level, separates them (see the
+corpus analysis in ``plans/radio-platform-plan.md``). Captures buffer in RAM
+until they cross the rule; a discard never touches disk or the DB.
 """
 
 from __future__ import annotations
@@ -27,7 +35,7 @@ import sys
 import time
 import wave
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from sqlite3 import Connection
@@ -52,6 +60,11 @@ MAX_BLOCKS = 3000  # 5 min hard cap per file (held carrier → consecutive files
 # static −28. Hysteresis pair, both env-overridable in the unit.
 OPEN_DBFS = float(os.environ.get('GPS_RADIO_OPEN_DBFS', '-40'))
 CLOSE_DBFS = float(os.environ.get('GPS_RADIO_CLOSE_DBFS', '-45'))
+#: Commit rule (2e): a capture keeps only if it holds this many loud blocks
+#: (≥ OPEN_DBFS). Corpus-derived: blip transients measured 1–5 loud blocks at
+#: exactly voice level, voice 10–12 — level can't separate them, activity can.
+#: Trade-off: an isolated one-word transmission (~3–4 blocks) is discarded too.
+MIN_LOUD_BLOCKS = int(os.environ.get('GPS_RADIO_MIN_LOUD_BLOCKS', '6'))
 
 ALSA_DEVICE = os.environ.get('GPS_RADIO_ALSA_DEVICE', 'plughw:CARD=Digirig')
 MIXER_CARD = os.environ.get('GPS_RADIO_MIXER_CARD', 'Digirig')
@@ -67,6 +80,10 @@ MAX_BYTES = int(float(os.environ.get('GPS_RADIO_AUDIO_MAX_GB', '4')) * 1024**3)
 
 GPS_SNAP_MAX_AGE_SECONDS = 300
 RIGCTLD_TIMEOUT_SECONDS = 0.75
+#: Blocks between DCD polls while a capture is active (~1 s) — squelch state is
+#: sampled across the capture, not just at gate-open, so ``dcd_main`` no longer
+#: misses a squelch that opens a beat after the VOX trigger.
+DCD_POLL_BLOCKS = 10
 HEARTBEAT_SECONDS = 60
 PRUNE_INTERVAL_SECONDS = 24 * 3600
 #: A .part file untouched this long is a crash leftover, not a live capture
@@ -142,30 +159,62 @@ def prune_selection(
 
 @dataclass
 class Capture:
-    """One in-progress transmission: an open ``.part`` WAV plus running stats."""
+    """One in-progress transmission, RAM-buffered until it earns its file.
+
+    Blocks accumulate in ``buffer`` until the gate's loud count crosses the
+    commit rule (``MIN_LOUD_BLOCKS``); :meth:`materialize` then opens the
+    ``.part`` WAV and flushes. A capture the gate discards before that leaves
+    no trace on disk or in the DB. Memory stays bounded: an unmaterialized
+    capture either crosses the rule or hang-closes within a few seconds.
+    """
 
     part_path: Path
     rel_path: str
     started: datetime
-    writer: wave.Wave_write
     freq_hz: int | None
     mode: str | None
     dcd_main: int | None
     lat: float | None
     lon: float | None
+    writer: wave.Wave_write | None = None
+    buffer: list[RingEntry] = field(default_factory=list)
+    dcd_poll_ok: bool = True
     frames: int = 0
     sq_sum: int = 0
     peak: int = 0
 
     def write(self, block: bytes, sq: int, peak: int, n: int) -> None:
-        """Append one block to the WAV and fold its energy into the stats."""
-        self.writer.writeframesraw(block)
+        """Append one block (to the WAV or the RAM buffer) and fold its stats."""
+        if self.writer is None:
+            self.buffer.append((block, sq, peak, n))
+        else:
+            self.writer.writeframesraw(block)
         self.sq_sum += sq
         self.peak = max(self.peak, peak)
         self.frames += n
 
+    def materialize(self) -> None:
+        """Open the ``.part`` WAV and flush the buffered blocks into it."""
+        self.part_path.parent.mkdir(parents=True, exist_ok=True)
+        self.writer = wave.open(str(self.part_path), 'wb')
+        self.writer.setnchannels(1)
+        self.writer.setsampwidth(2)
+        self.writer.setframerate(SAMPLE_RATE)
+        for block, _, _, _ in self.buffer:
+            self.writer.writeframesraw(block)
+        self.buffer.clear()
+
+    def note_dcd(self, dcd: bool) -> None:
+        """Fold one squelch reading in: any open reading makes ``dcd_main`` 1."""
+        self.dcd_main = 1 if dcd else (self.dcd_main or 0)
+
     def close(self, conn: Connection) -> None:
-        """Finalize the WAV (rename ``.part`` away) and insert the DB row."""
+        """Finalize the WAV (rename ``.part`` away) and insert the DB row.
+
+        Only a materialized capture closes — the gate's commit rule guarantees
+        a CLOSE event follows a loud count that already triggered materialize.
+        """
+        assert self.writer is not None
         self.writer.close()
         final = AUDIO_DIR / self.rel_path
         self.part_path.rename(final)
@@ -289,30 +338,27 @@ def prune_audio(conn: Connection) -> None:
 
 
 def open_capture(conn: Connection, ring: deque[RingEntry]) -> Capture:
-    """Start a capture: snapshot metadata, open the ``.part`` WAV, write pre-roll.
+    """Start a capture: snapshot metadata and buffer the pre-roll — no file yet.
+
+    The ``.part`` WAV is created later by :meth:`Capture.materialize`, once the
+    gate's loud count crosses the commit rule; a gate that discards first never
+    touches the disk.
 
     Args:
         conn: Open DB connection (for the GPS snap).
-        ring: The pre-roll ring buffer; its contents become the file's head.
+        ring: The pre-roll ring buffer; its contents become the capture's head.
 
     Returns:
         The in-progress :class:`Capture`.
     """
     started = datetime.now(UTC) - timedelta(seconds=len(ring) * BLOCK_SECONDS)
     rel = audio_rel_path(started)
-    part = AUDIO_DIR / (rel + '.part')
-    part.parent.mkdir(parents=True, exist_ok=True)
-    writer = wave.open(str(part), 'wb')
-    writer.setnchannels(1)
-    writer.setsampwidth(2)
-    writer.setframerate(SAMPLE_RATE)
     freq, mode, dcd = rig_snapshot()
     lat, lon = gps_snap(conn)
     cap = Capture(
-        part_path=part,
+        part_path=AUDIO_DIR / (rel + '.part'),
         rel_path=rel,
         started=started,
-        writer=writer,
         freq_hz=freq,
         mode=mode,
         dcd_main=dcd,
@@ -322,6 +368,28 @@ def open_capture(conn: Connection, ring: deque[RingEntry]) -> Capture:
     for block, sq, peak, n in ring:
         cap.write(block, sq, peak, n)
     return cap
+
+
+def poll_dcd(cap: Capture) -> None:
+    """Best-effort mid-capture squelch poll folded into ``dcd_main``.
+
+    One failed poll disables polling for the rest of the capture, so an
+    unreachable rigctld costs a single timeout — metadata must never starve
+    the audio pipe.
+
+    Args:
+        cap: The active capture.
+    """
+    if not cap.dcd_poll_ok:
+        return
+    try:
+        with Rigctld(timeout=RIGCTLD_TIMEOUT_SECONDS) as rig:
+            dcd = rig.get_dcd()
+    except RigctldError:
+        cap.dcd_poll_ok = False
+        return
+    if dcd is not None:
+        cap.note_dcd(bool(dcd))
 
 
 def read_block(pipe: IO[bytes]) -> bytes:
@@ -355,9 +423,9 @@ def run_session(conn: Connection) -> None:
             pass  # capped by /proc/sys/fs/pipe-max-size; the ALSA buffer still covers stalls
 
     ring: deque[RingEntry] = deque(maxlen=PREROLL_BLOCKS)
-    gate = VoxGate(OPEN_DBFS, CLOSE_DBFS, HANG_BLOCKS, MAX_BLOCKS)
+    gate = VoxGate(OPEN_DBFS, CLOSE_DBFS, HANG_BLOCKS, MAX_BLOCKS, MIN_LOUD_BLOCKS)
     cap: Capture | None = None
-    blocks = captures = 0
+    blocks = captures = discarded = 0
     rms_min = rms_max = rms_last = 0.0
     last_heartbeat = last_prune = time.monotonic()
     first_window = True
@@ -379,31 +447,41 @@ def run_session(conn: Connection) -> None:
             event = gate.feed(rms)
             if event is GateEvent.OPEN:
                 cap = open_capture(conn, ring)
-                captures += 1
             if cap is not None:
                 cap.write(block, sq, peak, n)
+                if cap.writer is None and gate.loud_blocks >= MIN_LOUD_BLOCKS:
+                    cap.materialize()
+                if blocks % DCD_POLL_BLOCKS == 0:
+                    poll_dcd(cap)
             ring.append((block, sq, peak, n))
             if event is GateEvent.CLOSE and cap is not None:
                 cap.close(conn)
+                captures += 1
+                cap = None
+            elif event is GateEvent.DISCARD and cap is not None:
+                discarded += 1
                 cap = None
 
             now = time.monotonic()
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 state = 'open' if gate.is_open else 'closed'
                 print(
-                    f'heartbeat: blocks={blocks} captures={captures} gate={state} '
+                    f'heartbeat: blocks={blocks} captures={captures} discarded={discarded} '
+                    f'gate={state} '
                     f'rms min/last/max = {rms_min:.1f}/{rms_last:.1f}/{rms_max:.1f} dBFS',
                     flush=True,
                 )
-                blocks = captures = 0
+                blocks = captures = discarded = 0
                 first_window = True
                 last_heartbeat = now
             if now - last_prune >= PRUNE_INTERVAL_SECONDS:
                 prune_audio(conn)
                 last_prune = now
     finally:
-        if cap is not None:
-            cap.close(conn)  # salvage a capture cut short by shutdown/error
+        # Salvage a materialized capture cut short by shutdown/error; a capture
+        # still below the commit rule is, by that rule, a discard.
+        if cap is not None and cap.writer is not None:
+            cap.close(conn)
         proc.terminate()
         try:
             proc.wait(timeout=5)
@@ -418,7 +496,7 @@ def main() -> None:
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     print(
         f'radio recorder started (device={ALSA_DEVICE}, audio={AUDIO_DIR}, '
-        f'gate {OPEN_DBFS:g}/{CLOSE_DBFS:g} dBFS)',
+        f'gate {OPEN_DBFS:g}/{CLOSE_DBFS:g} dBFS, commit >= {MIN_LOUD_BLOCKS} loud)',
         flush=True,
     )
     while True:

@@ -12,6 +12,7 @@ import pytest
 
 import radio.recorder as recorder
 from api.db import init_db, now_canonical
+from api.rigctld import RigctldError
 from radio.recorder import Capture, audio_rel_path, gps_snap, prune_selection, read_block
 from radio.vox import block_energy
 
@@ -87,6 +88,56 @@ class TestGpsSnap:
         assert gps_snap(conn) == (None, None)
 
 
+def _pending_capture(tmp_path) -> Capture:
+    """A minimal unmaterialized capture for metadata-behavior tests."""
+    return Capture(
+        part_path=tmp_path / 'x.wav.part',
+        rel_path='x.wav',
+        started=datetime(2026, 7, 18, tzinfo=UTC),
+        freq_hz=None,
+        mode=None,
+        dcd_main=None,
+        lat=None,
+        lon=None,
+    )
+
+
+class _FakeDcdRig:
+    """Context-manager stand-in for Rigctld yielding a fixed DCD reading."""
+
+    def __init__(self, dcd: bool | None = True, fail: bool = False) -> None:
+        self._dcd = dcd
+        self._fail = fail
+
+    def __enter__(self) -> _FakeDcdRig:
+        if self._fail:
+            raise RigctldError('cannot reach rigctld')
+        return self
+
+    def __exit__(self, *exc: object) -> None: ...
+
+    def get_dcd(self) -> bool | None:
+        return self._dcd
+
+
+class TestPollDcd:
+    def test_open_reading_folds_in(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: _FakeDcdRig(dcd=True))
+        cap = _pending_capture(tmp_path)
+        recorder.poll_dcd(cap)
+        assert cap.dcd_main == 1
+
+    def test_one_failure_disables_polling(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: _FakeDcdRig(fail=True))
+        cap = _pending_capture(tmp_path)
+        recorder.poll_dcd(cap)
+        assert cap.dcd_main is None and not cap.dcd_poll_ok
+        # A later healthy rigctld must not resurrect polling mid-capture.
+        monkeypatch.setattr(recorder, 'Rigctld', lambda *a, **k: _FakeDcdRig(dcd=True))
+        recorder.poll_dcd(cap)
+        assert cap.dcd_main is None
+
+
 class TestCaptureClose:
     def test_finalizes_file_and_inserts_row(self, conn, tmp_path, monkeypatch):
         audio_dir = tmp_path / 'audio'
@@ -135,6 +186,47 @@ class TestCaptureClose:
         # ±8192 constant amplitude = quarter scale ≈ −12.0 dBFS for both stats.
         assert row['peak_dbfs'] == pytest.approx(-12.0, abs=0.1)
         assert row['rms_dbfs'] == pytest.approx(-12.0, abs=0.1)
+
+    def test_ram_buffer_materializes_byte_exact(self, conn, tmp_path, monkeypatch):
+        audio_dir = tmp_path / 'audio'
+        monkeypatch.setattr(recorder, 'AUDIO_DIR', audio_dir)
+        started = datetime(2026, 7, 18, 12, 0, 0, tzinfo=UTC)
+        rel = audio_rel_path(started)
+        cap = Capture(
+            part_path=audio_dir / (rel + '.part'),
+            rel_path=rel,
+            started=started,
+            freq_hz=None,
+            mode=None,
+            dcd_main=None,
+            lat=None,
+            lon=None,
+        )
+
+        first = array('h', [8192, -8192] * (recorder.BLOCK_FRAMES // 2)).tobytes()
+        second = array('h', [4096, -4096] * (recorder.BLOCK_FRAMES // 2)).tobytes()
+        cap.write(first, *block_energy(first))
+        assert not cap.part_path.exists()  # a pending capture never touches disk
+        cap.materialize()
+        assert cap.part_path.exists() and not cap.buffer
+        cap.write(second, *block_energy(second))
+        cap.close(conn)
+
+        with wave.open(str(audio_dir / rel), 'rb') as r:
+            assert r.getnframes() == 2 * recorder.BLOCK_FRAMES
+            assert r.readframes(r.getnframes()) == first + second
+        row = conn.execute('SELECT * FROM radio_transmissions').fetchone()
+        assert row['duration_s'] == pytest.approx(0.2)
+        assert row['peak_dbfs'] == pytest.approx(-12.0, abs=0.1)  # buffered stats folded
+
+    def test_note_dcd_any_open_reading_sticks(self, tmp_path):
+        cap = _pending_capture(tmp_path)
+        cap.note_dcd(False)
+        assert cap.dcd_main == 0
+        cap.note_dcd(True)
+        assert cap.dcd_main == 1
+        cap.note_dcd(False)
+        assert cap.dcd_main == 1  # any open reading is sticky
 
     def test_row_survives_audio_prune(self, conn, tmp_path, monkeypatch):
         audio_dir = tmp_path / 'audio'

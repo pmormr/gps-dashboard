@@ -76,6 +76,21 @@ The clone cable touches only the control plane.
   tag). GPS snap = latest raw fix, direct DB read, NULL when stale (>5 min).
   Service `radio-recorder`, enabled-gated; pins C-Media mixer state (AGC off,
   gain) and AF via rigctld at startup (the 2a replug-resets-mixer trap).
+- **R9 — commit rule: activity separates, level cannot (2e, 2026-07-18).**
+  Corpus analysis of the first live day (block-level RMS + zero-crossing over
+  real captures) showed false triggers — squelch crackle, rig beeps — are
+  single 100–500 ms transients at *exactly voice level* (loud-block median
+  −30.3 dBFS vs voice −30.2), so no OPEN-threshold raise can separate them.
+  What separates is total above-threshold activity per capture: blips measured
+  1–5 loud blocks, voice 10–12. The gate commits a capture on close only when
+  it accumulated ≥ `GPS_RADIO_MIN_LOUD_BLOCKS` (default 6 ≈ 600 ms) blocks at
+  the open threshold, else discards; pending captures buffer in RAM, so a
+  discard never touches disk or DB. DCD is polled ~1 Hz across active captures
+  (any open reading → `dcd_main=1`), fixing the gate-open-beats-the-squelch
+  miss. Accepted trade: an isolated one-word transmission (~3–4 blocks)
+  discards too — K is the knob if that ever stings. (ZCR turned out to be a
+  weak discriminator — the rig's speaker path band-limits even static; noted
+  so nobody re-derives it. FM-quieting detection stays in the pocket as v2.)
 - **R5 — announcements are Part-97 gated (Phase 3).** Automated TX carries FCC
   obligations: station ID (§97.119), a control operator, automatic-control limits, no
   broadcasting/music. Designed in (call-sign ID injection + a sane trigger model), not
@@ -271,18 +286,27 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       **watching the rig**: the clearer's open() blips RTS for ~ms (kernel
       behavior, accepted) — confirm it doesn't meaningfully key TX and that
       post-boot RTS reads clear (`journalctl -u digirig-rts-clear -b`). (2)
-      Threshold field-check (−40/−45 defaults): confirmed chattery around rig
-      interaction — a 147.420 live-TX test (2026-07-18, captured fine: 10.9 s
-      + 7.1 s voice rows) also logged ~19 minimum-length (≈5.2 s) captures of
-      **touchscreen beeps/kerchunks** (peaks −17/−18, `dcd_main=0` — local
-      audio, not RF; the confidence marker separates them cleanly). Options if
-      it grates: raise `GPS_RADIO_OPEN_DBFS`, kill the rig's key-beep, or (2d
-      discussion) require ≥N loud blocks before a capture commits, dropping
-      one-block beeps. Also seen: `dcd_main=0` on a real voice capture whose
-      gate likely opened on a beep a beat before squelch — treat `dcd_main` as
-      a confidence hint, not truth. (3) The RAWSTR-pegged/DCD-false
+      ~~Threshold field-check~~ **superseded by 2e (R9)**: the beep/kerchunk
+      chatter (~19 captures during the 147.420 test, then an overnight flood —
+      156 of 227 rows, some every ~4 s) is now killed by the commit rule, and
+      the corpus analysis proved raising `GPS_RADIO_OPEN_DBFS` could never
+      work (blip transients sit at voice level). **New at-the-rig lead:** the
+      overnight blips ran `dcd_main=0` — main squelch closed while SP1 (A+B)
+      heard bursts — so suspect the **sub band's squelch** is marginal; check
+      sub squelch/dualwatch when at the rig. (3) The RAWSTR-pegged/DCD-false
       anomaly did **not** reproduce (RAWSTR 17 + DCD false = sane; DCD read 1
-      when open) — keep an eye out, but both reads look healthy.
+      when open) — keep an eye out, but both reads look healthy. `dcd_main` is
+      now polled across the capture (2e), so it's a much stronger hint.
+- [x] **2e — VOX commit rule + DCD polling — BUILT + DEPLOYED 2026-07-18**
+      (design = R9; corpus-derived). `radio/vox.py`: `min_loud_blocks` + a
+      `DISCARD` close event, loud count exposed for mid-capture materialize.
+      `radio/recorder.py`: captures RAM-buffer until they cross the rule
+      (`Capture.materialize`), DCD polled each ~1 s of an active capture
+      (any-true → `dcd_main=1`; one failed poll disables for that capture),
+      heartbeat carries `discarded=N`. `tools/radio_vox_replay.py` rescores
+      stored WAVs by the same rule (`--purge` deletes rows + files — used
+      once to clean the 150+ pre-rule blip rows; slightly permissive: whole
+      file counts, pre-roll included).
 - [x] **2d — transmission log on `/radio` — BUILT 2026-07-18.** `GET
       /api/radio/transmissions` (newest-first keyset paging + `min_s` duration
       floor) + `GET .../transmissions/<id>/audio` (Range-capable WAV serve;

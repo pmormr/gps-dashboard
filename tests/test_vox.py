@@ -106,3 +106,68 @@ class TestVoxGate:
         g.feed(-30.0)
         assert g.feed(-50.0) is GateEvent.CLOSE
         assert g.feed(-39.0) is GateEvent.OPEN
+
+
+class TestCommitRule:
+    """The 2e commit rule: a closing capture keeps only with enough loud blocks."""
+
+    def make(self, min_loud: int, hang: int = 2, cap: int = 100) -> VoxGate:
+        return VoxGate(
+            open_dbfs=-40.0,
+            close_dbfs=-45.0,
+            hang_blocks=hang,
+            max_blocks=cap,
+            min_loud_blocks=min_loud,
+        )
+
+    def test_single_transient_discards(self):
+        # The observed blip shape: one loud burst, then floor to hang-close.
+        g = self.make(min_loud=6)
+        assert g.feed(-30.0) is GateEvent.OPEN
+        assert g.feed(-30.0) is None
+        assert g.feed(-50.0) is None
+        assert g.feed(-50.0) is GateEvent.DISCARD
+        assert not g.is_open
+
+    def test_voice_like_activity_commits(self):
+        # Scattered syllable bursts accumulate loud blocks across the capture.
+        g = self.make(min_loud=6, hang=3)
+        g.feed(-30.0)
+        for _ in range(3):
+            g.feed(-50.0)  # inter-syllable quieting, hang never expires...
+            g.feed(-50.0)
+            g.feed(-30.0)  # ...because the next burst re-arms it
+            g.feed(-30.0)
+        g.feed(-50.0)
+        g.feed(-50.0)
+        assert g.feed(-50.0) is GateEvent.CLOSE  # 7 loud blocks >= 6
+
+    def test_hysteresis_band_blocks_are_not_loud(self):
+        # −42 holds the gate open (>= close) but counts toward the rule nothing.
+        g = self.make(min_loud=2, hang=2)
+        g.feed(-30.0)
+        for _ in range(20):
+            assert g.feed(-42.0) is None
+        g.feed(-50.0)
+        assert g.feed(-50.0) is GateEvent.DISCARD  # 1 loud block < 2
+
+    def test_max_blocks_force_close_below_rule_discards(self):
+        g = self.make(min_loud=3, cap=4)
+        g.feed(-30.0)
+        g.feed(-42.0)
+        g.feed(-42.0)
+        assert g.feed(-42.0) is GateEvent.DISCARD  # cap hit with 1 loud block
+
+    def test_loud_count_resets_per_capture(self):
+        g = self.make(min_loud=2, hang=1)
+        g.feed(-30.0)
+        g.feed(-30.0)
+        assert g.feed(-50.0) is GateEvent.CLOSE
+        g.feed(-30.0)
+        assert g.loud_blocks == 1
+        assert g.feed(-50.0) is GateEvent.DISCARD
+
+    def test_default_min_commits_everything(self):
+        g = VoxGate(open_dbfs=-40.0, close_dbfs=-45.0, hang_blocks=1, max_blocks=100)
+        g.feed(-30.0)
+        assert g.feed(-50.0) is GateEvent.CLOSE
