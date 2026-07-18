@@ -202,6 +202,7 @@ gps-dashboard/
 │   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
 ├── radio/                      # radio-plane daemons (plans/radio-platform-plan.md)
 │   ├── vox.py                  # pure VOX gate math + state machine (clockless, table-tested)
+│   ├── levels.py               # squelch keeper: operator memory + deaf clamp + bounded guard raises (clockless)
 │   ├── paths.py                # audio-root resolution shared by the recorder + the API's audio route
 │   └── recorder.py             # VOX-gated Digirig capture → WAV + radio_transmissions rows
 ├── updater/                    # offline-data chunk manager (plans/data-update-plan.md)
