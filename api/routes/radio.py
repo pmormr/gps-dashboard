@@ -5,14 +5,21 @@ repeater changes. Everything goes through :mod:`api.rigctld` (rigctld's TCP text
 protocol) — no serial access here. Controls the **active main band only**:
 the backend can't read which VFO is active, so a dual-band readout would have to flip
 the radio's active VFO each poll. See ``plans/radio-platform-plan.md`` (R6).
+
+Also serves the recorded-transmission log (``radio_transmissions`` rows +
+their WAVs, written by the ``radio-recorder`` daemon) — a DB/filesystem read
+path with no rigctld involvement.
 """
 
 from collections.abc import Callable
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
+from api.db import get_connection
+from api.params import parse_limit
 from api.rigctld import Rigctld, RigctldError
 from common import proc
+from radio.paths import audio_dir
 
 radio_bp = Blueprint('radio', __name__)
 
@@ -42,6 +49,15 @@ LEVELS = {'af': 'AF', 'sql': 'SQL', 'rfpower': 'RFPOWER'}
 # the Hamlib backend has no band-targeting model. Set-only: the active band is still
 # unreadable (no get-VFO), but an explicit set pins it before any read/write.
 BAND_SELECT = {'a': b'\x07\xd0', 'b': b'\x07\xd1'}
+
+# Transmission-log columns returned to the client. audio_path stays server-side
+# (the client fetches bytes by id through the audio route); has_audio tells the
+# UI whether a play control makes sense — the retention pruner NULLs audio_path
+# but keeps the row.
+_TX_COLUMNS = (
+    'id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
+    'peak_dbfs, rms_dbfs, lat, lon, audio_path IS NOT NULL AS has_audio'
+)
 
 
 def _err(message: str, status: int):
@@ -206,3 +222,79 @@ def set_repeater():
         rig.set_rptr_shift(SHIFT_TO_RIG[shift])
 
     return _apply(action)
+
+
+@radio_bp.get('/api/radio/transmissions')
+def list_transmissions():
+    """Recorded-transmission log, newest first, keyset-paged.
+
+    Query params: ``limit`` (default 50, max 500); ``before_id`` — return rows
+    with ``id`` below it (pass the last row's id to fetch the next page);
+    ``min_s`` — duration floor in seconds, the server-side blip filter (the
+    rig's touchscreen beeps VOX-trigger minimum-length ~5 s captures).
+    ``total`` counts every row matching ``min_s`` regardless of paging, so the
+    UI can size the log and know when it has loaded everything.
+    """
+    limit, err = parse_limit(request.args, default=50, maximum=500)
+    if err:
+        return err
+
+    before_raw = request.args.get('before_id')
+    before_id: int | None = None
+    if before_raw is not None:
+        try:
+            before_id = int(before_raw)
+        except ValueError:
+            return _err("'before_id' must be an integer", 400)
+
+    min_raw = request.args.get('min_s')
+    min_s: float | None = None
+    if min_raw is not None:
+        try:
+            min_s = float(min_raw)
+        except ValueError:
+            return _err("'min_s' must be a number", 400)
+        if min_s < 0:
+            return _err("'min_s' must be >= 0", 400)
+
+    conn = get_connection()
+    where = ['duration_s >= ?'] if min_s is not None else []
+    params: list[float] = [min_s] if min_s is not None else []
+    total_sql = 'SELECT COUNT(*) FROM radio_transmissions'
+    if where:
+        total_sql += ' WHERE ' + ' AND '.join(where)
+    total = conn.execute(total_sql, params).fetchone()[0]
+
+    if before_id is not None:
+        where.append('id < ?')
+        params.append(before_id)
+    sql = f'SELECT {_TX_COLUMNS} FROM radio_transmissions'
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY id DESC LIMIT ?'
+    rows = conn.execute(sql, [*params, limit]).fetchall()
+
+    transmissions = [dict(r) | {'has_audio': bool(r['has_audio'])} for r in rows]
+    return jsonify({'transmissions': transmissions, 'count': len(transmissions), 'total': total})
+
+
+@radio_bp.get('/api/radio/transmissions/<int:tx_id>/audio')
+def transmission_audio(tx_id: int):
+    """Serve one capture's WAV; 404 when the row, its audio, or the file is gone.
+
+    ``conditional=True`` gives Range support, which ``<audio>`` scrubbing needs.
+    A pruned row (``audio_path`` NULL) is a 404 like a missing row — the log
+    endpoint's ``has_audio`` is how the UI avoids offering dead play buttons.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        'SELECT audio_path FROM radio_transmissions WHERE id = ?', (tx_id,)
+    ).fetchone()
+    if row is None or row['audio_path'] is None:
+        return _err('no audio for this transmission', 404)
+    root = audio_dir().resolve()
+    path = (root / row['audio_path']).resolve()
+    # Rows are recorder-written, but never let a stored path escape the root.
+    if not path.is_relative_to(root) or not path.is_file():
+        return _err('audio file missing', 404)
+    return send_file(path, mimetype='audio/wav', conditional=True, download_name=path.name)

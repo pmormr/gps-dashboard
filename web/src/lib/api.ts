@@ -408,6 +408,48 @@ export function getRadioStatus(): Promise<RadioStatus> {
   return getJSON<RadioStatus>('/api/radio/status')
 }
 
+/** One VOX-captured transmission row. freq/mode tag the active main band at
+ *  gate-open while the audio is the A+B mix — trust it only when dcd_main is 1.
+ *  has_audio false = the retention pruner kept the row but dropped the WAV. */
+export interface RadioTransmission {
+  id: number
+  started_utc: string
+  ended_utc: string
+  duration_s: number
+  freq_hz: number | null
+  mode: string | null
+  dcd_main: number | null
+  peak_dbfs: number | null
+  rms_dbfs: number | null
+  lat: number | null
+  lon: number | null
+  has_audio: boolean
+}
+
+/** One page of the transmission log; `total` counts all rows matching `minS`. */
+export interface RadioTransmissionsPage {
+  transmissions: RadioTransmission[]
+  count: number
+  total: number
+}
+
+/** Fetch a transmission-log page, newest first (keyset: pass the last id as beforeId). */
+export function getRadioTransmissions(
+  opts: { limit?: number; beforeId?: number; minS?: number } = {},
+): Promise<RadioTransmissionsPage> {
+  const params = new URLSearchParams()
+  if (opts.limit != null) params.set('limit', String(opts.limit))
+  if (opts.beforeId != null) params.set('before_id', String(opts.beforeId))
+  if (opts.minS != null) params.set('min_s', String(opts.minS))
+  const qs = params.toString()
+  return getJSON<RadioTransmissionsPage>(`/api/radio/transmissions${qs ? `?${qs}` : ''}`)
+}
+
+/** URL of a transmission's WAV (the `<audio>` src; server supports Range). */
+export function radioAudioUrl(id: number): string {
+  return `/api/radio/transmissions/${id}/audio`
+}
+
 /** POST a radio control write; throws Error(message) on a rig/daemon refusal. */
 // ── Points (the map trail, processed track_points tier) ──
 

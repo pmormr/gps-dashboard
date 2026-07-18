@@ -33,9 +33,10 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import IO
 
-from api.db import DB_PATH, _canonical, get_connection, init_db
+from api.db import _canonical, get_connection, init_db
 from api.rigctld import Rigctld, RigctldError
 from common.proc import run
+from radio.paths import audio_dir
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
 
 SAMPLE_RATE = 48000
@@ -60,7 +61,7 @@ MIXER_SETS = os.environ.get('GPS_RADIO_MIXER_SETS', 'Auto Gain Control:off,Mic:1
 #: Rig AF level pinned at session start (reproducible record level); '' disables.
 PIN_AF = os.environ.get('GPS_RADIO_PIN_AF', '0.15')
 
-AUDIO_DIR = Path(os.environ.get('GPS_RADIO_AUDIO_DIR', str(DB_PATH.parent / 'radio-audio')))
+AUDIO_DIR = audio_dir()
 MAX_AGE_DAYS = float(os.environ.get('GPS_RADIO_AUDIO_MAX_DAYS', '180'))
 MAX_BYTES = int(float(os.environ.get('GPS_RADIO_AUDIO_MAX_GB', '4')) * 1024**3)
 

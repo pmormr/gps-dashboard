@@ -193,3 +193,120 @@ def test_set_repeater_requires_offset_for_shift(client, monkeypatch):
     _patch_rig(monkeypatch)
     resp = client.post('/api/radio/repeater', json={'shift': 'plus'})
     assert resp.status_code == 400
+
+
+def _insert_tx(
+    *,
+    duration_s: float = 8.0,
+    dcd_main: int | None = 1,
+    audio_path: str | None = None,
+) -> int:
+    """Insert one ``radio_transmissions`` row into the test DB, returning its id."""
+    from api.db import get_connection
+
+    conn = get_connection()
+    cur = conn.execute(
+        'INSERT INTO radio_transmissions (started_utc, ended_utc, duration_s, freq_hz, mode, '
+        'dcd_main, peak_dbfs, rms_dbfs, audio_path, lat, lon) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (
+            '2026-07-18T20:00:00.000Z',
+            '2026-07-18T20:00:08.000Z',
+            duration_s,
+            146520000,
+            'FM',
+            dcd_main,
+            -16.0,
+            -30.5,
+            audio_path,
+            39.7,
+            -105.2,
+        ),
+    )
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+class TestTransmissionList:
+    """``GET /api/radio/transmissions`` — the recorded-transmission log read."""
+
+    def test_empty(self, client):
+        data = client.get('/api/radio/transmissions').get_json()
+        assert data == {'transmissions': [], 'count': 0, 'total': 0}
+
+    def test_newest_first_and_shape(self, client):
+        first = _insert_tx(audio_path='2026-07/a.wav')
+        second = _insert_tx(audio_path=None)
+        data = client.get('/api/radio/transmissions').get_json()
+        assert [t['id'] for t in data['transmissions']] == [second, first]
+        newest = data['transmissions'][0]
+        assert newest['has_audio'] is False  # pruned row: metadata survives
+        assert data['transmissions'][1]['has_audio'] is True
+        assert 'audio_path' not in newest  # server-side detail, not API surface
+        assert newest['freq_hz'] == 146520000
+        assert newest['dcd_main'] == 1
+
+    def test_keyset_paging(self, client):
+        ids = [_insert_tx() for _ in range(5)]
+        page1 = client.get('/api/radio/transmissions?limit=2').get_json()
+        assert [t['id'] for t in page1['transmissions']] == [ids[4], ids[3]]
+        assert page1['total'] == 5
+        page2 = client.get(f'/api/radio/transmissions?limit=2&before_id={ids[3]}').get_json()
+        assert [t['id'] for t in page2['transmissions']] == [ids[2], ids[1]]
+        assert page2['total'] == 5  # total ignores the cursor
+
+    def test_min_s_filters_rows_and_total(self, client):
+        _insert_tx(duration_s=5.2, dcd_main=0)  # a touchscreen-beep blip
+        voice = _insert_tx(duration_s=10.9)
+        data = client.get('/api/radio/transmissions?min_s=6').get_json()
+        assert [t['id'] for t in data['transmissions']] == [voice]
+        assert data['total'] == 1
+
+    def test_bad_params(self, client):
+        assert client.get('/api/radio/transmissions?limit=0').status_code == 400
+        assert client.get('/api/radio/transmissions?before_id=x').status_code == 400
+        assert client.get('/api/radio/transmissions?min_s=x').status_code == 400
+        assert client.get('/api/radio/transmissions?min_s=-1').status_code == 400
+
+
+class TestTransmissionAudio:
+    """``GET /api/radio/transmissions/<id>/audio`` — the WAV read path."""
+
+    def _write_wav(self, tmp_path, rel: str, payload: bytes) -> None:
+        path = tmp_path / 'radio-audio' / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+
+    def test_serves_wav(self, client, tmp_path):
+        payload = b'RIFF' + bytes(100)
+        self._write_wav(tmp_path, '2026-07/a.wav', payload)
+        tx = _insert_tx(audio_path='2026-07/a.wav')
+        resp = client.get(f'/api/radio/transmissions/{tx}/audio')
+        assert resp.status_code == 200
+        assert resp.mimetype == 'audio/wav'
+        assert resp.data == payload
+
+    def test_range_request_scrubs(self, client, tmp_path):
+        # <audio> scrubbing depends on Range support (send_file conditional=True).
+        self._write_wav(tmp_path, '2026-07/a.wav', b'RIFF' + bytes(100))
+        tx = _insert_tx(audio_path='2026-07/a.wav')
+        resp = client.get(f'/api/radio/transmissions/{tx}/audio', headers={'Range': 'bytes=0-3'})
+        assert resp.status_code == 206
+        assert resp.data == b'RIFF'
+
+    def test_unknown_row_404(self, client):
+        assert client.get('/api/radio/transmissions/999/audio').status_code == 404
+
+    def test_pruned_row_404(self, client):
+        tx = _insert_tx(audio_path=None)
+        assert client.get(f'/api/radio/transmissions/{tx}/audio').status_code == 404
+
+    def test_file_gone_404(self, client):
+        tx = _insert_tx(audio_path='2026-07/vanished.wav')
+        assert client.get(f'/api/radio/transmissions/{tx}/audio').status_code == 404
+
+    def test_traversal_guard_404(self, client, tmp_path):
+        (tmp_path / 'secret.bin').write_bytes(b'not audio')
+        tx = _insert_tx(audio_path='../secret.bin')
+        assert client.get(f'/api/radio/transmissions/{tx}/audio').status_code == 404

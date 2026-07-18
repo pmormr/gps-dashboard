@@ -283,7 +283,20 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
       a confidence hint, not truth. (3) The RAWSTR-pegged/DCD-false
       anomaly did **not** reproduce (RAWSTR 17 + DCD false = sane; DCD read 1
       when open) — keep an eye out, but both reads look healthy.
-- [ ] **2d — map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.**
+- [x] **2d — transmission log on `/radio` — BUILT 2026-07-18.** `GET
+      /api/radio/transmissions` (newest-first keyset paging + `min_s` duration
+      floor) + `GET .../transmissions/<id>/audio` (Range-capable WAV serve;
+      pruned rows 404, `has_audio` tells the UI). Audio-root resolution moved
+      to `radio/paths.py` so recorder + route can't drift (if
+      `GPS_RADIO_AUDIO_DIR` is ever overridden it must be set in **both**
+      units). UI = a Transmissions card on `/radio`: tap-to-expand native
+      `<audio>` player + metadata, freq/mode tag dimmed with `?` unless
+      `dcd_main=1`, and a **hide-blips toggle** (`min_s=6`, just above the
+      ~5.2 s minimum capture) — the 2c-tail beep chatter gets filtered at read
+      time, so raising `GPS_RADIO_OPEN_DBFS` is now optional polish rather
+      than required. **Map overlay DROPPED 2026-07-18** (Paul: no map surface
+      wanted; rows keep lat/lon, so the 🚁 drone-path reuse stays open if this
+      ever revives).
 - [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
       the 10–20 dB pad (decouples cabin listening volume from record level —
       without it, cranking AF for the speaker also cranks the Digirig leg).

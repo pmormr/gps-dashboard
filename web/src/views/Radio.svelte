@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
 
-  import { getRadioStatus, postRadio, type RadioStatus } from '../lib/api'
+  import {
+    getRadioStatus,
+    getRadioTransmissions,
+    postRadio,
+    radioAudioUrl,
+    type RadioStatus,
+    type RadioTransmission,
+  } from '../lib/api'
   import { RAWSTR_S9, sMeter } from '../lib/radio'
 
   // Standard CTCSS tones (Hz) the ID-5100 supports (from dump_caps).
@@ -35,6 +42,18 @@
     { v: 128 / 255, l: 'Mid' },
     { v: 213 / 255, l: 'High' },
   ]
+
+  // Transmission log. BLIP_S sits just above the recorder's minimum capture
+  // length (~5.2 s: pre-roll + hang), so the hide-blips filter drops the
+  // touchscreen-beep/kerchunk captures without touching real short traffic.
+  const TX_PAGE = 25
+  const BLIP_S = 6
+  let txs = $state<RadioTransmission[]>([])
+  let txTotal = $state(0)
+  let txLoading = $state(false)
+  let txError = $state('')
+  let hideBlips = $state(false)
+  let expandedId = $state<number | null>(null)
 
   let s = $state<RadioStatus | null>(null)
   let freqInput = $state<number | null>(null)
@@ -106,6 +125,44 @@
   const rfActive = (v: number): boolean =>
     s?.online === true && s.levels?.rfpower != null && Math.abs(s.levels.rfpower - v) < 0.05
 
+  async function loadTxs(reset: boolean): Promise<void> {
+    txLoading = true
+    txError = ''
+    try {
+      const page = await getRadioTransmissions({
+        limit: TX_PAGE,
+        minS: hideBlips ? BLIP_S : undefined,
+        beforeId: reset ? undefined : txs[txs.length - 1]?.id,
+      })
+      txs = reset ? page.transmissions : [...txs, ...page.transmissions]
+      txTotal = page.total
+    } catch (e) {
+      txError = e instanceof Error ? e.message : String(e)
+    } finally {
+      txLoading = false
+    }
+  }
+
+  function onBlipToggle(): void {
+    expandedId = null
+    loadTxs(true)
+  }
+
+  const toggleTx = (id: number): void => {
+    expandedId = expandedId === id ? null : id
+  }
+
+  const txTime = (iso: string): string =>
+    new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+  const fmtDb = (v: number | null): string => (v == null ? '—' : `${v.toFixed(1)} dBFS`)
+
   function onToneFreqChange(): void {
     if (s?.tone_mode && s.tone_mode !== 'off') applyTone(s.tone_mode)
   }
@@ -116,6 +173,7 @@
 
   onMount(() => {
     poll()
+    loadTxs(true)
     pollTimer = window.setInterval(poll, 2000)
   })
   onDestroy(() => {
@@ -161,6 +219,66 @@
       <span>S-meter</span>
       <span>{smeter ? `${smeter.label} (${Math.round(s!.rawstr!)})` : '—'}</span>
     </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Transmissions{txTotal ? ` — ${txTotal}` : ''}</div>
+  <div class="tx-controls">
+    <label class="tx-toggle">
+      <input type="checkbox" bind:checked={hideBlips} onchange={onBlipToggle} />
+      Hide blips (&lt;{BLIP_S}s)
+    </label>
+    <button onclick={() => loadTxs(true)} disabled={txLoading}>Refresh</button>
+  </div>
+  {#if txError}
+    <div class="note">Could not load the log — {txError}</div>
+  {:else if txs.length === 0}
+    <div class="note">{txLoading ? 'Loading…' : 'No captures yet.'}</div>
+  {/if}
+  <div class="tx-list">
+    {#each txs as t (t.id)}
+      <div class="tx-item">
+        <button class="tx-row" class:open={expandedId === t.id} onclick={() => toggleTx(t.id)}>
+          <span class="tx-time">{txTime(t.started_utc)}</span>
+          <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
+          <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>
+            {freqMhz(t.freq_hz ?? undefined)}
+            {t.mode ?? ''}{t.dcd_main !== 1 ? ' ?' : ''}
+          </span>
+          {#if !t.has_audio}<span class="tx-pruned">no audio</span>{/if}
+        </button>
+        {#if expandedId === t.id}
+          <div class="tx-detail">
+            {#if t.has_audio}
+              <!-- svelte-ignore a11y_media_has_caption -->
+              <audio controls autoplay preload="metadata" src={radioAudioUrl(t.id)}></audio>
+            {:else}
+              <div class="note">Audio pruned by retention — metadata only.</div>
+            {/if}
+            <div class="tx-meta">
+              <span>Peak {fmtDb(t.peak_dbfs)}</span>
+              <span>RMS {fmtDb(t.rms_dbfs)}</span>
+              <span>Main squelch {t.dcd_main === 1 ? 'open — tag confirmed' : 'closed — tag unconfirmed'}</span>
+              <span
+                >{t.lat != null && t.lon != null
+                  ? `${t.lat.toFixed(5)}, ${t.lon.toFixed(5)}`
+                  : 'no GPS fix'}</span
+              >
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/each}
+  </div>
+  {#if txs.length < txTotal}
+    <button class="tx-more" onclick={() => loadTxs(false)} disabled={txLoading}>
+      {txLoading ? 'Loading…' : `Load more (${txTotal - txs.length} older)`}
+    </button>
+  {/if}
+  <div class="note">
+    Freq/mode tag the main band at capture start; ? = the main squelch was closed, so the audio
+    may be sub-band traffic or local noise.
   </div>
 </div>
 
@@ -479,6 +597,98 @@
     font-size: 12px;
     color: var(--text-dim);
     margin-top: 6px;
+  }
+
+  .tx-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .tx-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .tx-toggle input {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    margin: 0;
+  }
+  .tx-controls button {
+    flex: none;
+  }
+  .tx-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .tx-item + .tx-item {
+    border-top: 1px solid var(--border);
+  }
+  .tx-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 10px 2px;
+    text-align: left;
+    font-variant-numeric: tabular-nums;
+  }
+  .tx-row.open {
+    color: var(--accent);
+  }
+  .tx-time {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .tx-dur {
+    font-size: 13px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .tx-tag {
+    font-size: 13px;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .tx-tag.unconfirmed {
+    color: var(--text-dim);
+  }
+  .tx-pruned {
+    font-size: 11px;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+  .tx-detail {
+    padding: 2px 2px 12px;
+  }
+  .tx-detail audio {
+    width: 100%;
+    height: 40px;
+  }
+  .tx-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+  .tx-more {
+    width: 100%;
+    margin-top: 10px;
   }
 
   .toast {
