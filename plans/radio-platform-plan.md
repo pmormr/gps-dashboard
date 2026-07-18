@@ -58,6 +58,24 @@ The clone cable touches only the control plane.
   ended_utc, freq_hz, mode, duration_s, audio_path, lat, lon, ...)` — lat/lon snapped
   from the live GPS stream at capture time, fully GPS-joinable; map pins reuse the 🚁
   drone-overlay path. Audio files on the NVMe, DB row is metadata.
+- **R8 — recorder design (2c walk-through, 2026-07-18).** **Audio-VOX is the
+  gate** — RMS on the SP1 stream itself, so the trigger hears exactly what gets
+  recorded (including sub-band traffic in the A+B mix); DCD + freq/mode are polled
+  once at gate-open as *metadata only*, so the pegged-RAWSTR/DCD-false anomaly can
+  never drop a recording. Details: continuous `arecord` (native mono S16_LE 48 kHz
+  from `plughw:CARD=Digirig`) piped into the recorder, ~3 s ring-buffer pre-roll,
+  VOX on ~100 ms RMS blocks (open ≈ −40 dBFS against the measured −49 floor /
+  −28 open-squelch static, ~2 s hang, hard per-file cap so a stuck carrier can't
+  grow an unbounded file). Storage: stdlib-`wave` WAV under
+  `/mnt/nvme/data/radio-audio/YYYY-MM/` (dir derives beside the DB, env-overridable),
+  age+size-cap pruner that NULLs `audio_path` but keeps rows — the log outlives the
+  audio; deliberately outside the backup path like tiles. Schema drops R4's
+  sketched band column: get-VFO is unsupported, so which band is Main is
+  *unreadable* — freq/mode are recorded as the active-main-band readout and
+  `dcd_main` marks the tag's confidence (sub-band audio may carry a wrong freq
+  tag). GPS snap = latest raw fix, direct DB read, NULL when stale (>5 min).
+  Service `radio-recorder`, enabled-gated; pins C-Media mixer state (AGC off,
+  gain) and AF via rigctld at startup (the 2a replug-resets-mixer trap).
 - **R5 — announcements are Part-97 gated (Phase 3).** Automated TX carries FCC
   obligations: station ID (§97.119), a control operator, automatic-control limits, no
   broadcasting/music. Designed in (call-sign ID injection + a sane trigger model), not
@@ -217,18 +235,39 @@ Source of truth for raw commands: the CI-V command table in the vendored manual
     `deploy/99-digirig.rules`** (MM-ignore + `/dev/digirig` + ALSA card id
     `Digirig`; manual install like the other udev rules). Guards verified: replug
     with the mic leg connected no longer keys.
-- [ ] **2b — boot-time RTS clearer.** Residual exposure: the CP2102N's virgin
+- [x] **2b — boot-time RTS clearer — BUILT 2026-07-18** (`tools/digirig_clear_rts.py`
+      + `deploy/digirig-rts-clear.service` + `SYSTEMD_WANTS` hook on the tty rule;
+      rules reinstall on the Pi is manual as usual). Residual exposure it kills: the CP2102N's virgin
       RTS state on a fresh boot/enumeration is untested (only ever observed
       post-clear). Tiny tool (open `/dev/digirig`, `TIOCMBIC` RTS+DTR, close) run
-      from a udev-triggered oneshot so a reboot can never hold PTT. Build with 2c.
-- [ ] **2c — `radio_transmissions` schema (R4) + a squelch/VOX-gated recorder
-      process** (standalone, like the logger), writing audio files + GPS-snapped
-      rows. Design walk-through first: gate choice (DCD poll reads the *main band
-      only* while SP1 audio is the A+B mix — sub-band-only signals would go
-      ungated; options DCD-only / audio-VOX / hybrid), pre-roll (continuous
-      `arecord` pipe → ring buffer so the gate's poll latency doesn't clip
-      openings), format/rate, NVMe file layout + retention. Recorder pins mixer
-      state + AF level at startup for reproducible levels.
+      from a udev-triggered oneshot (`SYSTEMD_WANTS` on the tty rule) so a reboot
+      can never hold PTT. **Known caveat, accepted:** Linux asserts RTS+DTR *on
+      open* — the clearer itself blips PTT for a few ms per enumeration; no
+      portable way around it, and a ms blip beats an indefinitely held key.
+      Watch the rig during the live test.
+- [x] **2c — `radio_transmissions` schema + VOX-gated recorder process — BUILT
+      2026-07-18** (design locked as **R8** same day: audio-VOX primary /
+      DCD-as-metadata, ring-buffer pre-roll, native-format WAV, beside-the-DB
+      layout + pruner, no band column). Landed: schema + index in `api/db.py`,
+      the `radio/` package (`vox.py` pure gate — clockless, table-tested;
+      `recorder.py` daemon — arecord pipe, mixer/AF re-pin every session start,
+      1 MiB pipe + 2 s ALSA buffer so a slow gate-open snapshot can't overrun),
+      `deploy/radio-recorder.service` (enabled-gated), 30 tests. Suite 728
+      green, ruff+mypy clean.
+- [ ] **2c-live — deploy + on-Pi validation.** (1) Pi hook: add the
+      `radio-recorder` per-unit restart block (new-service rule). (2) Reinstall
+      `99-digirig.rules` + `udevadm control --reload` (SYSTEMD_WANTS line is
+      new). (3) Verify `alsa-utils` present and the amixer control names —
+      `Auto Gain Control`/`Mic` are assumed; if the codec names them
+      differently, override `GPS_RADIO_MIXER_SETS` in the unit, no code change.
+      (4) Enable `radio-recorder`; watch a capture land end-to-end. (5) Reboot
+      test **watching the rig**: the clearer's open() blips RTS for ~ms
+      (kernel behavior, accepted) — confirm it doesn't meaningfully key TX and
+      that post-boot RTS reads clear. (6) Field-check gate thresholds
+      (−40/−45 dBFS defaults) against real traffic. (7) The RAWSTR-pegged/
+      DCD-false anomaly (seen twice on 146.52): check against the on-rig
+      S-meter — DCD is metadata-only so it can't drop recordings, but
+      `dcd_main` is only worth storing if the read isn't garbage.
 - [ ] **2d — map overlay (reuse 🚁 drone path) + a transmission log on `/radio`.**
 - [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
       the 10–20 dB pad (decouples cabin listening volume from record level —

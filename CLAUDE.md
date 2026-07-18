@@ -23,7 +23,7 @@ Two systemd services run on the Pi: `gps-logger` (writes GPS data) and `gps-dash
 git push all main
 ```
 
-The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`/`-fridge`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` and `gps-db-backup` are timer-driven oneshots, not restarted (their timers are idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
+The hook runs `uv sync` (which also builds the project as an editable install — see Offline Constraint), then restarts services based on what changed. It always restarts `gps-dashboard` and (if enabled) `mqtt-ingest` and `gps-processor`; each enabled sensor reader (`sensor-obd`/`-victron`/`-pi`/`-openwrt`/`-dahua`/`-fridge`) restarts when `sensors/` or its own unit changed, `radio-control` when its unit changed, `radio-recorder` when `radio/` or its own unit changed — these restart branches are per-unit blocks in the hook, so a brand-new service needs its block added on the Pi. When any `deploy/` file changed it reinstalls all unit files (glob) into `/etc/systemd/system/` and `daemon-reload`s — so editing a service's env var (e.g. `GPS_TERRAIN_PMTILES_PATH`) deploys on push with no manual `systemctl` step. `gps-logger` restarts only if `logger/` (or its unit) changed, to avoid GPS data gaps; `mosquitto` restarts only on its own config changes; `gps-drone-sync` and `gps-db-backup` are timer-driven oneshots, not restarted (their timers are idempotently re-enabled on every push). The `pi` remote points to `pmorgan@192.168.42.178:/mnt/nvme/gps-dashboard.git`.
 
 App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/gps-dashboard.git` — bare repo (deploy target)
@@ -31,6 +31,7 @@ App files live on an NVMe drive mounted at `/mnt/nvme`:
 - `/mnt/nvme/data/gps_history.db` — database (persists across deploys)
 - `/mnt/nvme/data/places.db` — places-tier sidecar DB, ATTACHed by every `get_connection()`; path derives beside the main DB (`GPS_PLACES_DB_PATH` overrides). Rebuildable from public sources, deliberately **outside** the backup path (places.md)
 - `/mnt/nvme/backup/gps_history.snap.db` — consistent DB snapshot, refreshed 6-hourly by `gps-db-backup.timer` and pushed to rex-nas `/volume1/backups/gps-dashboard/` when reachable (retention + restore procedure → `tools/backup_db.py` docstring)
+- `/mnt/nvme/data/radio-audio/` — VOX-captured transmission WAVs, written by `radio-recorder` with its own retention pruner (rows outlive audio); rebuild-worthless ephemera, deliberately outside the backup path
 - `/mnt/nvme/cache/tiles/` — raster (USGS) tile cache (persists across deploys)
 - `/mnt/nvme/tiles/northamerica.pmtiles` — vector OSM basemap archive, ~33 GB (persists across deploys)
 - `/mnt/nvme/tiles/northamerica-terrain.pmtiles` — terrain (Mapzen Terrarium) PMTiles archive, ~105 GB (persists across deploys)
@@ -95,6 +96,10 @@ GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pas
 
 - `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
 
+Radio tier — RX transmissions captured by the `radio-recorder` daemon (design = R8 in `plans/radio-platform-plan.md`):
+
+- `radio_transmissions(id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, peak_dbfs, rms_dbfs, audio_path, lat, lon)` — one row per VOX-gate opening; the WAV lives under `/mnt/nvme/data/radio-audio/` and the retention pruner NULLs `audio_path` but keeps the row. `freq_hz`/`mode` are a rigctld snapshot of the **active main band** while the audio is SP1's A+B mix — `dcd_main` marks that tag's confidence; `lat`/`lon` snap from the latest raw fix (NULL when stale).
+
 The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `fridge_readings`, `fridge_history`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
 
 ### API Endpoints
@@ -144,7 +149,7 @@ A second data stream beyond GPS: sensor readings ingested over a local mosquitto
 
 ### Radio Control (CI-V)
 
-Control the van's **Icom ID-5100A** transceiver from the Pi over its CI-V serial bus. A long-lived **`rigctld`** (Hamlib model **3071**) owns the serial port (cable = OPC-478UC clone / WCH CH343 on a udev-pinned `/dev/icom-civ`, 19200 baud, address 0x8C) and exposes Hamlib's TCP text protocol on `127.0.0.1:4532`; the Flask routes (`api/routes/radio.py`) speak that protocol through a stdlib-socket client (`api/rigctld.py`) — **no** Python Hamlib binding, and the daemon-owns-the-port model solves serial contention. The `/radio` page controls the **active main band only** (the backend can't read which VFO is active): freq/mode/S-meter readout + set, CTCSS/DCS tone, and repeater shift/offset (the backend exposes no memory recall). The `radio-control` service is **enabled-gated** (disabled until the cable is wired). Transmission **recording** (audio plane) and **announcements** (TX, Part-97) are later phases — see **`plans/radio-platform-plan.md`** for the capability map and roadmap.
+Control the van's **Icom ID-5100A** transceiver from the Pi over its CI-V serial bus. A long-lived **`rigctld`** (Hamlib model **3071**) owns the serial port (cable = OPC-478UC clone / WCH CH343 on a udev-pinned `/dev/icom-civ`, 19200 baud, address 0x8C) and exposes Hamlib's TCP text protocol on `127.0.0.1:4532`; the Flask routes (`api/routes/radio.py`) speak that protocol through a stdlib-socket client (`api/rigctld.py`) — **no** Python Hamlib binding, and the daemon-owns-the-port model solves serial contention. The `/radio` page controls the **active main band only** (the backend can't read which VFO is active): freq/mode/S-meter readout + set, CTCSS/DCS tone, and repeater shift/offset (the backend exposes no memory recall). The `radio-control` service is **enabled-gated** (disabled until the cable is wired). Transmission **recording** (audio plane) is built: the enabled-gated `radio-recorder` daemon (`radio/recorder.py`) VOX-gates the Digirig's SP1 capture (the A+B mix) into pre-rolled WAVs + GPS-snapped `radio_transmissions` rows, re-pinning the C-Media mixer (replug resets it to max gain + AGC ON) and the rig's AF level every session start. **PTT trap:** RTS on the Digirig serial port hardware-keys TX — nothing may open `/dev/digirig` casually; the guard stack (ModemManager masked, gpsd `USBAUTO=false`, `99-digirig.rules`, `digirig-rts-clear` udev oneshot) is non-negotiable. **Announcements** (TX, Part-97) are a later phase — see **`plans/radio-platform-plan.md`** for the capability map and roadmap.
 
 ### Project Structure
 
@@ -193,6 +198,9 @@ gps-dashboard/
 ├── processor/                  # processed-tier deriver (tails raw → track_points/track_events)
 │   ├── gps_processor.py
 │   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
+├── radio/                      # radio-plane daemons (plans/radio-platform-plan.md)
+│   ├── vox.py                  # pure VOX gate math + state machine (clockless, table-tested)
+│   └── recorder.py             # VOX-gated Digirig capture → WAV + radio_transmissions rows
 ├── updater/                    # offline-data chunk manager (plans/data-update-plan.md)
 │   ├── chunks.py               # declarative CHUNKS registry + derived status/ordering warnings
 │   └── probes.py               # derived-freshness probes (DB slices, archives, caches) — never stored state
@@ -253,6 +261,7 @@ gps-dashboard/
 │   ├── ntp_validate.py
 │   ├── obd_probe.py            # OBD-II connectivity/bring-up probe (kept as a bus diagnostic)
 │   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (plans/radio-platform-plan.md)
+│   ├── digirig_clear_rts.py    # udev-oneshot RTS/DTR clearer — RTS hardware-keys PTT on this port
 │   ├── cfx3_probe.py           # CFX3 DDMP survey probe, stdlib-only — history/range topics + --watch + --write-test (reference/cfx3-ddmp.md)
 │   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
 │   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
@@ -281,6 +290,8 @@ gps-dashboard/
 │   ├── gps-db-backup.service    # timer-driven DB backup (snapshot → rsync to rex-nas /volume1)
 │   ├── gps-db-backup.timer
 │   ├── radio-control.service    # enabled-gated rigctld (Icom ID-5100A CI-V; /dev/icom-civ)
+│   ├── radio-recorder.service   # enabled-gated VOX transmission recorder (Digirig SP1 capture)
+│   ├── digirig-rts-clear.service # udev-triggered oneshot: deassert RTS/DTR on /dev/digirig (PTT guard)
 │   ├── exiftool.Dockerfile      # pinned ExifTool ≥13.x image, built on the NAS
 │   ├── chrony-gps-only.conf
 │   ├── chrony-gps-pps.conf
@@ -381,6 +392,6 @@ uv run mypy .                  # type check (must be clean)
 
 All runtime dependencies must work without internet. Frontend libraries are npm deps that Vite **bundles into the committed `static/dist/`** (the bundle is offline; the Pi never builds — rebuild + commit before pushing); basemap *data* assets stay in `static/vendor/basemap/`. Python packages install from `uv.lock` at deploy time — no network needed after `uv sync`. The project itself is an editable-installed package (hatchling `[build-system]` in `pyproject.toml`, flat-layout packages enumerated there), so `uv sync` also *builds* it — the hatchling build backend must be in the Pi's uv cache for an offline deploy (cached automatically on the first online `uv sync`). That editable install is what lets any script (`uv run tools/foo.py`) import `common`/`api`/`processor` without a `sys.path` shim. The vector OSM basemap renders fully offline (bundled MapLibre/pmtiles + the local PMTiles archive); USGS raster renders from its on-disk cache, and the tile proxy only reaches upstream when online.
 
-A few runtime deps are **system packages** that work offline once installed but aren't carried by `uv sync` — install them on the Pi while online (one-time): `libhamlib-utils` for the radio `rigctld` service, and the udev rules (`99-gps-dongle.rules`, `99-icom-civ.rules`, `99-digirig.rules`), which the deploy hook does **not** copy (it installs only `deploy/*.service`/`*.timer`). This matches the project's reading of the offline constraint: it governs *runtime* off-grid correctness, not avoiding cacheable dev-time/system installs.
+A few runtime deps are **system packages** that work offline once installed but aren't carried by `uv sync` — install them on the Pi while online (one-time): `libhamlib-utils` for the radio `rigctld` service, `alsa-utils` (`arecord`/`amixer`) for the `radio-recorder` service (usually preinstalled on Raspberry Pi OS — verify), and the udev rules (`99-gps-dongle.rules`, `99-icom-civ.rules`, `99-digirig.rules`), which the deploy hook does **not** copy (it installs only `deploy/*.service`/`*.timer`). This matches the project's reading of the offline constraint: it governs *runtime* off-grid correctness, not avoiding cacheable dev-time/system installs.
 
 Development happens with internet available. Building the vector PMTiles archive, pre-caching USGS tiles, and vendoring assets are intentional prep steps before going off-grid.

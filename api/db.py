@@ -455,6 +455,32 @@ def init_db(conn: sqlite3.Connection) -> None:
             value TEXT
         );
 
+        -- Radio RX transmission log — written by the radio-recorder daemon
+        -- (VOX-gated capture off the Digirig; plans/radio-platform-plan.md R8).
+        -- freq_hz/mode/dcd_main are a rigctld snapshot at gate-open and read the
+        -- ACTIVE MAIN BAND only, while the audio is SP1's A+B mix — dcd_main
+        -- marks that tag's confidence (a sub-band signal may carry a wrong freq
+        -- tag). No band column: get-VFO is unsupported, which band is Main is
+        -- unreadable. lat/lon snap from the latest raw fix, NULL when stale.
+        -- audio_path is relative to the audio dir and NULLed by the retention
+        -- pruner — the row outlives its audio.
+        CREATE TABLE IF NOT EXISTS radio_transmissions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_utc TEXT NOT NULL,
+            ended_utc   TEXT NOT NULL,
+            duration_s  REAL NOT NULL,
+            freq_hz     INTEGER,
+            mode        TEXT,
+            dcd_main    INTEGER,
+            peak_dbfs   REAL,
+            rms_dbfs    REAL,
+            audio_path  TEXT,
+            lat         REAL,
+            lon         REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_radio_transmissions_started
+            ON radio_transmissions(started_utc);
+
         -- Drone telemetry tier — aerial GPS tracks extracted from DJI footage by
         -- tools/import_drone.py (offline batch import, NOT the live MQTT path).
         -- One row per clip; canonical ms-UTC puts drone points on the same time

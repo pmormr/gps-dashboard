@@ -1,0 +1,32 @@
+# Radio transmission recorder — VOX-gated capture off the Digirig (SP1 A+B mix)
+# → WAV files + GPS-snapped radio_transmissions rows. Design: R8 in
+# plans/radio-platform-plan.md.
+#
+# Enabled-gated like sensor-victron/radio-control — stays disabled until the
+# Digirig is wired and live-validated, so a host without one never crash-loops.
+# On session (re)start the daemon re-pins the C-Media mixer (power-on defaults
+# are max gain + AGC ON) and the rig's AF level; a USB replug kills arecord,
+# which bounces the session and re-pins by construction.
+#
+# The gate thresholds and mixer control names are env-tunable here — field
+# tweaks are a unit edit + push, not a code change (see radio/recorder.py for
+# the full env surface and defaults).
+[Unit]
+Description=Radio transmission recorder (Digirig VOX capture)
+After=sound.target radio-control.service
+Wants=radio-control.service
+
+[Service]
+Type=simple
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+Environment=GPS_RADIO_AUDIO_DIR=/mnt/nvme/data/radio-audio
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m radio.recorder
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
