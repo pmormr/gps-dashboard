@@ -446,6 +446,11 @@ export const MapView = (() => {
   // waits for source tile data, which for the byte-ranged vector pmtiles source can
   // lag past style.load and dropped the overlays entirely. The try/catch tolerates a
   // too-early call; the next styledata retries idempotently.
+  /** Push GeoJSON into a map source; no-op if the map or source is absent. */
+  function setGeoJSON(name: string, data: FeatureCollection): void {
+    ;(map?.getSource(name) as GeoJSONSource | undefined)?.setData(data)
+  }
+
   function reinstallOverlays(): void {
     if (installing || !map) return
     const m = map
@@ -629,14 +634,14 @@ export const MapView = (() => {
       overlay3d?.installLayer(m)
 
       // Sources are fresh after a style swap — push the current data back in.
-      ;(m.getSource('track') as GeoJSONSource | undefined)?.setData(trackData)
-      ;(m.getSource('stops') as GeoJSONSource | undefined)?.setData(stopsFC())
-      ;(m.getSource('breadcrumb') as GeoJSONSource | undefined)?.setData(breadcrumbData)
-      ;(m.getSource('ann-range') as GeoJSONSource | undefined)?.setData(rangeFC())
-      ;(m.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
-      ;(m.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
-      ;(m.getSource('places') as GeoJSONSource | undefined)?.setData(placeData)
-      ;(m.getSource('search-results') as GeoJSONSource | undefined)?.setData(searchData)
+      setGeoJSON('track', trackData)
+      setGeoJSON('stops', stopsFC())
+      setGeoJSON('breadcrumb', breadcrumbData)
+      setGeoJSON('ann-range', rangeFC())
+      setGeoJSON('phone-track', phonePathData)
+      setGeoJSON('phone-visits', phoneVisitData)
+      setGeoJSON('places', placeData)
+      setGeoJSON('search-results', searchData)
 
       // Pitched-view tile cover: allow more distinct zoom levels on screen and a
       // larger high-pitch tile budget so the far field loads without a camera
@@ -992,9 +997,9 @@ export const MapView = (() => {
     clearMarkers(endpointMarkers)
     lastTrackPoints = points
     trackData = lineFC(points)
-    if (map) (map.getSource('track') as GeoJSONSource | undefined)?.setData(trackData)
+    setGeoJSON('track', trackData)
     stopFeatures = points.filter((p) => p.kind === 'stop').map(stopPointToFeature)
-    if (map) (map.getSource('stops') as GeoJSONSource | undefined)?.setData(stopsFC())
+    setGeoJSON('stops', stopsFC())
     if (!points.length) return
 
     if (showEndpoints) {
@@ -1012,15 +1017,15 @@ export const MapView = (() => {
     clearMarkers(endpointMarkers)
     lastTrackPoints = []
     trackData = emptyFC()
-    if (map) (map.getSource('track') as GeoJSONSource | undefined)?.setData(trackData)
+    setGeoJSON('track', trackData)
     stopFeatures = []
-    if (map) (map.getSource('stops') as GeoJSONSource | undefined)?.setData(stopsFC())
+    setGeoJSON('stops', stopsFC())
   }
 
   function clearAnnotations(): void {
     clearMarkers(pinMarkers)
     rangeFeatures = []
-    if (map) (map.getSource('ann-range') as GeoJSONSource | undefined)?.setData(rangeFC())
+    setGeoJSON('ann-range', rangeFC())
   }
 
   function addRangeOverlay(points: MapPoint[], name?: string): void {
@@ -1030,7 +1035,7 @@ export const MapView = (() => {
       geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
       properties: { name: name || '' },
     })
-    if (map) (map.getSource('ann-range') as GeoJSONSource | undefined)?.setData(rangeFC())
+    setGeoJSON('ann-range', rangeFC())
   }
 
   function addPinOverlay(lat: number, lon: number, name?: string): void {
@@ -1058,8 +1063,8 @@ export const MapView = (() => {
     phonePathData = pathFC
     phoneVisitData = visitFC
     if (!map) return
-    ;(map.getSource('phone-track') as GeoJSONSource | undefined)?.setData(phonePathData)
-    ;(map.getSource('phone-visits') as GeoJSONSource | undefined)?.setData(phoneVisitData)
+    setGeoJSON('phone-track', phonePathData)
+    setGeoJSON('phone-visits', phoneVisitData)
     if (phoneVisitData.features.length === 0 && phonePopup) phonePopup.remove()
   }
 
@@ -1068,7 +1073,7 @@ export const MapView = (() => {
   function setPlacesData(fc: FeatureCollection): void {
     placeData = fc
     if (!map) return
-    ;(map.getSource('places') as GeoJSONSource | undefined)?.setData(placeData)
+    setGeoJSON('places', placeData)
     if (placeData.features.length === 0 && placePopup) placePopup.remove()
   }
 
@@ -1078,7 +1083,7 @@ export const MapView = (() => {
   function setSearchResultsData(fc: FeatureCollection): void {
     searchData = fc
     if (!map) return
-    ;(map.getSource('search-results') as GeoJSONSource | undefined)?.setData(searchData)
+    setGeoJSON('search-results', searchData)
     if (searchData.features.length === 0 && placePopup) placePopup.remove()
   }
 
@@ -1225,7 +1230,7 @@ export const MapView = (() => {
               },
             ],
           }
-    if (map) (map.getSource('breadcrumb') as GeoJSONSource | undefined)?.setData(breadcrumbData)
+    setGeoJSON('breadcrumb', breadcrumbData)
   }
 
   function clearBreadcrumb(): void {
