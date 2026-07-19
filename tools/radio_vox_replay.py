@@ -67,10 +67,9 @@ def main() -> int:
     parser.add_argument('--purge', action='store_true', help='delete failing rows and their WAVs')
     args = parser.parse_args()
 
-    if args.db:
-        import api.db as db
+    import api.db
 
-        db.DB_PATH = Path(args.db)
+    api.db.apply_path_overrides(args.db)
     from api.db import get_connection
 
     conn = get_connection()

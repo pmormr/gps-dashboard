@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import api.db
 from api.db import canonical_timestamp, get_connection, now_canonical
@@ -138,8 +137,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """Entry point: apply the optional DB override and run the backtest."""
     args = parse_args()
-    if args.db:
-        api.db.DB_PATH = Path(args.db)
+    api.db.apply_path_overrides(args.db)
     return run(args)
 
 

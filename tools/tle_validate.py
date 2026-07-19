@@ -394,8 +394,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """Entry point: apply the optional DB override and run the backtest."""
     args = parse_args()
-    if args.db:
-        api.db.DB_PATH = Path(args.db)
+    api.db.apply_path_overrides(args.db)
     return run(args)
 
 

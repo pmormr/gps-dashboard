@@ -570,10 +570,7 @@ def main() -> None:
     args = parse_args()
     import api.db
 
-    if args.db:
-        api.db.DB_PATH = Path(args.db)
-    if args.places_db:
-        api.db.PLACES_DB_PATH = Path(args.places_db)
+    api.db.apply_path_overrides(args.db, args.places_db)
     sys.exit(run(args))
 
 

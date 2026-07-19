@@ -33,6 +33,28 @@ def places_db_path() -> Path:
     return PLACES_DB_PATH if PLACES_DB_PATH is not None else DB_PATH.parent / 'places.db'
 
 
+def apply_path_overrides(db: str | None = None, places_db: str | None = None) -> None:
+    """Point the module at explicit DB paths from a CLI ``--db``/``--places-db``.
+
+    Tools mutate the module-level ``DB_PATH``/``PLACES_DB_PATH`` globals so every
+    ``get_connection()`` in the process resolves the overridden files. This
+    centralizes that global mutation (and the footgun of doing it by hand) so a
+    ``--db``-taking tool is one call, not a copied ``if args.db: api.db.DB_PATH = ...``
+    block. A ``None`` (the argparse default when the flag is absent) leaves the
+    corresponding global at its env-derived default.
+
+    Args:
+        db: Main SQLite DB path override, or None to leave ``DB_PATH`` unchanged.
+        places_db: Places sidecar path override, or None to leave ``PLACES_DB_PATH``
+            unchanged.
+    """
+    global DB_PATH, PLACES_DB_PATH
+    if db:
+        DB_PATH = Path(db)
+    if places_db:
+        PLACES_DB_PATH = Path(places_db)
+
+
 def get_connection() -> sqlite3.Connection:
     """Open the main DB with the places sidecar ATTACHed as ``places_db``.
 

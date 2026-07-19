@@ -490,10 +490,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Entry point: parse args, set the DB path, run the importer."""
     args = parse_args()
-    if args.db:
-        import api.db
+    import api.db
 
-        api.db.DB_PATH = Path(args.db)
+    api.db.apply_path_overrides(args.db)
     sys.exit(run(args))
 
 
