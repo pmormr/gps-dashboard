@@ -2,24 +2,16 @@
 
 import os
 import socket
-import subprocess
 
 from common.checks import run_checks
 from common.cli import run_cli
 from common.gpsd import configured_gpsd_device, query_gpsd
+from common.proc import service_state
 
 
 def check_service():
-    try:
-        r = subprocess.run(
-            ['systemctl', 'is-active', 'gpsd'], capture_output=True, text=True, timeout=5
-        )
-        state = r.stdout.strip()
-        return state == 'active', f'gpsd service is {state}'
-    except FileNotFoundError:
-        return False, 'systemctl not found (not running on systemd?)'
-    except Exception as e:
-        return False, str(e)
+    state = service_state('gpsd')
+    return state == 'active', f'gpsd service is {state}'
 
 
 def check_device(device):
