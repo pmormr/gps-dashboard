@@ -41,6 +41,7 @@ import time
 
 import paho.mqtt.client as mqtt
 
+from api.sensor_schema import READING_TABLES
 from common.timefmt import now_canonical
 from mqttbus.client import KEEPALIVE_SECONDS, make_client
 from sensors.runner import (
@@ -89,27 +90,10 @@ TOPIC_MAP: dict[str, str] = {
 
 #: Snapshot column order (also the chart display order); pinned to the shared
 #: ``victron`` schema by a test so the two can't drift.
-VICTRON_COLUMNS: list[str] = [
-    'battery_soc',
-    'battery_voltage',
-    'battery_current',
-    'battery_power',
-    'battery_temp_c',
-    'consumed_ah',
-    'time_to_go_s',
-    'battery_state',
-    'pv_power',
-    'pv_voltage',
-    'pv_yield_today_kwh',
-    'solar_state',
-    'dc_system_power',
-    'ac_in_power',
-    'ac_in_current',
-    'ac_in_source',
-    'ac_consumption_power',
-    'vebus_state',
-    'vebus_mode',
-]
+#: Snapshot columns, derived from the shared schema so the reader's emit set can't
+#: drift from the ingest/read side. ``metrics`` is also the display order — the one
+#: source of truth is ``api/sensor_schema.py``.
+VICTRON_COLUMNS: list[str] = list(READING_TABLES['victron']['metrics'])
 
 Number = float | int
 

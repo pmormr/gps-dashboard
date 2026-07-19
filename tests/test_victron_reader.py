@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 
-from api.sensor_schema import READING_TABLES
 from sensors.victron_reader import (
     TOPIC_MAP,
     VICTRON_COLUMNS,
@@ -20,11 +19,6 @@ from sensors.victron_reader import (
     parse_value,
     read_snapshot,
 )
-
-
-def test_columns_match_schema() -> None:
-    """The snapshot column set is exactly the shared ``victron`` schema's metrics."""
-    assert VICTRON_COLUMNS == READING_TABLES['victron']['metrics']
 
 
 def test_columns_unique() -> None:
