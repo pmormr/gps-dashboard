@@ -1,8 +1,8 @@
 # DRY / simplification pass
 
-Status: **PAUSED — resume at Phase 4.** Recon complete (6-agent read-only sweep, 2026-07-19).
-Backend (Phases 1–2) landed in session 1; frontend (Phase 3) landed in session 2 (both 2026-07-19);
-hot-path + structural work (Phases 4–5) deferred to a fresh session.
+Status: **PAUSED — resume at Phase 5.** Recon complete (6-agent read-only sweep, 2026-07-19).
+Backend (Phases 1–2) landed in session 1; frontend (Phase 3) in session 2; sensors hot paths
+(Phase 4) in session 3 (all 2026-07-19); structural work (Phase 5) is what remains.
 
 - ✅ **Phase 1 DONE** (A1, B1–B4 committed; ruff+mypy clean).
 - ✅ **Phase 2 DONE** (C2, C3, C4+C5, C1, C6 + gpsd_validate minor committed; 812 tests green).
@@ -12,8 +12,14 @@ hot-path + structural work (Phases 4–5) deferred to a fresh session.
   global `.card` and drifts from it, so sharing needs a rename + markup churn across both views for
   modest LOC. See "Deliberately NOT doing". F3 was trimmed to the **7 byte-identical** label sites;
   the ~10 size/color variants recon lumped in are genuinely distinct and left alone.
-- ⏭️ **RESUME HERE → Phase 4** (sensors hot paths, test-first, all 🔥), then Phase 5 (structural —
-  each needs a 👍 first).
+- ✅ **Phase 4 DONE** (session 3: D1, D4, core-minor logger constants, D2 — 4 commits; 811 tests green,
+  ruff+mypy clean tree-wide). **D3 — SKIPPED (user call 2026-07-19):** the Dahua RPC scaffolding is
+  untested (tests stub `_rpc_*` at the method boundary), network-touching, deployed, and the
+  `_clock_offset` half is behavior-risky on the per-device early-out — ~10 LOC for real risk. The
+  optional `processor._distance_m → simplify.distance_m` move was also skipped (single-use relocation,
+  not a dedup). See "Deliberately NOT doing".
+- ⏭️ **RESUME HERE → Phase 5** (structural — each needs a 👍 first). **D5 + F11 already approved**
+  (user, 2026-07-19); the rest await per-item approval.
 
 **Fresh-session pickup notes:**
 - Phase 3+ is frontend: changes land in `web/src/`; run `npm run build` + Vitest and **commit the
@@ -151,23 +157,29 @@ Fridge ≡ Radio control-panel visual language → `controls.css`/`app.css`.
 
 ---
 
-## Phase 4 — sensors hot paths  (test-first; all 🔥)
+## Phase 4 — sensors hot paths  (test-first; all 🔥) — ✅ DONE (D3 skipped)
 
-### D1 — `publish_reading` / `publish_status` helpers  [M, L, 🔥] · ~13 LOC + deletes ~8 `# type: ignore`
-Centralize `qos=1, retain=True` + ts-stamping; typed → removes the `# type: ignore` noise. De-risks D2.
+### D1 — `publish_reading` / `publish_status` helpers — ✅ DONE
+Typed `publish_status`/`publish_reading` in `runner.py` centralize `qos=1, retain=True`; removed all 8
+`# type: ignore[attr-defined]` (victron/fridge/obd). ts-stamping left caller-side (victron/fridge fold
+ts + history into `build_snapshot`). The client seam was later narrowed to a `Publisher` protocol
+(commit with D2) so the stubs type-check without a suppression.
 
-### D4 — `used_percent(total, free)` primitive  [M, L, 🔥] · ~6 LOC
-Dedup `system_reader.py:77` core ≡ `dahua_reader.py:166`.
+### D4 — `used_percent(total, free)` primitive — ✅ DONE
+`used_percent(total, available)` in `runner.py` dedups `parse_mem_used_pct` ≡ `dahua.mem_used_pct_from`.
+`disk_usage`'s block-based df formula left alone (different calc).
 
-### D3 — Dahua RPC scaffolding helper  [M, L→M, 🔥] · ~11 LOC
-`_rpc(device, columns, fn)` + `_clock_offset(device)` for the repeated session/except/clock blocks.
+### D3 — Dahua RPC scaffolding helper — ⏭️ SKIPPED (see "Deliberately NOT doing")
 
-**core minor (🔥):** import `GPSD_HOST/PORT/WATCH` from `common.gpsd` in `logger:217` (constants only);
-optionally move `processor._distance_m` → `simplify.distance_m`.
+**core minor (🔥):** — ✅ DONE (logger). Promoted `common.gpsd._WATCH → WATCH`; `logger` imports
+`GPSD_HOST/PORT/WATCH` (constants-only, provably equivalent). The optional `processor._distance_m →
+simplify.distance_m` move was skipped (single-use relocation, not a dedup).
 
-### D2 — Unify Victron/Fridge status-owning loop  [S, M, 🔥] · ~40 LOC  *(propose first)*
-`run_gated_publisher(source, ...)` in `runner.py` where `source.read()->Mapping|None`. Covered by
-`tests/test_{victron,fridge}_reader.py::test_publish_loop_*`.
+### D2 — Unify Victron/Fridge status-owning loop — ✅ DONE
+`run_gated_publisher(*, read: Callable[[], str|None], stale_label, heartbeat_context, ...)` in
+`runner.py` (session-owning sibling of `run_simple_publisher`). Each reader keeps a small
+`read_snapshot()` adapter; `main()` collapses to one call. Shared flip-on-transition path pinned once
+in `test_runner`; per-reader `read_snapshot` tests replace the three `test_publish_loop_*`.
 
 ---
 
@@ -201,18 +213,30 @@ present. Names also mirror `common/gpsd.py:30`.
 ### E7 — Typed api.ts wrappers for globe/skyplot  [S, M] · ~15 LOC + types 2 `any` payloads
 `getConstellation(hours)`, `getGpsdSky()`; extend `getPasses` for the `track` flag.
 
-### F11 — Backend decode/threshold drift  [S, M→H] · ~25 LOC  *(correctness, not cosmetics)*
+### F11 — Backend decode/threshold drift  [S, M→H] · ~25 LOC  *(correctness, not cosmetics)* — 👍 APPROVED
 Home/Drive re-encode `METRIC_META` enum labels, the throttle bitmask, and the OBD engine-on gate.
 Prefer serving labels from `METRIC_META`; hoist the engine-on gate into one helper. Do incrementally.
 
-### D5 — Victron columns from schema  [S, M] · ~20 LOC  *(layering decision)*
+### D5 — Victron columns from schema  [S, M] · ~20 LOC — 👍 APPROVED (sensors → api import OK, user 2026-07-19)
 `VICTRON_COLUMNS` = `READING_TABLES['victron']['metrics']` instead of a copy + drift-guard test.
-Introduces a `sensors → api` import edge that doesn't exist today — **needs a call on layering.**
+Introduces a `sensors → api` import edge; user confirmed the layering (a sensors→api dep is logical).
 
 ---
 
 ## Deliberately NOT doing  (flagged by recon so we don't relitigate)
 
+- **D3 — Dahua RPC scaffolding** (`_rpc`/`_clock_offset` in `dahua_reader.py`): *skipped, user call
+  2026-07-19.* Two reasons. (1) Zero test coverage of the code it'd touch — `test_dahua_reader.py`
+  stubs `_rpc_nvr_metrics`/`_rpc_camera_metrics` at the method boundary, so the RPC session, the
+  try/except, and the empty-fill path are never exercised; refactoring an untested, network-touching,
+  deployed reader fails the test-first-on-hot-paths bar. (2) The `_clock_offset(device)` half is
+  behavior-risky — the current-time fetch sits *inside* each `_read_*` try that drives the whole-device
+  early-out, so extracting it changes the drop semantics. Net ~10 LOC for real risk on a reader that
+  can't be driven from the dev laptop (fleet's on the van LAN). The one safe slice (a `_host_metrics`
+  for the cpu/mem pair) nets ~-3 LOC for an added method — not worth it alone.
+- **`processor._distance_m → simplify.distance_m`** (Phase 4 core-minor, optional): *skipped.* It's a
+  single-use function (processor only), so moving it to `simplify` is a lateral relocation, not a
+  dedup — it kills no drift surface. Left in place.
 - **F4 — shared control-plane CSS** (Fridge/Radio `.card`/`.seg`/`button.primary`): *skipped, user call
   2026-07-19.* Fridge/Radio's local `.card` is a variant (14px pad + margin-bottom) that **collides
   with and locally overrides the existing global `.card`** (16px, no margin) — so sharing it means a new
@@ -275,9 +299,22 @@ closure (19 call sites); `app.css` grew `.status-banner` (F2) + `.eyebrow` (F3).
 skipped** (see "Deliberately NOT doing"). Two on-device visual glances worth doing post-deploy: the
 status banner (Fridge/Radio +2px pad normalization) and the eyebrow labels render unchanged.
 
-### Remaining (next session): Phases 4–5
+### Session 3 landed (2026-07-19) — sensors hot paths (Phase 4)
 
-Phase 4 (sensors hot paths — test-first, all deployed readers) and Phase 5 (structural, each approved
-first). Biggest remaining reductions are the Phase 5 layout components (F6 `StatusCheckPage`, F5
-`<Toast>`, F7 `poll()`). Open user decisions before their items: **D5** (sensors→api import edge) and
-**F11** (serve `METRIC_META` decode labels from the server).
+4 commits on local `main` (unpushed, stacked on sessions 1–2). Suite 812→811 (net one fewer after
+consolidating three per-reader loop tests into one shared `test_runner` flip test + per-reader
+`read_snapshot` tests); ruff + mypy clean tree-wide. New shared homes in `sensors/runner.py`:
+`publish_status`/`publish_reading` (typed, kill 8 `# type: ignore`), `used_percent`, a `Publisher`
+protocol (the narrowed publish seam), and `run_gated_publisher` (the unified Victron+fridge status
+loop). `common.gpsd._WATCH → WATCH` (logger sources the gpsd socket constants). **D3 + the optional
+`_distance_m` move skipped** (see "Deliberately NOT doing"). Trap avoided: run full-tree `mypy .`
+(not just `mypy sensors/`) after typing a hot-path signature — `tests/` type-checks against it, and
+`mypy sensors/` alone missed the obd test's stale stub-arg type (the `Publisher` seam fixed it).
+
+### Remaining (next session): Phase 5 (structural)
+
+Each item needs a 👍 first; **D5 + F11 already approved** (sensors→api import edge OK; serve
+`METRIC_META` decode labels + hoist the OBD engine-on gate from the server). Biggest remaining
+reductions are the layout components: F6 `StatusCheckPage` (~130), F5 `<Toast>`, F7 `poll()`. Also
+F9, F10, E5, E6, E7 open. All frontend except D5/F11 (backend) — frontend commits must rebuild +
+carry `static/dist/`.
