@@ -1,8 +1,11 @@
 # DRY / simplification pass
 
-Status: **PAUSED — resume at Phase 5.** Recon complete (6-agent read-only sweep, 2026-07-19).
-Backend (Phases 1–2) landed in session 1; frontend (Phase 3) in session 2; sensors hot paths
-(Phase 4) in session 3 (all 2026-07-19); structural work (Phase 5) is what remains.
+Status: **COMPLETE (2026-07-19).** Recon complete (6-agent read-only sweep). Backend (Phases 1–2)
+landed in session 1; frontend (Phase 3) in session 2; sensors hot paths (Phase 4) in session 3;
+structural work (Phase 5) in sessions 3–4 (all 2026-07-19). Sessions 1–3 (D5 + F11 incl.) are
+PUSHED + DEPLOYED + verified live; **session 4 (F7/F6/F10/E5/F5/E6/F9) is committed on local `main`,
+UNPUSHED** — deploy (`git push all main`) is the user's to trigger. E7 + F9's fetchRecord half were
+skipped (see "Deliberately NOT doing").
 
 - ✅ **Phase 1 DONE** (A1, B1–B4 committed; ruff+mypy clean).
 - ✅ **Phase 2 DONE** (C2, C3, C4+C5, C1, C6 + gpsd_validate minor committed; 812 tests green).
@@ -18,8 +21,12 @@ Backend (Phases 1–2) landed in session 1; frontend (Phase 3) in session 2; sen
   `_clock_offset` half is behavior-risky on the per-device early-out — ~10 LOC for real risk. The
   optional `processor._distance_m → simplify.distance_m` move was also skipped (single-use relocation,
   not a dedup). See "Deliberately NOT doing".
-- 🟡 **Phase 5 IN PROGRESS.** **D5 + F11 (①+②) DONE** (2026-07-19; F11 ③ skipped — divergence). The
-  rest (F6, F7, F5, F9, F10, E5, E6, E7 — all frontend) await per-item approval. **RESUME at F6/F7/F10.**
+- ✅ **Phase 5 DONE** (D5 + F11①② in session 3; F7, F6, F10, E5, F5, E6, F9 in session 4 — 7 commits).
+  **E7 SKIPPED** (payloads already typed locally; centralizing hurts locality) and **F9's `fetchRecord`
+  SKIPPED** (fit only EventDetail; PlaceDetail's two-stage guarded fetch is bespoke). See "Deliberately
+  NOT doing". New shared homes: `lib/poll.svelte` (poll rune), `lib/StatusCheckPage.svelte`,
+  `geo.fmtDurationSecs`, `lib/useToast.svelte` + `lib/Toast.svelte`, `lib/gnss.ts`,
+  `views/DataAgeBanner.svelte` + `places.STALE_DAYS_*`; `api.postRadio/postFridge` fold into `sendJSON`.
 
 **Fresh-session pickup notes:**
 - Phase 3+ is frontend: changes land in `web/src/`; run `npm run build` + Vitest and **commit the
@@ -229,6 +236,17 @@ change, not a dedup. See "Deliberately NOT doing".
 
 ## Deliberately NOT doing  (flagged by recon so we don't relitigate)
 
+- **E7 — typed globe/skyplot api.ts wrappers**: *skipped, user call 2026-07-19.* Recon called these "2
+  `any` payloads," but both are already typed at the seam — globe's `fetchWindow(hours)` returns
+  `Promise<ConstellationData>` and skyplot's `data` is `SkyMeta`. Centralizing `getConstellation`/
+  `getGpsdSky` into `api.ts` would force migrating ~5 payload interfaces (`ConstellationData`,
+  `Observer`, `SatRecord`, `Sat`, `SkyMeta`) out of the renderers, *reducing* locality for marginal
+  gain. Only skyplot's `await (await fetch()).json()` is a genuine untyped seam (a 1-line cast, not a
+  migration).
+- **F9's `fetchRecord(idAccessor, fetcher)` half**: *skipped, user call 2026-07-19.* The id-guarded
+  effect fits only **EventDetail** (single fetch). PlaceDetail's guarded effect is a *two-stage* fetch
+  (place → then its events, both guarded on `wanted === id`) that doesn't reduce to one helper call — a
+  helper serving one clean caller isn't a dedup. The `<DataAgeBanner>` half (the real duplication) landed.
 - **F11 item ③ — hoist the OBD engine-on gate** (Home + Drive): *skipped, user call 2026-07-19.* Recon
   assumed duplication; it's actually **divergence**. Home's gate = van age ≤ 30 s AND `obd_link ∉
   {no_adapter,no_car,offline}`; Drive's = `obd_link === 'online'` AND age ≤ 30 s AND `rpm > 0`. They're
@@ -331,10 +349,25 @@ skipped — divergence, not dup). Suite 811→816 (F11 route tests); ruff+mypy+s
 gone, `meta` added). Not visually smoke-tested on-device (needs seeded local DB + non-5000 port) —
 API contract is covered by 6 route tests + svelte-check.
 
-### Remaining Phase 5 (all frontend, each needs a 👍 first)
+### Session 4 landed (2026-07-19) — Phase 5 frontend structural (UNPUSHED)
 
-F6 `StatusCheckPage` (~130, largest), F7 `poll()` rune (~60), F5 `<Toast>` (~55), F9 `<DataAgeBanner>` +
-`fetchRecord` (~30), F10 consolidate 4 duration formatters (~20), E5 `postRadio/postFridge` → `sendJSON`
-(~18), E6 one GNSS name+color source (~15), E7 typed api.ts globe/skyplot wrappers (~15). All touch
-`web/src/` → rebuild + commit `static/dist/` per commit. F10 (Home.dur is one of the 4) + F6/F7 are the
-higher-value ones.
+7 commits on local `main`, stacked on sessions 1–3. Each carries a rebuilt `static/dist/`;
+svelte-check + Vitest clean throughout (Vitest 138→143, +5 `fmtDurationSecs` cases). New shared homes:
+`lib/poll.svelte` (**F7** — dedup 5 views' fetch lifecycle; `$derived`-bridge keeps templates
+untouched, Home's `updated` rides an `onData` hook); `lib/StatusCheckPage.svelte` (**F6** — gpsd/NTP
+chrome; detail panels ride a `children` snippet, shared row CSS is `:global(.status-check …)` so it
+reaches the snippet without colliding with Home/Systems/Data's own `.panel`); `geo.fmtDurationSecs`
+(**F10** — merged 4 duration formatters; floor-based, callers pre-round; tests caught the >24h hour-wrap
+bug); `lib/useToast.svelte` + `lib/Toast.svelte` (**F5** — Fridge/Radio toast; the rune is
+`useToast.svelte.ts` not `toast.svelte.ts` to dodge a case-insensitive-FS collision with `Toast.svelte`);
+`lib/gnss.ts` (**E6** — one GNSS name+colour source over globe/skyplot/Sky); `views/DataAgeBanner.svelte`
++ `places.STALE_DAYS_*` (**F9** — place/event age banner). `api.postRadio/postFridge` fold into
+`sendJSON` (**E5**; error-fallback string standardizes to `HTTP <status>`, seen only when no `{error}`
+body). **Two traps:** (1) snippet content doesn't carry the parent's `{#if}` type-narrowing → assert
+`row!`/wrap `{#if data}` (F6, F9); (2) a `.svelte.ts` rune module can collide with a `.svelte` component
+of the same case-folded name on macOS (F5).
+
+**On-device visual glances still pending post-deploy** (frontend, not smoke-tested locally — port 5000 =
+AirPlay, and gpsd/chrony/fridge/rig aren't on the laptop): F6 gpsd + NTP render unchanged (banner +
+both detail layouts); F5 Fridge/Radio toasts; F9 place/event age banners; plus the two carried from
+Phase 3 (status banner +2px, eyebrow labels).
