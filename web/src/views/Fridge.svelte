@@ -13,6 +13,8 @@
   } from '../lib/api'
   import { clampSetpoint, formatTemp, historyToSeries } from '../lib/fridge'
   import { ageSeconds, formatAge } from '../lib/sensors'
+  import Toast from '../lib/Toast.svelte'
+  import { useToast } from '../lib/useToast.svelte'
 
   // The chart stack (LayerCake + d3) is heavy; like Trends, load it only when
   // this view opens so the main bundle stays lean.
@@ -45,20 +47,10 @@
   let pendingOff = $state<number | null>(null)
   let busy = $state(false)
 
-  let toastMsg = $state('')
-  let toastErr = $state(false)
-  let toastShow = $state(false)
   let pollTimer: number | undefined
   let histTimer: number | undefined
-  let toastTimer: number | undefined
 
-  function toast(msg: string, err = false): void {
-    toastMsg = msg
-    toastErr = err
-    toastShow = true
-    clearTimeout(toastTimer)
-    toastTimer = window.setTimeout(() => (toastShow = false), 2600)
-  }
+  const toaster = useToast(2600)
 
   /** A metric from the snapshot, preferring a fresh post-write read-back. */
   function val(col: string): number | null {
@@ -109,9 +101,9 @@
         overrides[`comp${zone}_set_c`] = { value: back.set_c, at: Date.now() }
       }
       drafts[zone] = null
-      toast(`Zone ${zone + 1} set to ${formatTemp(draft, s?.temp_unit ?? null)}`)
+      toaster.toast(`Zone ${zone + 1} set to ${formatTemp(draft, s?.temp_unit ?? null)}`)
     } catch (e) {
-      toast(errMsg(e), true)
+      toaster.toast(errMsg(e), true)
     } finally {
       busy = false
     }
@@ -125,9 +117,9 @@
       if (typeof back.power === 'number') {
         overrides[`comp${zone}_power`] = { value: back.power, at: Date.now() }
       }
-      toast(`Zone ${zone + 1} ${on ? 'on' : 'off'}`)
+      toaster.toast(`Zone ${zone + 1} ${on ? 'on' : 'off'}`)
     } catch (e) {
-      toast(errMsg(e), true)
+      toaster.toast(errMsg(e), true)
     } finally {
       busy = false
       pendingOff = null
@@ -148,7 +140,6 @@
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer)
     if (histTimer) clearInterval(histTimer)
-    if (toastTimer) clearTimeout(toastTimer)
   })
 
   const unit = $derived(s?.temp_unit ?? null)
@@ -276,7 +267,7 @@
   {/if}
 </div>
 
-<div class="toast" class:show={toastShow} class:err={toastErr}>{toastMsg}</div>
+<Toast c={toaster} />
 
 <style>
   .card {
@@ -448,33 +439,4 @@
     font-size: 13px;
   }
 
-  .toast {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 16px;
-    font-size: 13px;
-    opacity: 0;
-    transition: opacity 0.2s;
-    pointer-events: none;
-    max-width: 90vw;
-    z-index: 200;
-  }
-  .toast.show {
-    opacity: 1;
-  }
-  .toast.err {
-    border-color: var(--err);
-    color: #fecaca;
-  }
-
-  @media (min-width: 768px) {
-    .toast {
-      bottom: 20px;
-    }
-  }
 </style>

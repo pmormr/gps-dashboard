@@ -11,6 +11,8 @@
     type RadioTransmission,
   } from '../lib/api'
   import { RAWSTR_S9, sMeter } from '../lib/radio'
+  import Toast from '../lib/Toast.svelte'
+  import { useToast } from '../lib/useToast.svelte'
 
   // Standard CTCSS tones (Hz) the ID-5100 supports (from dump_caps).
   const CTCSS_TONES = [
@@ -67,19 +69,9 @@
   let editingAf = $state(false)
   let editingSql = $state(false)
 
-  let toastMsg = $state('')
-  let toastErr = $state(false)
-  let toastShow = $state(false)
   let pollTimer: number | undefined
-  let toastTimer: number | undefined
 
-  function toast(msg: string, err = false): void {
-    toastMsg = msg
-    toastErr = err
-    toastShow = true
-    clearTimeout(toastTimer)
-    toastTimer = window.setTimeout(() => (toastShow = false), 2200)
-  }
+  const toaster = useToast(2200)
 
   async function poll(): Promise<void> {
     try {
@@ -103,7 +95,7 @@
       await poll()
       after?.()
     } catch (e) {
-      toast(errMsg(e), true)
+      toaster.toast(errMsg(e), true)
     }
   }
 
@@ -180,7 +172,6 @@
   })
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer)
-    if (toastTimer) clearTimeout(toastTimer)
   })
 
   const freqMhz = (hz: number | undefined): string => (hz == null ? '—' : (hz / 1e6).toFixed(3))
@@ -409,7 +400,7 @@
   <div class="note">2 m repeaters use 600 kHz; 70 cm uses 5000 kHz.</div>
 </div>
 
-<div class="toast" class:show={toastShow} class:err={toastErr}>{toastMsg}</div>
+<Toast c={toaster} />
 
 <style>
   .card {
@@ -687,33 +678,4 @@
     margin-top: 10px;
   }
 
-  .toast {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 16px;
-    font-size: 13px;
-    opacity: 0;
-    transition: opacity 0.2s;
-    pointer-events: none;
-    max-width: 90vw;
-    z-index: 200;
-  }
-  .toast.show {
-    opacity: 1;
-  }
-  .toast.err {
-    border-color: var(--err);
-    color: #fecaca;
-  }
-
-  @media (min-width: 768px) {
-    .toast {
-      bottom: 20px;
-    }
-  }
 </style>
