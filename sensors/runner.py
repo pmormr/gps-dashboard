@@ -184,6 +184,36 @@ def bounded_walk(
     return snapshot
 
 
+def publish_status(client: mqtt.Client, status_topic: str, state: str) -> None:
+    """Publish a retained stream-status flag (``online``/``offline``).
+
+    Centralizes the ``qos=1, retain=True`` contract every status write shares — the
+    "this flag survives a broker restart, so a late subscriber learns the stream's
+    liveness" invariant lives here rather than being restated at each call site.
+
+    Args:
+        client: The connected paho sink client.
+        status_topic: ``sensors/<node>/<type>/status``.
+        state: The retained flag payload (``online`` or ``offline``).
+    """
+    client.publish(status_topic, state, qos=1, retain=True)
+
+
+def publish_reading(client: mqtt.Client, reading_topic: str, payload: str) -> None:
+    """Publish a retained reading snapshot (caller-serialized JSON).
+
+    Same ``qos=1, retain=True`` contract as :func:`publish_status`. Serialization —
+    and the ``ts`` stamp — stays with the caller: readers that fold extra keys into
+    the snapshot (e.g. the fridge's ``history`` rows) own their payload shape.
+
+    Args:
+        client: The connected paho sink client.
+        reading_topic: ``sensors/<node>/<type>``.
+        payload: The already-serialized JSON snapshot.
+    """
+    client.publish(reading_topic, payload, qos=1, retain=True)
+
+
 @contextmanager
 def publisher_session(
     node: str,
@@ -218,7 +248,7 @@ def publisher_session(
         client: mqtt.Client, userdata: object, flags: object, reason_code: object, *_: object
     ) -> None:
         if announce_online:
-            client.publish(status_topic, 'online', qos=1, retain=True)
+            publish_status(client, status_topic, 'online')
         print(f'{sensor_type} reader connected ({reason_code})', flush=True)
 
     client = make_client(
@@ -234,7 +264,7 @@ def publisher_session(
     try:
         yield client, reading_topic, status_topic
     finally:
-        client.publish(status_topic, 'offline', qos=1, retain=True)
+        publish_status(client, status_topic, 'offline')
         time.sleep(0.2)
         client.loop_stop()
         client.disconnect()
@@ -282,7 +312,7 @@ def run_fleet_publisher(
                         continue
                     client, reading_topic = sessions[node]
                     payload = {'ts': now_canonical(), **reading}
-                    client.publish(reading_topic, json.dumps(payload), qos=1, retain=True)
+                    publish_reading(client, reading_topic, json.dumps(payload))
                     hb.bump('published')
                 if once:
                     time.sleep(0.2)
@@ -330,7 +360,7 @@ def run_simple_publisher(
                     hb.bump('dropped')
                 else:
                     payload = {'ts': now_canonical(), **reading}
-                    client.publish(reading_topic, json.dumps(payload), qos=1, retain=True)
+                    publish_reading(client, reading_topic, json.dumps(payload))
                     hb.bump('published')
                 if once:
                     time.sleep(0.2)

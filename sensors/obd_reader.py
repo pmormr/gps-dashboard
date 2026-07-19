@@ -54,9 +54,17 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 import obd
+import paho.mqtt.client as mqtt
 
 from common.timefmt import now_canonical
-from sensors.runner import Heartbeat, add_publisher_args, bounded_step, publisher_session
+from sensors.runner import (
+    Heartbeat,
+    add_publisher_args,
+    bounded_step,
+    publish_reading,
+    publish_status,
+    publisher_session,
+)
 
 SENSOR_TYPE = 'obd'
 
@@ -318,7 +326,7 @@ def _volts(voltage: float | None) -> str:
 
 def poll_loop(
     reader: Reader,
-    client: object,
+    client: mqtt.Client,
     reading_topic: str,
     status_topic: str,
     once: bool,
@@ -350,7 +358,7 @@ def poll_loop(
         if state == 'parked':
             probed = reader.probe()
             if probed != link:
-                client.publish(status_topic, probed, qos=1, retain=True)  # type: ignore[attr-defined]
+                publish_status(client, status_topic, probed)
                 print(f'link: {probed}', flush=True)
                 link = probed
             voltage = reader.voltage() if probed == 'online' else None
@@ -386,7 +394,7 @@ def poll_loop(
                     nulls += 1
 
         payload = {'ts': now_canonical(), **current}
-        client.publish(reading_topic, json.dumps(payload), qos=1, retain=True)  # type: ignore[attr-defined]
+        publish_reading(client, reading_topic, json.dumps(payload))
         hb.bump('published')
         hb.bump('nulls', nulls)
 
@@ -427,7 +435,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         '--protocol',
         default=default_protocol(),
-        help="Force a python-OBD protocol id to skip the scan (default $GPS_OBD_PROTOCOL; "
+        help='Force a python-OBD protocol id to skip the scan (default $GPS_OBD_PROTOCOL; '
         "the van is '7', CAN 29/500).",
     )
     parser.add_argument(

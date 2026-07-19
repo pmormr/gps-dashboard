@@ -43,7 +43,14 @@ import paho.mqtt.client as mqtt
 
 from common.timefmt import now_canonical
 from mqttbus.client import KEEPALIVE_SECONDS, make_client
-from sensors.runner import Heartbeat, add_publisher_args, bounded_walk, publisher_session
+from sensors.runner import (
+    Heartbeat,
+    add_publisher_args,
+    bounded_walk,
+    publish_reading,
+    publish_status,
+    publisher_session,
+)
 
 SENSOR_TYPE = 'victron'
 
@@ -318,7 +325,7 @@ class FakeSource:
 
 def publish_loop(
     source: VictronSource | FakeSource,
-    client: object,
+    client: mqtt.Client,
     reading_topic: str,
     status_topic: str,
     once: bool,
@@ -338,19 +345,18 @@ def publish_loop(
     """
     hb = Heartbeat()
     online = False
-    client.publish(status_topic, 'offline', qos=1, retain=True)  # type: ignore[attr-defined]
+    publish_status(client, status_topic, 'offline')
 
     while True:
         source.tick()
         fresh = source.fresh()
         if fresh != online:
-            payload = 'online' if fresh else 'offline'
-            client.publish(status_topic, payload, qos=1, retain=True)  # type: ignore[attr-defined]
+            publish_status(client, status_topic, 'online' if fresh else 'offline')
             online = fresh
 
         if fresh:
             snapshot = json.dumps(build_snapshot(source.snapshot()))
-            client.publish(reading_topic, snapshot, qos=1, retain=True)  # type: ignore[attr-defined]
+            publish_reading(client, reading_topic, snapshot)
             hb.bump('published')
         else:
             hb.bump('stale')

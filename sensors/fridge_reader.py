@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
+import paho.mqtt.client as mqtt
+
 from common.ddmp import (
     HISTORY_BUCKET_S,
     HISTORY_BUCKET_TICKS,
@@ -55,6 +57,8 @@ from sensors.runner import (
     Heartbeat,
     add_publisher_args,
     bounded_walk,
+    publish_reading,
+    publish_status,
     publisher_session,
 )
 
@@ -274,7 +278,7 @@ def build_snapshot(poll: FridgePoll) -> dict[str, object]:
 
 def publish_loop(
     sensor: FridgeSource,
-    client: object,
+    client: mqtt.Client,
     reading_topic: str,
     status_topic: str,
     once: bool,
@@ -294,19 +298,18 @@ def publish_loop(
     """
     hb = Heartbeat()
     online = False
-    client.publish(status_topic, 'offline', qos=1, retain=True)  # type: ignore[attr-defined]
+    publish_status(client, status_topic, 'offline')
 
     while True:
         poll = sensor.read()
         fresh = poll is not None
         if fresh != online:
-            payload = 'online' if fresh else 'offline'
-            client.publish(status_topic, payload, qos=1, retain=True)  # type: ignore[attr-defined]
+            publish_status(client, status_topic, 'online' if fresh else 'offline')
             online = fresh
 
         if poll is not None:
             snapshot = json.dumps(build_snapshot(poll))
-            client.publish(reading_topic, snapshot, qos=1, retain=True)  # type: ignore[attr-defined]
+            publish_reading(client, reading_topic, snapshot)
             hb.bump('published')
         else:
             hb.bump('unreachable')
