@@ -1,8 +1,8 @@
 <script lang="ts">
   import { getPlaceEvent, type PlaceEvent } from '../lib/api'
   import { errMsg } from '../lib/errors'
-  import { stripHtml } from '../lib/places'
-  import { fmtDate } from '../lib/geo'
+  import { STALE_DAYS_FEDERAL, stripHtml } from '../lib/places'
+  import DataAgeBanner from './DataAgeBanner.svelte'
 
   // One event's full detail — description, the complete occurrence list, and the
   // practical lines (location, fees, reservation). Rendered in the Places
@@ -12,14 +12,8 @@
     onShowMap,
   }: { id: number; onShowMap?: (lat: number, lon: number, zoom: number) => void } = $props()
 
-  const STALE_DAYS = 45
-
   let row = $state<(PlaceEvent & { details: Record<string, unknown> }) | null>(null)
   let status = $state('Loading…')
-
-  const ageDays = $derived(
-    row ? Math.floor((Date.now() - new Date(row.synced_at).getTime()) / 86_400_000) : 0,
-  )
 
   $effect(() => {
     const wanted = id
@@ -51,10 +45,9 @@
 {#if row}
   <h2 class="attr-title">📅 {row.name}</h2>
 
-  <div class="attr-banner" class:stale={ageDays > STALE_DAYS}>
-    Data synced {fmtDate(row.synced_at)}
-    {#if ageDays > STALE_DAYS}· {ageDays} days old — verify at a visitor center{/if}
-  </div>
+  <DataAgeBanner syncedAt={row.synced_at} staleDays={STALE_DAYS_FEDERAL}>
+    {#snippet action()}verify at a visitor center{/snippet}
+  </DataAgeBanner>
 
   <div class="attr-meta-line">
     {#if row.park_code}{row.park_code.toUpperCase()}{/if}

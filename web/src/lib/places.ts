@@ -25,6 +25,13 @@ type View = typeof MapViewType
 
 export { CATEGORY_META }
 
+// Detail-pane data-age thresholds (days). Federal rows carry schedule-ish data
+// (hours, events) that degrades in weeks; the OSM extract and the GNIS names
+// file are seasonal rebuilds (and names barely age), so their banners escalate
+// on the slower cadence.
+export const STALE_DAYS_FEDERAL = 45
+export const STALE_DAYS_BULK = 180
+
 /** Per-kind presentation, in display order (legend, panel filters, sheet header). */
 export const KIND_META: { kind: PlaceKind; label: string; icon: string; color: string }[] = [
   { kind: 'park', label: 'Parks', icon: '🏞', color: '#10b981' },

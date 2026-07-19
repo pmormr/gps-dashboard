@@ -8,11 +8,18 @@
     type PlaceWiki,
   } from '../lib/api'
   import { errMsg } from '../lib/errors'
-  import { eventDateLabel, placeMeta, stripHtml } from '../lib/places'
+  import {
+    STALE_DAYS_BULK,
+    STALE_DAYS_FEDERAL,
+    eventDateLabel,
+    placeMeta,
+    stripHtml,
+  } from '../lib/places'
   import { rowIcon } from '../lib/icons'
-  import { fmtDate, localDate } from '../lib/geo'
+  import { localDate } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { destination } from '../lib/stores/destination.svelte'
+  import DataAgeBanner from './DataAgeBanner.svelte'
   import PoiIcon from './PoiIcon.svelte'
 
   // One place's full detail — title, the always-on data-age banner, summary,
@@ -38,12 +45,6 @@
     osm: 'OpenStreetMap',
   }
 
-  // Syncs older than this read as a warning, not just a note. Federal rows
-  // carry schedule-ish data (hours, events) that degrades in weeks; the OSM
-  // extract and the GNIS names file are seasonal rebuilds (and names barely
-  // age), so their banners escalate on that cadence instead.
-  const STALE_DAYS_FEDERAL = 45
-  const STALE_DAYS_BULK = 180
   /** How far ahead the detail looks for the park's events. */
   const EVENT_HORIZON_DAYS = 30
 
@@ -54,9 +55,6 @@
   const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
   const meta = $derived(row ? placeMeta(row) : null)
-  const ageDays = $derived(
-    row ? Math.floor((Date.now() - new Date(row.synced_at).getTime()) / 86_400_000) : 0,
-  )
   const bulkSource = $derived(row?.source === 'osm' || row?.source === 'gnis')
   const staleDays = $derived(bulkSource ? STALE_DAYS_BULK : STALE_DAYS_FEDERAL)
 
@@ -154,15 +152,13 @@
     {row.name}
   </h2>
 
-  <div class="attr-banner" class:stale={ageDays > staleDays}>
-    Data synced {fmtDate(row.synced_at)}
-    {#if ageDays > staleDays}
-      · {ageDays} days old —
-      {#if row.source === 'osm'}rebuild the OSM extract
-      {:else if row.source === 'gnis'}re-import the GNIS names file
+  <DataAgeBanner syncedAt={row.synced_at} {staleDays}>
+    {#snippet action()}
+      {#if row!.source === 'osm'}rebuild the OSM extract
+      {:else if row!.source === 'gnis'}re-import the GNIS names file
       {:else}verify at a visitor center{/if}
-    {/if}
-  </div>
+    {/snippet}
+  </DataAgeBanner>
 
   {#if row.twins?.length}
     <div class="attr-meta-line">
