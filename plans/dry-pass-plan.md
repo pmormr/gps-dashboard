@@ -1,7 +1,15 @@
 # DRY / simplification pass
 
 Status: **IN PROGRESS** — recon complete (6-agent read-only sweep, 2026-07-19).
-**Phase 1 DONE** (A1, B1–B4 committed; 803 tests green, ruff+mypy clean). Next: Phase 2 (tools/).
+- **Phase 1 DONE** (A1, B1–B4 committed; ruff+mypy clean).
+- **Phase 2 DONE** (C2, C3, C4+C5, C1, C6 + gpsd_validate minor committed; 812 tests green).
+  **C7 (ThreadPoolExecutor cancel helper) — recommend SKIP** (awaiting user confirm): the only
+  shared code is a 2-line `f.cancel()` loop; each interrupt handler's real work (precache flag +
+  post-pool print; fetch_wikipedia DB `_flush` + resume hint + a *second* streak-abort cancel;
+  import_drone summary + `return 130`) must stay caller-side. A shared generator saves ~6 lines and
+  adds control-flow indirection — trades duplication for complexity. Moved to "Deliberately NOT doing"
+  pending confirmation.
+- Next: Phase 3 (frontend mechanical: helpers + CSS consolidation).
 
 Goal: reduce LOC and complexity, and kill cross-module drift surfaces, without over-abstracting.
 Appetite (agreed): execute **mechanical** clear wins directly; **structural** items are proposed and
