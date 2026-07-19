@@ -1,6 +1,7 @@
 # DRY / simplification pass
 
-Status: **PLANNING** — recon complete (6-agent read-only sweep, 2026-07-19), awaiting execution.
+Status: **IN PROGRESS** — recon complete (6-agent read-only sweep, 2026-07-19).
+**Phase 1 DONE** (A1, B1–B4 committed; 803 tests green, ruff+mypy clean). Next: Phase 2 (tools/).
 
 Goal: reduce LOC and complexity, and kill cross-module drift surfaces, without over-abstracting.
 Appetite (agreed): execute **mechanical** clear wins directly; **structural** items are proposed and
