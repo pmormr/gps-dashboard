@@ -44,7 +44,7 @@ import math
 import re
 import time
 from collections import Counter, defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -52,10 +52,9 @@ import requests
 from sgp4.api import Satrec, jday
 
 import api.db
-from api.db import canonical_timestamp, get_connection, now_canonical
-from api.observatory import Sample, anchor_observer, reconstruct_tracks, sat_name
+from api.db import get_connection
+from api.observatory import Sample, sat_name
 from common.cli import run_cli
-from common.gpsd import GNSS_NAMES
 from common.orbits import azel_at, fit_orbit
 from common.satcat import SatMeta, load_satcat
 from common.satgeo import (
@@ -64,7 +63,12 @@ from common.satgeo import (
     ecef_to_azel,
     eci_to_ecef,
     gmst_rad,
-    observer_ecef,
+)
+from tools.backtest_common import (
+    load_observation_tracks,
+    percentile,
+    print_error_table,
+    split_holdout,
 )
 
 CELESTRAK_GP = 'https://celestrak.org/NORAD/elements/gp.php'
@@ -224,42 +228,6 @@ def _match_identity(
     return cands[votes.most_common(1)[0][0]]
 
 
-def _percentile(values: list[float], frac: float) -> float:
-    """Linear-index percentile of a non-empty list (frac in [0, 1])."""
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(frac * (len(ordered) - 1) + 0.5))]
-
-
-def _split(
-    samples: list[Sample], hold_frac: float, min_fit: int
-) -> tuple[list[Sample], list[Sample]]:
-    """Earlier-fit / later-holdout split; empty fit when the record is too short."""
-    k = int(len(samples) * (1.0 - hold_frac))
-    if k < min_fit or len(samples) - k < 1:
-        return [], []
-    return samples[:k], samples[k:]
-
-
-def _table(title: str, errors: dict[int, list[float]], unit: str) -> None:
-    """Print a per-constellation median/p90/max error table with an ALL row."""
-    print(f'\n{title}')
-    print(f'{"System":<10}{"SVs/obs":>10}{"median":>10}{"p90":>10}{"max":>10}')
-    allv: list[float] = []
-    for gnssid in sorted(errors):
-        errs = errors[gnssid]
-        allv.extend(errs)
-        name = GNSS_NAMES.get(gnssid, f'gnss{gnssid}')
-        print(
-            f'{name:<10}{len(errs):>10}{_percentile(errs, 0.5):>9.2f}{unit}'
-            f'{_percentile(errs, 0.9):>9.2f}{unit}{max(errs):>9.2f}{unit}'
-        )
-    if allv:
-        print(
-            f'{"ALL":<10}{len(allv):>10}{_percentile(allv, 0.5):>9.2f}{unit}'
-            f'{_percentile(allv, 0.9):>9.2f}{unit}{max(allv):>9.2f}{unit}'
-        )
-
-
 def _load_meta(cache: Path, fetch: bool) -> dict[int, SatMeta]:
     """Load the SATCAT cache, or an empty map if it is unavailable."""
     try:
@@ -274,21 +242,11 @@ def run(args: argparse.Namespace) -> int:
     meta = _load_meta(Path(args.satcat_cache), not args.no_fetch)
 
     conn = get_connection()
-    obs = anchor_observer(conn, now_canonical())
-    if obs is None:
+    loaded = load_observation_tracks(conn, args.hours)
+    if loaded is None:
         print('No GPS fix available to anchor the observer.')
         return 1
-    lat, lon = obs['lat'], obs['lon']
-    origin = observer_ecef(lat, lon, obs['altitude'] or 0.0)
-
-    start_ts = canonical_timestamp((datetime.now(UTC) - timedelta(hours=args.hours)).isoformat())
-    rows = conn.execute(
-        'SELECT timestamp, gnssid, svid, az, el, snr, used FROM sat_observations '
-        'WHERE timestamp BETWEEN ? AND ? AND az IS NOT NULL AND el IS NOT NULL '
-        'ORDER BY gnssid, svid, timestamp',
-        [start_ts, now_canonical()],
-    ).fetchall()
-    tracks = reconstruct_tracks(rows, lat, lon, origin)
+    lat, lon, origin, tracks = loaded
 
     geom: dict[int, list[float]] = defaultdict(list)
     pos3d: dict[int, list[float]] = defaultdict(list)
@@ -315,7 +273,7 @@ def run(args: argparse.Namespace) -> int:
             pos3d[gnssid].append(_dist3_km(s.ecef_m, te))
         geom[gnssid].extend(sv_geom)
 
-        fit_samples, hold = _split(samples, args.hold_frac, args.min_fit)
+        fit_samples, hold = split_holdout(samples, args.hold_frac, args.min_fit)
         sv_model: list[float] = []
         if fit_samples:
             orbit = fit_orbit([(s.unix, s.ecef_m) for s in fit_samples], gnssid)
@@ -330,8 +288,8 @@ def run(args: argparse.Namespace) -> int:
                 model[gnssid].extend(sv_model)
 
         if args.verbose:
-            gm = _percentile(sv_geom, 0.5) if sv_geom else float('nan')
-            md = _percentile(sv_model, 0.5) if sv_model else float('nan')
+            gm = percentile(sv_geom, 0.5) if sv_geom else float('nan')
+            md = percentile(sv_model, 0.5) if sv_model else float('nan')
             m = meta.get(ident.satrec.satnum)
             tag = f'{m.name} [{m.owner} {m.launch_date[:4]}]' if m else ident.name
             print(
@@ -347,9 +305,11 @@ def run(args: argparse.Namespace) -> int:
         print('No satellite matched a TLE. Check the window overlaps fresh observations.')
         return 1
 
-    _table('Input geometry — logged az/el vs TLE truth (no fit):', geom, '°')
-    _table('Orbit-model prediction — our fit at held-out times vs TLE truth:', model, '°')
-    _table('Reconstruction 3D error — nominal-radius ECEF vs TLE truth:', pos3d, 'km')
+    print_error_table(geom, '°', 'Input geometry — logged az/el vs TLE truth (no fit):')
+    print_error_table(
+        model, '°', 'Orbit-model prediction — our fit at held-out times vs TLE truth:'
+    )
+    print_error_table(pos3d, 'km', 'Reconstruction 3D error — nominal-radius ECEF vs TLE truth:')
     return 0
 
 

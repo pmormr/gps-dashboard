@@ -19,57 +19,35 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
 
 import api.db
-from api.db import canonical_timestamp, get_connection, now_canonical
-from api.observatory import Sample, anchor_observer, reconstruct_tracks, sat_name
+from api.db import get_connection
+from api.observatory import sat_name
 from common.cli import run_cli
-from common.gpsd import GNSS_NAMES
 from common.orbits import azel_at, fit_orbit
-from common.satgeo import angular_separation_deg, ecef_to_azel, observer_ecef
-
-
-def _percentile(values: list[float], frac: float) -> float:
-    """Linear-index percentile of a non-empty sorted-able list (frac in [0, 1])."""
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(frac * (len(ordered) - 1) + 0.5))]
-
-
-def _split(
-    samples: list[Sample], hold_frac: float, min_fit: int
-) -> tuple[list[Sample], list[Sample]]:
-    """Earlier-fit / later-holdout split; empty fit when the record is too short."""
-    k = int(len(samples) * (1.0 - hold_frac))
-    if k < min_fit or len(samples) - k < 1:
-        return [], []
-    return samples[:k], samples[k:]
+from common.satgeo import angular_separation_deg, ecef_to_azel
+from tools.backtest_common import (
+    load_observation_tracks,
+    percentile,
+    print_error_table,
+    split_holdout,
+)
 
 
 def run(args: argparse.Namespace) -> int:
     """Backtest every eligible satellite and print the error report."""
     conn = get_connection()
-    obs = anchor_observer(conn, now_canonical())
-    if obs is None:
+    loaded = load_observation_tracks(conn, args.hours)
+    if loaded is None:
         print('No GPS fix available to anchor the observer.')
         return 1
-    lat, lon = obs['lat'], obs['lon']
-    origin = observer_ecef(lat, lon, obs['altitude'] or 0.0)
-
-    start_ts = canonical_timestamp((datetime.now(UTC) - timedelta(hours=args.hours)).isoformat())
-    rows = conn.execute(
-        'SELECT timestamp, gnssid, svid, az, el, snr, used FROM sat_observations '
-        'WHERE timestamp BETWEEN ? AND ? AND az IS NOT NULL AND el IS NOT NULL '
-        'ORDER BY gnssid, svid, timestamp',
-        [start_ts, now_canonical()],
-    ).fetchall()
-    tracks = reconstruct_tracks(rows, lat, lon, origin)
+    lat, lon, origin, tracks = loaded
 
     errors: dict[int, list[float]] = defaultdict(list)
     n_validated = 0
     n_skipped = 0
     for (gnssid, svid), samples in sorted(tracks.items()):
-        fit_samples, hold = _split(samples, args.hold_frac, args.min_fit)
+        fit_samples, hold = split_holdout(samples, args.hold_frac, args.min_fit)
         if not fit_samples:
             n_skipped += 1
             continue
@@ -87,7 +65,7 @@ def run(args: argparse.Namespace) -> int:
         if args.verbose and sv_errs:
             print(
                 f'  {sat_name(gnssid, svid):<4} fit {len(fit_samples):>4}  hold {len(hold):>4}'
-                f'  median {_percentile(sv_errs, 0.5):6.2f}°  p90 {_percentile(sv_errs, 0.9):6.2f}°'
+                f'  median {percentile(sv_errs, 0.5):6.2f}°  p90 {percentile(sv_errs, 0.9):6.2f}°'
             )
 
     print(f'\nObserver {lat:.4f}, {lon:.4f} · window {args.hours}h · hold {args.hold_frac:.0%}')
@@ -98,20 +76,7 @@ def run(args: argparse.Namespace) -> int:
         print('No satellite had enough observations to backtest. Let the logger run longer.')
         return 1
 
-    print(f'{"System":<10}{"SVs/obs":>10}{"median":>10}{"p90":>10}{"max":>10}')
-    all_errs: list[float] = []
-    for gnssid in sorted(errors):
-        errs = errors[gnssid]
-        all_errs.extend(errs)
-        name = GNSS_NAMES.get(gnssid, f'gnss{gnssid}')
-        print(
-            f'{name:<10}{len(errs):>10}{_percentile(errs, 0.5):>9.2f}°'
-            f'{_percentile(errs, 0.9):>9.2f}°{max(errs):>9.2f}°'
-        )
-    print(
-        f'{"ALL":<10}{len(all_errs):>10}{_percentile(all_errs, 0.5):>9.2f}°'
-        f'{_percentile(all_errs, 0.9):>9.2f}°{max(all_errs):>9.2f}°'
-    )
+    print_error_table(errors, unit='°')
     return 0
 
 

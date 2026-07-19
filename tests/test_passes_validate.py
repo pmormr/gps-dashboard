@@ -2,7 +2,7 @@
 
 import math
 
-from tools.passes_validate import _percentile, angular_separation_deg
+from tools.passes_validate import angular_separation_deg
 
 
 def test_angular_separation_identical_is_zero() -> None:
@@ -24,11 +24,3 @@ def test_angular_separation_azimuth_at_zenith_is_small() -> None:
     """Near zenith a large azimuth gap is a small on-sky angle (no blow-up)."""
     sep = angular_separation_deg(10.0, 89.0, 200.0, 89.0)
     assert sep < 2.5
-
-
-def test_percentile_bounds_and_median() -> None:
-    """Percentile picks sane order statistics."""
-    values = [5.0, 1.0, 4.0, 2.0, 3.0]
-    assert _percentile(values, 0.0) == 1.0
-    assert _percentile(values, 1.0) == 5.0
-    assert _percentile(values, 0.5) == 3.0
