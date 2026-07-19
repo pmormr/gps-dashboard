@@ -20,7 +20,7 @@ from flask import Blueprint, jsonify, request
 
 from api.db import get_connection
 from api.params import error, parse_time
-from api.sensor_schema import READING_TABLES
+from api.sensors_read import latest_reading
 from common import ddmp
 from common.ddmp import HISTORY_BUCKET_S, DdmpClient, DdmpError
 from common.timefmt import parse_iso
@@ -161,16 +161,7 @@ def status():
     """
     conn = get_connection()
     sensor = _fridge_sensor(conn)
-    reading = None
-    if sensor is not None:
-        spec = READING_TABLES['fridge']
-        cols = ', '.join(['timestamp', *spec['metrics']])
-        row = conn.execute(
-            f'SELECT {cols} FROM {spec["table"]} WHERE sensor_id = ? '
-            'ORDER BY timestamp DESC LIMIT 1',
-            (sensor['id'],),
-        ).fetchone()
-        reading = dict(row) if row else None
+    reading = latest_reading(conn, sensor['id'], 'fridge') if sensor is not None else None
     constants = _live_constants_cached()
     return jsonify(
         {

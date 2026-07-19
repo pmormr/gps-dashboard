@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 from api.db import get_connection
 from api.params import parse_limit, parse_time_window
 from api.sensor_schema import METRIC_META, READING_TABLES
+from api.sensors_read import latest_reading
 from common.timefmt import epoch_seconds
 
 sensors_bp = Blueprint('sensors', __name__)
@@ -23,29 +24,6 @@ MAX_READINGS = 20000
 DEFAULT_BUCKETS = 1000  # target point count across the window when ?buckets is absent
 MAX_BUCKETS = 2000  # clamp: bounds both the SQL grouping and the wire payload
 MAX_SERIES = 12  # cap on overlaid metrics per request
-
-
-def _latest_reading(conn, sensor_id, type):
-    """Return the most recent reading row for a sensor, or None.
-
-    Args:
-        conn: Open SQLite connection.
-        sensor_id: ``sensors.id``.
-        type: Sensor type, used to pick the readings table.
-
-    Returns:
-        The latest reading as a dict (timestamp + metric columns), or None if
-        the type is unknown or the sensor has no readings yet.
-    """
-    spec = READING_TABLES.get(type)
-    if spec is None:
-        return None
-    cols = ', '.join(['timestamp', *spec['metrics']])
-    row = conn.execute(
-        f'SELECT {cols} FROM {spec["table"]} WHERE sensor_id = ? ORDER BY timestamp DESC LIMIT 1',
-        (sensor_id,),
-    ).fetchone()
-    return dict(row) if row else None
 
 
 @sensors_bp.get('/api/sensors')
@@ -63,7 +41,7 @@ def list_sensors():
     sensors = []
     for row in rows:
         sensor = dict(row)
-        sensor['latest'] = _latest_reading(conn, row['id'], row['type'])
+        sensor['latest'] = latest_reading(conn, row['id'], row['type'])
         sensors.append(sensor)
     return jsonify({'sensors': sensors, 'metrics': READING_TABLES, 'meta': METRIC_META})
 
