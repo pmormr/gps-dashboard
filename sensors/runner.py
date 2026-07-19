@@ -184,6 +184,26 @@ def bounded_walk(
     return snapshot
 
 
+def used_percent(total: float | None, available: float | None) -> float | None:
+    """Return capacity-used percent = ``(1 - available/total)·100``, rounded to 0.1.
+
+    The shared "how full is it" primitive for readers reporting a used-vs-total
+    fraction (RAM via ``MemAvailable``, an NVR's memory via its RPC reply). Unit-
+    agnostic: ``total`` and ``available`` need only share a unit.
+
+    Args:
+        total: Total capacity, or None/zero when unknown.
+        available: The not-in-use amount in the same unit, or None when unknown.
+
+    Returns:
+        Percent in use rounded to 0.1, or None if ``total`` is missing/zero or
+        ``available`` is missing.
+    """
+    if not total or available is None:
+        return None
+    return round((1 - available / total) * 100, 1)
+
+
 def publish_status(client: mqtt.Client, status_topic: str, state: str) -> None:
     """Publish a retained stream-status flag (``online``/``offline``).
 

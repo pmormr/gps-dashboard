@@ -35,6 +35,7 @@ from sensors.runner import (
     add_publisher_args,
     bounded_walk,
     run_simple_publisher,
+    used_percent,
 )
 
 SENSOR_TYPE = 'system'
@@ -92,11 +93,7 @@ def parse_mem_used_pct(meminfo: str) -> float | None:
         parts = rest.split()
         if parts:
             fields[key] = float(parts[0])
-    total = fields.get('MemTotal')
-    available = fields.get('MemAvailable')
-    if not total or available is None:
-        return None
-    return round((1 - available / total) * 100, 1)
+    return used_percent(fields.get('MemTotal'), fields.get('MemAvailable'))
 
 
 def read_mem_used_pct(path: str = '/proc/meminfo') -> float | None:

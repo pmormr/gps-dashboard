@@ -38,7 +38,7 @@ import urllib3
 from requests.auth import HTTPDigestAuth
 
 from sensors.dahua_rpc import Rpc2Error, Rpc2Session
-from sensors.runner import Reading, run_fleet_publisher
+from sensors.runner import Reading, run_fleet_publisher, used_percent
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -172,10 +172,7 @@ def mem_used_pct_from(info: dict[str, float]) -> float | None:
     Returns:
         Percent used rounded to 0.1, or None when the fields are missing/zero.
     """
-    total, free = info.get('total'), info.get('free')
-    if not total or free is None:
-        return None
-    return round((1 - free / total) * 100, 1)
+    return used_percent(info.get('total'), info.get('free'))
 
 
 def smart_metrics(values: list[dict[str, object]]) -> tuple[float | None, int | None, int | None]:
