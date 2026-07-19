@@ -44,8 +44,8 @@ Relationship to the other active plans:
 | 5 | Timing model | **Relative-first, two layers**: nullable `day` (integer) + `slot` (morning/afternoon/evening/overnight) per stop; optional trip `start_date` concretizes days; nullable per-stop **hard anchor** (local date + time window) for tickets/reservations | User call. Plans stay valid before departure is known; shifting departure edits one field. Anchors capture "must be at X at time T"; with `start_date` set, anchor-vs-day conflicts become checkable. |
 | 6 | Anchor time storage | **Park-local date/time strings** (`YYYY-MM-DD`, `HH:MM`), same convention as `attraction_event_dates` — not ms-UTC | Future local times + timezone math is a trap; store and display as written. Only *actual* track data uses `canonical_timestamp`. |
 | 7 | Main-map presence | **Want-to-go pins as a DataLayers toggle** on the Map view | "Where are my marked places relative to me" is half the value. Trip *lines* on the main map are deferred. |
-| 8 | Table naming | **`saved_places`** (not `places`) | ⚑ flagged call. Avoids collision with the NPS `places` API asset (importer coordinate join) and Overture "Places" language in the POI plan. **2026-07-09: the attractions tier itself was renamed to `places` (POI plan decision 10), so this choice is now load-bearing — and the API surface below must move off `/api/places` (now the tier's read routes) to `/api/saved-places`. Route paths in this doc are stale pending that edit.** |
-| 9 | Place delete semantics | **`DELETE /api/places/:id` → 409 listing referencing trips; `?force=1` cascades the trip_stops** | ⚑ flagged call. Restrict-by-default keeps a trip from silently losing a stop; force is the UI's "remove from N trips and delete" confirmation path. |
+| 8 | Table naming | **`saved_places`** (not `places`) | ⚑ flagged call. Avoids collision with the NPS `places` API asset (importer coordinate join) and Overture "Places" language in the POI plan. **2026-07-09: the attractions tier itself was renamed to `places` (POI plan decision 10), so this choice is now load-bearing, and the API surface below uses `/api/saved-places` (moved off `/api/places`, which is now the POI tier's read routes).** |
+| 9 | Place delete semantics | **`DELETE /api/saved-places/:id` → 409 listing referencing trips; `?force=1` cascades the trip_stops** | ⚑ flagged call. Restrict-by-default keeps a trip from silently losing a stop; force is the UI's "remove from N trips and delete" confirmation path. |
 | 10 | Stop reorder API | **`PUT /api/trips/:id/stops` replaces the whole ordered list, transactionally** | ⚑ flagged call. Drag-reorder maps to one idempotent write; no seq-patching races or gap bookkeeping. Per-stop field edits (day/slot/anchor/notes) get a separate `PATCH`. |
 
 ---
@@ -54,7 +54,7 @@ Relationship to the other active plans:
 
 | # | Decision | Notes |
 |---|----------|-------|
-| A | Saved-state read shape for the ⭐ button | `AttractionDetail` needs "is this attraction already saved?" — probably `GET /api/places?source=&source_id=` on detail mount. Verify it stays one cheap indexed read (Phase 2). |
+| A | Saved-state read shape for the ⭐ button | `AttractionDetail` needs "is this attraction already saved?" — probably `GET /api/saved-places?source=&source_id=` on detail mount. Verify it stays one cheap indexed read (Phase 2). |
 | B | Want-to-go pins vs the POI rank gate | Once the POI plan's rank×zoom gating lands, saved pins must **bypass** it (always visible when the layer is on). Trivial if the overlays stay separate layers — just don't merge them (Phase 2/3). |
 | C | Trip `status` vocabulary | `planning`/`archived` minimum; whether `active` earns a slot (and any Drive-view meaning) decided when the nav junction lands (Phase 4 or later). |
 | D | Conflict-flag rules | With `start_date` set: anchored stop whose date ≠ `start_date + (day-1)` flags; anchors out of seq order flag. Exact rules + rendering in Phase 4. |
@@ -77,7 +77,7 @@ Relationship to the other active plans:
 
 ## API surface (all new routes in `api/routes/planner.py`)
 
-- `GET/POST /api/places` · `PATCH/DELETE /api/places/:id` — pool CRUD; GET
+- `GET/POST /api/saved-places` · `PATCH/DELETE /api/saved-places/:id` — pool CRUD; GET
   filters by `source`+`source_id` (the saved-state check) and `bbox`.
 - `GET/POST /api/trips` · `GET/PATCH/DELETE /api/trips/:id` — trip CRUD; GET
   `:id` returns stops joined with their places, ordered.

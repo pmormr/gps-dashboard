@@ -216,7 +216,8 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   `/api/sensors` + `METRIC_META` (grouped, unit-converted, per-section liveness).
   Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below),
   **Fridge** (`Fridge.svelte`, below), **gpsd** (`Gpsd.svelte`,
-  `GET /api/gpsd/status`), and **ntp** (`Ntp.svelte`, `GET /api/ntp`).
+  `GET /api/gpsd/status`), **ntp** (`Ntp.svelte`, `GET /api/ntp`), and **Data**
+  (`Data.svelte`, `GET /api/data/status` — offline-data chunk freshness).
 - **Fridge** (`Fridge.svelte`, `/fridge` under Systems) — the CFX3 control head
   (`/api/fridge/*` — backend in `.claude/modules/sensors.md`). Status polls every
   15 s (DB-backed, cheap — the online banner wears the reading's age); writes are

@@ -90,11 +90,11 @@ Phone location-history tier — the user's Google Timeline export batch-imported
 Places tier — POIs + event schedules synced by `tools/import_places.py` from four sources (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`; the ~10.7M-row OSM NA extract via `--osm-db`, a transfer DB built off-Pi by `tools/build_osm_pois.py`; the ~800k-row USGS GNIS names layer via `--gnis-zip`, deduped against OSM `gnis:feature_id` tags — full-replace per source), plus the `place_wiki` Wikipedia summary/thumbnail cache (`tools/fetch_wikipedia.py` off-Pi → `--wiki-db`; keyed by wiki id so source merges never orphan it), browsed offline; fully rebuildable. Lives in the **`places.db` sidecar** (ATTACHed as `places_db` by `get_connection()`, kept out of the backup path; no write transaction may span main + sidecar — see `.claude/modules/places.md`):
 
 - `places(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at, category, rank)` — one unified row per POI (NPS: `park`|`thingstodo`|`tour`|`visitorcenter`|`campground`|`site`; RIDB adds `recarea`|`facility`|`permit` for the other federal agencies' places; OSM kinds are the primary tag, e.g. `amenity=cafe`). `category` (unified taxonomy) + `rank` (pin-zoom tier, 1 major … 5 search-only) govern all sources through one gate — the decision table is `TAXONOMY` in `tools/build_osm_pois.py`, federal kinds map via `api.db.PLACES_KIND_RANKS`. Columns carry only what queries filter on; display-only structure (tour stops + transcripts, hours, amenities, fees, campsite aggregates; OSM full tags) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable. RIDB `park_code` is the owning `RecAreaID` (numeric; the UI shows `details.recAreaName`). `places_fts` (FTS5) backs search with **token-prefix** semantics.
-- `place_events(...)` + `place_event_dates(event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
+- `place_events(...)` + `place_event_dates(id, event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
 
 GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
 
-- `sat_observations(timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
+- `sat_observations(id, timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
 
 Radio tier — RX transmissions captured by the `radio-recorder` daemon (design = R8 in `plans/radio-platform-plan.md`):
 
@@ -118,7 +118,7 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/fridge/status` · `GET /api/fridge/history?span=` · `POST /api/fridge/{setpoint,power}` — CFX3 control plane: DB snapshot + liveness + cached ranges, stored DC-history reads, and zone setpoint/power writes over DDMP with live read-back; 502 = fridge NAK, 503 = unreachable (sensors.md, `reference/cfx3-ddmp.md`)
 - `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
 - `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
-- `GET /api/places[/:id]` · `GET /api/places/lookup` · `GET /api/places/events[/:id]` — POI/event browse reads; `q` is FTS token-prefix search ordered exact-name → match → rank → distance-to-`center`, `max_rank` is the pin-zoom gate (a caller obligation, not validated — a broad gate-less bbox'd read scans the whole latitude band instead of the partial indexes), `category`/`kind` filter, `center`+`radius` = near-me circle scope, `facets=1` = kind-refinement counts; list pages group cross-source twins (`twins` refs; places.md), `lookup` resolves a `(source, source_id)` natural key (the basemap tap-through bridge); event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
+- `GET /api/places[/:id]` · `GET /api/places/:id/photo` · `GET /api/places/lookup` · `GET /api/places/events[/:id]` — POI/event browse reads (`/photo` = cached Wikipedia thumbnail bytes, 404 when none); `q` is FTS token-prefix search ordered exact-name → match → rank → distance-to-`center`, `max_rank` is the pin-zoom gate (a caller obligation, not validated — a broad gate-less bbox'd read scans the whole latitude band instead of the partial indexes), `category`/`kind` filter, `center`+`radius` = near-me circle scope, `facets=1` = kind-refinement counts; list pages group cross-source twins (`twins` refs; places.md), `lookup` resolves a `(source, source_id)` natural key (the basemap tap-through bridge); event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
 - `GET /api/gpsd/sky` · `GET /api/gpsd/status` · `GET /api/gpsd/live` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in) + the Drive view's 1 Hz TPV-only fix poll
 - `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
 - `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band,dualwatch}` — ID-5100A readout/control via rigctld, **active main band only** (dualwatch on/off is rig-wide, raw CI-V `16 59`); 502 = rig refusal, 503 = rigctld unreachable
@@ -234,6 +234,7 @@ gps-dashboard/
 │       │   ├── geo.ts          # pure geo/format helpers
 │       │   ├── map.ts          # MapView MapLibre façade (npm maplibre/pmtiles)
 │       │   ├── mapHost.ts      # persistent keep-alive map host (alive across routes)
+│       │   ├── prefetch.ts     # idle-time raster tile prefetcher (pure; engine wires it to the map's idle event)
 │       │   ├── timestrip.ts    # canvas timeline island (density + stops + drag-to-zoom)
 │       │   ├── icons.ts        # the one POI icon language (sprite maps + planetiler id codec)
 │       │   ├── labels.ts       # basemap pois-layer composer (categories × density × twin suppression)
@@ -247,7 +248,7 @@ gps-dashboard/
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
 │       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Marks/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet), Systems, Trends, Fridge, Data, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet, +PoiIcon shared POI-glyph component), Systems, Trends, Fridge, Data, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures
@@ -271,6 +272,8 @@ gps-dashboard/
 │   ├── backup_db.py            # DB snapshot + opportunistic rsync to rex-nas + retention (gps-db-backup.timer)
 │   ├── import_places.py        # NPS API + RIDB export → places tier (.claude/modules/places.md)
 │   ├── build_osm_pois.py       # Geofabrik PBF → OSM POI transfer DB (laptop/NAS only; .claude/modules/places.md)
+│   ├── build_poi_sprite.py     # unified POI sprite from the vendored Maki/Temaki SVGs (.claude/modules/places.md)
+│   ├── fetch_wikipedia.py      # Wikipedia summaries + thumbnails → place_wiki cache (off-Pi; --wiki-db)
 │   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)

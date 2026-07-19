@@ -11,7 +11,7 @@ header. gpsd reads it as **UBX binary** (not NMEA) on the primary header UART
 `/dev/ttyAMA0` at 38400 baud — gpsd auto-configures the M9N on attach (NMEA off, UBX
 NAV-PVT/SAT/DOP on), so TPV carries per-fix accuracy (`epx`/`epy`) and `SKY` is fully
 populated. The module's TIMEPULSE is wired to GPIO 4 and read via the `pps-gpio`
-overlay → `/dev/pps0`. gpsd and the logger both reference `/dev/ttyAMA0`. NTP runs in
+overlay → `/dev/pps0`. Only gpsd opens `/dev/ttyAMA0`; the logger consumes gpsd's JSON over TCP (`127.0.0.1:2947`), not the device directly. NTP runs in
 GPS+PPS mode (chrony stratum 1, sub-microsecond accuracy via PPS).
 
 (gpsd also exposes a phantom `/dev/pps1` from attaching the PPS line discipline to the

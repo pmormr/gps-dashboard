@@ -68,7 +68,7 @@ both reads (one observer fix anchors a window; parked van barely moves vs the
 ## Render
 
 - `/globe` (`Globe.svelte` + `web/src/lib/globe.ts`) — three.js textured
-  Earth in ECEF (npm three 0.160.1, dynamic-imported; Earth textures in
+  Earth in ECEF (npm three, dynamic-imported; Earth textures in
   `static/img/`, offline). The client propagates the server's `orbit` params for
   each SV: a dot at the current position (set SVs on the far side) on a faint
   **instantaneous ring** (the inertial plane rotated into ECEF at the window end,

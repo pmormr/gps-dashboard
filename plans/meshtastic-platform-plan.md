@@ -214,8 +214,8 @@ The payoff view — live situational awareness for someone on the trail.
 - [ ] **3a — tracked-hikers panel:** new nav item + route + `views/Mesh.svelte` — per
       tracked node: live position on the map, **last-contact age**, **signal bars**
       (SNR/hops from `mesh_checks`), battery, and the **DM thread** (list + composer,
-      delivery-ACK ticks). Nav grows to 8 (name/icon — M-TAB; Attractions + Docs
-      landed after this plan's last iteration, and drive-view contends for a slot too).
+      delivery-ACK ticks). Nav grows to 9 — Mesh is the 9th destination (name/icon
+      — M-TAB; Places, Docs, and Drive all landed since this plan's last iteration).
 - [ ] **3b — silent-node alarm (M9):** an `alarm_rules` row ("tracked node silent
       > N min") raising `alarm_events` off `last_contact_utc`; surface on the panel +
       Home glance.

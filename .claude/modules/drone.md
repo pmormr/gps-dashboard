@@ -94,7 +94,7 @@ Derived from the source media, fully rebuildable (re-run the importer). Schema i
 The **Data layers** rail panel on `/map` (`DataLayers.svelte`) toggles the
 overlay. On first enable it fetches
 *all* flights once (tiny dataset, independent of the time picker) and renders the
-`drone-line` layer, colored per model (Mini 5 Pro / Avata 2 / Neo). Click a track
+`overlay-3d` custom layer, colored per model (Mini 5 Pro / Avata 2 / Neo). Click a track
 → popup with model, time span, `abs_alt` range, media path.
 
 Tracks **float at flight altitude** (`abs_alt × exaggeration`, sea level fixed)
@@ -111,7 +111,7 @@ via a generic three.js overlay, not a flat drape:
   stays the basemap/terrain/label/PMTiles engine, this just positions vertices
   via `MercatorCoordinate.fromLngLat([lon,lat], altMeters)`. `abs_alt` is MSL and
   the terrain DEM is MSL, so points float at the correct height for free.
-- Lines are three.js `Line2` fat-lines (`three/addons/lines/`, npm three 0.160.1
+- Lines are three.js `Line2` fat-lines (`three/addons/lines/`, npm three
   dynamic-imported): `LineMaterial.linewidth` is screen-space px (`resolution` set
   each render). Picking is **in-overlay** (`pick` projects vertices through the cached
   render matrix, nearest-segment screen test) — three.js raycasting is unreliable

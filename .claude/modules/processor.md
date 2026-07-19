@@ -93,9 +93,6 @@ The starting values below were validated against a real drive — no changes nee
 - **Smooth-zoom LOD (Visvalingam effective-area)** — deferred; the decimator ranks by the
   single-level RW deviation. A batch Visvalingam pass would give nested multi-level
   importance for pop-free zoom; swappable for free later (idempotent → just a rebuild).
-- **Historical per-satellite capture** — deferred; the live skyplot reads gpsd SKY
-  directly (no schema). A `satellite_observations` table would be ~100M+ rows/yr and
-  speculative; `receiver_metadata` stays summary-only (DOP + sat counts).
 - **Retroactive cleanup of historical raw** — out of scope; raw is preserved so a
   rebuild is always possible.
 - **RTK sub-meter** — out of scope (needs a correction stream + base/NTRIP; off-grid

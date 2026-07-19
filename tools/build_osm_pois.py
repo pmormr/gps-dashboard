@@ -31,7 +31,7 @@ Pipeline::
   and taxonomy cannot drift apart. Unnamed rows fall back to brand/operator,
   then a humanized tag value ("Drinking water") — searchable by what they are.
 
-Rank tiers (Phase 3 owns the actual zoom gates; these are the intent):
+Rank tiers (the frontend pin layers own the actual zoom gates; these are the intent):
 
 1. major destination (theme park, IATA airport) — visible from far out (~z5+)
 2. significant stop (fuel, campground, supermarket, peak, hospital) (~z9+)
@@ -667,7 +667,7 @@ def prefilter(src: Path) -> Path:
 # --- Transfer DB ----------------------------------------------------------------------
 
 # Column-compatible with places_db.places (api.db._init_places_schema) plus the
-# broad-POI columns the sidecar gains at merge time (Phase 2): category + rank.
+# broad-POI columns the sidecar gains at merge time: category + rank.
 TRANSFER_SCHEMA = """
     CREATE TABLE places (
         source      TEXT NOT NULL,

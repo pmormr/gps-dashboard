@@ -32,9 +32,10 @@ any future BME680-class sensor takes the same ESP-side path).
 
 GPS logging stays its own process and is **not** on the bus. New moving parts:
 
-- **mosquitto** — local MQTT broker. tcp `:1883` (Pi-side clients) + websockets
-  `:9001` (browser, MQTT-over-WS). `allow_anonymous` (trusted LAN, like the app's
-  no-auth stance). Config `deploy/mosquitto.conf` → `/etc/mosquitto/conf.d/`.
+- **mosquitto** — local MQTT broker, tcp `:1883` only (Pi-side clients).
+  `allow_anonymous` (trusted LAN, like the app's no-auth stance). Config
+  `deploy/mosquitto.conf` → `/etc/mosquitto/conf.d/`. (Browser MQTT-over-WS on
+  `:9001` is deferred — Debian's mosquitto lacks libwebsockets; see the roadmap below.)
 - **BME680 node** (`firmware/cabin-bme680.yaml`) — the live publisher: a Seeed XIAO
   ESP32-C6 + Adafruit BME680 (I2C `0x77`), ESPHome on the esp-idf framework (required
   for the RISC-V C6). `bme68x_bsec2` runs BSEC2 (LP rate, baseline persisted to flash);

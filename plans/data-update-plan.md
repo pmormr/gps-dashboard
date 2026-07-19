@@ -36,8 +36,8 @@ the flagged item before letting the Pi pull its own PBFs.
 | GNIS names | 37 MB public zip | Pi downloads + imports (chained after OSM) | ~seasonal |
 | OSM POIs | ~16 GB Geofabrik PBFs → ~3 GB transfer DB | Pi downloads + builds + merges (hours, detached) | ~seasonal |
 | Wikipedia cache | ~2–3 GB API fetch (hours, resumable) | Pi fetches + merges | after OSM |
-| Vector basemap | ~32 GB `pmtiles extract` of a dated Protomaps planet build | Pi extracts + atomic-replaces | ~seasonal/on demand |
-| Terrain DEM | 98 GB — **static source dataset** | no update action; coverage-expansion recipe only | never |
+| Vector basemap | ~33 GB `pmtiles extract` of a dated Protomaps planet build | Pi extracts + atomic-replaces | ~seasonal/on demand |
+| Terrain DEM | ~105 GB — **static source dataset** | no update action; coverage-expansion recipe only | never |
 | USGS raster cache | user-chosen (estimate shown) | Pi (`precache.py`) | on demand |
 | SATCAT metadata | tiny | Pi fetch | ~weekly when online |
 | Phone timeline | Takeout export | staged file → import | on demand |
