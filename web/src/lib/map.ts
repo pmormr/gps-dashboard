@@ -19,7 +19,7 @@ import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import type { GeoJSONSource, Map as MlMap, Marker, Popup } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 
-import { fmtAltitude, fmtDate, fmtDuration, fmtTime } from './geo'
+import { emptyFC, escapeHtml, fmtAltitude, fmtDate, fmtDuration, fmtTime } from './geo'
 import { DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
 import { prefetchTiles } from './prefetch'
 
@@ -187,10 +187,6 @@ const DRONE_COLORS: Record<string, string> = {
 }
 const DRONE_DEFAULT_COLOR = '#94a3b8'
 
-function emptyFC(): FeatureCollection {
-  return { type: 'FeatureCollection', features: [] }
-}
-
 function lineFC(points: MapPoint[]): FeatureCollection {
   if (points.length < 2) return emptyFC()
   return {
@@ -254,13 +250,6 @@ function droneToLine(flight: DroneFlight): Overlay3DLine {
   }
 }
 
-function escapeHtml(str: unknown): string {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 
 // ── DOM marker elements (terrain-aware; clamp to ground automatically) ──
 

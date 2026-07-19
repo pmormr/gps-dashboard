@@ -15,7 +15,7 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 
 import { getPhonePlaces, getPhoneTracks, type PhonePath, type PhoneVisit } from './api'
-import { fmtDate, fmtDuration, fmtTime } from './geo'
+import { emptyFC, escapeHtml, fmtDate, fmtDuration, fmtTime } from './geo'
 import type { MapView as MapViewType } from './map'
 
 type View = typeof MapViewType
@@ -63,14 +63,6 @@ const VISIT_COLOR = '#e2e8f0'
 /** Map a raw activity type (or null) to its color-group key. */
 export function modeGroup(activityType: string | null | undefined): string {
   return (activityType && MODE_GROUP[activityType]) || 'unknown'
-}
-
-function escapeHtml(str: unknown): string {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 function pushRun(
@@ -137,9 +129,6 @@ export function phoneVisitsToFC(visits: PhoneVisit[]): FeatureCollection {
   return { type: 'FeatureCollection', features }
 }
 
-function emptyFC(): FeatureCollection {
-  return { type: 'FeatureCollection', features: [] }
-}
 
 // A monotonic token drops a stale fetch: while scrubbing, an earlier window's
 // response must not overwrite a later one's (the same guard the trail uses).

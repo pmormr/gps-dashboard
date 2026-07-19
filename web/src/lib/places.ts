@@ -16,6 +16,7 @@
 import type { Feature, FeatureCollection, Point } from 'geojson'
 
 import { getPlaces, type Place, type PlaceCategory, type PlaceKind } from './api'
+import { emptyFC } from './geo'
 import { CATEGORY_META, encodeFeatureId, rowIcon, spriteRef } from './icons'
 import { setSuppressedIds } from './labels'
 import type { MapView as MapViewType } from './map'
@@ -276,9 +277,6 @@ export function stripHtml(html: string): string {
     .trim()
 }
 
-function emptyFC(): FeatureCollection {
-  return { type: 'FeatureCollection', features: [] }
-}
 
 // A monotonic token drops a stale fetch: while panning, an earlier viewport's
 // response must not overwrite a later one's (the same guard the phone layer

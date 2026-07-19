@@ -1,9 +1,26 @@
 /**
  * Pure geo + formatting helpers for the map view.
  *
- * No DOM, no MapLibre — just distance/stat math and unit formatting shared by the
- * map engine (`map.ts`), the timeline, and the inspect-window panel.
+ * No DOM, no MapLibre — just distance/stat math, unit formatting, and the small
+ * GeoJSON/HTML utilities shared by the map engine (`map.ts`), the overlay
+ * controllers (`phone.ts`/`places.ts`), the timeline, and the inspect-window panel.
  */
+
+import type { FeatureCollection } from 'geojson'
+
+/** An empty GeoJSON FeatureCollection (the reset value for map sources). */
+export function emptyFC(): FeatureCollection {
+  return { type: 'FeatureCollection', features: [] }
+}
+
+/** Escape a value for interpolation into popup HTML. */
+export function escapeHtml(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 
 /** A point from `/api/points` (the processed `track_points` tier). */
 export interface TrackPoint {
