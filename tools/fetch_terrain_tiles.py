@@ -29,8 +29,8 @@ import click
 import httpx
 
 from common.cli import run_click
-from tools.precache import count_tiles, tiles_for_bbox
-from tools.regions import REGIONS
+from tools.precache import count_tiles, parse_zoom, tiles_for_bbox
+from tools.regions import REGIONS, parse_bbox
 
 TERRARIUM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
@@ -48,14 +48,6 @@ def humanize_bytes(n: float) -> str:
         if n >= scale:
             return f'{n / scale:.2f} {unit}'
     return f'{n:.0f} B'
-
-
-def parse_zoom(zoom_str: str) -> list[int]:
-    """Parse ``"0-13"`` or ``"12"`` into an inclusive integer range."""
-    if '-' in zoom_str:
-        lo, hi = zoom_str.split('-', 1)
-        return list(range(int(lo), int(hi) + 1))
-    return [int(zoom_str)]
 
 
 def init_mbtiles(
@@ -339,13 +331,11 @@ def _resolve_bbox(
         raise click.UsageError('Specify exactly one of --bbox or --region.')
     if region:
         return REGIONS[region].bbox, region
+    assert bbox is not None  # exactly one of bbox/region is set (checked above)
     try:
-        parts = [float(p) for p in bbox.split(',')]  # type: ignore[union-attr]
+        return parse_bbox(bbox), None
     except ValueError as e:
         raise click.BadParameter('--bbox must be "min_lon,min_lat,max_lon,max_lat"') from e
-    if len(parts) != 4:
-        raise click.BadParameter('--bbox must have exactly four comma-separated floats')
-    return (parts[0], parts[1], parts[2], parts[3]), None
 
 
 @click.command()

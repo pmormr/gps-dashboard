@@ -14,7 +14,7 @@ import requests
 
 from api.tile_layers import LAYERS
 from common.cli import run_click
-from tools.regions import REGIONS
+from tools.regions import REGIONS, parse_bbox
 
 TILE_CACHE_DIR = Path(
     os.environ.get('GPS_TILE_CACHE_DIR', Path.home() / '.cache' / 'gps-dashboard' / 'tiles')
@@ -194,10 +194,7 @@ def main(layer, region, bbox, use_local, radius, zoom, list_regions, workers, ra
         selected_bbox = REGIONS[region].bbox
     elif bbox:
         try:
-            parts = [float(p) for p in bbox.split(',')]
-            if len(parts) != 4:
-                raise ValueError
-            selected_bbox = tuple(parts)
+            selected_bbox = parse_bbox(bbox)
         except ValueError:
             raise click.BadParameter('--bbox must be "min_lon,min_lat,max_lon,max_lat"') from None
     else:

@@ -7,6 +7,25 @@ Used by `tools/precache.py` (raster pre-cache) and `tools/fetch_terrain_tiles.py
 from dataclasses import dataclass
 
 
+def parse_bbox(s: str) -> tuple[float, float, float, float]:
+    """Parse ``"min_lon,min_lat,max_lon,max_lat"`` into four floats.
+
+    Args:
+        s: The comma-separated bbox string from a ``--bbox`` flag.
+
+    Returns:
+        The ``(min_lon, min_lat, max_lon, max_lat)`` tuple.
+
+    Raises:
+        ValueError: If ``s`` is not exactly four parseable floats. Click callers
+            wrap this into a ``click.BadParameter``.
+    """
+    parts = [float(p) for p in s.split(',')]
+    if len(parts) != 4:
+        raise ValueError('bbox must be "min_lon,min_lat,max_lon,max_lat" (4 floats)')
+    return parts[0], parts[1], parts[2], parts[3]
+
+
 @dataclass(frozen=True)
 class Region:
     """A named geographic bounding box in WGS84 degrees.
