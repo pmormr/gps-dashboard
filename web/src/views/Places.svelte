@@ -8,9 +8,9 @@
     type PlaceFacet,
   } from '../lib/api'
   import { errMsg } from '../lib/errors'
-  import { CATEGORY_GROUPS, expandGroups, facetLabel, placeMeta } from '../lib/places'
+  import { CATEGORY_GROUPS, eventDateLabel, expandGroups, facetLabel, placeMeta } from '../lib/places'
   import { rowIcon } from '../lib/icons'
-  import { fmtDate, fmtDistance, haversineMeters } from '../lib/geo'
+  import { fmtDate, fmtDistance, haversineMeters, localDate } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { browse } from '../lib/stores/places.svelte'
   import { layers } from '../lib/stores/layers.svelte'
@@ -99,12 +99,6 @@
     const halfDeg = (browse.radiusMi * M_PER_MI) / 111320
     const lonHalf = halfDeg / Math.max(0.2, Math.cos((a.lat * Math.PI) / 180))
     return `${a.lon - lonHalf},${a.lat - halfDeg},${a.lon + lonHalf},${a.lat + halfDeg}`
-  }
-
-  function localDate(offsetDays: number): string {
-    const d = new Date()
-    d.setDate(d.getDate() + offsetDays)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
 
   const nearActive = $derived(browse.anchorMode === 'near' && anchor != null)
@@ -256,13 +250,6 @@
     router.navigate('/map')
   }
 
-  function eventDateLabel(ev: PlaceEvent): string {
-    const first = ev.dates[0]
-    if (!first) return ''
-    const time = first.time_start ? ` ${first.time_start}` : ''
-    const more = ev.dates.length > 1 ? ` (+${ev.dates.length - 1})` : ''
-    return `${first.date}${time}${more}`
-  }
 </script>
 
 <div class="places-view" class:detail-open={browse.detailOpen}>

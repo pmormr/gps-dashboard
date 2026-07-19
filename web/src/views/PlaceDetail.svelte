@@ -8,9 +8,9 @@
     type PlaceWiki,
   } from '../lib/api'
   import { errMsg } from '../lib/errors'
-  import { placeMeta, stripHtml } from '../lib/places'
+  import { eventDateLabel, placeMeta, stripHtml } from '../lib/places'
   import { rowIcon } from '../lib/icons'
-  import { fmtDate } from '../lib/geo'
+  import { fmtDate, localDate } from '../lib/geo'
   import { router } from '../lib/router.svelte'
   import { destination } from '../lib/stores/destination.svelte'
   import PoiIcon from './PoiIcon.svelte'
@@ -101,12 +101,6 @@
     osmTags ? Object.entries(osmTags).sort(([a], [b]) => a.localeCompare(b)) : [],
   )
 
-  function localDate(offsetDays: number): string {
-    const d = new Date()
-    d.setDate(d.getDate() + offsetDays)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
-
   $effect(() => {
     const wanted = id
     row = null
@@ -148,13 +142,6 @@
     router.navigate('/drive')
   }
 
-  function occurrenceLabel(ev: PlaceEvent): string {
-    const first = ev.dates[0]
-    if (!first) return ''
-    const time = first.time_start ? ` · ${first.time_start}` : ''
-    const more = ev.dates.length > 1 ? ` (+${ev.dates.length - 1} more)` : ''
-    return `${first.date}${time}${more}`
-  }
 </script>
 
 {#if status}
@@ -405,7 +392,7 @@
           <li class="attr-event">
             <div class="attr-stop-name">{ev.name}</div>
             <div class="attr-muted">
-              {occurrenceLabel(ev)}
+              {eventDateLabel(ev, { timeSep: ' · ', moreSuffix: true })}
               {#if ev.location_text}· {ev.location_text}{/if}
               {#if ev.is_free}· free{/if}
               {#if ev.needs_reservation}· reservation required{/if}

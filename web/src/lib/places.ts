@@ -15,7 +15,7 @@
 
 import type { Feature, FeatureCollection, Point } from 'geojson'
 
-import { getPlaces, type Place, type PlaceCategory, type PlaceKind } from './api'
+import { getPlaces, type Place, type PlaceCategory, type PlaceEvent, type PlaceKind } from './api'
 import { emptyFC } from './geo'
 import { CATEGORY_META, encodeFeatureId, rowIcon, spriteRef } from './icons'
 import { setSuppressedIds } from './labels'
@@ -275,6 +275,23 @@ export function stripHtml(html: string): string {
     .replace(/\s+/g, ' ')
     .replace(/ ([.,;:!?])/g, '$1')
     .trim()
+}
+
+/**
+ * One-line label for an event's first occurrence: `date[ sep time][ (+N[ more])]`.
+ * The compact list form omits "more" (`+N`); the detail sheet includes it and
+ * uses a middot time separator.
+ */
+export function eventDateLabel(
+  ev: PlaceEvent,
+  { timeSep = ' ', moreSuffix = false }: { timeSep?: string; moreSuffix?: boolean } = {},
+): string {
+  const first = ev.dates[0]
+  if (!first) return ''
+  const time = first.time_start ? `${timeSep}${first.time_start}` : ''
+  const extra = ev.dates.length - 1
+  const more = extra > 0 ? ` (+${extra}${moreSuffix ? ' more' : ''})` : ''
+  return `${first.date}${time}${more}`
 }
 
 

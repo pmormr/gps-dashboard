@@ -1,12 +1,13 @@
 import type { Point } from 'geojson'
 import { describe, expect, it } from 'vitest'
 
-import type { Place, PlaceCategory, PlaceKind } from './api'
+import type { Place, PlaceCategory, PlaceEvent, PlaceKind } from './api'
 import {
   placesToFC,
   CATEGORY_GROUPS,
   CATEGORY_META,
   categoryMeta,
+  eventDateLabel,
   expandGroups,
   facetLabel,
   KIND_META,
@@ -186,6 +187,35 @@ describe('stripHtml', () => {
 
   it('passes plain text through', () => {
     expect(stripHtml('No markup here.')).toBe('No markup here.')
+  })
+})
+
+describe('eventDateLabel', () => {
+  const ev = (dates: { date: string; time_start: string | null }[]): PlaceEvent =>
+    ({ dates: dates.map((d) => ({ ...d, time_end: null })) }) as PlaceEvent
+
+  it('compact list form: space separator, "+N" with no "more"', () => {
+    const e = ev([
+      { date: '2026-07-20', time_start: '10:00' },
+      { date: '2026-07-21', time_start: null },
+    ])
+    expect(eventDateLabel(e)).toBe('2026-07-20 10:00 (+1)')
+  })
+
+  it('detail form: middot separator, "+N more"', () => {
+    const e = ev([
+      { date: '2026-07-20', time_start: '10:00' },
+      { date: '2026-07-21', time_start: null },
+    ])
+    expect(eventDateLabel(e, { timeSep: ' · ', moreSuffix: true })).toBe('2026-07-20 · 10:00 (+1 more)')
+  })
+
+  it('omits time and the +N suffix for a single dateless occurrence', () => {
+    expect(eventDateLabel(ev([{ date: '2026-07-20', time_start: null }]))).toBe('2026-07-20')
+  })
+
+  it('returns empty string when there are no occurrences', () => {
+    expect(eventDateLabel(ev([]))).toBe('')
   })
 })
 
