@@ -10,13 +10,16 @@ return directly. This mirrors the convention the routes already used by hand
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from flask import Response, jsonify
 from werkzeug.datastructures import MultiDict
 
-from api.db import canonical_timestamp
+from api.db import canonical_timestamp, now_canonical
 
 Bbox = tuple[float, float, float, float]
 ErrorResponse = tuple[Response, int]
+TimeWindow = tuple[str | None, str | None, ErrorResponse | None]
 
 
 def _error(message: str, status: int = 400) -> ErrorResponse:
@@ -50,6 +53,67 @@ def parse_time(value: str, name: str) -> tuple[str | None, ErrorResponse | None]
         return canonical_timestamp(value), None
     except (ValueError, TypeError, AttributeError):
         return None, _error(f"Invalid timestamp for '{name}': {value}")
+
+
+def parse_required_window(args: MultiDict[str, str]) -> TimeWindow:
+    """Parse mandatory ``start`` and ``end`` timestamps into canonical form.
+
+    Both params are required; a missing or malformed value yields an error the
+    handler returns directly. Used by the history/economy reads that have no
+    sensible default window.
+
+    Args:
+        args: The request args mapping (``request.args``).
+
+    Returns:
+        ``(start, end, None)`` on success (both canonical ms-UTC), or
+        ``(None, None, error_response)``.
+    """
+    raw_start = args.get('start')
+    raw_end = args.get('end')
+    if not raw_start or not raw_end:
+        return None, None, _error("'start' and 'end' query params are required")
+    start, err = parse_time(raw_start, 'start')
+    if err:
+        return None, None, err
+    end, err = parse_time(raw_end, 'end')
+    if err:
+        return None, None, err
+    return start, end, None
+
+
+def parse_time_window(args: MultiDict[str, str], default_hours: float) -> TimeWindow:
+    """Parse an optional ``start``/``end`` window, defaulting to a trailing span.
+
+    ``end`` defaults to now; ``start`` defaults to now minus ``default_hours``
+    (a fixed trailing window, independent of an explicit ``end``). Each provided
+    value is validated and normalized to canonical ms-UTC.
+
+    Args:
+        args: The request args mapping (``request.args``).
+        default_hours: Width of the default trailing window when ``start`` is
+            absent.
+
+    Returns:
+        ``(start, end, None)`` on success (both canonical ms-UTC), or
+        ``(None, None, error_response)``.
+    """
+    raw_end = args.get('end')
+    if raw_end:
+        end, err = parse_time(raw_end, 'end')
+        if err:
+            return None, None, err
+    else:
+        end = now_canonical()
+    raw_start = args.get('start')
+    if raw_start:
+        start, err = parse_time(raw_start, 'start')
+        if err:
+            return None, None, err
+    else:
+        window_start = datetime.now(UTC) - timedelta(hours=default_hours)
+        start = canonical_timestamp(window_start.isoformat())
+    return start, end, None
 
 
 def parse_bbox(args: MultiDict[str, str]) -> tuple[Bbox | None, ErrorResponse | None]:

@@ -10,13 +10,11 @@ trail, and orbit. See .claude/modules/observatory.md.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 from flask import Blueprint, jsonify, request
 
-from api.db import canonical_timestamp, get_connection, now_canonical
+from api.db import get_connection
 from api.observatory import anchor_observer, reconstruct_tracks
-from api.params import parse_time
+from api.params import parse_time_window
 from common.orbits import fit_orbit
 from common.satgeo import EARTH_RADIUS_M, observer_ecef
 
@@ -45,22 +43,9 @@ def constellation():
     orbit — one fit, one propagator, so all four agree. ``orbit`` is null when the
     fit fails (the client then falls back to the last observed sample).
     """
-    end = request.args.get('end')
-    if end:
-        end, err = parse_time(end, 'end')
-        if err:
-            return err
-    else:
-        end = now_canonical()
-    start = request.args.get('start')
-    if start:
-        start, err = parse_time(start, 'start')
-        if err:
-            return err
-    else:
-        start = canonical_timestamp(
-            (datetime.now(UTC) - timedelta(hours=_DEFAULT_WINDOW_HOURS)).isoformat()
-        )
+    start, end, err = parse_time_window(request.args, _DEFAULT_WINDOW_HOURS)
+    if err:
+        return err
 
     conn = get_connection()
     obs = anchor_observer(conn, end)

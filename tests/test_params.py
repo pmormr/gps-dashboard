@@ -5,7 +5,14 @@ response with :func:`flask.jsonify`, so those assertions run under the
 ``app_context`` fixture. Success branches need no context.
 """
 
-from api.params import parse_bbox, parse_limit, parse_time
+from api.params import (
+    parse_bbox,
+    parse_limit,
+    parse_required_window,
+    parse_time,
+    parse_time_window,
+)
+from common.timefmt import epoch_seconds
 
 
 class TestParseBbox:
@@ -79,4 +86,42 @@ class TestParseTime:
     def test_invalid(self, app_context):
         value, err = parse_time('not-a-time', 'start')
         assert value is None
+        assert err[1] == 400
+
+
+class TestParseRequiredWindow:
+    def test_both_present_canonicalized(self):
+        start, end, err = parse_required_window(
+            {'start': '2026-06-09T00:00:00Z', 'end': '2026-06-09T01:00:00Z'}
+        )
+        assert err is None
+        assert start == '2026-06-09T00:00:00.000Z'
+        assert end == '2026-06-09T01:00:00.000Z'
+
+    def test_missing_either_is_error(self, app_context):
+        _, _, err = parse_required_window({'start': '2026-06-09T00:00:00Z'})
+        assert err[1] == 400
+
+    def test_malformed_value_is_error(self, app_context):
+        _, _, err = parse_required_window({'start': 'nope', 'end': '2026-06-09T01:00:00Z'})
+        assert err[1] == 400
+
+
+class TestParseTimeWindow:
+    def test_defaults_span_default_hours(self):
+        # Both absent: end≈now, start≈now-2h; the span is the default width.
+        start, end, err = parse_time_window({}, default_hours=2)
+        assert err is None
+        span_h = (epoch_seconds(end) - epoch_seconds(start)) / 3600
+        assert 2 - 0.01 < span_h < 2 + 0.01
+
+    def test_explicit_values_canonicalized(self):
+        start, end, err = parse_time_window(
+            {'start': '2026-06-09T00:00:00Z', 'end': '2026-06-09T06:00:00Z'}, default_hours=2
+        )
+        assert err is None
+        assert (start, end) == ('2026-06-09T00:00:00.000Z', '2026-06-09T06:00:00.000Z')
+
+    def test_malformed_value_is_error(self, app_context):
+        _, _, err = parse_time_window({'end': 'nope'}, default_hours=2)
         assert err[1] == 400

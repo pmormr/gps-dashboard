@@ -9,7 +9,7 @@ constant re-scales all history at once. The fuel leg comes from
 from flask import Blueprint, jsonify, request
 
 from api.db import get_connection
-from api.params import parse_time
+from api.params import parse_required_window
 from common.obd import derive_fuel_rate_lph, summarize_drive
 from common.timefmt import epoch_seconds
 from processor.simplify import track_length_m
@@ -29,14 +29,7 @@ def economy():
     annotation's bounds for per-trip economy. ``calibrated`` is always false until
     a fill-up calibration lands.
     """
-    start = request.args.get('start')
-    end = request.args.get('end')
-    if not start or not end:
-        return jsonify({'error': "'start' and 'end' query params are required"}), 400
-    start, err = parse_time(start, 'start')
-    if err:
-        return err
-    end, err = parse_time(end, 'end')
+    start, end, err = parse_required_window(request.args)
     if err:
         return err
 

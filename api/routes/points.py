@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection
-from api.params import parse_bbox, parse_limit, parse_time
+from api.params import parse_bbox, parse_limit, parse_required_window
 
 points_bp = Blueprint('points', __name__)
 
@@ -79,14 +79,7 @@ def get_points():
     seconds), so stops are taken unconditionally rather than ranked against them.
     ``truncated`` therefore means moving vertices were dropped — stops never are.
     """
-    start = request.args.get('start')
-    end = request.args.get('end')
-    if not start or not end:
-        return jsonify({'error': "'start' and 'end' query params are required"}), 400
-    start, err = parse_time(start, 'start')
-    if err:
-        return err
-    end, err = parse_time(end, 'end')
+    start, end, err = parse_required_window(request.args)
     if err:
         return err
 

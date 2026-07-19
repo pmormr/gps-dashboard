@@ -7,12 +7,10 @@ the broker's websockets support; a future live upgrade can swap the poll for an
 MQTT-over-WS push without changing the schema.
 """
 
-from datetime import UTC, datetime, timedelta
-
 from flask import Blueprint, jsonify, request
 
-from api.db import canonical_timestamp, get_connection, now_canonical
-from api.params import parse_limit, parse_time
+from api.db import get_connection
+from api.params import parse_limit, parse_time_window
 from api.sensor_schema import METRIC_META, READING_TABLES
 from common.timefmt import epoch_seconds
 
@@ -85,22 +83,9 @@ def sensor_readings(sensor_id):
     if spec is None:
         return jsonify({'error': f"Unknown sensor type '{sensor['type']}'"}), 400
 
-    end = request.args.get('end')
-    start = request.args.get('start')
-    if end:
-        end_ts, err = parse_time(end, 'end')
-        if err:
-            return err
-    else:
-        end_ts = now_canonical()
-    if start:
-        start_ts, err = parse_time(start, 'start')
-        if err:
-            return err
-    else:
-        start_ts = canonical_timestamp(
-            (datetime.now(UTC) - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat()
-        )
+    start_ts, end_ts, err = parse_time_window(request.args, DEFAULT_HISTORY_HOURS)
+    if err:
+        return err
 
     limit, err = parse_limit(request.args, default=MAX_READINGS, maximum=MAX_READINGS)
     if err:
@@ -206,22 +191,9 @@ def sensor_series():
     if err:
         return err
 
-    end = request.args.get('end')
-    start = request.args.get('start')
-    if end:
-        end_ts, terr = parse_time(end, 'end')
-        if terr:
-            return terr
-    else:
-        end_ts = now_canonical()
-    if start:
-        start_ts, terr = parse_time(start, 'start')
-        if terr:
-            return terr
-    else:
-        start_ts = canonical_timestamp(
-            (datetime.now(UTC) - timedelta(hours=DEFAULT_HISTORY_HOURS)).isoformat()
-        )
+    start_ts, end_ts, terr = parse_time_window(request.args, DEFAULT_HISTORY_HOURS)
+    if terr:
+        return terr
     if start_ts >= end_ts:
         return jsonify({'error': "'start' must be before 'end'"}), 400
 
