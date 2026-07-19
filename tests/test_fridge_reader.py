@@ -25,7 +25,7 @@ from sensors.fridge_reader import (
     FridgeSensor,
     build_snapshot,
     flatten_history,
-    publish_loop,
+    read_snapshot,
 )
 
 
@@ -55,17 +55,6 @@ class FakeSocket:
 
     def close(self) -> None:
         """Accept the close."""
-
-
-class StubClient:
-    """Captures publishes so ``publish_loop`` can be driven without a broker."""
-
-    def __init__(self) -> None:
-        self.published: list[tuple[str, str]] = []
-
-    def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
-        """Record one publish."""
-        self.published.append((topic, payload))
 
 
 def test_columns_match_schema() -> None:
@@ -212,38 +201,18 @@ def test_build_snapshot_carries_history_when_present() -> None:
     assert snapshot['history'] == rows
 
 
-def test_publish_loop_emits_full_snapshot() -> None:
-    """One reachable poll publishes a complete snapshot: ts + every column."""
-    client = StubClient()
-    publish_loop(
-        FakeFridge(),
-        client,
-        'sensors/van/fridge',
-        'sensors/van/fridge/status',
-        once=True,
-    )
+def test_read_snapshot_emits_full_snapshot() -> None:
+    """A reachable poll yields a serialized snapshot: ts + every column + history.
 
-    readings = [payload for topic, payload in client.published if topic == 'sensors/van/fridge']
-    assert len(readings) == 1
-    payload = json.loads(readings[0])
+    The status-flip loop this feeds is tested once in ``test_runner`` — here we pin
+    only the reader's poll→snapshot mapping.
+    """
+    raw = read_snapshot(FakeFridge())
+    assert raw is not None
+    payload = json.loads(raw)
     assert set(payload) == {'ts', 'history', *FRIDGE_COLUMNS}
     assert all(isinstance(payload[col], int | float) for col in FRIDGE_COLUMNS)
     assert all(row.keys() == {'span', 'bucket_ts', 'dc_current_a'} for row in payload['history'])
-
-
-def test_publish_loop_flips_status_online_when_reachable() -> None:
-    """A successful poll transitions the retained status from offline to online."""
-    client = StubClient()
-    publish_loop(
-        FakeFridge(),
-        client,
-        'sensors/van/fridge',
-        'sensors/van/fridge/status',
-        once=True,
-    )
-
-    statuses = [payload for topic, payload in client.published if topic.endswith('/status')]
-    assert statuses == ['offline', 'online']
 
 
 class UnreachableFridge:
@@ -254,16 +223,6 @@ class UnreachableFridge:
         return None
 
 
-def test_publish_loop_stays_offline_when_unreachable() -> None:
-    """A failed poll publishes no reading and leaves the status offline."""
-    client = StubClient()
-    publish_loop(
-        UnreachableFridge(),
-        client,
-        'sensors/van/fridge',
-        'sensors/van/fridge/status',
-        once=True,
-    )
-
-    assert [p for t, p in client.published if t == 'sensors/van/fridge'] == []
-    assert [p for t, p in client.published if t.endswith('/status')] == ['offline']
+def test_read_snapshot_none_when_unreachable() -> None:
+    """A failed poll yields None so the loop flips the retained status offline."""
+    assert read_snapshot(UnreachableFridge()) is None

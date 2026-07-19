@@ -1,8 +1,9 @@
 """Tests for the shared sensor-reader framework (``sensors/runner.py``).
 
-The reader loops (``poll_loop``/``publish_loop``) are covered by the per-reader
-tests; this pins the pieces they all build on: the heartbeat gate, the fake random
-walk, and the simple read→publish loop bme680 now runs through.
+The reader loops (``poll_loop``, the readers' ``read_snapshot`` adapters) are covered
+by the per-reader tests; this pins the pieces they all build on: the heartbeat gate,
+the fake random walk, the simple read→publish loop bme680 runs through, and the
+status-gated loop the Victron + fridge readers share.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from sensors.runner import (
     bounded_step,
     bounded_walk,
     run_fleet_publisher,
+    run_gated_publisher,
     run_simple_publisher,
 )
 
@@ -138,3 +140,43 @@ def test_run_simple_publisher_emits_one_snapshot(monkeypatch: pytest.MonkeyPatch
     assert set(payload) == {'ts', 'temp_c', 'gas_ohms'}
     assert payload['temp_c'] == 21.5
     assert payload['gas_ohms'] is None
+
+
+def test_run_gated_publisher_flips_status_on_freshness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Freshness owns the flag: seed offline, up on a fresh read, back down when it dries.
+
+    The shared status-gated loop the Victron + fridge readers drive through their
+    ``read_snapshot`` adapters; each reader's freshness→snapshot mapping is pinned in
+    its own test.
+    """
+    stub = StubClient()
+
+    @contextlib.contextmanager
+    def fake_session(
+        node: str, sensor_type: str, *, started_msg: str | None = None, announce_online: bool = True
+    ) -> Iterator[tuple[StubClient, str, str]]:
+        yield stub, f'sensors/{node}/{sensor_type}', f'sensors/{node}/{sensor_type}/status'
+
+    monkeypatch.setattr(runner, 'publisher_session', fake_session)
+
+    reads = iter(['{"ts": 1, "v": 2}', None])
+
+    def read() -> str | None:
+        try:
+            return next(reads)
+        except StopIteration:
+            raise KeyboardInterrupt from None  # break the loop after the scripted cycles
+
+    run_gated_publisher(
+        node='house',
+        sensor_type='victron',
+        interval=0.0,
+        once=False,
+        stale_label='stale',
+        read=read,
+    )
+
+    statuses = [payload for topic, payload in stub.published if topic.endswith('/status')]
+    assert statuses == ['offline', 'online', 'offline']  # seed, up on fresh, down on the dry read
+    readings = [payload for topic, payload in stub.published if topic == 'sensors/house/victron']
+    assert readings == ['{"ts": 1, "v": 2}']  # only the fresh cycle published

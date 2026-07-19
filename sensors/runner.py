@@ -32,7 +32,7 @@ import json
 import os
 import random
 import time
-from collections.abc import Iterator, Mapping, MutableMapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from typing import Protocol
 
@@ -62,6 +62,18 @@ class FleetSensor(Protocol):
 
     def read(self) -> Mapping[str, Reading | None]:
         """Return node → reading for one poll cycle (None = drop that node's cycle)."""
+
+
+class Publisher(Protocol):
+    """The publish capability the reader loops depend on (a paho client, or a stub).
+
+    Narrower than ``mqtt.Client`` on purpose: the loops only ever publish, so typing
+    the seam here lets a capturing test double stand in without asserting the whole
+    client API — and keeps readers off a direct ``mqtt`` import for the type alone.
+    """
+
+    def publish(self, topic: str, payload: str, qos: int = ..., retain: bool = ...) -> object:
+        """Publish ``payload`` to ``topic`` (QoS + retain per the caller's contract)."""
 
 
 def default_node(default: str) -> str:
@@ -204,7 +216,7 @@ def used_percent(total: float | None, available: float | None) -> float | None:
     return round((1 - available / total) * 100, 1)
 
 
-def publish_status(client: mqtt.Client, status_topic: str, state: str) -> None:
+def publish_status(client: Publisher, status_topic: str, state: str) -> None:
     """Publish a retained stream-status flag (``online``/``offline``).
 
     Centralizes the ``qos=1, retain=True`` contract every status write shares — the
@@ -219,7 +231,7 @@ def publish_status(client: mqtt.Client, status_topic: str, state: str) -> None:
     client.publish(status_topic, state, qos=1, retain=True)
 
 
-def publish_reading(client: mqtt.Client, reading_topic: str, payload: str) -> None:
+def publish_reading(client: Publisher, reading_topic: str, payload: str) -> None:
     """Publish a retained reading snapshot (caller-serialized JSON).
 
     Same ``qos=1, retain=True`` contract as :func:`publish_status`. Serialization —
@@ -386,6 +398,69 @@ def run_simple_publisher(
                     time.sleep(0.2)
                     return
                 hb.maybe_emit(node=node)
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            print(f'{sensor_type} reader stopped', flush=True)
+
+
+def run_gated_publisher(
+    *,
+    node: str,
+    sensor_type: str,
+    interval: float,
+    once: bool,
+    stale_label: str,
+    read: Callable[[], str | None],
+    heartbeat_context: Callable[[], Mapping[str, object]] | None = None,
+    started_msg: str | None = None,
+) -> None:
+    """Read→publish where source freshness owns the retained status flag.
+
+    The status-gated sibling of :func:`run_simple_publisher`, for sources that go
+    *silent* rather than erroring (the Victron GX stops emitting; the fridge's WiFi
+    drops). Connects via :func:`publisher_session` with ``announce_online=False`` so
+    a broker reconnect can't stomp the flag this loop owns, seeds it ``offline``, then
+    each cycle: call ``read`` for the serialized snapshot (or None when not fresh),
+    flip the retained status ``online``/``offline`` **only on transitions**, publish
+    the snapshot or count the non-fresh cycle under ``stale_label``, and heartbeat.
+    Publishing nothing while silent — rather than a frozen cache — is the point: a
+    late subscriber sees ``offline``, not stale values.
+
+    Args:
+        node: The node topic segment.
+        sensor_type: The sensor-type topic segment (e.g. ``victron``/``fridge``).
+        interval: Seconds between reads.
+        once: Publish a single cycle and return (for testing).
+        stale_label: Heartbeat counter name for a non-fresh cycle (``stale``/``unreachable``).
+        read: Returns this cycle's serialized JSON snapshot, or None when the source
+            isn't fresh. Owns the freshness gate and the payload's serialization.
+        heartbeat_context: Extra point-in-time heartbeat fields (e.g. the GX portal),
+            or None for just ``online``.
+        started_msg: A line to print once connected, or None.
+    """
+    hb = Heartbeat()
+    online = False
+    with publisher_session(node, sensor_type, started_msg=started_msg, announce_online=False) as (
+        client,
+        reading_topic,
+        status_topic,
+    ):
+        publish_status(client, status_topic, 'offline')
+        try:
+            while True:
+                snapshot = read()
+                fresh = snapshot is not None
+                if fresh != online:
+                    publish_status(client, status_topic, 'online' if fresh else 'offline')
+                    online = fresh
+                if snapshot is not None:
+                    publish_reading(client, reading_topic, snapshot)
+                    hb.bump('published')
+                else:
+                    hb.bump(stale_label)
+                hb.maybe_emit(online=online, **(heartbeat_context() if heartbeat_context else {}))
+                if once:
+                    return
                 time.sleep(interval)
         except KeyboardInterrupt:
             print(f'{sensor_type} reader stopped', flush=True)

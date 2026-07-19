@@ -44,12 +44,9 @@ import paho.mqtt.client as mqtt
 from common.timefmt import now_canonical
 from mqttbus.client import KEEPALIVE_SECONDS, make_client
 from sensors.runner import (
-    Heartbeat,
     add_publisher_args,
     bounded_walk,
-    publish_reading,
-    publish_status,
-    publisher_session,
+    run_gated_publisher,
 )
 
 SENSOR_TYPE = 'victron'
@@ -323,48 +320,23 @@ class FakeSource:
         """No-op; the fake source holds no resources."""
 
 
-def publish_loop(
-    source: VictronSource | FakeSource,
-    client: mqtt.Client,
-    reading_topic: str,
-    status_topic: str,
-    once: bool,
-) -> None:
-    """Emit one ``sensors/<node>/victron`` snapshot per ``PUBLISH_INTERVAL_S``.
+def read_snapshot(source: VictronSource | FakeSource) -> str | None:
+    """Re-send the GX keepalive and return a serialized snapshot while fresh, else None.
 
-    Re-sends the GX keepalive each tick, publishes a full snapshot while the source is
-    fresh, and flips the retained ``status`` between ``online``/``offline`` on source
-    freshness transitions (rather than republish a frozen cache when the GX is silent).
+    The freshness gate + serialization :func:`sensors.runner.run_gated_publisher`
+    drives: a ticked-then-fresh source yields a full ``build_snapshot`` payload; a
+    silent GX yields None so the loop flips the retained status ``offline`` rather
+    than republishing a frozen cache.
 
     Args:
         source: The GX (or fake) source; owns the value cache and liveness.
-        client: The connected paho sink client (Pi broker).
-        reading_topic: ``sensors/<node>/victron`` to publish snapshots to.
-        status_topic: ``sensors/<node>/victron/status`` for the retained online flag.
-        once: Publish a single snapshot (while fresh) and return — for testing.
+
+    Returns:
+        The serialized ``sensors/<node>/victron`` snapshot, or None when the GX is
+        silent (source not fresh).
     """
-    hb = Heartbeat()
-    online = False
-    publish_status(client, status_topic, 'offline')
-
-    while True:
-        source.tick()
-        fresh = source.fresh()
-        if fresh != online:
-            publish_status(client, status_topic, 'online' if fresh else 'offline')
-            online = fresh
-
-        if fresh:
-            snapshot = json.dumps(build_snapshot(source.snapshot()))
-            publish_reading(client, reading_topic, snapshot)
-            hb.bump('published')
-        else:
-            hb.bump('stale')
-
-        hb.maybe_emit(online=online, portal=source.portal)
-        if once:
-            return
-        time.sleep(PUBLISH_INTERVAL_S)
+    source.tick()
+    return json.dumps(build_snapshot(source.snapshot())) if source.fresh() else None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -404,18 +376,20 @@ def main() -> int:
         else VictronSource(victron_host(), victron_port(), victron_password())
     )
     started = f'Victron reader started (node={args.node}, fake={args.fake})'
-    with publisher_session(args.node, SENSOR_TYPE, started_msg=started, announce_online=False) as (
-        client,
-        reading_topic,
-        status_topic,
-    ):
-        source.start()
-        try:
-            publish_loop(source, client, reading_topic, status_topic, args.once)
-        except KeyboardInterrupt:
-            print('Victron reader stopped', flush=True)
-        finally:
-            source.stop()
+    source.start()
+    try:
+        run_gated_publisher(
+            node=args.node,
+            sensor_type=SENSOR_TYPE,
+            interval=PUBLISH_INTERVAL_S,
+            once=args.once,
+            stale_label='stale',
+            read=lambda: read_snapshot(source),
+            heartbeat_context=lambda: {'portal': source.portal},
+            started_msg=started,
+        )
+    finally:
+        source.stop()
     return 0
 
 

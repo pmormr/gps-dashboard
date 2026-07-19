@@ -54,11 +54,11 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 import obd
-import paho.mqtt.client as mqtt
 
 from common.timefmt import now_canonical
 from sensors.runner import (
     Heartbeat,
+    Publisher,
     add_publisher_args,
     bounded_step,
     publish_reading,
@@ -326,7 +326,7 @@ def _volts(voltage: float | None) -> str:
 
 def poll_loop(
     reader: Reader,
-    client: mqtt.Client,
+    client: Publisher,
     reading_topic: str,
     status_topic: str,
     once: bool,

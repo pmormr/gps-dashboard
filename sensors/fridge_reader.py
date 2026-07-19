@@ -38,8 +38,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
-import paho.mqtt.client as mqtt
-
 from common.ddmp import (
     HISTORY_BUCKET_S,
     HISTORY_BUCKET_TICKS,
@@ -54,12 +52,9 @@ from common.ddmp import (
 )
 from common.timefmt import canonical_timestamp, now_canonical
 from sensors.runner import (
-    Heartbeat,
     add_publisher_args,
     bounded_walk,
-    publish_reading,
-    publish_status,
-    publisher_session,
+    run_gated_publisher,
 )
 
 SENSOR_TYPE = 'fridge'
@@ -97,7 +92,7 @@ class FridgePoll:
 
 
 class FridgeSource(Protocol):
-    """A fridge poll source (real or fake) for :func:`publish_loop`."""
+    """A fridge poll source (real or fake) for :func:`read_snapshot`."""
 
     def read(self) -> FridgePoll | None:
         """Return one poll, or None when the fridge is unreachable."""
@@ -276,48 +271,23 @@ def build_snapshot(poll: FridgePoll) -> dict[str, object]:
     return snapshot
 
 
-def publish_loop(
-    sensor: FridgeSource,
-    client: mqtt.Client,
-    reading_topic: str,
-    status_topic: str,
-    once: bool,
-) -> None:
-    """Poll→publish one snapshot per ``PUBLISH_INTERVAL_S``.
+def read_snapshot(sensor: FridgeSource) -> str | None:
+    """Poll the fridge and return a serialized snapshot, or None when unreachable.
 
-    Owns the retained ``status`` flag: a successful poll publishes the snapshot and
-    flips ``online``; a failed one flips ``offline`` (the fridge's WiFi is off or out
-    of range) rather than republishing stale values.
+    The read :func:`sensors.runner.run_gated_publisher` drives: a successful poll
+    yields a full ``build_snapshot`` payload; an unreachable fridge (WiFi off / out
+    of range) yields None so the loop flips the retained status ``offline`` rather
+    than republishing stale values.
 
     Args:
         sensor: The fridge (or fake) source.
-        client: The connected paho sink client (Pi broker).
-        reading_topic: ``sensors/<node>/fridge`` to publish snapshots to.
-        status_topic: ``sensors/<node>/fridge/status`` for the retained online flag.
-        once: Poll and publish a single cycle, then return — for testing.
+
+    Returns:
+        The serialized ``sensors/<node>/fridge`` snapshot, or None when the fridge
+        didn't answer this cycle.
     """
-    hb = Heartbeat()
-    online = False
-    publish_status(client, status_topic, 'offline')
-
-    while True:
-        poll = sensor.read()
-        fresh = poll is not None
-        if fresh != online:
-            publish_status(client, status_topic, 'online' if fresh else 'offline')
-            online = fresh
-
-        if poll is not None:
-            snapshot = json.dumps(build_snapshot(poll))
-            publish_reading(client, reading_topic, snapshot)
-            hb.bump('published')
-        else:
-            hb.bump('unreachable')
-
-        hb.maybe_emit(online=online)
-        if once:
-            return
-        time.sleep(PUBLISH_INTERVAL_S)
+    poll = sensor.read()
+    return json.dumps(build_snapshot(poll)) if poll is not None else None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -350,15 +320,15 @@ def main() -> int:
         FakeFridge() if args.fake else FridgeSensor(fridge_host(), fridge_port())
     )
     started = f'Fridge reader started (node={args.node}, fake={args.fake})'
-    with publisher_session(args.node, SENSOR_TYPE, started_msg=started, announce_online=False) as (
-        client,
-        reading_topic,
-        status_topic,
-    ):
-        try:
-            publish_loop(sensor, client, reading_topic, status_topic, args.once)
-        except KeyboardInterrupt:
-            print('Fridge reader stopped', flush=True)
+    run_gated_publisher(
+        node=args.node,
+        sensor_type=SENSOR_TYPE,
+        interval=PUBLISH_INTERVAL_S,
+        once=args.once,
+        stale_label='unreachable',
+        read=lambda: read_snapshot(sensor),
+        started_msg=started,
+    )
     return 0
 
 

@@ -18,19 +18,8 @@ from sensors.victron_reader import (
     build_snapshot,
     column_for_topic,
     parse_value,
-    publish_loop,
+    read_snapshot,
 )
-
-
-class StubClient:
-    """Captures publishes so ``publish_loop`` can be driven without a broker."""
-
-    def __init__(self) -> None:
-        self.published: list[tuple[str, str]] = []
-
-    def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
-        """Record one publish."""
-        self.published.append((topic, payload))
 
 
 def test_columns_match_schema() -> None:
@@ -87,34 +76,14 @@ def test_build_snapshot_has_ts_and_all_columns() -> None:
     assert all(snapshot[col] is None for col in VICTRON_COLUMNS)
 
 
-def test_publish_loop_emits_full_snapshot() -> None:
-    """One fresh tick publishes a complete snapshot: ts + every column, all numeric."""
-    client = StubClient()
-    publish_loop(
-        FakeSource(),
-        client,
-        'sensors/house/victron',
-        'sensors/house/victron/status',
-        once=True,
-    )
+def test_read_snapshot_emits_full_snapshot() -> None:
+    """A fresh source yields a serialized snapshot: ts + every column, all numeric.
 
-    readings = [payload for topic, payload in client.published if topic == 'sensors/house/victron']
-    assert len(readings) == 1
-    payload = json.loads(readings[0])
+    The status-flip loop this feeds is tested once in ``test_runner`` — here we pin
+    only the reader's freshness→snapshot mapping.
+    """
+    raw = read_snapshot(FakeSource())
+    assert raw is not None
+    payload = json.loads(raw)
     assert set(payload) == {'ts', *VICTRON_COLUMNS}
     assert all(isinstance(payload[col], int | float) for col in VICTRON_COLUMNS)
-
-
-def test_publish_loop_flips_status_online_when_fresh() -> None:
-    """A fresh source transitions the retained status from offline to online."""
-    client = StubClient()
-    publish_loop(
-        FakeSource(),
-        client,
-        'sensors/house/victron',
-        'sensors/house/victron/status',
-        once=True,
-    )
-
-    statuses = [payload for topic, payload in client.published if topic.endswith('/status')]
-    assert statuses == ['offline', 'online']
