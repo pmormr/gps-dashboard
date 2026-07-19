@@ -490,16 +490,9 @@ export function getPointsLatest(): Promise<TrackPoint | null> {
   return getJSON<TrackPoint | null>('/api/points/latest')
 }
 
-export async function postRadio(path: string, body: unknown): Promise<void> {
-  const resp = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!resp.ok) {
-    const data = (await resp.json().catch(() => ({}))) as { error?: string }
-    throw new Error(data.error ?? `Failed (${resp.status})`)
-  }
+/** POST a radio control write; throws Error(server message) on refusal. */
+export function postRadio(path: string, body: unknown): Promise<void> {
+  return sendJSON<void>(path, 'POST', body)
 }
 
 // ── Fridge (Dometic CFX3 control plane + stored DC history) ──
@@ -563,20 +556,8 @@ export function getFridgeHistory(
 }
 
 /** POST a fridge control write; resolves to the live read-back payload. */
-export async function postFridge(
-  path: string,
-  body: unknown,
-): Promise<Record<string, unknown>> {
-  const resp = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const data = (await resp.json().catch(() => ({}))) as Record<string, unknown>
-  if (!resp.ok) {
-    throw new Error((data.error as string | undefined) ?? `Failed (${resp.status})`)
-  }
-  return data
+export function postFridge(path: string, body: unknown): Promise<Record<string, unknown>> {
+  return sendJSON<Record<string, unknown>>(path, 'POST', body)
 }
 
 // ── Annotations (map view) ──
