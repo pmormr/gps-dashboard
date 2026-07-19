@@ -16,7 +16,7 @@ from collections.abc import Callable
 from flask import Blueprint, jsonify, request, send_file
 
 from api.db import get_connection
-from api.params import parse_limit
+from api.params import error, parse_limit
 from api.rigctld import Rigctld, RigctldError
 from common import proc
 from radio.paths import audio_dir
@@ -63,11 +63,6 @@ _TX_COLUMNS = (
     'id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
     'peak_dbfs, rms_dbfs, lat, lon, audio_path IS NOT NULL AS has_audio'
 )
-
-
-def _err(message: str, status: int):
-    """A ``({'error': ...}, status)`` JSON tuple for a bad request."""
-    return jsonify({'error': message}), status
 
 
 def _tone_mode(tone: bool | None, tsql: bool | None) -> str:
@@ -143,7 +138,7 @@ def set_freq():
     data = request.get_json(silent=True) or {}
     hz = data.get('hz')
     if not isinstance(hz, (int, float)) or isinstance(hz, bool) or hz <= 0:
-        return _err("'hz' must be a positive number", 400)
+        return error("'hz' must be a positive number", 400)
     return _apply(lambda rig: rig.set_freq(int(hz)))
 
 
@@ -153,7 +148,7 @@ def set_band():
     data = request.get_json(silent=True) or {}
     band = data.get('band')
     if band not in BAND_SELECT:
-        return _err(f"'band' must be one of {tuple(BAND_SELECT)}", 400)
+        return error(f"'band' must be one of {tuple(BAND_SELECT)}", 400)
     return _apply(lambda rig: rig.send_civ(BAND_SELECT[band]))
 
 
@@ -167,7 +162,7 @@ def set_dualwatch():
     data = request.get_json(silent=True) or {}
     on = data.get('on')
     if not isinstance(on, bool):
-        return _err("'on' must be a boolean", 400)
+        return error("'on' must be a boolean", 400)
     return _apply(lambda rig: rig.send_civ(DUALWATCH + (b'\x01' if on else b'\x00')))
 
 
@@ -177,10 +172,10 @@ def set_level():
     data = request.get_json(silent=True) or {}
     level = data.get('level')
     if level not in LEVELS:
-        return _err(f"'level' must be one of {tuple(LEVELS)}", 400)
+        return error(f"'level' must be one of {tuple(LEVELS)}", 400)
     value = data.get('value')
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 1:
-        return _err("'value' must be a number in 0..1", 400)
+        return error("'value' must be a number in 0..1", 400)
     return _apply(lambda rig: rig.set_level(LEVELS[level], float(value)))
 
 
@@ -190,10 +185,10 @@ def set_mode():
     data = request.get_json(silent=True) or {}
     mode = data.get('mode')
     if mode not in RADIO_MODES:
-        return _err(f"'mode' must be one of {RADIO_MODES}", 400)
+        return error(f"'mode' must be one of {RADIO_MODES}", 400)
     passband = data.get('passband_hz', 0)
     if not isinstance(passband, int) or isinstance(passband, bool) or passband < 0:
-        return _err("'passband_hz' must be a non-negative integer", 400)
+        return error("'passband_hz' must be a non-negative integer", 400)
     return _apply(lambda rig: rig.set_mode(mode, passband))
 
 
@@ -206,10 +201,10 @@ def set_tone():
     data = request.get_json(silent=True) or {}
     tone_mode = data.get('mode')
     if tone_mode not in TONE_MODES:
-        return _err(f"'mode' must be one of {tuple(TONE_MODES)}", 400)
+        return error(f"'mode' must be one of {tuple(TONE_MODES)}", 400)
     hz = data.get('hz')
     if tone_mode != 'off' and (not isinstance(hz, (int, float)) or isinstance(hz, bool) or hz <= 0):
-        return _err("'hz' (CTCSS frequency) is required when enabling a tone", 400)
+        return error("'hz' (CTCSS frequency) is required when enabling a tone", 400)
     tone_on, tsql_on = TONE_MODES[tone_mode]
 
     def action(rig: Rigctld) -> None:
@@ -230,12 +225,12 @@ def set_repeater():
     data = request.get_json(silent=True) or {}
     shift = data.get('shift')
     if shift not in SHIFT_TO_RIG:
-        return _err(f"'shift' must be one of {tuple(SHIFT_TO_RIG)}", 400)
+        return error(f"'shift' must be one of {tuple(SHIFT_TO_RIG)}", 400)
     offset = data.get('offset_hz')
     if shift != 'simplex' and (
         not isinstance(offset, int) or isinstance(offset, bool) or offset <= 0
     ):
-        return _err("'offset_hz' is required for a non-simplex shift", 400)
+        return error("'offset_hz' is required for a non-simplex shift", 400)
 
     def action(rig: Rigctld) -> None:
         if shift != 'simplex' and offset:
@@ -266,7 +261,7 @@ def list_transmissions():
         try:
             before_id = int(before_raw)
         except ValueError:
-            return _err("'before_id' must be an integer", 400)
+            return error("'before_id' must be an integer", 400)
 
     min_raw = request.args.get('min_s')
     min_s: float | None = None
@@ -274,9 +269,9 @@ def list_transmissions():
         try:
             min_s = float(min_raw)
         except ValueError:
-            return _err("'min_s' must be a number", 400)
+            return error("'min_s' must be a number", 400)
         if min_s < 0:
-            return _err("'min_s' must be >= 0", 400)
+            return error("'min_s' must be >= 0", 400)
 
     conn = get_connection()
     where = ['duration_s >= ?'] if min_s is not None else []
@@ -312,10 +307,10 @@ def transmission_audio(tx_id: int):
         'SELECT audio_path FROM radio_transmissions WHERE id = ?', (tx_id,)
     ).fetchone()
     if row is None or row['audio_path'] is None:
-        return _err('no audio for this transmission', 404)
+        return error('no audio for this transmission', 404)
     root = audio_dir().resolve()
     path = (root / row['audio_path']).resolve()
     # Rows are recorder-written, but never let a stored path escape the root.
     if not path.is_relative_to(root) or not path.is_file():
-        return _err('audio file missing', 404)
+        return error('audio file missing', 404)
     return send_file(path, mimetype='audio/wav', conditional=True, download_name=path.name)

@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 from api.db import get_connection
-from api.params import parse_time
+from api.params import error, parse_time
 from api.sensor_schema import READING_TABLES
 from common import ddmp
 from common.ddmp import HISTORY_BUCKET_S, DdmpClient, DdmpError
@@ -46,11 +46,6 @@ HISTORY_DEFAULT_WINDOW_S = {
 # fetched (or last attempt failed).
 _live_constants: dict | None = None
 _next_fetch_after = 0.0
-
-
-def _err(message: str, status: int):
-    """A ``({'error': ...}, status)`` JSON tuple for a bad request."""
-    return jsonify({'error': message}), status
 
 
 def _apply(action: Callable[[DdmpClient], dict]):
@@ -200,13 +195,13 @@ def set_setpoint():
     data = request.get_json(silent=True) or {}
     zone = data.get('zone')
     if zone not in (0, 1) or isinstance(zone, bool):
-        return _err("'zone' must be 0 or 1", 400)
+        return error("'zone' must be 0 or 1", 400)
     temp_c = data.get('temp_c')
     if not isinstance(temp_c, (int, float)) or isinstance(temp_c, bool):
-        return _err("'temp_c' must be a number", 400)
+        return error("'temp_c' must be a number", 400)
     allowed = _allowed_range(zone)
     if allowed is not None and not allowed['min_c'] <= temp_c <= allowed['max_c']:
-        return _err(f"'temp_c' must be within {allowed['min_c']}..{allowed['max_c']} °C", 400)
+        return error(f"'temp_c' must be within {allowed['min_c']}..{allowed['max_c']} °C", 400)
 
     def action(client: DdmpClient) -> dict:
         param = ddmp.setpoint_param(zone)
@@ -229,10 +224,10 @@ def set_power():
     data = request.get_json(silent=True) or {}
     zone = data.get('zone')
     if zone not in (0, 1) or isinstance(zone, bool):
-        return _err("'zone' must be 0 or 1", 400)
+        return error("'zone' must be 0 or 1", 400)
     on = data.get('on')
     if not isinstance(on, bool):
-        return _err("'on' must be a boolean", 400)
+        return error("'on' must be a boolean", 400)
 
     def action(client: DdmpClient) -> dict:
         param = ddmp.zone_power_param(zone)
@@ -254,16 +249,16 @@ def history():
     """
     span = request.args.get('span', 'hour')
     if span not in HISTORY_BUCKET_S:
-        return _err(f"'span' must be one of {tuple(HISTORY_BUCKET_S)}", 400)
+        return error(f"'span' must be one of {tuple(HISTORY_BUCKET_S)}", 400)
     end = start = None
     if raw_end := request.args.get('end'):
-        end, error = parse_time(raw_end, 'end')
-        if error:
-            return error
+        end, err = parse_time(raw_end, 'end')
+        if err:
+            return err
     if raw_start := request.args.get('start'):
-        start, error = parse_time(raw_start, 'start')
-        if error:
-            return error
+        start, err = parse_time(raw_start, 'start')
+        if err:
+            return err
     if start is None:
         end_dt = parse_iso(end) if end else datetime.now(UTC)
         window = timedelta(seconds=HISTORY_DEFAULT_WINDOW_S[span])

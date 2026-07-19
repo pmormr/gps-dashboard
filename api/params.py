@@ -22,7 +22,7 @@ ErrorResponse = tuple[Response, int]
 TimeWindow = tuple[str | None, str | None, ErrorResponse | None]
 
 
-def _error(message: str, status: int = 400) -> ErrorResponse:
+def error(message: str, status: int = 400) -> ErrorResponse:
     """Build a Flask ``(json, status)`` error response.
 
     Args:
@@ -52,7 +52,7 @@ def parse_time(value: str, name: str) -> tuple[str | None, ErrorResponse | None]
     try:
         return canonical_timestamp(value), None
     except (ValueError, TypeError, AttributeError):
-        return None, _error(f"Invalid timestamp for '{name}': {value}")
+        return None, error(f"Invalid timestamp for '{name}': {value}")
 
 
 def parse_required_window(args: MultiDict[str, str]) -> TimeWindow:
@@ -72,7 +72,7 @@ def parse_required_window(args: MultiDict[str, str]) -> TimeWindow:
     raw_start = args.get('start')
     raw_end = args.get('end')
     if not raw_start or not raw_end:
-        return None, None, _error("'start' and 'end' query params are required")
+        return None, None, error("'start' and 'end' query params are required")
     start, err = parse_time(raw_start, 'start')
     if err:
         return None, None, err
@@ -134,13 +134,13 @@ def parse_bbox(args: MultiDict[str, str]) -> tuple[Bbox | None, ErrorResponse | 
         return None, None
     parts = bbox_str.split(',')
     if len(parts) != 4:
-        return None, _error("'bbox' must be 'W,S,E,N' (4 comma-separated floats)")
+        return None, error("'bbox' must be 'W,S,E,N' (4 comma-separated floats)")
     try:
         w, s, e, n = (float(p) for p in parts)
     except ValueError:
-        return None, _error("'bbox' must be 4 floats")
+        return None, error("'bbox' must be 4 floats")
     if w > e or s > n:
-        return None, _error("'bbox' must have W<=E and S<=N")
+        return None, error("'bbox' must have W<=E and S<=N")
     return (w, s, e, n), None
 
 
@@ -236,7 +236,7 @@ def parse_limit(
     try:
         value = min(int(args.get(key, default)), maximum)
     except (ValueError, TypeError):
-        return None, _error(f"'{key}' must be an integer")
+        return None, error(f"'{key}' must be an integer")
     if value <= 0:
-        return None, _error(f"'{key}' must be > 0")
+        return None, error(f"'{key}' must be > 0")
     return value, None
