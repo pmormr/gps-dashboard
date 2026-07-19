@@ -1,14 +1,19 @@
 # DRY / simplification pass
 
-Status: **PAUSED — resume at Phase 3.** Recon complete (6-agent read-only sweep, 2026-07-19).
-Backend (Phases 1–2) landed across 11 commits in session 1 (2026-07-19); frontend + hot-path +
-structural work (Phases 3–5) deferred to a fresh session.
+Status: **PAUSED — resume at Phase 4.** Recon complete (6-agent read-only sweep, 2026-07-19).
+Backend (Phases 1–2) landed in session 1; frontend (Phase 3) landed in session 2 (both 2026-07-19);
+hot-path + structural work (Phases 4–5) deferred to a fresh session.
 
 - ✅ **Phase 1 DONE** (A1, B1–B4 committed; ruff+mypy clean).
 - ✅ **Phase 2 DONE** (C2, C3, C4+C5, C1, C6 + gpsd_validate minor committed; 812 tests green).
   **C7 — SKIPPED (confirmed 2026-07-19).** See "Deliberately NOT doing".
-- ⏭️ **RESUME HERE → Phase 3** (frontend mechanical: helpers + CSS consolidation), then Phase 4
-  (sensors hot paths, test-first, all 🔥), then Phase 5 (structural — each needs a 👍 first).
+- ✅ **Phase 3 DONE** (session 2: F1, E2, E3, E1, F8, E4, F2, F3 — 8 commits; Vitest 134→138, check
+  clean). **F4 — SKIPPED (user call 2026-07-19):** Fridge/Radio's `.card` collides with the existing
+  global `.card` and drifts from it, so sharing needs a rename + markup churn across both views for
+  modest LOC. See "Deliberately NOT doing". F3 was trimmed to the **7 byte-identical** label sites;
+  the ~10 size/color variants recon lumped in are genuinely distinct and left alone.
+- ⏭️ **RESUME HERE → Phase 4** (sensors hot paths, test-first, all 🔥), then Phase 5 (structural —
+  each needs a 👍 first).
 
 **Fresh-session pickup notes:**
 - Phase 3+ is frontend: changes land in `web/src/`; run `npm run build` + Vitest and **commit the
@@ -113,7 +118,7 @@ Absorb the `try/except KeyboardInterrupt: cancel pending; exit 130` loop (fetch_
 
 ---
 
-## Phase 3 — Frontend mechanical (helpers + CSS) — ⏭️ RESUME HERE
+## Phase 3 — Frontend mechanical (helpers + CSS) — ✅ DONE (session 2; F4 skipped)
 
 ### F1 — `errMsg(e: unknown): string` helper  [M, L] · ~15 LOC
 `e instanceof Error ? e.message : String(e)` repeated ~19× across views → one helper (`lib/errors.ts`
@@ -208,6 +213,15 @@ Introduces a `sensors → api` import edge that doesn't exist today — **needs 
 
 ## Deliberately NOT doing  (flagged by recon so we don't relitigate)
 
+- **F4 — shared control-plane CSS** (Fridge/Radio `.card`/`.seg`/`button.primary`): *skipped, user call
+  2026-07-19.* Fridge/Radio's local `.card` is a variant (14px pad + margin-bottom) that **collides
+  with and locally overrides the existing global `.card`** (16px, no margin) — so sharing it means a new
+  distinct name (`.ctl-card` etc.) + a rename across both views' markup, plus verifying `.seg`/`.primary`
+  actually agree. Markup churn + collision risk for ~80 LOC across two views; not worth it. The clean
+  slice of F-CSS (the banner F2 + the eyebrow F3) landed instead.
+- **F3 variants** — recon's "~11 eyebrow copies" was really **7 byte-identical** dominant-recipe sites
+  (done) plus ~10 genuine variants (10px `.tag`, 12px section heads, 13px `.panel-name`, skyplot's
+  `--sp-muted`, places/timeline headers). The variants differ in size/color and are left alone.
 - **C7 — ThreadPoolExecutor cancel helper** (precache / fetch_wikipedia / import_drone): *skipped,
   confirmed 2026-07-19.* The only shared code is a 2-line `for f in futures: f.cancel()` loop; each
   interrupt handler's real cleanup differs (precache: flag + post-pool stats print + `sys.exit(130)`;
@@ -251,10 +265,19 @@ ssh_reachable, parse_bbox, and backtest-helper tests); ruff + mypy clean through
 `tools/backtest_common`, `tools/ratelimit.RateLimiter`. B3 also fixed a latent
 `UnboundLocalError` in `fridge.history` (an `error` local shadowed the promoted helper).
 
-### Remaining (next session): Phases 3–5
+### Session 2 landed (2026-07-19) — frontend (Phase 3)
 
-Phase 3 (frontend mechanical), Phase 4 (sensors hot paths — test-first), Phase 5 (structural, each
-approved first). Est. remaining reduction is the larger share (~500–600 LOC), concentrated in the
-Phase 3 CSS consolidation and the Phase 5 layout components (F6 `StatusCheckPage`, F5 `<Toast>`,
-F7 `poll()`). Open user decisions before their items: **D5** (sensors→api import edge) and **F11**
-(serve `METRIC_META` decode labels from the server).
+8 commits on local `main` (unpushed, stacked on session 1). New shared homes: `lib/errors.errMsg`;
+`lib/geo` grew `emptyFC`/`escapeHtml`/`mpsToMph`/`metersToFeet`/`celsiusToF`/`localDate`; `lib/places`
+grew `eventDateLabel` (parameterized, tested); `lib/api` grew `qs()`; `lib/map` grew a `setGeoJSON`
+closure (19 call sites); `app.css` grew `.status-banner` (F2) + `.eyebrow` (F3). Vitest 134→138 (added
+`eventDateLabel` cases); `svelte-check`+`tsc` clean; each commit carries a rebuilt `static/dist/`. **F4
+skipped** (see "Deliberately NOT doing"). Two on-device visual glances worth doing post-deploy: the
+status banner (Fridge/Radio +2px pad normalization) and the eyebrow labels render unchanged.
+
+### Remaining (next session): Phases 4–5
+
+Phase 4 (sensors hot paths — test-first, all deployed readers) and Phase 5 (structural, each approved
+first). Biggest remaining reductions are the Phase 5 layout components (F6 `StatusCheckPage`, F5
+`<Toast>`, F7 `poll()`). Open user decisions before their items: **D5** (sensors→api import edge) and
+**F11** (serve `METRIC_META` decode labels from the server).
