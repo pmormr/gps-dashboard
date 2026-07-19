@@ -71,8 +71,9 @@ export interface PiReading {
   disk_nvme_pct: number | null
   disk_nvme_free_gb: number | null
   uptime_s: number | null
-  /** vcgencmd get_throttled bitmask; 0 = healthy. */
-  throttled: number | null
+  /** A live throttle condition right now (active undervolt/throttle), decoded
+   * server-side from the vcgencmd bitmask's live bits; false = healthy. */
+  throttled_now: boolean
 }
 
 export interface RouterReading {
@@ -113,6 +114,13 @@ export interface ServiceState {
   state: string
 }
 
+/** Decode metadata (a METRIC_META slice) for an enum column /api/status serves raw —
+ * fed to lib/sensors.decodeCoded so Home decodes from the shared schema. */
+export interface StatusMeta {
+  codec: string
+  codes: Record<string, string>
+}
+
 /** The /api/status Home aggregate; any domain is null when it has no readings yet. */
 export interface Status {
   now: string
@@ -128,6 +136,8 @@ export interface Status {
   router: RouterReading | null
   nvr: NvrReading | null
   cameras: CamerasAggregate | null
+  /** codec+codes for the enum columns Home decodes via decodeCoded (battery/solar state). */
+  meta: { battery_state: StatusMeta; solar_state: StatusMeta }
   services: ServiceState[]
   ntp: { synced: boolean | null } | null
 }

@@ -393,6 +393,13 @@ _THROTTLED_BITS = {
     0x80000: 'temp-limit',
 }
 
+#: OR of the live (currently-active) throttle bits — the sub-0x10000 keys above (the
+#: sticky since-boot twins sit 16 bits left). A live bit set = an active
+#: undervolt/throttle condition *now*, which clears on its own; the sticky bits latch
+#: until reboot. Derived from :data:`_THROTTLED_BITS` so a new live bit is picked up
+#: automatically. This is the mask a "throttled right now?" check wants.
+THROTTLE_LIVE_MASK = sum(bit for bit in _THROTTLED_BITS if 0 < bit < 0x10000)
+
 
 #: ``column -> MetricMeta``. Every column in every :data:`READING_TABLES` table has an
 #: entry (a test guards the drift that left Victron unlabelled). Presentation companion

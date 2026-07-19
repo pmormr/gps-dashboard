@@ -108,7 +108,9 @@ def test_status_latest_values(client):
     assert 'absolute_load_pct' not in data['van']
     assert 'commanded_equiv_ratio' not in data['van']
     assert data['pi']['cpu_temp_c'] == 52.1
-    assert data['pi']['throttled'] == 0
+    # The raw throttle bitmask is decoded server-side to a live-only boolean.
+    assert data['pi']['throttled_now'] is False
+    assert 'throttled' not in data['pi']
     assert data['router']['wan_up'] == 1
     assert data['router']['halow_rssi_dbm'] == -62.0
     assert data['nvr']['hdd_ok'] == 1
@@ -117,6 +119,40 @@ def test_status_latest_values(client):
     assert data['house']['battery_voltage'] is None
     assert data['van']['fuel_level_pct'] is None
     assert data['router']['wan_rx_kbps'] is None
+
+
+@pytest.mark.parametrize(
+    ('throttled', 'expected'),
+    [
+        (0, False),  # all clear
+        (0x1, True),  # live under-volt → warning now
+        (0x8, True),  # live temp-limit → warning now
+        (0x10000, False),  # sticky since-boot only → not warning now
+        (0x10001, True),  # sticky + a live bit → warning now
+    ],
+)
+def test_status_throttled_now_is_live_only(client, throttled, expected):
+    """``throttled_now`` reflects only the active (0xF) bits, not the sticky twins."""
+    ts = now_canonical()
+    conn = get_connection()
+    conn.execute(
+        'INSERT INTO system_readings (sensor_id, timestamp, cpu_temp_c, throttled) '
+        'VALUES (?, ?, ?, ?)',
+        (1, ts, 50.0, throttled),
+    )
+    conn.commit()
+    data = client.get('/api/status').get_json()
+    assert data['pi']['throttled_now'] is expected
+
+
+def test_status_serves_decode_meta(client):
+    """The payload carries the codec+codes for its client-decoded enum columns."""
+    data = client.get('/api/status').get_json()
+    meta = data['meta']
+    assert meta['battery_state']['codec'] == 'enum'
+    assert meta['battery_state']['codes']['0'] == 'Idle'
+    assert meta['solar_state']['codec'] == 'enum'
+    assert meta['solar_state']['codes']['5'] == 'Float'
 
 
 def test_status_obd_link(client):

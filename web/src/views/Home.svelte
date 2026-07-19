@@ -4,6 +4,7 @@
 
   import { getStatus, type Status } from '../lib/api'
   import { celsiusToF, metersToFeet } from '../lib/geo'
+  import { decodeCoded } from '../lib/sensors'
 
   let status = $state<Status | null>(null)
   let error = $state<string | null>(null)
@@ -70,19 +71,6 @@
     offline: 'OBD reader offline',
   }
 
-  // Victron / vcgencmd decode maps — mirrors METRIC_META codes (api/sensor_schema.py).
-  const BATTERY_STATE: Record<number, string> = { 0: 'Idle', 1: 'Charging', 2: 'Discharging' }
-  const SOLAR_STATE: Record<number, string> = {
-    0: 'Off',
-    2: 'Fault',
-    3: 'Bulk',
-    4: 'Absorption',
-    5: 'Float',
-    6: 'Storage',
-    7: 'Equalize',
-    245: 'Wake-up',
-    252: 'Ext. control',
-  }
   const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
   const r0 = (n: number | null | undefined): string =>
@@ -139,7 +127,10 @@
       panels.push({
         name: 'House power',
         headline: `${r0(s.house.battery_soc)}%`,
-        alt: BATTERY_STATE[s.house.battery_state ?? -1] ?? '',
+        alt:
+          s.house.battery_state != null
+            ? decodeCoded(s.meta.battery_state.codec, s.house.battery_state, s.meta.battery_state.codes)
+            : '',
         note: staleNote(s.house.timestamp, MAX_AGE.house),
         dim: age(s.house.timestamp) > MAX_AGE.house,
         stats: [
@@ -151,7 +142,10 @@
           {
             label: 'Solar',
             value: `${r0(s.house.pv_power)} W`,
-            alt: SOLAR_STATE[s.house.solar_state ?? -1],
+            alt:
+              s.house.solar_state != null
+                ? decodeCoded(s.meta.solar_state.codec, s.house.solar_state, s.meta.solar_state.codes)
+                : '',
           },
           { label: 'Yield today', value: `${r2(s.house.pv_yield_today_kwh)} kWh` },
           { label: 'DC load', value: `${r0(s.house.dc_system_power)} W` },
@@ -267,9 +261,9 @@
     if (!s.pi) {
       panels.push(empty('Pi'))
     } else {
-      // Live bits only (0xF): the sticky since-boot flags (bits 16+) never clear
-      // until reboot, so warning on them latches forever after one boot blip.
-      const throttled = ((s.pi.throttled ?? 0) & 0xf) !== 0
+      // Server decodes the vcgencmd bitmask to a live-only flag (sticky since-boot
+      // bits would otherwise latch the warning to reboot after one blip).
+      const throttled = s.pi.throttled_now
       panels.push({
         name: 'Pi',
         headline: `${r1(s.pi.cpu_temp_c)}°C`,

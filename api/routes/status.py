@@ -20,10 +20,16 @@ import sqlite3
 from flask import Blueprint, Response, jsonify
 
 from api.db import get_connection, now_canonical
+from api.sensor_schema import METRIC_META, THROTTLE_LIVE_MASK
 from common import proc
 from common.obd import derive_fuel_rate_lph
 
 status_bp = Blueprint('status', __name__)
+
+#: Enum columns in this payload the client decodes via ``lib/sensors.decodeCoded``.
+#: Their ``codec``+``codes`` ride the response as ``meta`` so Home renders the state
+#: labels from the shared schema instead of a hardcoded copy of the code tables.
+_DECODE_COLUMNS = ('battery_state', 'solar_state')
 
 #: Units surfaced on the Home health strip. The enabled-gated ones (radio-control,
 #: sensor-*) report ``inactive`` when dormant by design — the client distinguishes
@@ -151,6 +157,57 @@ def _ntp_synced() -> bool | None:
     return 'Not synchronised' not in out and 'Reference ID' in out
 
 
+def _pi(conn: sqlite3.Connection) -> dict | None:
+    """Return the latest Pi host reading with the throttle bitmask reduced to a flag.
+
+    Home warns on *active* throttle conditions only — the sticky since-boot bits latch
+    until reboot — so the raw ``throttled`` bitmask is decoded server-side to a
+    ``throttled_now`` boolean (via the schema's live-bit mask), rather than shipping
+    the mask and the bit layout to the client to re-derive.
+
+    Args:
+        conn: Open SQLite connection.
+
+    Returns:
+        The latest ``system_readings`` row with ``throttled`` replaced by the
+        ``throttled_now`` boolean, or None when empty.
+    """
+    row = _latest(
+        conn,
+        'system_readings',
+        [
+            'cpu_temp_c',
+            'load_1m',
+            'mem_used_pct',
+            'disk_root_pct',
+            'disk_nvme_pct',
+            'disk_nvme_free_gb',
+            'uptime_s',
+            'throttled',
+        ],
+    )
+    if row is None:
+        return None
+    row['throttled_now'] = bool((row.pop('throttled') or 0) & THROTTLE_LIVE_MASK)
+    return row
+
+
+def _decode_meta() -> dict[str, dict]:
+    """Return the ``codec``+``codes`` for this payload's client-decoded enum columns.
+
+    The same ``METRIC_META`` slice ``/api/sensors`` serves, so Home renders the
+    battery/solar state labels through the shared ``decodeCoded`` path from one source
+    of truth (``api/sensor_schema.py``) instead of a hardcoded copy.
+
+    Returns:
+        ``{column: {codec, codes}}`` over :data:`_DECODE_COLUMNS`.
+    """
+    return {
+        col: {'codec': METRIC_META[col]['codec'], 'codes': METRIC_META[col]['codes']}
+        for col in _DECODE_COLUMNS
+    }
+
+
 @status_bp.get('/api/status')
 def status() -> Response:
     """The Home glance: latest per-domain reading + service health in one read."""
@@ -188,20 +245,7 @@ def status() -> Response:
             ),
             'van': _van(conn),
             'obd_link': _obd_link(conn),
-            'pi': _latest(
-                conn,
-                'system_readings',
-                [
-                    'cpu_temp_c',
-                    'load_1m',
-                    'mem_used_pct',
-                    'disk_root_pct',
-                    'disk_nvme_pct',
-                    'disk_nvme_free_gb',
-                    'uptime_s',
-                    'throttled',
-                ],
-            ),
+            'pi': _pi(conn),
             'router': _latest(
                 conn,
                 'openwrt_readings',
@@ -232,6 +276,7 @@ def status() -> Response:
                 ],
             ),
             'cameras': _cameras(conn),
+            'meta': _decode_meta(),
             'services': [{'name': s, 'state': proc.service_state(s)} for s in _STATUS_SERVICES],
             'ntp': {'synced': _ntp_synced()},
         }
