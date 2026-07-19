@@ -33,6 +33,26 @@ def run(cmd: list[str], timeout: float = 10) -> tuple[int, str, str]:
         return -1, '', str(exc)
 
 
+def ssh_reachable(host: str, connect_timeout: float = 8) -> bool:
+    """Whether a host answers a trivial SSH command non-interactively.
+
+    A quick liveness probe used before opportunistic remote work (the DB backup's
+    NAS rsync, the drone footage sync) that must no-op cleanly when the
+    destination is off-grid. ``BatchMode=yes`` fails fast instead of prompting for
+    credentials.
+
+    Args:
+        host: The SSH destination (an ssh_config alias or ``user@host``).
+        connect_timeout: Seconds for SSH's own connect timeout.
+
+    Returns:
+        True iff ``ssh <host> true`` succeeds.
+    """
+    opts = ['-o', 'BatchMode=yes', '-o', f'ConnectTimeout={int(connect_timeout)}']
+    rc, _, _ = run(['ssh', *opts, host, 'true'], timeout=connect_timeout + 5)
+    return rc == 0
+
+
 def service_state(name: str) -> str:
     """Return ``systemctl is-active`` state for a unit.
 

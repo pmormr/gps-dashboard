@@ -48,6 +48,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from common.cli import run_cli
+from common.proc import ssh_reachable
 
 DB_NAME = 'gps_history.db'
 DATED_RE = re.compile(r'^gps_history-(\d{4})-(\d{2})-(\d{2})\.db$')
@@ -141,24 +142,6 @@ def snapshot(db_path: Path, snap_path: Path) -> None:
     finally:
         src.close()
     os.replace(tmp, snap_path)
-
-
-def preflight(host: str) -> bool:
-    """Whether the NAS answers over SSH (non-interactively, quickly).
-
-    Args:
-        host: The SSH destination (an ssh_config alias or user@host).
-
-    Returns:
-        True iff a trivial remote command succeeds.
-    """
-    result = subprocess.run(
-        ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', host, 'true'],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
 
 
 def remote_sh(host: str, script: str, timeout: float = 60) -> tuple[int, str, str]:
@@ -283,7 +266,7 @@ def run(args: argparse.Namespace) -> int:
     size_mb = snap_path.stat().st_size / 1e6
     print(f'Snapshot done ({size_mb:.0f} MB)', flush=True)
 
-    if not preflight(args.ssh):
+    if not ssh_reachable(args.ssh):
         print('Backup host unreachable — snapshot kept locally, nothing to push.', flush=True)
         return 0
 

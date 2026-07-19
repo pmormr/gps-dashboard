@@ -53,6 +53,7 @@ import requests
 
 from api.db import canonical_timestamp, get_connection, init_db, now_canonical
 from common.cli import run_cli
+from common.proc import ssh_reachable
 from processor.simplify import reumann_witkam
 
 DEFAULT_IMAGE = 'exiftool:13x'
@@ -359,13 +360,7 @@ class SshDockerExtractor(Extractor):
         return result.stdout
 
     def preflight(self) -> bool:
-        result = subprocess.run(
-            ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', self._host, 'true'],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.returncode == 0
+        return ssh_reachable(self._host)
 
     def discover(self) -> list[Clip]:
         return self._discover_from('/data', self._to_media_path)
