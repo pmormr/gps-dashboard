@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getObdEconomy, type ObdEconomy } from '../lib/api'
+  import { errMsg } from '../lib/errors'
   import { selection } from '../lib/stores/selection.svelte'
 
   // "Inspect this window" — derived stats for the current Selection window
@@ -29,7 +30,7 @@
       })
       .catch((e) => {
         if (!cancelled) {
-          error = e instanceof Error ? e.message : String(e)
+          error = errMsg(e)
           loading = false
         }
       })

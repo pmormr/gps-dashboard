@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { annotations } from '../lib/stores/annotations.svelte'
   import { selection } from '../lib/stores/selection.svelte'
@@ -47,7 +48,7 @@
       bookmarked = true
       setTimeout(() => (bookmarked = false), 1200)
     } catch (e) {
-      alert(`Bookmark failed: ${e instanceof Error ? e.message : String(e)}`)
+      alert(`Bookmark failed: ${errMsg(e)}`)
     }
   }
 

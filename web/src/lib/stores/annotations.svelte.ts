@@ -18,6 +18,7 @@ import {
   updateAnnotation,
   type Annotation,
 } from '../api'
+import { errMsg } from '../errors'
 import { selection } from './selection.svelte'
 
 /** The create/edit modal's working state (null = closed). */
@@ -59,7 +60,7 @@ class AnnotationsStore {
       this.list = data.annotations
       this.loadError = ''
     } catch (e) {
-      this.loadError = e instanceof Error ? e.message : String(e)
+      this.loadError = errMsg(e)
     }
   }
 

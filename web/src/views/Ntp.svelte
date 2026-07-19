@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getNtp, type NtpStatus } from '../lib/api'
 
@@ -12,7 +13,7 @@
       data = await getNtp()
       error = null
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errMsg(e)
     }
   }
 

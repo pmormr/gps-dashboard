@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getSensors, type SensorsResponse } from '../lib/api'
   import { router } from '../lib/router.svelte'
@@ -25,7 +26,7 @@
       data = await getSensors()
       error = null
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errMsg(e)
     }
   }
 

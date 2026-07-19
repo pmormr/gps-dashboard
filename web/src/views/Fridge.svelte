@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte'
+  import { errMsg } from '../lib/errors'
   import { onDestroy, onMount } from 'svelte'
 
   import {
@@ -110,7 +111,7 @@
       drafts[zone] = null
       toast(`Zone ${zone + 1} set to ${formatTemp(draft, s?.temp_unit ?? null)}`)
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), true)
+      toast(errMsg(e), true)
     } finally {
       busy = false
     }
@@ -126,7 +127,7 @@
       }
       toast(`Zone ${zone + 1} ${on ? 'on' : 'off'}`)
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), true)
+      toast(errMsg(e), true)
     } finally {
       busy = false
       pendingOff = null

@@ -4,6 +4,7 @@
   // bucketed/aligned chart, scoped by the global Selection time axis (so picking a
   // trip's window — e.g. via the map/annotations — re-scopes these charts too).
   import { onMount, type Component } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getSensors, getSensorSeries } from '../lib/api'
   import type { SensorSeriesResponse, SensorsResponse } from '../lib/api'
@@ -134,7 +135,7 @@
       const def = vic ? `${vic.id}.battery_voltage` : fallback
       if (def) selected = [def]
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errMsg(e)
     }
   })
 
@@ -157,7 +158,7 @@
         }
       })
       .catch((e) => {
-        if (!cancelled) error = e instanceof Error ? e.message : String(e)
+        if (!cancelled) error = errMsg(e)
       })
     return () => {
       cancelled = true

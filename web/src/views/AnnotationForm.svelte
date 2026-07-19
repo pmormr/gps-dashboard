@@ -1,5 +1,6 @@
 <script lang="ts">
   import { annotations } from '../lib/stores/annotations.svelte'
+  import { errMsg } from '../lib/errors'
 
   // The create/edit annotation modal. Pure view over
   // `annotations.form`: any opener (Create Range button, drawer ✎) populates the
@@ -13,7 +14,7 @@
     try {
       await annotations.save()
     } catch (e) {
-      alert(`Failed to save annotation: ${e instanceof Error ? e.message : String(e)}`)
+      alert(`Failed to save annotation: ${errMsg(e)}`)
     } finally {
       saving = false
     }

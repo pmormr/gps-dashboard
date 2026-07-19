@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getPasses, type PassesResponse, type SatPass } from '../lib/api'
   import { router } from '../lib/router.svelte'
@@ -28,7 +29,7 @@
       error = null
       updated = new Date().toLocaleTimeString()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errMsg(e)
     }
   }
   function setHours(h: number): void {

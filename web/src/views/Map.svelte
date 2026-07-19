@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getPointsLatest, lookupPlace } from '../lib/api'
   import {
@@ -147,7 +148,7 @@
         if (label) layers.phoneStatus = label
       })
       .catch((err) => {
-        layers.phoneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+        layers.phoneStatus = `Error: ${errMsg(err)}`
       })
   })
 
@@ -178,7 +179,7 @@
         if (label) layers.placesStatus = label
       })
       .catch((err) => {
-        layers.placesStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+        layers.placesStatus = `Error: ${errMsg(err)}`
       })
   })
 

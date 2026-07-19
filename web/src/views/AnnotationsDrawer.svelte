@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getObdEconomy, type Annotation } from '../lib/api'
+  import { errMsg } from '../lib/errors'
   import { fmtDate, fmtTime } from '../lib/geo'
   import { annotations } from '../lib/stores/annotations.svelte'
 
@@ -38,7 +39,7 @@
     try {
       await annotations.remove(a.id)
     } catch (e) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
+      alert(`Delete failed: ${errMsg(e)}`)
     }
   }
 </script>

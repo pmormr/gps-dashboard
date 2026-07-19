@@ -1,5 +1,6 @@
 <script lang="ts">
   import { CATEGORY_GROUPS } from '../lib/places'
+  import { errMsg } from '../lib/errors'
   import { setDroneEnabled } from '../lib/drone'
   import { reapply } from '../lib/labels'
   import type { MapView as MapViewType } from '../lib/map'
@@ -24,7 +25,7 @@
     try {
       layers.droneStatus = await setDroneEnabled(view, on)
     } catch (err) {
-      layers.droneStatus = `Error: ${err instanceof Error ? err.message : String(err)}`
+      layers.droneStatus = `Error: ${errMsg(err)}`
     }
   }
 

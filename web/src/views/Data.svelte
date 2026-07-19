@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getDataStatus, type DataChunk, type DataStatus } from '../lib/api'
   import { ageSeconds, formatAge } from '../lib/sensors'
@@ -13,7 +14,7 @@
       data = await getDataStatus()
       error = null
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errMsg(e)
     }
   }
 

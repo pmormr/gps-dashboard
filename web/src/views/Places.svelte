@@ -7,6 +7,7 @@
     type PlaceEvent,
     type PlaceFacet,
   } from '../lib/api'
+  import { errMsg } from '../lib/errors'
   import { CATEGORY_GROUPS, expandGroups, facetLabel, placeMeta } from '../lib/places'
   import { rowIcon } from '../lib/icons'
   import { fmtDate, fmtDistance, haversineMeters } from '../lib/geo'
@@ -181,7 +182,7 @@
           : 'No matches'
       } catch (err) {
         if (cancelled || controller.signal.aborted) return
-        status = `Error: ${err instanceof Error ? err.message : String(err)}`
+        status = `Error: ${errMsg(err)}`
       }
     })()
     return () => {
@@ -216,7 +217,7 @@
             : ''
           : 'No events in the next month'
       } catch (err) {
-        if (!cancelled) status = `Error: ${err instanceof Error ? err.message : String(err)}`
+        if (!cancelled) status = `Error: ${errMsg(err)}`
       }
     })()
     return () => {

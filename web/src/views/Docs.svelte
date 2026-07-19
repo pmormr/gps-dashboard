@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { errMsg } from '../lib/errors'
   import { SvelteSet } from 'svelte/reactivity'
 
   import { getDocFile, getDocsTree, putDocFile } from '../lib/api'
@@ -42,7 +43,7 @@
     try {
       treeData = await getDocsTree()
     } catch (e) {
-      treeError = e instanceof Error ? e.message : String(e)
+      treeError = errMsg(e)
     }
   })
 
@@ -62,7 +63,7 @@
       await renderMermaidBlocks(el)
     } catch (e) {
       if (token !== loadToken) return
-      docError = e instanceof Error ? e.message : String(e)
+      docError = errMsg(e)
       el.innerHTML = ''
     } finally {
       if (token === loadToken) loading = false
@@ -152,7 +153,7 @@
       saveError =
         e instanceof Error && e.message === 'conflict'
           ? 'This file changed since you opened it (a push or another editor). Copy your draft, reload the doc, and re-apply.'
-          : `Save failed — ${e instanceof Error ? e.message : String(e)}`
+          : `Save failed — ${errMsg(e)}`
     } finally {
       saving = false
     }

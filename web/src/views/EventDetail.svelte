@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getPlaceEvent, type PlaceEvent } from '../lib/api'
+  import { errMsg } from '../lib/errors'
   import { stripHtml } from '../lib/places'
   import { fmtDate } from '../lib/geo'
 
@@ -31,7 +32,7 @@
         row = r
         status = ''
       } catch (err) {
-        if (wanted === id) status = `Error: ${err instanceof Error ? err.message : String(err)}`
+        if (wanted === id) status = `Error: ${errMsg(err)}`
       }
     })()
   })

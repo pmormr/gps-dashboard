@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import { getGpsdStatus, type GpsdStatus } from '../lib/api'
 
@@ -12,7 +13,7 @@
       data = await getGpsdStatus()
       error = null
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = errMsg(e)
     }
   }
 

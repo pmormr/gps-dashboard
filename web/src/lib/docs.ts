@@ -3,6 +3,7 @@
 // thin TS module). The view owns UI + navigation; this module is pure-ish DOM.
 
 import MarkdownIt from 'markdown-it'
+import { errMsg } from './errors'
 
 /** One node in the docs file tree (`GET /api/docs/tree`). */
 export interface DocNode {
@@ -114,7 +115,7 @@ export async function renderMermaidBlocks(container: HTMLElement): Promise<void>
       const { svg } = await mermaid.render(`mermaid-${Date.now()}-${i++}`, src)
       block.innerHTML = svg
     } catch (e) {
-      block.textContent = e instanceof Error ? e.message : String(e)
+      block.textContent = errMsg(e)
       block.classList.add('mermaid-error')
     }
   }

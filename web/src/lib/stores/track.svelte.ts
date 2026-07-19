@@ -8,6 +8,7 @@
  */
 
 import { getPoints } from '../api'
+import { errMsg } from '../errors'
 import type { TrackPoint } from '../geo'
 import type { Range } from './selection.svelte'
 
@@ -56,7 +57,7 @@ class TrackStore {
       data = await getPoints(range.from.toISOString(), range.to.toISOString(), 20000)
     } catch (e) {
       if (token === this.fetchToken) {
-        this.status = `Error: ${e instanceof Error ? e.message : String(e)}`
+        this.status = `Error: ${errMsg(e)}`
         this.lastKey = '' // allow a retry on the next ensure
         this.loading = false
       }

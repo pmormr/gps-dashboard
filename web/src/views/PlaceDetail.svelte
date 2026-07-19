@@ -7,6 +7,7 @@
     type PlaceEvent,
     type PlaceWiki,
   } from '../lib/api'
+  import { errMsg } from '../lib/errors'
   import { placeMeta, stripHtml } from '../lib/places'
   import { rowIcon } from '../lib/icons'
   import { fmtDate } from '../lib/geo'
@@ -127,7 +128,7 @@
           if (wanted === id) events = resp.events
         }
       } catch (err) {
-        if (wanted === id) status = `Error: ${err instanceof Error ? err.message : String(err)}`
+        if (wanted === id) status = `Error: ${errMsg(err)}`
       }
     })()
   })

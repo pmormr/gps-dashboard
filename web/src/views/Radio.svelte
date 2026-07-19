@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { errMsg } from '../lib/errors'
 
   import {
     getRadioStatus,
@@ -102,7 +103,7 @@
       await poll()
       after?.()
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), true)
+      toast(errMsg(e), true)
     }
   }
 
@@ -138,7 +139,7 @@
       txs = reset ? page.transmissions : [...txs, ...page.transmissions]
       txTotal = page.total
     } catch (e) {
-      txError = e instanceof Error ? e.message : String(e)
+      txError = errMsg(e)
     } finally {
       txLoading = false
     }
