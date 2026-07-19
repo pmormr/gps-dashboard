@@ -5,7 +5,6 @@ import os
 import sqlite3
 import sys
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -14,6 +13,7 @@ import requests
 
 from api.tile_layers import LAYERS
 from common.cli import run_click
+from tools.ratelimit import RateLimiter
 from tools.regions import REGIONS, parse_bbox
 
 TILE_CACHE_DIR = Path(
@@ -21,38 +21,6 @@ TILE_CACHE_DIR = Path(
 )
 
 USER_AGENT = 'gps-dashboard/1.0 (pmormr@gmail.com)'
-
-
-class RateLimiter:
-    """Global pacer: caps request *starts* to at most `rate` per second.
-
-    Shared across all worker threads, so the effective request rate is
-    independent of `--workers`. A rate of 0 disables limiting.
-    """
-
-    def __init__(self, rate: float) -> None:
-        """Initialize the limiter.
-
-        Args:
-            rate: Maximum request starts per second across all threads. 0 or
-                negative disables throttling.
-        """
-        self._min_interval = 1.0 / rate if rate > 0 else 0.0
-        self._lock = threading.Lock()
-        self._next = 0.0
-
-    def wait(self) -> None:
-        """Block until the caller is allowed to issue its next request."""
-        if self._min_interval <= 0:
-            return
-        with self._lock:
-            now = time.monotonic()
-            delay = self._next - now
-            if delay > 0:
-                time.sleep(delay)
-                self._next += self._min_interval
-            else:
-                self._next = now + self._min_interval
 
 
 def lat_lon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int]:

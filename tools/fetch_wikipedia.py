@@ -41,7 +41,6 @@ import argparse
 import json
 import sqlite3
 import sys
-import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -53,6 +52,7 @@ import requests
 
 from api.db import get_connection, init_db, now_canonical, place_wiki_key
 from common.cli import run_cli
+from tools.ratelimit import RateLimiter
 
 USER_AGENT = 'gps-dashboard/1.0 (https://github.com/pmormr/gps-dashboard)'
 WIKIDATA_API = 'https://www.wikidata.org/w/api.php'
@@ -251,21 +251,14 @@ def resolve_qids(
 # Global politeness throttle: a shared minimum interval between request starts
 # across all workers. Wikimedia rate-limits sustained parallel fetches (observed
 # as 429 storms from upload.wikimedia.org on the first full run); concurrency
-# then only hides latency, it never multiplies the request rate.
-_throttle_lock = threading.Lock()
-_next_slot = 0.0
-_min_interval = 0.1
+# then only hides latency, it never multiplies the request rate. run() replaces
+# this from --rps before any worker starts (default 10 rps).
+_limiter = RateLimiter(10.0)
 
 
 def _throttle() -> None:
     """Block until this worker's turn under the global rate limit."""
-    global _next_slot
-    with _throttle_lock:
-        now = time.monotonic()
-        wait = _next_slot - now
-        _next_slot = max(now, _next_slot) + _min_interval
-    if wait > 0:
-        time.sleep(wait)
+    _limiter.wait()
 
 
 def _get_with_retries(
@@ -503,8 +496,8 @@ def run(args: argparse.Namespace) -> int:
     intermittent WAN (the Pi on Starlink), where each pass caches whatever
     the current connectivity allows.
     """
-    global _min_interval
-    _min_interval = 1.0 / args.rps
+    global _limiter
+    _limiter = RateLimiter(args.rps)
     conn = get_connection()
     init_db(conn)
     print('Scanning places for wiki tags ...', file=sys.stderr)
