@@ -24,22 +24,12 @@
  */
 
 import { fmtSpeed } from './geo'
+import { GNSS_COLOR_BY_NAME as GNSS, GNSS_ORDER } from './gnss'
 
 const POLL_MS = 4000
 const PASSES_HOURS = 3 // predicted-arc overlay window
 const PASSES_REFRESH_MS = 120000 // predictions change slowly
 
-/** Constellation → marker color. */
-const GNSS: Record<string, string> = {
-  GPS: '#22c55e',
-  GLONASS: '#3b82f6',
-  Galileo: '#f59e0b',
-  BeiDou: '#ef4444',
-  QZSS: '#a78bfa',
-  SBAS: '#94a3b8',
-  Other: '#64748b',
-}
-const GNSS_ORDER = ['GPS', 'GLONASS', 'Galileo', 'BeiDou', 'QZSS', 'SBAS', 'Other']
 
 const DEG = Math.PI / 180
 const TILT_DEFAULT = 55 * DEG

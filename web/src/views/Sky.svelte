@@ -4,6 +4,7 @@
 
   import { getPasses, type PassesResponse, type SatPass } from '../lib/api'
   import { fmtDurationSecs } from '../lib/geo'
+  import { gnssColor } from '../lib/gnss'
   import { router } from '../lib/router.svelte'
 
   // Drill-in to a ported SPA view: a real href (middle-click/new-tab still work),
@@ -50,15 +51,6 @@
     if (timer) clearInterval(timer)
   })
 
-  // gnssid → colour, matching the globe/skyplot palette.
-  const GNSS_COLOR: Record<number, string> = {
-    0: '#22c55e',
-    1: '#94a3b8',
-    2: '#f59e0b',
-    3: '#ef4444',
-    5: '#a78bfa',
-    6: '#3b82f6',
-  }
   const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'] // prettier-ignore
 
   const compass = (az: number): string => COMPASS[Math.round(az / 22.5) % 16]
@@ -134,7 +126,7 @@
       <div class="pass">
         <div class="pass-head">
           <span class="sat">
-            <span class="sw" style="background:{GNSS_COLOR[p.gnssid] ?? '#64748b'}"></span>{p.name}
+            <span class="sw" style="background:{gnssColor(p.gnssid)}"></span>{p.name}
           </span>
           <span class="sys muted">{p.system}</span>
           <span class="when {w.cls}">{w.text}</span>

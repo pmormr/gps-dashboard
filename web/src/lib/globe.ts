@@ -37,6 +37,8 @@ import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 
+import { gnssColor, gnssColorInt, gnssLetter, gnssName } from './gnss'
+
 /** Inertial-frame orbit fit the server sends per satellite (propagated client-side). */
 interface OrbitFit {
   epoch: number
@@ -93,16 +95,6 @@ interface Pick {
 
 const DEG = Math.PI / 180
 
-/** gpsd gnssid → display name + colour (matches the skyplot palette). */
-const GNSS: Record<number, { name: string; color: number }> = {
-  0: { name: 'GPS', color: 0x22c55e },
-  1: { name: 'SBAS', color: 0x94a3b8 },
-  2: { name: 'Galileo', color: 0xf59e0b },
-  3: { name: 'BeiDou', color: 0xef4444 },
-  5: { name: 'QZSS', color: 0xa78bfa },
-  6: { name: 'GLONASS', color: 0x3b82f6 },
-}
-
 /**
  * Longitude alignment of the equirectangular Earth texture in the ECEF frame.
  * With `rotation.x = π/2`, the texture's prime meridian (u=0.5) already lands on
@@ -112,9 +104,6 @@ const TEXTURE_OFFSET = 0.0
 
 const GM_KM3_S2 = 398600.4418 // Earth's gravitational parameter, km^3/s^2
 const PICK_PX = 18 // click pick tolerance, screen pixels
-
-/** gnssid → RINEX constellation letter, for satellite names (G01, E11, …). */
-const GNSS_LETTER: Record<number, string> = { 0: 'G', 1: 'S', 2: 'E', 3: 'C', 5: 'J', 6: 'R' }
 
 const TRAIL_MIN_S = 1200 // shortest trail behind a just-seen satellite
 const TRAIL_STEP_S = 120 // trail/path sample cadence (s)
@@ -396,7 +385,7 @@ export function mountGlobe(root: HTMLElement): () => void {
     const seen = new Set<number>()
     let sampleCount = 0
     for (const sat of data.sats) {
-      const meta = GNSS[sat.gnssid] || { name: 'Other', color: 0x64748b }
+      const meta = { name: gnssName(sat.gnssid), color: gnssColorInt(sat.gnssid) }
       seen.add(sat.gnssid)
       sampleCount += sat.samples.length
 
@@ -608,10 +597,8 @@ export function mountGlobe(root: HTMLElement): () => void {
     const ids = [...seen].sort((a, b) => a - b)
     legendEl.innerHTML = ids
       .map((id) => {
-        const meta = GNSS[id] || { name: 'Other', color: 0x64748b }
-        const hex = '#' + meta.color.toString(16).padStart(6, '0')
         const off = state.hidden.has(id) ? ' off' : ''
-        return `<button class="leg${off}" data-gnss="${id}"><span class="sw" style="background:${hex}"></span>${meta.name}</button>`
+        return `<button class="leg${off}" data-gnss="${id}"><span class="sw" style="background:${gnssColor(id)}"></span>${gnssName(id)}</button>`
       })
       .join('')
     legendEl.querySelectorAll<HTMLElement>('.leg').forEach((b) => {
@@ -677,7 +664,7 @@ export function mountGlobe(root: HTMLElement): () => void {
 
   /** RINEX-style satellite name, e.g. G01 / E11. */
   function satName(gnssid: number, svid: number): string {
-    return (GNSS_LETTER[gnssid] || '?') + String(svid).padStart(2, '0')
+    return gnssLetter(gnssid) + String(svid).padStart(2, '0')
   }
 
   /** Circular-orbit speed (km/s) at a geocentric radius (km). */
@@ -714,7 +701,7 @@ export function mountGlobe(root: HTMLElement): () => void {
    */
   function showPopup(sat: SatRecord, pos: THREE.Vector3, sx: number, sy: number): void {
     clearGroup(highlightGroup)
-    const meta = GNSS[sat.gnssid] || { name: 'Other', color: 0x64748b }
+    const meta = { name: gnssName(sat.gnssid), color: gnssColorInt(sat.gnssid) }
     const hex = '#' + meta.color.toString(16).padStart(6, '0')
     const radiusKm = pos.length()
     const altKm = radiusKm - earthRadiusKm
