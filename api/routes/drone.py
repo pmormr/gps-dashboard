@@ -20,7 +20,7 @@ trusting client-computed bounds.
 from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection
-from api.params import parse_bbox, parse_time
+from api.params import bbox_overlap_where, parse_bbox, time_overlap_where
 from tools.import_drone import Clip, Flight, TrackPoint, load_flight
 
 drone_bp = Blueprint('drone', __name__)
@@ -127,28 +127,17 @@ def list_flights():
     """
     conn = get_connection()
 
-    where: list[str] = []
-    params: list = []
-
-    for value, name, column, op in (
-        (request.args.get('start'), 'start', 'last_fix_utc', '>='),
-        (request.args.get('end'), 'end', 'first_fix_utc', '<='),
-    ):
-        if value is None:
-            continue
-        canonical, err = parse_time(value, name)
-        if err:
-            return err
-        where.append(f'{column} {op} ?')
-        params.append(canonical)
+    where, params, err = time_overlap_where(request.args, 'first_fix_utc', 'last_fix_utc')
+    if err:
+        return err
 
     bbox, err = parse_bbox(request.args)
     if err:
         return err
     if bbox is not None:
-        w, s, e, n = bbox
-        where += ['max_lon >= ?', 'min_lon <= ?', 'max_lat >= ?', 'min_lat <= ?']
-        params += [w, e, s, n]
+        bbox_where, bbox_params = bbox_overlap_where(bbox)
+        where += bbox_where
+        params += bbox_params
 
     sql = f'SELECT {_FLIGHT_COLUMNS} FROM drone_flights'
     if where:

@@ -43,7 +43,7 @@ import re
 from flask import Blueprint, Response, jsonify, request
 
 from api.db import get_connection, place_wiki_key
-from api.params import parse_bbox, parse_limit
+from api.params import bbox_point_where, parse_bbox, parse_limit
 
 places_bp = Blueprint('places', __name__)
 
@@ -286,9 +286,9 @@ def list_places():
     where: list[str] = []
     params: list = []
     if bbox is not None:
-        w, s, e, n = bbox
-        where += ['p.lat BETWEEN ? AND ?', 'p.lon BETWEEN ? AND ?']
-        params += [s, n, w, e]
+        bbox_where, bbox_params = bbox_point_where(bbox, prefix='p.')
+        where += bbox_where
+        params += bbox_params
     if radius is not None and center is not None:
         # Circle in the locally-scaled plane: trims the bbox corners so
         # `truncated` counts the circle, not the square. No trig in SQL —
@@ -536,9 +536,9 @@ def list_events():
         where.append('d.date <= ?')
         params.append(end)
     if bbox is not None:
-        w, s, e, n = bbox
-        where += ['e.lat BETWEEN ? AND ?', 'e.lon BETWEEN ? AND ?']
-        params += [s, n, w, e]
+        bbox_where, bbox_params = bbox_point_where(bbox, prefix='e.')
+        where += bbox_where
+        params += bbox_params
     park = request.args.get('park')
     if park:
         where.append('e.park_code = ?')

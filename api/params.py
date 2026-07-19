@@ -144,6 +144,80 @@ def parse_bbox(args: MultiDict[str, str]) -> tuple[Bbox | None, ErrorResponse | 
     return (w, s, e, n), None
 
 
+def bbox_point_where(bbox: Bbox, prefix: str = '') -> tuple[list[str], list[float]]:
+    """Build a point-in-box SQL filter for a lat/lon pair.
+
+    The parameter order (``[s, n, w, e]``) is the transposition footgun this helper
+    exists to remove — ``parse_bbox`` yields ``(w, s, e, n)`` but the ``BETWEEN``
+    clauses need latitude first.
+
+    Args:
+        bbox: A ``(w, s, e, n)`` tuple (as returned by :func:`parse_bbox`).
+        prefix: Optional column prefix / table alias, e.g. ``'p.'`` for ``p.lat``.
+
+    Returns:
+        ``(clauses, params)`` — WHERE fragments for the caller to AND-combine, with
+        their bound parameters.
+    """
+    w, s, e, n = bbox
+    clauses = [f'{prefix}lat BETWEEN ? AND ?', f'{prefix}lon BETWEEN ? AND ?']
+    return clauses, [s, n, w, e]
+
+
+def bbox_overlap_where(bbox: Bbox) -> tuple[list[str], list[float]]:
+    """Build a box-overlap SQL filter for a row carrying min/max bounds.
+
+    Matches rows whose ``[min_lon,max_lon]×[min_lat,max_lat]`` extent overlaps the
+    query box — used by reads over rows with a precomputed bounding box (drone
+    flights, phone paths).
+
+    Args:
+        bbox: A ``(w, s, e, n)`` tuple (as returned by :func:`parse_bbox`).
+
+    Returns:
+        ``(clauses, params)`` for the caller to AND-combine.
+    """
+    w, s, e, n = bbox
+    clauses = ['max_lon >= ?', 'min_lon <= ?', 'max_lat >= ?', 'min_lat <= ?']
+    return clauses, [w, e, s, n]
+
+
+def time_overlap_where(
+    args: MultiDict[str, str], start_col: str, end_col: str
+) -> tuple[list[str], list[str], ErrorResponse | None]:
+    """Build an interval-overlap SQL clause for a ``[start_col, end_col]`` row.
+
+    A row's interval overlaps the query window ``[start, end]`` when
+    ``end_col >= start`` and ``start_col <= end`` — each bound optional. Used by
+    reads over rows that span a time range (phone paths/visits/activities, drone
+    flights).
+
+    Args:
+        args: The request args mapping (``request.args``).
+        start_col: The row column holding the interval start.
+        end_col: The row column holding the interval end.
+
+    Returns:
+        ``(where, params, None)`` on success, or ``([], [], error_response)`` when
+        a provided timestamp is malformed.
+    """
+    where: list[str] = []
+    params: list[str] = []
+    for value, name, column, op in (
+        (args.get('start'), 'start', end_col, '>='),
+        (args.get('end'), 'end', start_col, '<='),
+    ):
+        if value is None:
+            continue
+        canonical, err = parse_time(value, name)
+        if err:
+            return [], [], err
+        assert canonical is not None  # err is None ⇒ canonical parsed
+        where.append(f'{column} {op} ?')
+        params.append(canonical)
+    return where, params, None
+
+
 def parse_limit(
     args: MultiDict[str, str], default: int, maximum: int, key: str = 'limit'
 ) -> tuple[int | None, ErrorResponse | None]:

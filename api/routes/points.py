@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection
-from api.params import parse_bbox, parse_limit, parse_required_window
+from api.params import bbox_point_where, parse_bbox, parse_limit, parse_required_window
 
 points_bp = Blueprint('points', __name__)
 
@@ -91,12 +91,10 @@ def get_points():
     if err:
         return err
 
-    bbox_where = []
+    bbox_where: list[str] = []
     bbox_params: list = []
     if bbox is not None:
-        w, s, e, n = bbox
-        bbox_where = ['lat BETWEEN ? AND ?', 'lon BETWEEN ? AND ?']
-        bbox_params = [s, n, w, e]
+        bbox_where, bbox_params = bbox_point_where(bbox)
 
     conn = get_connection()
 

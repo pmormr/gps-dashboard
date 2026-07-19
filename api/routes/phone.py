@@ -21,7 +21,13 @@ so a segment partially in view still returns.
 from flask import Blueprint, jsonify, request
 
 from api.db import get_connection
-from api.params import parse_bbox, parse_limit, parse_time
+from api.params import (
+    bbox_overlap_where,
+    bbox_point_where,
+    parse_bbox,
+    parse_limit,
+    time_overlap_where,
+)
 
 phone_bp = Blueprint('phone', __name__)
 
@@ -36,35 +42,6 @@ _ACTIVITY_COLUMNS = (
 )
 
 
-def _time_overlap_where(args) -> tuple[list[str], list, tuple | None]:
-    """Build the start/end interval-overlap SQL clause shared by both reads.
-
-    A segment ``[start_time, end_time]`` overlaps the window ``[start, end]`` when
-    ``end_time >= start`` and ``start_time <= end`` — each bound optional.
-
-    Args:
-        args: The request args mapping (``request.args``).
-
-    Returns:
-        ``(where, params, None)`` on success, or ``([], [], error_response)`` when
-        a timestamp is malformed.
-    """
-    where: list[str] = []
-    params: list = []
-    for value, name, column, op in (
-        (args.get('start'), 'start', 'end_time', '>='),
-        (args.get('end'), 'end', 'start_time', '<='),
-    ):
-        if value is None:
-            continue
-        canonical, err = parse_time(value, name)
-        if err:
-            return [], [], err
-        where.append(f'{column} {op} ?')
-        params.append(canonical)
-    return where, params, None
-
-
 @phone_bp.get('/api/phone/tracks')
 def list_tracks():
     """Breadcrumb paths overlapping the window, thinned points embedded.
@@ -77,7 +54,7 @@ def list_tracks():
     """
     conn = get_connection()
 
-    where, params, err = _time_overlap_where(request.args)
+    where, params, err = time_overlap_where(request.args, 'start_time', 'end_time')
     if err:
         return err
 
@@ -85,9 +62,9 @@ def list_tracks():
     if err:
         return err
     if bbox is not None:
-        w, s, e, n = bbox
-        where += ['max_lon >= ?', 'min_lon <= ?', 'max_lat >= ?', 'min_lat <= ?']
-        params += [w, e, s, n]
+        bbox_where, bbox_params = bbox_overlap_where(bbox)
+        where += bbox_where
+        params += bbox_params
 
     limit, err = parse_limit(request.args, default=10000, maximum=50000)
     if err:
@@ -140,7 +117,7 @@ def list_places():
     """
     conn = get_connection()
 
-    time_where, time_params, err = _time_overlap_where(request.args)
+    time_where, time_params, err = time_overlap_where(request.args, 'start_time', 'end_time')
     if err:
         return err
 
@@ -158,8 +135,9 @@ def list_places():
     activity_params = list(time_params)
     if bbox is not None:
         w, s, e, n = bbox
-        visit_where += ['lat BETWEEN ? AND ?', 'lon BETWEEN ? AND ?']
-        visit_params += [s, n, w, e]
+        visit_clauses, visit_bbox_params = bbox_point_where(bbox)
+        visit_where += visit_clauses
+        visit_params += visit_bbox_params
         activity_where.append(
             '((start_lat BETWEEN ? AND ? AND start_lon BETWEEN ? AND ?) '
             'OR (end_lat BETWEEN ? AND ? AND end_lon BETWEEN ? AND ?))'

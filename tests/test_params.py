@@ -6,11 +6,14 @@ response with :func:`flask.jsonify`, so those assertions run under the
 """
 
 from api.params import (
+    bbox_overlap_where,
+    bbox_point_where,
     parse_bbox,
     parse_limit,
     parse_required_window,
     parse_time,
     parse_time_window,
+    time_overlap_where,
 )
 from common.timefmt import epoch_seconds
 
@@ -124,4 +127,53 @@ class TestParseTimeWindow:
 
     def test_malformed_value_is_error(self, app_context):
         _, _, err = parse_time_window({'end': 'nope'}, default_hours=2)
+        assert err[1] == 400
+
+
+class TestBboxPointWhere:
+    def test_clauses_and_param_order(self):
+        # parse_bbox yields (w, s, e, n); the BETWEEN params must be [s, n, w, e].
+        clauses, params = bbox_point_where((-106.0, 39.0, -104.0, 41.0))
+        assert clauses == ['lat BETWEEN ? AND ?', 'lon BETWEEN ? AND ?']
+        assert params == [39.0, 41.0, -106.0, -104.0]
+
+    def test_prefix_qualifies_columns(self):
+        clauses, _ = bbox_point_where((-106.0, 39.0, -104.0, 41.0), prefix='p.')
+        assert clauses == ['p.lat BETWEEN ? AND ?', 'p.lon BETWEEN ? AND ?']
+
+
+class TestBboxOverlapWhere:
+    def test_clauses_and_param_order(self):
+        # Box-overlap params are [w, e, s, n] against min/max columns.
+        clauses, params = bbox_overlap_where((-106.0, 39.0, -104.0, 41.0))
+        assert clauses == ['max_lon >= ?', 'min_lon <= ?', 'max_lat >= ?', 'min_lat <= ?']
+        assert params == [-106.0, -104.0, 39.0, 41.0]
+
+
+class TestTimeOverlapWhere:
+    def test_both_bounds_map_to_opposite_columns(self):
+        where, params, err = time_overlap_where(
+            {'start': '2026-06-09T00:00:00Z', 'end': '2026-06-09T06:00:00Z'},
+            'start_time',
+            'end_time',
+        )
+        assert err is None
+        # window start compares the row's END column; window end compares its START.
+        assert where == ['end_time >= ?', 'start_time <= ?']
+        assert params == ['2026-06-09T00:00:00.000Z', '2026-06-09T06:00:00.000Z']
+
+    def test_single_bound(self):
+        where, params, err = time_overlap_where(
+            {'end': '2026-06-09T06:00:00Z'}, 'first_fix_utc', 'last_fix_utc'
+        )
+        assert err is None
+        assert where == ['first_fix_utc <= ?']
+        assert params == ['2026-06-09T06:00:00.000Z']
+
+    def test_no_bounds_is_empty(self):
+        assert time_overlap_where({}, 'start_time', 'end_time') == ([], [], None)
+
+    def test_malformed_is_error(self, app_context):
+        where, params, err = time_overlap_where({'start': 'nope'}, 'start_time', 'end_time')
+        assert (where, params) == ([], [])
         assert err[1] == 400
