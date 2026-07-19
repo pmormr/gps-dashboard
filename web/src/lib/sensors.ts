@@ -3,6 +3,7 @@
 // alt-unit conversions; these just apply them.
 
 import type { MetricMeta, SensorRow, SensorsResponse } from './api'
+import { celsiusToF } from './geo'
 
 const FALLBACK_META: MetricMeta = {
   label: '',
@@ -24,7 +25,7 @@ export function metricMeta(meta: Record<string, MetricMeta>, key: string): Metri
 }
 
 const CONVERTERS: Record<string, (v: number) => { value: number; unit: string }> = {
-  c_to_f: (v) => ({ value: (v * 9) / 5 + 32, unit: '°F' }),
+  c_to_f: (v) => ({ value: celsiusToF(v), unit: '°F' }),
   kph_to_mph: (v) => ({ value: v * 0.621371, unit: 'mph' }),
   s_to_h: (v) => ({ value: v / 3600, unit: 'h' }),
 }

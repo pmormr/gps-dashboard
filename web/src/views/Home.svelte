@@ -3,6 +3,7 @@
   import { errMsg } from '../lib/errors'
 
   import { getStatus, type Status } from '../lib/api'
+  import { celsiusToF, metersToFeet } from '../lib/geo'
 
   let status = $state<Status | null>(null)
   let error = $state<string | null>(null)
@@ -91,9 +92,9 @@
 
   /** Format a Celsius value as Fahrenheit, or an em dash when absent. */
   const f0 = (c: number | null | undefined): string =>
-    c == null ? '—' : String(Math.round((c * 9) / 5 + 32))
+    c == null ? '—' : String(Math.round(celsiusToF(c)))
   const f1 = (c: number | null | undefined): string =>
-    c == null ? '—' : ((c * 9) / 5 + 32).toFixed(1)
+    c == null ? '—' : celsiusToF(c).toFixed(1)
 
   /** km/h → whole mph. */
   const mph = (kph: number | null | undefined): string =>
@@ -101,7 +102,7 @@
 
   /** metres → whole feet. */
   const ft = (m: number | null | undefined): string =>
-    m == null ? '—' : String(Math.round(m * 3.28084))
+    m == null ? '—' : String(Math.round(metersToFeet(m)))
 
   /** Seconds → compact duration ('12d 4h', '4h 23m', '23m'). */
   function dur(s: number | null | undefined): string {

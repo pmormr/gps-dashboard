@@ -3,6 +3,7 @@
   import { errMsg } from '../lib/errors'
 
   import { getGpsdStatus, type GpsdStatus } from '../lib/api'
+  import { fmtAltitude, fmtSpeed } from '../lib/geo'
 
   let data = $state<GpsdStatus | null>(null)
   let error = $state<string | null>(null)
@@ -24,9 +25,6 @@
   onDestroy(() => {
     if (timer) clearInterval(timer)
   })
-
-  const mph = (ms: number | null): string => (ms == null ? '—' : `${(ms * 2.23694).toFixed(1)} mph`)
-  const ft = (m: number | null): string => (m == null ? '—' : `${Math.round(m * 3.28084)} ft`)
 </script>
 
 <header class="page-head">
@@ -79,8 +77,8 @@
       <div class="kv"><span class="k">Coordinates</span>
         <span class="v">{data.latest.lat.toFixed(5)}, {data.latest.lon.toFixed(5)}</span>
       </div>
-      <div class="kv"><span class="k">Speed</span><span class="v">{mph(data.latest.speed)}</span></div>
-      <div class="kv"><span class="k">Altitude</span><span class="v">{ft(data.latest.altitude)}</span></div>
+      <div class="kv"><span class="k">Speed</span><span class="v">{fmtSpeed(data.latest.speed)}</span></div>
+      <div class="kv"><span class="k">Altitude</span><span class="v">{fmtAltitude(data.latest.altitude)}</span></div>
       <div class="kv"><span class="k">Data age</span>
         <span class="v {data.data_age != null && data.data_age < 30 ? 'ok' : 'err'}"
           >{data.data_age != null ? `${data.data_age}s` : '—'}</span>

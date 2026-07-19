@@ -10,7 +10,14 @@
     speedZoom,
     ZOOM_SLEW_PER_S,
   } from '../lib/follow'
-  import { fmtAltitude, fmtDistance, haversineMeters, initialBearingDeg } from '../lib/geo'
+  import {
+    celsiusToF,
+    fmtAltitude,
+    fmtDistance,
+    haversineMeters,
+    initialBearingDeg,
+    mpsToMph,
+  } from '../lib/geo'
   import { cardinal, type Crumb, extendCrumbs } from '../lib/live'
   import type { MapView as MapViewType } from '../lib/map'
   import { destination } from '../lib/stores/destination.svelte'
@@ -74,7 +81,7 @@
     if (Date.parse(s.now) - Date.parse(s.van.timestamp) > OBD_FRESH_MS) return null
     return s.van.rpm != null && s.van.rpm > 0 ? s.van : null
   })
-  const coolF = $derived(van?.coolant_c != null ? Math.round(van.coolant_c * 1.8 + 32) : null)
+  const coolF = $derived(van?.coolant_c != null ? Math.round(celsiusToF(van.coolant_c)) : null)
   const fuelPct = $derived(van?.fuel_level_pct != null ? Math.round(van.fuel_level_pct) : null)
   const gph = $derived(
     van?.fuel_rate_lph != null ? (van.fuel_rate_lph * 0.264172).toFixed(1) : null,
@@ -102,7 +109,7 @@
   // HUD readouts, from the raw fix (interpolation would just add display lag).
   const mph = $derived(
     live.fix?.speed != null && live.status !== 'no-fix' && live.status !== 'offline'
-      ? Math.round(live.fix.speed * 2.23694)
+      ? Math.round(mpsToMph(live.fix.speed))
       : null,
   )
   const hdg = $derived(live.heading != null ? Math.round(live.heading) % 360 : null)

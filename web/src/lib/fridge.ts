@@ -3,6 +3,7 @@
 // format temperatures in the fridge's own presented unit.
 
 import type { FridgeHistoryResponse, FridgeRange, SensorSeriesResponse } from './api'
+import { celsiusToF } from './geo'
 
 /** The probed CFX3 75DZ allowed setpoint range — the stepper's bound when the
  * live ranges haven't been fetched yet (fridge off the LAN). */
@@ -56,6 +57,6 @@ export function clampSetpoint(tempC: number, range: FridgeRange | null): number 
  */
 export function formatTemp(tempC: number | null | undefined, tempUnit: number | null): string {
   if (tempC == null || typeof tempC !== 'number') return '—'
-  if (tempUnit === 1) return `${Math.round((tempC * 9) / 5 + 32)}°F`
+  if (tempUnit === 1) return `${Math.round(celsiusToF(tempC))}°F`
   return `${tempC.toFixed(1)}°C`
 }

@@ -23,6 +23,8 @@
  * create/destroy — no point polling gpsd while the view is off-screen.
  */
 
+import { fmtSpeed } from './geo'
+
 const POLL_MS = 4000
 const PASSES_HOURS = 3 // predicted-arc overlay window
 const PASSES_REFRESH_MS = 120000 // predictions change slowly
@@ -643,7 +645,7 @@ export function mountSkyplot(root: HTMLElement): () => void {
     set('st-sats', `${m.used} / ${m.seen}`, (m.used ?? 0) >= 4 ? 'ok' : (m.used ?? 0) > 0 ? 'warn' : 'err')
     set('st-fix', m.fix_label || '—', (m.fix_mode ?? 0) >= 3 ? 'ok' : (m.fix_mode ?? 0) >= 2 ? 'warn' : 'err')
     set('st-head', typeof m.track === 'number' ? `${Math.round(m.track)}° ${cardinal(m.track)}` : '—')
-    set('st-speed', typeof m.speed === 'number' ? `${(m.speed * 2.23694).toFixed(1)} mph` : '—')
+    set('st-speed', fmtSpeed(typeof m.speed === 'number' ? m.speed : null))
     const q = $<HTMLElement>('#st-quality')
     q.textContent = dopLabel(m.pdop)
     q.className = 'v'

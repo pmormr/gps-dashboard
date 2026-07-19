@@ -109,6 +109,21 @@ export function computeStats(points: TrackPoint[]): TrackStats | null {
   return { distance, maxSpeed, avgSpeed, elevRange, durationMs, pointCount: points.length }
 }
 
+/** Metres per second → miles per hour. */
+export function mpsToMph(mps: number): number {
+  return mps * 2.23694
+}
+
+/** Metres → feet. */
+export function metersToFeet(meters: number): number {
+  return meters * 3.28084
+}
+
+/** Degrees Celsius → degrees Fahrenheit. */
+export function celsiusToF(c: number): number {
+  return (c * 9) / 5 + 32
+}
+
 /** Format metres as miles. */
 export function fmtDistance(meters: number): string {
   const miles = meters / 1609.344
@@ -117,12 +132,12 @@ export function fmtDistance(meters: number): string {
 
 /** Format m/s as mph (— when null). */
 export function fmtSpeed(mps: number | null): string {
-  return mps != null ? `${(mps * 2.23694).toFixed(1)} mph` : '—'
+  return mps != null ? `${mpsToMph(mps).toFixed(1)} mph` : '—'
 }
 
 /** Format metres as feet (— when null). */
 export function fmtAltitude(meters: number | null): string {
-  return meters != null ? `${Math.round(meters * 3.28084)} ft` : '—'
+  return meters != null ? `${Math.round(metersToFeet(meters))} ft` : '—'
 }
 
 /** Format a duration in ms as `Hh Mm` / `Mm`. */
