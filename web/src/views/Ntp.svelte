@@ -1,29 +1,10 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
-  import { errMsg } from '../lib/errors'
-
   import { getNtp, type NtpStatus } from '../lib/api'
+  import { poll } from '../lib/poll.svelte'
 
-  let data = $state<NtpStatus | null>(null)
-  let error = $state<string | null>(null)
-  let timer: number | undefined
-
-  async function refresh(): Promise<void> {
-    try {
-      data = await getNtp()
-      error = null
-    } catch (e) {
-      error = errMsg(e)
-    }
-  }
-
-  onMount(() => {
-    refresh()
-    timer = window.setInterval(refresh, 30000)
-  })
-  onDestroy(() => {
-    if (timer) clearInterval(timer)
-  })
+  const feed = poll<NtpStatus>(getNtp, 30000)
+  let data = $derived(feed.data)
+  let error = $derived(feed.error)
 
   const offset = (d: NtpStatus): string =>
     d.tracking.offset_ms == null

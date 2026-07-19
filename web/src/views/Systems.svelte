@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
-  import { errMsg } from '../lib/errors'
-
   import { getSensors, type SensorsResponse } from '../lib/api'
+  import { poll } from '../lib/poll.svelte'
   import { router } from '../lib/router.svelte'
   import {
     DOMAIN_LABELS,
@@ -17,26 +15,9 @@
     orderedSensors,
   } from '../lib/sensors'
 
-  let data = $state<SensorsResponse | null>(null)
-  let error = $state<string | null>(null)
-  let timer: number | undefined
-
-  async function refresh(): Promise<void> {
-    try {
-      data = await getSensors()
-      error = null
-    } catch (e) {
-      error = errMsg(e)
-    }
-  }
-
-  onMount(() => {
-    refresh()
-    timer = window.setInterval(refresh, 30000)
-  })
-  onDestroy(() => {
-    if (timer) clearInterval(timer)
-  })
+  const feed = poll<SensorsResponse>(getSensors, 30000)
+  let data = $derived(feed.data)
+  let error = $derived(feed.error)
 
   const sensors = $derived(data ? orderedSensors(data.sensors) : [])
 </script>

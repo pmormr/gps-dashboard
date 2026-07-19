@@ -1,30 +1,11 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
-  import { errMsg } from '../lib/errors'
-
   import { getGpsdStatus, type GpsdStatus } from '../lib/api'
   import { fmtAltitude, fmtSpeed } from '../lib/geo'
+  import { poll } from '../lib/poll.svelte'
 
-  let data = $state<GpsdStatus | null>(null)
-  let error = $state<string | null>(null)
-  let timer: number | undefined
-
-  async function refresh(): Promise<void> {
-    try {
-      data = await getGpsdStatus()
-      error = null
-    } catch (e) {
-      error = errMsg(e)
-    }
-  }
-
-  onMount(() => {
-    refresh()
-    timer = window.setInterval(refresh, 30000)
-  })
-  onDestroy(() => {
-    if (timer) clearInterval(timer)
-  })
+  const feed = poll<GpsdStatus>(getGpsdStatus, 30000)
+  let data = $derived(feed.data)
+  let error = $derived(feed.error)
 </script>
 
 <header class="page-head">

@@ -1,33 +1,15 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
-  import { errMsg } from '../lib/errors'
-
   import { getStatus, type Status } from '../lib/api'
   import { celsiusToF, metersToFeet } from '../lib/geo'
+  import { poll } from '../lib/poll.svelte'
   import { decodeCoded } from '../lib/sensors'
 
-  let status = $state<Status | null>(null)
-  let error = $state<string | null>(null)
   let updated = $state('')
-  let timer: number | undefined
-
-  async function refresh(): Promise<void> {
-    try {
-      status = await getStatus()
-      error = null
-      updated = new Date().toLocaleTimeString()
-    } catch (e) {
-      error = errMsg(e)
-    }
-  }
-
-  onMount(() => {
-    refresh()
-    timer = window.setInterval(refresh, 5000)
+  const feed = poll<Status>(getStatus, 5000, () => {
+    updated = new Date().toLocaleTimeString()
   })
-  onDestroy(() => {
-    if (timer) clearInterval(timer)
-  })
+  let status = $derived(feed.data)
+  let error = $derived(feed.error)
 
   // Per-domain freshness windows (ms): how old a reading can be before the panel
   // reads as stale. The van's is short — a missing recent reading *is* "engine off".

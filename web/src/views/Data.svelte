@@ -1,30 +1,11 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
-  import { errMsg } from '../lib/errors'
-
   import { getDataStatus, type DataChunk, type DataStatus } from '../lib/api'
+  import { poll } from '../lib/poll.svelte'
   import { ageSeconds, formatAge } from '../lib/sensors'
 
-  let data = $state<DataStatus | null>(null)
-  let error = $state<string | null>(null)
-  let timer: number | undefined
-
-  async function refresh(): Promise<void> {
-    try {
-      data = await getDataStatus()
-      error = null
-    } catch (e) {
-      error = errMsg(e)
-    }
-  }
-
-  onMount(() => {
-    refresh()
-    timer = window.setInterval(refresh, 60000)
-  })
-  onDestroy(() => {
-    if (timer) clearInterval(timer)
-  })
+  const feed = poll<DataStatus>(getDataStatus, 60000)
+  let data = $derived(feed.data)
+  let error = $derived(feed.error)
 
   const SECTION_LABELS: Record<string, string> = {
     places: 'Places',
