@@ -40,7 +40,7 @@
   </div>
 
   <section class="panel">
-    <div class="panel-title">Checks</div>
+    <div class="panel-title eyebrow">Checks</div>
     {#each data.checks as c (c.name)}
       <div class="row">
         <span class="dot {c.ok ? 'ok' : 'err'}"></span>
@@ -51,7 +51,7 @@
   </section>
 
   <section class="panel">
-    <div class="panel-title">GPS details</div>
+    <div class="panel-title eyebrow">GPS details</div>
     <div class="kv"><span class="k">Service</span>
       <span class="v {data.service_state === 'active' ? 'ok' : 'err'}">{data.service_state}</span>
     </div>
@@ -71,7 +71,7 @@
   </section>
 
   <section class="panel">
-    <div class="panel-title">Latest logged point</div>
+    <div class="panel-title eyebrow">Latest logged point</div>
     {#if data.latest}
       <div class="kv"><span class="k">Timestamp</span><span class="v">{data.latest.timestamp}</span></div>
       <div class="kv"><span class="k">Coordinates</span>
@@ -104,11 +104,6 @@
     overflow: hidden;
   }
   .panel-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
     padding: 12px 14px 4px;
   }
 

@@ -225,7 +225,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">Transmissions{txTotal ? ` — ${txTotal}` : ''}</div>
+  <div class="card-title eyebrow">Transmissions{txTotal ? ` — ${txTotal}` : ''}</div>
   <div class="tx-controls">
     <label class="tx-toggle">
       <input type="checkbox" bind:checked={hideBlips} onchange={onBlipToggle} />
@@ -285,7 +285,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">Tune</div>
+  <div class="card-title eyebrow">Tune</div>
   <div class="field">
     <input
       type="number"
@@ -332,7 +332,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">Levels</div>
+  <div class="card-title eyebrow">Levels</div>
   <div class="sub-label">Volume — {afPct}%</div>
   <input
     type="range"
@@ -362,7 +362,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">CTCSS tone</div>
+  <div class="card-title eyebrow">CTCSS tone</div>
   <div class="seg">
     {#each TONE_MODES as t (t.v)}
       <button class:active={s?.online && s.tone_mode === t.v} onclick={() => applyTone(t.v)}>
@@ -385,7 +385,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">Repeater shift</div>
+  <div class="card-title eyebrow">Repeater shift</div>
   <div class="seg">
     {#each SHIFTS as sh (sh.v)}
       <button class:active={s?.online && s.rptr_shift === sh.v} onclick={() => applyShift(sh.v)}>
@@ -420,11 +420,6 @@
     padding: 14px;
   }
   .card-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
     margin-bottom: 12px;
   }
 

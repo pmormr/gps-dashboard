@@ -231,7 +231,7 @@
 
 {#if reg}
   <section class="panel">
-    <div class="grp">Channels</div>
+    <div class="grp eyebrow">Channels</div>
     {#each sensors as sensor (sensor.id)}
       {@const channels = channelsFor(reg, sensor.id)}
       {#if channels.length}
@@ -376,11 +376,6 @@
   }
 
   .grp {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
     margin-bottom: 10px;
   }
   .src {

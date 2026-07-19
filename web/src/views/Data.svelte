@@ -108,7 +108,7 @@
 {#if data}
   {#each grouped(data.chunks) as [section, chunks] (section)}
     <section class="panel">
-      <div class="grp">{SECTION_LABELS[section] ?? section}</div>
+      <div class="grp eyebrow">{SECTION_LABELS[section] ?? section}</div>
       {#each chunks as c (c.id)}
         <div class="row">
           <span class="dot {dotClass(c.state)}"></span>
@@ -150,11 +150,6 @@
   }
 
   .grp {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
     margin: 12px 0 2px;
   }
 

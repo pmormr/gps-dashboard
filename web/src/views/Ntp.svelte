@@ -44,7 +44,7 @@
   </div>
 
   <section class="panel">
-    <div class="panel-title">Checks</div>
+    <div class="panel-title eyebrow">Checks</div>
     {#each data.checks as c (c.name)}
       <div class="row">
         <span class="dot {c.ok ? 'ok' : 'err'}"></span>
@@ -55,7 +55,7 @@
   </section>
 
   <section class="panel">
-    <div class="panel-title">Sync status</div>
+    <div class="panel-title eyebrow">Sync status</div>
     <div class="kv"><span class="k">Service</span>
       <span class="v {data.service_state === 'active' ? 'ok' : 'err'}">{data.service_state}</span>
     </div>
@@ -73,7 +73,7 @@
 
   {#if data.sources.length}
     <section class="panel">
-      <div class="panel-title">Sources</div>
+      <div class="panel-title eyebrow">Sources</div>
       {#each data.sources as src (src.name)}
         <div class="row mono">
           <span class="sel">{src.selected ? '*' : ''}</span>
@@ -85,7 +85,7 @@
   {/if}
 
   <section class="panel">
-    <div class="panel-title">Mode</div>
+    <div class="panel-title eyebrow">Mode</div>
     <div class="kv"><span class="k">GPS source</span>
       <span class="v {data.gps_source ? 'ok' : 'err'}">{data.gps_source ? 'configured' : 'not found'}</span>
     </div>
@@ -119,11 +119,6 @@
     overflow: hidden;
   }
   .panel-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
     padding: 12px 14px 4px;
   }
 

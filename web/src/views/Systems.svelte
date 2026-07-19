@@ -60,7 +60,7 @@
       </div>
       {#each groups as [group, keys] (group)}
         {#if groups.length > 1 && group}
-          <div class="grp">{groupLabel(group)}</div>
+          <div class="grp eyebrow">{groupLabel(group)}</div>
         {/if}
         <div class="grid">
           {#each keys as key (key)}
@@ -79,7 +79,7 @@
   {/each}
 
   <section class="panel">
-    <div class="grp">Diagnostics</div>
+    <div class="grp eyebrow">Diagnostics</div>
     <button class="diag" onclick={() => router.navigate('/trends')}>
       <span>Trends</span><span class="muted">graph any channel over time</span>
     </button>
@@ -129,11 +129,6 @@
   }
 
   .grp {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
     margin: 12px 0 6px;
   }
 

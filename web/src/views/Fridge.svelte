@@ -183,7 +183,7 @@
   {@const door = val(`comp${zone}_door_open`)}
   <div class="card">
     <div class="zone-head">
-      <div class="card-title">Zone {zone + 1}</div>
+      <div class="eyebrow">Zone {zone + 1}</div>
       <div class="badges">
         {#if door === 1}<span class="badge warn">door open</span>{/if}
         <span class="badge" class:ok={power === 1} class:dim={power === 0}>
@@ -236,7 +236,7 @@
 {/each}
 
 <div class="card">
-  <div class="card-title">Power</div>
+  <div class="eyebrow">Power</div>
   <div class="grid3">
     <div class="cell">
       <div class="lbl">Source</div>
@@ -261,7 +261,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">DC power history</div>
+  <div class="eyebrow">DC power history</div>
   <div class="seg">
     {#each SPANS as sp (sp.v)}
       <button class:active={span === sp.v} onclick={() => setSpan(sp.v)}>{sp.l}</button>
@@ -285,13 +285,6 @@
     border-radius: 12px;
     margin-bottom: 16px;
     padding: 14px;
-  }
-  .card-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
   }
   .zone-head {
     display: flex;
