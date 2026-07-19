@@ -167,14 +167,14 @@
 </header>
 
 {#if !s}
-  <div class="banner err">Connecting…</div>
+  <div class="status-banner err">Connecting…</div>
 {:else if !s.online}
-  <div class="banner err">
+  <div class="status-banner err">
     Fridge offline — stream {s.status}{s.last_seen ? ` · last seen ${formatAge(ageSeconds(s.last_seen))} ago` : ''}.
     Controls need the fridge on the van WiFi.
   </div>
 {:else}
-  <div class="banner ok">● Online{dataAge ? ` · data ${dataAge} old` : ''}</div>
+  <div class="status-banner ok">● Online{dataAge ? ` · data ${dataAge} old` : ''}</div>
 {/if}
 
 {#each ZONES as zone (zone)}
@@ -279,23 +279,6 @@
 <div class="toast" class:show={toastShow} class:err={toastErr}>{toastMsg}</div>
 
 <style>
-  .banner {
-    border-radius: 10px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    font-weight: 600;
-  }
-  .banner.ok {
-    background: rgba(62, 207, 142, 0.12);
-    color: var(--ok);
-    border: 1px solid rgba(62, 207, 142, 0.4);
-  }
-  .banner.err {
-    background: rgba(239, 83, 80, 0.12);
-    color: var(--err);
-    border: 1px solid rgba(239, 83, 80, 0.4);
-  }
-
   .card {
     background: var(--surface);
     border: 1px solid var(--border);

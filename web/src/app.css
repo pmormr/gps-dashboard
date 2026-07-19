@@ -111,3 +111,24 @@ a {
 .link-desc {
   font-size: 13px;
 }
+
+/* Status/error banner shared by the check + control views (Gpsd/Ntp/Fridge/Radio).
+   Docs uses its own neutral .banner, deliberately not this. */
+.status-banner {
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.status-banner.ok {
+  background: rgba(62, 207, 142, 0.12);
+  color: var(--ok);
+  border: 1px solid rgba(62, 207, 142, 0.4);
+}
+
+.status-banner.err {
+  background: rgba(239, 83, 80, 0.12);
+  color: var(--err);
+  border: 1px solid rgba(239, 83, 80, 0.4);
+}

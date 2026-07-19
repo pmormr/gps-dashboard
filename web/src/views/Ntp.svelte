@@ -39,7 +39,7 @@
 </header>
 
 {#if data}
-  <div class="banner {data.overall_ok ? 'ok' : 'err'}">
+  <div class="status-banner {data.overall_ok ? 'ok' : 'err'}">
     {data.overall_ok ? '✓ All checks passing' : '✗ One or more checks failing'}
   </div>
 
@@ -109,23 +109,6 @@
 <style>
   .err-text {
     color: var(--err);
-  }
-
-  .banner {
-    border-radius: 10px;
-    padding: 14px 16px;
-    margin-bottom: 16px;
-    font-weight: 600;
-  }
-  .banner.ok {
-    background: rgba(62, 207, 142, 0.12);
-    color: var(--ok);
-    border: 1px solid rgba(62, 207, 142, 0.4);
-  }
-  .banner.err {
-    background: rgba(239, 83, 80, 0.12);
-    color: var(--err);
-    border: 1px solid rgba(239, 83, 80, 0.4);
   }
 
   .panel {
