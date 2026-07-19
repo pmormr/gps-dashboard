@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from api.db import get_connection, init_db, now_canonical
+from common.gpsd import GPSD_HOST, GPSD_PORT, WATCH
 from common.timefmt import age_seconds
 
 # Motion-gated raw write cadence: full nav rate while moving, throttled to
@@ -214,8 +215,8 @@ def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerSta
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(SOCKET_TIMEOUT_SECONDS)
     try:
-        sock.connect(('127.0.0.1', 2947))
-        sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
+        sock.connect((GPSD_HOST, GPSD_PORT))
+        sock.sendall(WATCH)
         f = sock.makefile('r', encoding='utf-8', errors='replace')
         last_fix_time = time.monotonic()
         for line in f:

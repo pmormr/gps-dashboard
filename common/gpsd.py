@@ -18,7 +18,7 @@ from typing import Any
 
 GPSD_HOST = '127.0.0.1'
 GPSD_PORT = 2947
-_WATCH = b'?WATCH={"enable":true,"json":true}\n'
+WATCH = b'?WATCH={"enable":true,"json":true}\n'
 
 GPSD_CONFIG_PATH = '/etc/default/gpsd'
 
@@ -55,7 +55,7 @@ def query_gpsd(timeout: float = 5, want_sky: bool = True) -> dict[str, Any]:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(timeout)
         s.connect((GPSD_HOST, GPSD_PORT))
-        s.sendall(_WATCH)
+        s.sendall(WATCH)
         f = s.makefile('r', encoding='utf-8', errors='replace')
         result['connected'] = True
         deadline = time.monotonic() + timeout
