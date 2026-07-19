@@ -138,6 +138,19 @@ async function getJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   return resp.json() as Promise<T>
 }
 
+/**
+ * Build a query string, skipping null / undefined / '' values and stringifying
+ * the rest. Callers do their own array joins, key renames, and value transforms
+ * before handing the value in.
+ */
+function qs(params: Record<string, string | number | boolean | null | undefined>): string {
+  const sp = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== '') sp.set(k, String(v))
+  }
+  return sp.toString()
+}
+
 /** Fetch the Home status aggregate. */
 export function getStatus(): Promise<Status> {
   return getJSON<Status>('/api/status')
@@ -438,12 +451,8 @@ export interface RadioTransmissionsPage {
 export function getRadioTransmissions(
   opts: { limit?: number; beforeId?: number; minS?: number } = {},
 ): Promise<RadioTransmissionsPage> {
-  const params = new URLSearchParams()
-  if (opts.limit != null) params.set('limit', String(opts.limit))
-  if (opts.beforeId != null) params.set('before_id', String(opts.beforeId))
-  if (opts.minS != null) params.set('min_s', String(opts.minS))
-  const qs = params.toString()
-  return getJSON<RadioTransmissionsPage>(`/api/radio/transmissions${qs ? `?${qs}` : ''}`)
+  const query = qs({ limit: opts.limit, before_id: opts.beforeId, min_s: opts.minS })
+  return getJSON<RadioTransmissionsPage>(`/api/radio/transmissions${query ? `?${query}` : ''}`)
 }
 
 /** URL of a transmission's WAV (the `<audio>` src; server supports Range). */
@@ -539,9 +548,7 @@ export function getFridgeHistory(
   start?: string,
   end?: string,
 ): Promise<FridgeHistoryResponse> {
-  const params = new URLSearchParams({ span })
-  if (start) params.set('start', start)
-  if (end) params.set('end', end)
+  const params = qs({ span, start, end })
   return getJSON<FridgeHistoryResponse>(`/api/fridge/history?${params}`)
 }
 
@@ -887,17 +894,18 @@ export function getPlaces(opts: {
   facets?: boolean
   signal?: AbortSignal
 }): Promise<PlacesResponse> {
-  const params = new URLSearchParams()
-  if (opts.bbox) params.set('bbox', opts.bbox)
-  if (opts.radius != null) params.set('radius', String(opts.radius))
-  if (opts.kinds?.length) params.set('kind', opts.kinds.join(','))
-  if (opts.categories?.length) params.set('category', opts.categories.join(','))
-  if (opts.maxRank != null) params.set('max_rank', String(opts.maxRank))
-  if (opts.center) params.set('center', opts.center)
-  if (opts.park) params.set('park', opts.park)
-  if (opts.q) params.set('q', opts.q)
-  if (opts.limit != null) params.set('limit', String(opts.limit))
-  if (opts.facets) params.set('facets', '1')
+  const params = qs({
+    bbox: opts.bbox,
+    radius: opts.radius,
+    kind: opts.kinds?.length ? opts.kinds.join(',') : undefined,
+    category: opts.categories?.length ? opts.categories.join(',') : undefined,
+    max_rank: opts.maxRank,
+    center: opts.center,
+    park: opts.park,
+    q: opts.q,
+    limit: opts.limit,
+    facets: opts.facets ? '1' : undefined,
+  })
   return getJSON<PlacesResponse>(`/api/places?${params}`, opts.signal)
 }
 
@@ -949,12 +957,13 @@ export function getPlaceEvents(opts: {
   park?: string
   limit?: number
 }): Promise<PlaceEventsResponse> {
-  const params = new URLSearchParams()
-  if (opts.start) params.set('start', opts.start)
-  if (opts.end) params.set('end', opts.end)
-  if (opts.bbox) params.set('bbox', opts.bbox)
-  if (opts.park) params.set('park', opts.park)
-  if (opts.limit != null) params.set('limit', String(opts.limit))
+  const params = qs({
+    start: opts.start,
+    end: opts.end,
+    bbox: opts.bbox,
+    park: opts.park,
+    limit: opts.limit,
+  })
   return getJSON<PlaceEventsResponse>(`/api/places/events?${params}`)
 }
 
