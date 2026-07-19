@@ -15,7 +15,7 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 
 import { getPhonePlaces, getPhoneTracks, type PhonePath, type PhoneVisit } from './api'
-import { emptyFC, escapeHtml, fmtDate, fmtDuration, fmtTime } from './geo'
+import { emptyFC, escapeHtml, fmtDate, fmtDurationSecs, fmtTime } from './geo'
 import type { MapView as MapViewType } from './map'
 
 type View = typeof MapViewType
@@ -114,7 +114,7 @@ function visitPopupHtml(visit: PhoneVisit): string {
     `<div class="phone-popup-title">${escapeHtml(label)}</div>` +
     `<div class="phone-popup-meta">${fmtDate(visit.start_time)} · ` +
     `${fmtTime(visit.start_time)} → ${fmtTime(visit.end_time)}</div>` +
-    `<div class="phone-popup-meta">Stayed ${fmtDuration(durMs)}</div>` +
+    `<div class="phone-popup-meta">Stayed ${fmtDurationSecs(durMs / 1000)}</div>` +
     `</div>`
   )
 }

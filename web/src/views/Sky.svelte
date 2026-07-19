@@ -3,6 +3,7 @@
   import { errMsg } from '../lib/errors'
 
   import { getPasses, type PassesResponse, type SatPass } from '../lib/api'
+  import { fmtDurationSecs } from '../lib/geo'
   import { router } from '../lib/router.svelte'
 
   // Drill-in to a ported SPA view: a real href (middle-click/new-tab still work),
@@ -64,10 +65,8 @@
   const clock = (u: number): string =>
     new Date(u * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
-  function humanGap(s: number): string {
-    const m = Math.round(s / 60)
-    return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
-  }
+  // Round to the minute (pass countdowns want minute resolution), then format.
+  const humanGap = (s: number): string => fmtDurationSecs(Math.round(s / 60) * 60, { padMin: true })
 
   function whenLabel(p: SatPass): { text: string; cls: string } {
     const now = Date.now() / 1000

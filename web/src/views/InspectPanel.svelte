@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getObdEconomy, type ObdEconomy } from '../lib/api'
   import { errMsg } from '../lib/errors'
+  import { fmtDurationSecs } from '../lib/geo'
   import { selection } from '../lib/stores/selection.svelte'
 
   // "Inspect this window" — derived stats for the current Selection window
@@ -50,15 +51,7 @@
   const maxMph = $derived(data?.max_speed_kph != null ? data.max_speed_kph * KPH_TO_MPH : null)
 
   /** Compact duration, e.g. "2h 15m", "8m 30s", "45s". */
-  function fmtSecs(s: number): string {
-    const t = Math.round(s)
-    const h = Math.floor(t / 3600)
-    const m = Math.floor((t % 3600) / 60)
-    const sec = t % 60
-    if (h) return `${h}h ${m}m`
-    if (m) return `${m}m ${sec}s`
-    return `${sec}s`
-  }
+  const fmtSecs = (s: number): string => fmtDurationSecs(Math.round(s), { showSecs: true })
   function num(v: number | null | undefined, dec: number): string {
     return v == null ? '—' : v.toFixed(dec)
   }

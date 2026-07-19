@@ -140,11 +140,33 @@ export function fmtAltitude(meters: number | null): string {
   return meters != null ? `${Math.round(metersToFeet(meters))} ft` : '—'
 }
 
-/** Format a duration in ms as `Hh Mm` / `Mm`. */
-export function fmtDuration(ms: number): string {
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
+/**
+ * Seconds → compact 2-unit duration: the highest non-zero unit and the one
+ * below it ('12d 4h', '4h 23m', '23m', '45s'). Floor-based; `null`/`undefined`
+ * → '—'.
+ *
+ * Args:
+ *   s: Duration in seconds.
+ *   days: Allow a days top unit ('12d 4h'); else hours cap ('300h 5m').
+ *   showSecs: Allow a seconds bottom unit ('4m 5s', '45s'); else minutes floor.
+ *   padMin: Zero-pad the minutes beside an hours value ('4h 05m').
+ */
+export function fmtDurationSecs(
+  s: number | null | undefined,
+  opts: { days?: boolean; showSecs?: boolean; padMin?: boolean } = {},
+): string {
+  if (s == null) return '—'
+  const t = Math.floor(s)
+  const d = Math.floor(t / 86400)
+  // Hours accumulate past 24 unless `days` peels them off into a d unit.
+  const h = opts.days ? Math.floor((t % 86400) / 3600) : Math.floor(t / 3600)
+  const m = Math.floor((t % 3600) / 60)
+  const sec = t % 60
+  const mm = opts.padMin ? String(m).padStart(2, '0') : `${m}`
+  if (opts.days && d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${mm}m`
+  if (opts.showSecs) return m > 0 ? `${m}m ${sec}s` : `${sec}s`
+  return `${m}m`
 }
 
 /** Local HH:MM for an ISO/canonical timestamp. */

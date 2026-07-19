@@ -19,7 +19,7 @@ import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import type { GeoJSONSource, Map as MlMap, Marker, Popup } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 
-import { emptyFC, escapeHtml, fmtAltitude, fmtDate, fmtDuration, fmtTime } from './geo'
+import { emptyFC, escapeHtml, fmtAltitude, fmtDate, fmtDurationSecs, fmtTime } from './geo'
 import { DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
 import { prefetchTiles } from './prefetch'
 
@@ -720,7 +720,7 @@ export const MapView = (() => {
       `<div class="drone-popup-title">` +
       `<span class="drone-popup-swatch" style="background:${droneColor(p.model_code)}"></span>` +
       `${escapeHtml(p.model)}</div>` +
-      `<div class="drone-popup-meta">${fmtDate(p.first_fix_utc)} · ${fmtTime(p.first_fix_utc)} → ${fmtTime(p.last_fix_utc)} · ${fmtDuration(durMs)}</div>` +
+      `<div class="drone-popup-meta">${fmtDate(p.first_fix_utc)} · ${fmtTime(p.first_fix_utc)} → ${fmtTime(p.last_fix_utc)} · ${fmtDurationSecs(durMs / 1000)}</div>` +
       `<div class="drone-popup-meta">Alt ${alt} · ${p.n_points} pts</div>` +
       path +
       `</div>`

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getStatus, type Status } from '../lib/api'
-  import { celsiusToF, metersToFeet } from '../lib/geo'
+  import { celsiusToF, fmtDurationSecs, metersToFeet } from '../lib/geo'
   import { poll } from '../lib/poll.svelte'
   import { decodeCoded } from '../lib/sensors'
 
@@ -75,15 +75,7 @@
     m == null ? '—' : String(Math.round(metersToFeet(m)))
 
   /** Seconds → compact duration ('12d 4h', '4h 23m', '23m'). */
-  function dur(s: number | null | undefined): string {
-    if (s == null) return '—'
-    const d = Math.floor(s / 86400)
-    const h = Math.floor((s % 86400) / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    if (d > 0) return `${d}d ${h}h`
-    if (h > 0) return `${h}h ${m}m`
-    return `${m}m`
-  }
+  const dur = (s: number | null | undefined): string => fmtDurationSecs(s, { days: true })
 
   /** Degrees → compass point ('NW'). */
   const compass = (deg: number | null | undefined): string =>
