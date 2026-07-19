@@ -1,15 +1,23 @@
 # DRY / simplification pass
 
-Status: **IN PROGRESS** — recon complete (6-agent read-only sweep, 2026-07-19).
-- **Phase 1 DONE** (A1, B1–B4 committed; ruff+mypy clean).
-- **Phase 2 DONE** (C2, C3, C4+C5, C1, C6 + gpsd_validate minor committed; 812 tests green).
-  **C7 (ThreadPoolExecutor cancel helper) — recommend SKIP** (awaiting user confirm): the only
-  shared code is a 2-line `f.cancel()` loop; each interrupt handler's real work (precache flag +
-  post-pool print; fetch_wikipedia DB `_flush` + resume hint + a *second* streak-abort cancel;
-  import_drone summary + `return 130`) must stay caller-side. A shared generator saves ~6 lines and
-  adds control-flow indirection — trades duplication for complexity. Moved to "Deliberately NOT doing"
-  pending confirmation.
-- Next: Phase 3 (frontend mechanical: helpers + CSS consolidation).
+Status: **PAUSED — resume at Phase 3.** Recon complete (6-agent read-only sweep, 2026-07-19).
+Backend (Phases 1–2) landed across 11 commits in session 1 (2026-07-19); frontend + hot-path +
+structural work (Phases 3–5) deferred to a fresh session.
+
+- ✅ **Phase 1 DONE** (A1, B1–B4 committed; ruff+mypy clean).
+- ✅ **Phase 2 DONE** (C2, C3, C4+C5, C1, C6 + gpsd_validate minor committed; 812 tests green).
+  **C7 — SKIPPED (confirmed 2026-07-19).** See "Deliberately NOT doing".
+- ⏭️ **RESUME HERE → Phase 3** (frontend mechanical: helpers + CSS consolidation), then Phase 4
+  (sensors hot paths, test-first, all 🔥), then Phase 5 (structural — each needs a 👍 first).
+
+**Fresh-session pickup notes:**
+- Phase 3+ is frontend: changes land in `web/src/`; run `npm run build` + Vitest and **commit the
+  regenerated `static/dist/`** (the Pi never builds). Each frontend commit carries a rebuilt bundle.
+- Nothing has been pushed — session-1 commits sit on local `main`; deploy (`git push all main`) is the
+  user's to trigger.
+- Working style: mechanical wins committed directly (small focused commits, tests first); every Phase 5
+  structural item is proposed for approval before touching. Two Phase 5 design calls still open for the
+  user: **D5** (sensors→api import edge) and **F11** (serve decode labels from `METRIC_META`).
 
 Goal: reduce LOC and complexity, and kill cross-module drift surfaces, without over-abstracting.
 Appetite (agreed): execute **mechanical** clear wins directly; **structural** items are proposed and
@@ -34,7 +42,7 @@ Two findings surfaced from *multiple independent* agents and touch the most site
 
 ---
 
-## Phase 1 — Backend shared primitives  (mechanical foundation)
+## Phase 1 — Backend shared primitives  (mechanical foundation) — ✅ DONE
 
 ### A1 — Canonical-timestamp parse family in `common/timefmt.py`  [M, L→M, 🔥] · ~40 LOC
 Add `parse_iso(v)->datetime`, `epoch_seconds(v)->float`, `age_seconds(v, now=None)->float`, and a
@@ -70,7 +78,7 @@ in `points.py:26` / `status_gpsd.py:26` (preserve points' 404 + `id`, status_gps
 
 ---
 
-## Phase 2 — tools/ dedup
+## Phase 2 — tools/ dedup — ✅ DONE (C7 skipped)
 
 ### C2 — `--db`/`--places-db` override helper  [M, L] · ~18 LOC
 `api.db.apply_path_overrides(db=None, places_db=None)` (+ maybe `add_db_argument(parser)`) replacing
@@ -105,7 +113,7 @@ Absorb the `try/except KeyboardInterrupt: cancel pending; exit 130` loop (fetch_
 
 ---
 
-## Phase 3 — Frontend mechanical (helpers + CSS)
+## Phase 3 — Frontend mechanical (helpers + CSS) — ⏭️ RESUME HERE
 
 ### F1 — `errMsg(e: unknown): string` helper  [M, L] · ~15 LOC
 `e instanceof Error ? e.message : String(e)` repeated ~19× across views → one helper (`lib/errors.ts`
@@ -200,6 +208,13 @@ Introduces a `sensors → api` import edge that doesn't exist today — **needs 
 
 ## Deliberately NOT doing  (flagged by recon so we don't relitigate)
 
+- **C7 — ThreadPoolExecutor cancel helper** (precache / fetch_wikipedia / import_drone): *skipped,
+  confirmed 2026-07-19.* The only shared code is a 2-line `for f in futures: f.cancel()` loop; each
+  interrupt handler's real cleanup differs (precache: flag + post-pool stats print + `sys.exit(130)`;
+  fetch_wikipedia: DB `_flush` + resume hint + `sys.exit(130)`, plus a *second* cancel on its
+  network-down streak-abort; import_drone: `_print_summary` + `return 130`). A shared cancel-and-
+  re-raise generator saves ~6 lines while adding control-flow indirection — trades duplication for
+  complexity, and each caller keeps a bespoke `except` regardless.
 - **`_apply` session-wrappers** (fridge vs radio): differ on retry/exception mapping — merging needs
   3+ params, trades dup for parameter complexity.
 - **child-point-embedding / importance-decimation** (drone vs phone vs points): shared silhouette,
@@ -224,3 +239,22 @@ Introduces a `sensors → api` import edge that doesn't exist today — **needs 
 Biggest single reductions: F6 (~130), F4 (~80), F2 (~60), F7 (~60), F5 (~55), C1 (~45), D2/A1 (~40).
 Verification per phase: `uv run pytest` + `ruff` + `mypy` (backend); `npm run build` + Vitest +
 rebuild/commit `static/dist/` (frontend). Hot-path items (A1, D*, core) gated on their existing tests.
+
+### Session 1 landed (2026-07-19) — backend only
+
+11 commits on local `main` (unpushed). Suite grew 790 → 812 (added parse-family, params-helper,
+ssh_reachable, parse_bbox, and backtest-helper tests); ruff + mypy clean throughout. New shared homes:
+`common/timefmt` parse family (`parse_iso`/`epoch_seconds`/`age_seconds`/`format_canonical`),
+`api/params` (`parse_required_window`/`parse_time_window`/`bbox_point_where`/`bbox_overlap_where`/
+`time_overlap_where`/public `error`), `api/sensors_read.latest_reading`,
+`api/db.apply_path_overrides`, `common/proc.ssh_reachable`, `tools/regions.parse_bbox`,
+`tools/backtest_common`, `tools/ratelimit.RateLimiter`. B3 also fixed a latent
+`UnboundLocalError` in `fridge.history` (an `error` local shadowed the promoted helper).
+
+### Remaining (next session): Phases 3–5
+
+Phase 3 (frontend mechanical), Phase 4 (sensors hot paths — test-first), Phase 5 (structural, each
+approved first). Est. remaining reduction is the larger share (~500–600 LOC), concentrated in the
+Phase 3 CSS consolidation and the Phase 5 layout components (F6 `StatusCheckPage`, F5 `<Toast>`,
+F7 `poll()`). Open user decisions before their items: **D5** (sensors→api import edge) and **F11**
+(serve `METRIC_META` decode labels from the server).
