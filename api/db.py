@@ -8,10 +8,10 @@ from typing import Any
 # convention, not a database concern); re-exported here for the many call sites
 # that import these from api.db.
 from common.timefmt import (
-    _canonical as _canonical,
+    canonical_timestamp as canonical_timestamp,
 )
 from common.timefmt import (
-    canonical_timestamp as canonical_timestamp,
+    format_canonical as format_canonical,
 )
 from common.timefmt import (
     now_canonical as now_canonical,

@@ -4,10 +4,10 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
 from api.db import get_connection, init_db, now_canonical
+from common.timefmt import age_seconds
 
 # Motion-gated raw write cadence: full nav rate while moving, throttled to
 # ~1 Hz while parked. Parked 5 Hz is correlated bloat the processor's static hold
@@ -318,9 +318,7 @@ def run_session(conn: sqlite3.Connection, last_log_time: float, stats: LoggerSta
             gps_time_str = report.get('time')
             if gps_time_str:
                 try:
-                    gps_dt = datetime.fromisoformat(gps_time_str.replace('Z', '+00:00'))
-                    age = (datetime.now(UTC) - gps_dt).total_seconds()
-                    if age > GPS_TIME_MAX_AGE_SECONDS:
+                    if age_seconds(gps_time_str) > GPS_TIME_MAX_AGE_SECONDS:
                         stats.stale_time += 1
                         continue
                 except ValueError:

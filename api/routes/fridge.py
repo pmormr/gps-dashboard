@@ -23,6 +23,7 @@ from api.params import parse_time
 from api.sensor_schema import READING_TABLES
 from common import ddmp
 from common.ddmp import HISTORY_BUCKET_S, DdmpClient, DdmpError
+from common.timefmt import parse_iso
 
 fridge_bp = Blueprint('fridge', __name__)
 
@@ -264,7 +265,7 @@ def history():
         if error:
             return error
     if start is None:
-        end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')) if end else datetime.now(UTC)
+        end_dt = parse_iso(end) if end else datetime.now(UTC)
         window = timedelta(seconds=HISTORY_DEFAULT_WINDOW_S[span])
         start = (end_dt - window).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 

@@ -48,9 +48,10 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import IO
 
-from api.db import _canonical, get_connection, init_db
+from api.db import get_connection, init_db
 from api.rigctld import Rigctld, RigctldError
 from common.proc import run
+from common.timefmt import age_seconds, format_canonical
 from radio.levels import LevelKeeper
 from radio.paths import audio_dir
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
@@ -242,8 +243,8 @@ class Capture:
             'peak_dbfs, rms_dbfs, audio_path, lat, lon) '
             'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (
-                _canonical(self.started),
-                _canonical(ended),
+                format_canonical(self.started),
+                format_canonical(ended),
                 round(duration, 3),
                 self.freq_hz,
                 self.mode,
@@ -289,8 +290,7 @@ def gps_snap(conn: Connection) -> tuple[float | None, float | None]:
     ).fetchone()
     if row is None:
         return None, None
-    fix_dt = datetime.fromisoformat(str(row['timestamp']).replace('Z', '+00:00'))
-    if (datetime.now(UTC) - fix_dt).total_seconds() > GPS_SNAP_MAX_AGE_SECONDS:
+    if age_seconds(str(row['timestamp'])) > GPS_SNAP_MAX_AGE_SECONDS:
         return None, None
     lat, lon = row['lat'], row['lon']
     return (

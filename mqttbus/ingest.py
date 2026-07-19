@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from api.db import canonical_timestamp, get_connection, init_db
 from api.sensor_schema import HISTORY_TABLES, READING_TABLES, HistoryTable
 from common.humidity import with_derived_humidity
+from common.timefmt import parse_iso
 from mqttbus import topics
 from mqttbus.client import KEEPALIVE_SECONDS, broker_host, broker_port, make_client
 
@@ -132,12 +133,10 @@ def resolve_timestamp(payload: dict, receipt_dt: datetime, stats: IngestStats) -
         stats.ts_missing += 1
         return canonical_timestamp(receipt_dt.isoformat())
     try:
-        dt = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+        dt = parse_iso(str(raw))
     except (ValueError, TypeError):
         stats.ts_bad += 1
         return canonical_timestamp(receipt_dt.isoformat())
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
     if (dt - receipt_dt).total_seconds() > FUTURE_SKEW_SECONDS:
         stats.ts_future += 1
         return canonical_timestamp(receipt_dt.isoformat())

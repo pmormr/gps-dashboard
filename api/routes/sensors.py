@@ -14,6 +14,7 @@ from flask import Blueprint, jsonify, request
 from api.db import canonical_timestamp, get_connection, now_canonical
 from api.params import parse_limit, parse_time
 from api.sensor_schema import METRIC_META, READING_TABLES
+from common.timefmt import epoch_seconds
 
 sensors_bp = Blueprint('sensors', __name__)
 
@@ -138,7 +139,7 @@ def _canonical_to_epoch_s(ts: str) -> int:
     Returns:
         Seconds since the Unix epoch (UTC), truncated to whole seconds.
     """
-    return int(datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp())
+    return int(epoch_seconds(ts))
 
 
 def _parse_metric_specs(conn, raw):

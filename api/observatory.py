@@ -10,10 +10,10 @@ routes can't drift apart. See .claude/modules/observatory.md.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
 from typing import NamedTuple
 
 from common.satgeo import Vec3, look_direction_ecef, orbital_radius_m, ray_sphere_far
+from common.timefmt import epoch_seconds
 
 # gnssid -> RINEX constellation letter, for satellite names (G01, R13, E11, ...).
 GNSS_LETTER = {0: 'G', 1: 'S', 2: 'E', 3: 'C', 5: 'J', 6: 'R'}
@@ -44,7 +44,7 @@ class Sample(NamedTuple):
 
 def unix_seconds(canonical: str) -> float:
     """Unix seconds for a canonical millisecond-UTC timestamp string."""
-    return datetime.fromisoformat(canonical.replace('Z', '+00:00')).timestamp()
+    return epoch_seconds(canonical)
 
 
 def anchor_observer(conn: sqlite3.Connection, end_ts: str) -> sqlite3.Row | None:

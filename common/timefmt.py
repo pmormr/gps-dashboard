@@ -8,6 +8,10 @@ project-wide convention, not a database concern.
 
 ``api.db`` re-exports :func:`canonical_timestamp` and :func:`now_canonical` for
 the many call sites that already import them from there.
+
+The inverse also lives here, so one module owns how a stored timestamp becomes a
+``datetime`` / number: :func:`parse_iso`, :func:`epoch_seconds`, and
+:func:`age_seconds`.
 """
 
 from __future__ import annotations
@@ -15,11 +19,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 # Whole-second strftime template; canonical timestamps append a 3-digit
-# millisecond fraction and a ``Z`` suffix to this (see ``_canonical``).
+# millisecond fraction and a ``Z`` suffix to this (see ``format_canonical``).
 _SECONDS_FORMAT = '%Y-%m-%dT%H:%M:%S'
 
 
-def _canonical(dt: datetime) -> str:
+def format_canonical(dt: datetime) -> str:
     """Format a datetime as fixed-width millisecond UTC text.
 
     Produces ``2026-06-09T14:55:55.200Z`` — whole seconds plus a zero-padded
@@ -61,7 +65,7 @@ def canonical_timestamp(value: str) -> str:
     Raises:
         ValueError: If ``value`` is not a parseable ISO-8601 timestamp.
     """
-    return _canonical(datetime.fromisoformat(value.replace('Z', '+00:00')))
+    return format_canonical(datetime.fromisoformat(value.replace('Z', '+00:00')))
 
 
 def now_canonical() -> str:
@@ -75,4 +79,60 @@ def now_canonical() -> str:
     Returns:
         The current UTC time as fixed-width millisecond canonical text.
     """
-    return _canonical(datetime.now(UTC))
+    return format_canonical(datetime.now(UTC))
+
+
+def parse_iso(value: str) -> datetime:
+    """Parse a canonical/ISO-8601 timestamp to an aware UTC ``datetime``.
+
+    The inverse of :func:`canonical_timestamp`: accepts the canonical ``...Z``
+    storage form (and any ISO-8601 offset, or a naive value treated as UTC) and
+    returns a timezone-aware datetime normalized to UTC.
+
+    Args:
+        value: An ISO-8601 timestamp, with or without a ``Z`` suffix, an explicit
+            offset, or fractional seconds.
+
+    Returns:
+        The parsed instant as a timezone-aware UTC datetime.
+
+    Raises:
+        ValueError: If ``value`` is not a parseable ISO-8601 timestamp.
+    """
+    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def epoch_seconds(value: str) -> float:
+    """Parse a canonical/ISO-8601 timestamp to Unix epoch seconds.
+
+    Args:
+        value: An ISO-8601 timestamp (see :func:`parse_iso`).
+
+    Returns:
+        Seconds since the Unix epoch as a float.
+
+    Raises:
+        ValueError: If ``value`` is not a parseable ISO-8601 timestamp.
+    """
+    return parse_iso(value).timestamp()
+
+
+def age_seconds(value: str, now: datetime | None = None) -> float:
+    """Return the age in seconds of a canonical/ISO-8601 timestamp.
+
+    Args:
+        value: An ISO-8601 timestamp (see :func:`parse_iso`).
+        now: The reference instant; defaults to the current UTC time. Must be
+            timezone-aware.
+
+    Returns:
+        ``now - value`` in seconds — positive when ``value`` is in the past.
+
+    Raises:
+        ValueError: If ``value`` is not a parseable ISO-8601 timestamp.
+    """
+    reference = now if now is not None else datetime.now(UTC)
+    return (reference - parse_iso(value)).total_seconds()

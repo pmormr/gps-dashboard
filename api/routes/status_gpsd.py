@@ -11,6 +11,7 @@ from common.gpsd import (
     constellation,
     query_gpsd,
 )
+from common.timefmt import age_seconds, parse_iso
 
 status_gpsd_bp = Blueprint('status_gpsd', __name__)
 
@@ -58,10 +59,7 @@ def _position_frozen():
         ).fetchall()
         if len(rows) < FROZEN_MIN_POINTS:
             return False
-        span = (
-            datetime.fromisoformat(rows[-1]['timestamp'].replace('Z', '+00:00'))
-            - datetime.fromisoformat(rows[0]['timestamp'].replace('Z', '+00:00'))
-        ).total_seconds()
+        span = (parse_iso(rows[-1]['timestamp']) - parse_iso(rows[0]['timestamp'])).total_seconds()
         if span < FROZEN_WINDOW_SECONDS * 0.8:
             return False
         return len({(r['lat'], r['lon']) for r in rows}) == 1
@@ -95,8 +93,7 @@ def _collect() -> dict:
     data_age = data_fresh = None
     if latest:
         try:
-            ts = datetime.fromisoformat(latest['timestamp'].replace('Z', '+00:00'))
-            data_age = int((datetime.now(UTC) - ts).total_seconds())
+            data_age = int(age_seconds(latest['timestamp']))
             data_fresh = data_age < 30
         except Exception:
             data_fresh = False
@@ -161,8 +158,7 @@ def gpsd_live():
     tpv_time = tpv.get('time')
     if tpv_time:
         try:
-            ts = datetime.fromisoformat(tpv_time.replace('Z', '+00:00'))
-            fix_age_s = round(max(0.0, (datetime.now(UTC) - ts).total_seconds()), 2)
+            fix_age_s = round(max(0.0, age_seconds(tpv_time)), 2)
         except ValueError:
             pass
 

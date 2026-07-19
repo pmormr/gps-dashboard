@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from common.timefmt import now_canonical
+from common.timefmt import age_seconds, now_canonical
 from updater import probes
 from updater.probes import Freshness
 
@@ -192,7 +192,7 @@ CHUNKS: tuple[Chunk, ...] = (
 
 def _age_days(synced_at: str, now: datetime) -> float:
     """Age of a canonical ms-UTC timestamp, in fractional days."""
-    return (now - datetime.fromisoformat(synced_at)).total_seconds() / 86400.0
+    return age_seconds(synced_at, now) / 86400.0
 
 
 def _dep_warnings(chunk: Chunk, freshness: dict[str, Freshness]) -> list[str]:

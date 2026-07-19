@@ -23,7 +23,7 @@ from typing import Any
 
 from api import tile_layers
 from common import satcat
-from common.timefmt import _canonical
+from common.timefmt import format_canonical
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class Freshness:
 
 def _mtime_canonical(mtime: float) -> str:
     """Format a filesystem mtime as a canonical ms-UTC timestamp."""
-    return _canonical(datetime.fromtimestamp(mtime, tz=UTC))
+    return format_canonical(datetime.fromtimestamp(mtime, tz=UTC))
 
 
 def _file_freshness(path: Path) -> Freshness:

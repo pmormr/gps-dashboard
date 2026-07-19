@@ -6,24 +6,18 @@ constant re-scales all history at once. The fuel leg comes from
 ``obd_readings``, the distance leg from the denoised ``track_points`` tier.
 """
 
-from datetime import datetime
-
 from flask import Blueprint, jsonify, request
 
 from api.db import get_connection
 from api.params import parse_time
 from common.obd import derive_fuel_rate_lph, summarize_drive
+from common.timefmt import epoch_seconds
 from processor.simplify import track_length_m
 
 obd_bp = Blueprint('obd', __name__)
 
 _M_PER_MILE = 1609.344
 _L_PER_GAL = 3.785411784
-
-
-def _epoch_seconds(ts: str) -> float:
-    """Canonical ms-UTC timestamp ('…Z') → epoch seconds."""
-    return datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
 
 
 @obd_bp.get('/api/obd/economy')
@@ -54,7 +48,7 @@ def economy():
     ).fetchall()
     samples = [
         (
-            _epoch_seconds(r['timestamp']),
+            epoch_seconds(r['timestamp']),
             derive_fuel_rate_lph(r['absolute_load_pct'], r['rpm'], r['commanded_equiv_ratio']),
             r['speed_kph'],
         )

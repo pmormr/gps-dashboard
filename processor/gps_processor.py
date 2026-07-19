@@ -34,11 +34,11 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from typing import Any
 
 from api.db import get_connection, init_db
+from common.timefmt import epoch_seconds
 from processor.simplify import (
     EARTH_RADIUS_M,
 )
@@ -200,18 +200,6 @@ def _eph(epx: float | None, epy: float | None) -> float | None:
     return math.hypot(epx, epy)
 
 
-def _ts_seconds(ts: str) -> float:
-    """Parse a canonical timestamp to epoch seconds (for durations only).
-
-    Args:
-        ts: A canonical ms-UTC timestamp string.
-
-    Returns:
-        Epoch seconds as a float.
-    """
-    return datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
-
-
 def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Planar distance in metres between two points.
 
@@ -332,7 +320,7 @@ class Stop:
     @property
     def dwell_seconds(self) -> float:
         """Dwell length (s), clamped to >= 0 against a rare backward clock step."""
-        return max(0.0, _ts_seconds(self.last_ts) - _ts_seconds(self.start_ts))
+        return max(0.0, epoch_seconds(self.last_ts) - epoch_seconds(self.start_ts))
 
 
 class TrackFilter:
@@ -464,7 +452,7 @@ class TrackFilter:
         self.pending = fix
         self.seg_n += 1
         self.seg_max_dev = max(self.seg_max_dev, dev)
-        if _ts_seconds(fix.timestamp) - _ts_seconds(self.anchor.ts) >= self.t.move_emit_max_gap:
+        if epoch_seconds(fix.timestamp) - epoch_seconds(self.anchor.ts) >= self.t.move_emit_max_gap:
             self._emit_vertex(fix, n_raw=self.seg_n, importance=self.seg_max_dev)
             self._set_anchor(fix)
 
