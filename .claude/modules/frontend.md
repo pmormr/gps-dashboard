@@ -55,6 +55,12 @@ narrow screenshots.)
   position feed** (Drive view, below): a refcounted 1 Hz `/api/gpsd/live` poll with rAF
   interpolation between fixes and speed-gated heading (pure math in `lib/live.ts`,
   Vitest-covered).
+- **Snippet scope trap** — content passed to a component as a `children`/snippet is styled
+  and type-narrowed by the view that *defines* it, not the component that renders it. So a
+  component sharing CSS with snippet content scopes it via `:global(.wrapper …)` (see
+  `StatusCheckPage`), and snippet bodies must re-assert nullability (`row!` / an inner
+  `{#if}`). Shared shells built this way: `StatusCheckPage` (gpsd/NTP), `DataAgeBanner`
+  (place/event), `Toast` (Fridge/Radio).
 
 ## Map view (`/map`)
 
