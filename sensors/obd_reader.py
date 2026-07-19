@@ -141,6 +141,11 @@ def default_port() -> str | None:
     return os.environ.get('GPS_OBD_PORT') or None
 
 
+def default_protocol() -> str | None:
+    """Return the forced protocol id from ``GPS_OBD_PROTOCOL`` (default None → scan)."""
+    return os.environ.get('GPS_OBD_PROTOCOL') or None
+
+
 def numeric(response: object) -> float | None:
     """Extract a scalar magnitude from a python-OBD response.
 
@@ -421,8 +426,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--baud', type=int, default=None, help='Baud rate (default: auto).')
     parser.add_argument(
         '--protocol',
-        default=None,
-        help="Force a python-OBD protocol id to skip the scan (the van is '7', CAN 29/500).",
+        default=default_protocol(),
+        help="Force a python-OBD protocol id to skip the scan (default $GPS_OBD_PROTOCOL; "
+        "the van is '7', CAN 29/500).",
     )
     parser.add_argument(
         '--fast',
