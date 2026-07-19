@@ -18,8 +18,8 @@ Backend (Phases 1–2) landed in session 1; frontend (Phase 3) in session 2; sen
   `_clock_offset` half is behavior-risky on the per-device early-out — ~10 LOC for real risk. The
   optional `processor._distance_m → simplify.distance_m` move was also skipped (single-use relocation,
   not a dedup). See "Deliberately NOT doing".
-- ⏭️ **RESUME HERE → Phase 5** (structural — each needs a 👍 first). **D5 + F11 already approved**
-  (user, 2026-07-19); the rest await per-item approval.
+- 🟡 **Phase 5 IN PROGRESS.** **D5 + F11 (①+②) DONE** (2026-07-19; F11 ③ skipped — divergence). The
+  rest (F6, F7, F5, F9, F10, E5, E6, E7 — all frontend) await per-item approval. **RESUME at F6/F7/F10.**
 
 **Fresh-session pickup notes:**
 - Phase 3+ is frontend: changes land in `web/src/`; run `npm run build` + Vitest and **commit the
@@ -213,18 +213,29 @@ present. Names also mirror `common/gpsd.py:30`.
 ### E7 — Typed api.ts wrappers for globe/skyplot  [S, M] · ~15 LOC + types 2 `any` payloads
 `getConstellation(hours)`, `getGpsdSky()`; extend `getPasses` for the `track` flag.
 
-### F11 — Backend decode/threshold drift  [S, M→H] · ~25 LOC  *(correctness, not cosmetics)* — 👍 APPROVED
-Home/Drive re-encode `METRIC_META` enum labels, the throttle bitmask, and the OBD engine-on gate.
-Prefer serving labels from `METRIC_META`; hoist the engine-on gate into one helper. Do incrementally.
+### F11 — Backend decode/threshold drift — ✅ DONE (items ①+②; ③ skipped)
+`/api/status` now serves a `meta` slice (codec+codes for `battery_state`/`solar_state`) so Home decodes
+via the shared `lib/sensors.decodeCoded` (the Systems path), plus a server-computed `throttled_now`
+boolean (`api/sensor_schema.THROTTLE_LIVE_MASK`, derived from `_THROTTLED_BITS`). Home's two hardcoded
+enum maps + its `& 0xf` are gone. **Item ③ (OBD engine-on gate) SKIPPED — user call 2026-07-19:** recon
+showed Home and Drive use *deliberately different* gates (not duplication), so "one helper" is a behavior
+change, not a dedup. See "Deliberately NOT doing".
 
-### D5 — Victron columns from schema  [S, M] · ~20 LOC — 👍 APPROVED (sensors → api import OK, user 2026-07-19)
-`VICTRON_COLUMNS` = `READING_TABLES['victron']['metrics']` instead of a copy + drift-guard test.
-Introduces a `sensors → api` import edge; user confirmed the layering (a sensors→api dep is logical).
+### D5 — Victron columns from schema — ✅ DONE
+`VICTRON_COLUMNS = list(READING_TABLES['victron']['metrics'])`; copy + drift-guard test dropped. The
+`sensors → api` edge is clean (empty `api/__init__.py`, schema imports only `typing`, no cycle).
 
 ---
 
 ## Deliberately NOT doing  (flagged by recon so we don't relitigate)
 
+- **F11 item ③ — hoist the OBD engine-on gate** (Home + Drive): *skipped, user call 2026-07-19.* Recon
+  assumed duplication; it's actually **divergence**. Home's gate = van age ≤ 30 s AND `obd_link ∉
+  {no_adapter,no_car,offline}`; Drive's = `obd_link === 'online'` AND age ≤ 30 s AND `rpm > 0`. They're
+  deliberately different (status glance vs driving-HUD trigger), and the backend's authoritative 13.2 V
+  gate isn't served. "One helper" would merge two intentionally-different gates — a behavior/product
+  change, not a dedup. Items ①+② (the real duplications) were done. The one safe morsel (the shared 30 s
+  freshness constant) is too small to be worth a cross-file hoist.
 - **D3 — Dahua RPC scaffolding** (`_rpc`/`_clock_offset` in `dahua_reader.py`): *skipped, user call
   2026-07-19.* Two reasons. (1) Zero test coverage of the code it'd touch — `test_dahua_reader.py`
   stubs `_rpc_nvr_metrics`/`_rpc_camera_metrics` at the method boundary, so the RPC session, the
@@ -311,10 +322,19 @@ loop). `common.gpsd._WATCH → WATCH` (logger sources the gpsd socket constants)
 (not just `mypy sensors/`) after typing a hot-path signature — `tests/` type-checks against it, and
 `mypy sensors/` alone missed the obd test's stale stub-arg type (the `Publisher` seam fixed it).
 
-### Remaining (next session): Phase 5 (structural)
+### Session 3 (cont.) — Phase 5 started: D5 + F11 landed (2026-07-19)
 
-Each item needs a 👍 first; **D5 + F11 already approved** (sensors→api import edge OK; serve
-`METRIC_META` decode labels + hoist the OBD engine-on gate from the server). Biggest remaining
-reductions are the layout components: F6 `StatusCheckPage` (~130), F5 `<Toast>`, F7 `poll()`. Also
-F9, F10, E5, E6, E7 open. All frontend except D5/F11 (backend) — frontend commits must rebuild +
-carry `static/dist/`.
+2 commits (D5 backend, F11 cross-stack) + doc. D5 = victron cols from schema. F11 items ①+② =
+`/api/status` serves decode `meta` + `throttled_now`; Home drops its enum-map + `& 0xf` copies (③
+skipped — divergence, not dup). Suite 811→816 (F11 route tests); ruff+mypy+svelte-check clean, Vitest
+138, dist rebuilt. F11 was an *atomic* commit (old FE ↔ new BE are mutually incompatible: `throttled`
+gone, `meta` added). Not visually smoke-tested on-device (needs seeded local DB + non-5000 port) —
+API contract is covered by 6 route tests + svelte-check.
+
+### Remaining Phase 5 (all frontend, each needs a 👍 first)
+
+F6 `StatusCheckPage` (~130, largest), F7 `poll()` rune (~60), F5 `<Toast>` (~55), F9 `<DataAgeBanner>` +
+`fetchRecord` (~30), F10 consolidate 4 duration formatters (~20), E5 `postRadio/postFridge` → `sendJSON`
+(~18), E6 one GNSS name+color source (~15), E7 typed api.ts globe/skyplot wrappers (~15). All touch
+`web/src/` → rebuild + commit `static/dist/` per commit. F10 (Home.dur is one of the 4) + F6/F7 are the
+higher-value ones.
