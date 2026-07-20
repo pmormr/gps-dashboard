@@ -35,6 +35,11 @@ hub — OBS attaches to MediaMTX for all feeds *and* `/radio`, never to the publ
   `libx264 -preset veryfast` (fine at 720p, watch CPU at 1080p). USB-cam capability
   varies — many do MJPEG/YUYV only, so ffmpeg transcodes; some UVC cams emit H.264
   natively (passthrough, cheapest). Enumerate with `v4l2-ctl --list-formats-ext`.
+  **First unit — picam1 (Pi 4B, 2× LifeCam HD-3000):** the HD-3000 is **YUYV-only**
+  (no MJPEG/H.264), so 720p caps at 10 fps and 30 fps needs 480p/360p; encode is the
+  Pi's HW `bcm2835-codec-encode` (`/dev/video11` → `h264_v4l2m2m`). An MJPEG/H.264 UVC
+  cam is the upgrade lever for framerate + USB headroom. See `paul-network-docs`
+  `van/devices/picam1.md`.
 - **S4 — Bitrate budget.** ~2–3 Mbps per feed at 720p30/1080p30 H.264 — a fraction
   of a 5 GHz PtP link, so backhaul is not the constraint. OBS mixes to a **single**
   ~6 Mbps 1080p output to YouTube.
