@@ -27,12 +27,14 @@
 
   const sensors = $derived(data ? orderedSensors(data.sensors) : [])
 
-  // Sparkline data: ONE batched series call for every chartable channel over a
-  // fixed recent window (the server fans out one query per sensor internally) —
-  // never one fetch per sparkline. Fixed 12 h so the page is self-contained,
-  // independent of wherever the Trends global axis was last zoomed.
+  // Sparkline data over a fixed recent window (12 h, so the page is self-contained
+  // regardless of where the Trends global axis was last zoomed). The series endpoint
+  // caps overlaid metrics per request (MAX_SERIES = 12 server-side — a Trends-overlay
+  // guard), so fan the chartable channels out into capped batches and merge; still far
+  // cheaper than one fetch per sparkline (the server runs one query per sensor per call).
   const SPARK_HOURS = 12
   const SPARK_BUCKETS = 60
+  const SERIES_BATCH = 12 // keep ≤ the server's MAX_SERIES
   let seriesByAddr = $state(new Map<string, TrendSeries>())
 
   async function loadSeries(d: SensorsResponse): Promise<void> {
@@ -44,11 +46,16 @@
     }
     if (!addrs.length) return
     const to = new Date()
-    const from = new Date(to.getTime() - SPARK_HOURS * 3600 * 1000)
+    const from = new Date(to.getTime() - SPARK_HOURS * 3600 * 1000).toISOString()
+    const toIso = to.toISOString()
+    const batches: string[][] = []
+    for (let i = 0; i < addrs.length; i += SERIES_BATCH) batches.push(addrs.slice(i, i + SERIES_BATCH))
     try {
-      const resp = await getSensorSeries(addrs, from.toISOString(), to.toISOString(), SPARK_BUCKETS)
+      const responses = await Promise.all(
+        batches.map((b) => getSensorSeries(b, from, toIso, SPARK_BUCKETS)),
+      )
       const m = new Map<string, TrendSeries>()
-      for (const s of resp.series) m.set(s.metric, s)
+      for (const resp of responses) for (const s of resp.series) m.set(s.metric, s)
       seriesByAddr = m
     } catch {
       // Sparklines are context, not load-bearing — a failed fetch just leaves them blank.
