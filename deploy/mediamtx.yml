@@ -1,6 +1,7 @@
 # MediaMTX — the van's media hub (R10 in plans/radio-platform-plan.md).
-# Radio audio now; Dahua camera proxying for OBS is the intended growth path
-# (add `paths:` entries with `source: rtsp://...`).
+# Radio audio + hill-climb camera feeds (plans/streaming-platform-plan.md).
+# Cameras publish over SRT (streamid publish:camN); the van's Dahua cams could
+# also be proxied later with `source: rtsp://...` paths.
 #
 # Read from the deploy checkout by mediamtx.service, so config edits deploy on
 # push (the Pi-side hook restarts mediamtx when this file changes). The binary
@@ -8,10 +9,12 @@
 # v1.19.2; keys below match that version's schema, and unset keys take that
 # version's defaults.
 #
-# The LAN is trusted (no auth), matching the rest of the app. Only RTSP and
-# WebRTC are enabled: VLC/OBS consume RTSP (:8554); the built-in WebRTC page
+# The LAN is trusted (no auth), matching the rest of the app. RTSP + WebRTC
+# serve consumers: VLC/OBS consume RTSP (:8554); the built-in WebRTC page
 # (http://<pi>:8889/radio) is the sub-second browser/phone listen path — no
 # STUN needed on the offline LAN (host candidates via webrtcIPsFromInterfaces).
+# SRT (:8890) is enabled for camera ingest — the hill-climb Pi encoders publish
+# over SRT for its retransmit + latency buffer on the lossy long-distance link.
 
 logLevel: info
 
@@ -21,7 +24,7 @@ pprof: false
 playback: false
 rtmp: false
 hls: false
-srt: false
+srt: true
 moq: false
 
 rtsp: true
@@ -31,7 +34,21 @@ rtspTransports: [udp, multicast, tcp]
 webrtc: true
 webrtcAddress: :8889
 
+srtAddress: :8890
+
 paths:
   # Live radio audio (Digirig SP1 A+B mix), published by radio-stream.service.
   radio:
+    source: publisher
+
+  # Hill-climb live stream: each course-position Pi runs ffmpeg and SRT-publishes
+  # here with streamid `publish:camN`. See plans/streaming-platform-plan.md and
+  # paul-network-docs events/2026-hillclimb.md.
+  cam1:
+    source: publisher
+  cam2:
+    source: publisher
+  cam3:
+    source: publisher
+  cam4:
     source: publisher
