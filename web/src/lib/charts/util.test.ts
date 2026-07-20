@@ -7,6 +7,7 @@ import {
   movingAverage,
   padDomain,
   pixelToTime,
+  sparklinePath,
   unionExtent,
 } from './util'
 
@@ -112,6 +113,28 @@ describe('pixelToTime', () => {
 
   it('returns the start for a degenerate (zero-width) plot', () => {
     expect(pixelToTime(140, 40, 0, 1000, 5000)).toBe(1000)
+  })
+})
+
+describe('sparklinePath', () => {
+  it('returns empty for fewer than two plottable points', () => {
+    expect(sparklinePath([], 100, 20)).toBe('')
+    expect(sparklinePath([null, null], 100, 20)).toBe('')
+    expect(sparklinePath([5, null], 100, 20)).toBe('')
+  })
+
+  it('maps a rising series bottom-left to top-right', () => {
+    // pad 2 over height 20 → h=16; min 0 at y=18, max 2 at y=2; x by index / (n-1).
+    expect(sparklinePath([0, 1, 2], 100, 20)).toBe('M0.0 18.0 L50.0 10.0 L100.0 2.0')
+  })
+
+  it('bridges nulls, keeping the original index as the x position', () => {
+    // index 1 is null → two points at index 0 and 2; x spans the full grid width.
+    expect(sparklinePath([0, null, 2], 100, 20)).toBe('M0.0 18.0 L100.0 2.0')
+  })
+
+  it('puts a flat series at mid-height', () => {
+    expect(sparklinePath([7, 7, 7], 100, 20)).toBe('M0.0 10.0 L50.0 10.0 L100.0 10.0')
   })
 })
 

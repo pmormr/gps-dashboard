@@ -9,6 +9,7 @@
   import { getSensors, getSensorSeries } from '../lib/api'
   import type { SensorSeriesResponse, SensorsResponse } from '../lib/api'
   import { selection } from '../lib/stores/selection.svelte'
+  import { trendsHandoff } from '../lib/stores/trends.svelte'
   import { DOMAIN_LABELS, metricKeysFor, metricMeta, orderedSensors } from '../lib/sensors'
   import TimeDock from './TimeDock.svelte'
 
@@ -125,15 +126,20 @@
 
   onMount(async () => {
     import('../lib/charts/Trend.svelte').then((m) => (TrendComp = m.default))
+    // A Sensors sparkline tap queues its channel here — honor it over the default.
+    const handed = trendsHandoff.take()
+    if (handed?.length) selected = handed
     try {
       const r = await getSensors()
       reg = r
-      // Default to house battery voltage if present, else the first chartable channel.
-      const vic = r.sensors.find((s) => s.type === 'victron')
-      const first = orderedSensors(r.sensors)[0]
-      const fallback = first ? channelsFor(r, first.id)[0]?.[0] : undefined
-      const def = vic ? `${vic.id}.battery_voltage` : fallback
-      if (def) selected = [def]
+      if (!handed?.length) {
+        // Default to house battery voltage if present, else the first chartable channel.
+        const vic = r.sensors.find((s) => s.type === 'victron')
+        const first = orderedSensors(r.sensors)[0]
+        const fallback = first ? channelsFor(r, first.id)[0]?.[0] : undefined
+        const def = vic ? `${vic.id}.battery_voltage` : fallback
+        if (def) selected = [def]
+      }
     } catch (e) {
       error = errMsg(e)
     }

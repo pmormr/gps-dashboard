@@ -12,6 +12,7 @@ import Map from '../views/Map.svelte'
 import NotFound from '../views/NotFound.svelte'
 import Ntp from '../views/Ntp.svelte'
 import Radio from '../views/Radio.svelte'
+import Sensors from '../views/Sensors.svelte'
 import Skyplot from '../views/Skyplot.svelte'
 import Sky from '../views/Sky.svelte'
 import Systems from '../views/Systems.svelte'
@@ -42,7 +43,8 @@ export const routes: RouteDef[] = [
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
   { path: '/data', component: Data, tab: '/systems' },
-  { path: '/trends', component: Trends, tab: '/systems' },
+  { path: '/sensors', component: Sensors, tab: '/systems' },
+  { path: '/trends', component: Trends, tab: '/trends' },
   { path: '/fridge', component: Fridge, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
 ]
@@ -63,7 +65,47 @@ export const NAV: NavItem[] = [
   { label: 'Drive', icon: '🧭', to: '/drive' },
   { label: 'Places', icon: '🏞️', to: '/places' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
+  { label: 'Trends', icon: '📈', to: '/trends' },
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
   { label: 'Radio', icon: '📻', to: '/radio' },
 ]
+
+/** One link in a section's secondary nav (the sticky pill strip). */
+export interface SectionLink {
+  label: string
+  to: string
+}
+
+/**
+ * Secondary-nav destinations for a top-level tab, keyed by that tab's `to`.
+ * `Shell` renders the pill strip for whichever section owns the current route
+ * (`router.current.tab`), so a sub-view needs no per-view wiring. The one shared
+ * treatment that replaced the ad-hoc Systems button list + Sky `.views` strip.
+ */
+export const SECTIONS: Record<string, SectionLink[]> = {
+  '/systems': [
+    { label: 'Overview', to: '/systems' },
+    { label: 'Sensors', to: '/sensors' },
+    { label: 'Trends', to: '/trends' },
+    { label: 'Fridge', to: '/fridge' },
+    { label: 'Data', to: '/data' },
+    { label: 'Time', to: '/ntp' },
+    { label: 'GPS', to: '/gpsd' },
+  ],
+  '/sky': [
+    { label: 'Passes', to: '/sky' },
+    { label: 'Skyplot', to: '/skyplot' },
+    { label: 'Globe', to: '/globe' },
+  ],
+}
+
+/** One launcher tile on a section hub (the Systems landing grid). */
+export interface HubTile {
+  label: string
+  to: string
+  /** A live one-line status under the label (stream count, fix, temps). */
+  sub?: string
+  /** Liveness dot; omit for a static destination (e.g. Trends). */
+  dot?: 'ok' | 'warn' | 'err'
+}

@@ -5,15 +5,6 @@
   import { getPasses, type PassesResponse, type SatPass } from '../lib/api'
   import { fmtDurationSecs } from '../lib/geo'
   import { gnssColor } from '../lib/gnss'
-  import { router } from '../lib/router.svelte'
-
-  // Drill-in to a ported SPA view: a real href (middle-click/new-tab still work),
-  // intercepted into client-side navigation so the shell isn't torn down.
-  function spaLink(e: MouseEvent, to: string): void {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
-    e.preventDefault()
-    router.navigate(to)
-  }
 
   const HORIZONS = [6, 12, 24, 48]
   const MASKS = [0, 5, 10, 20]
@@ -79,15 +70,6 @@
       · updated {updated}{/if}
   </p>
 </header>
-
-<div class="views">
-  <a class="view" href="/skyplot" onclick={(e) => spaLink(e, '/skyplot')}>
-    <span>Skyplot</span><span class="muted">live hemisphere</span>
-  </a>
-  <a class="view" href="/globe" onclick={(e) => spaLink(e, '/globe')}>
-    <span>Globe</span><span class="muted">3D constellation (PC)</span>
-  </a>
-</div>
 
 <div class="controls">
   <div class="ctl">
@@ -162,27 +144,6 @@
 <style>
   .err-text {
     color: var(--err);
-  }
-
-  .views {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-  }
-  .view {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 12px 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    text-decoration: none;
-    color: var(--accent);
-  }
-  .view .muted {
-    font-size: 12px;
   }
 
   .controls {

@@ -3,6 +3,7 @@
 
   import { router } from './router.svelte'
   import { NAV } from './routes'
+  import SectionNav from './SectionNav.svelte'
 
   let { children }: { children: Snippet } = $props()
 </script>
@@ -27,6 +28,7 @@
   </nav>
 
   <main class="content">
+    <SectionNav />
     {@render children()}
   </main>
 </div>

@@ -1,183 +1,103 @@
 <script lang="ts">
-  import { getSensors, type SensorsResponse } from '../lib/api'
+  // Systems — the section hub. A launcher of tiles with live status, replacing the
+  // old buried card-dump + diagnostics button list. The detailed per-node
+  // telemetry now lives in the Sensors view (a tile below). Tile statuses reuse
+  // the already-polled /api/status + /api/sensors aggregates — no new fetching.
+  import { getSensors, getStatus } from '../lib/api'
+  import type { SensorsResponse, Status } from '../lib/api'
   import { poll } from '../lib/poll.svelte'
-  import { router } from '../lib/router.svelte'
-  import {
-    DOMAIN_LABELS,
-    ageSeconds,
-    dotClass,
-    formatAge,
-    formatValue,
-    groupLabel,
-    groupedKeys,
-    metricKeysFor,
-    metricMeta,
-    orderedSensors,
-  } from '../lib/sensors'
+  import type { HubTile } from '../lib/routes'
+  import SectionHub from '../lib/SectionHub.svelte'
+  import { dotClass } from '../lib/sensors'
 
-  const feed = poll<SensorsResponse>(getSensors, 30000)
-  let data = $derived(feed.data)
-  let error = $derived(feed.error)
+  const sensorsFeed = poll<SensorsResponse>(getSensors, 30000)
+  const statusFeed = poll<Status>(getStatus, 10000)
+  let sensors = $derived(sensorsFeed.data)
+  let status = $derived(statusFeed.data)
 
-  const sensors = $derived(data ? orderedSensors(data.sensors) : [])
+  const r0 = (n: number | null | undefined): string => (n == null ? '—' : String(Math.round(n)))
+
+  function worstDot(classes: string[]): 'ok' | 'warn' | 'err' {
+    if (classes.includes('err')) return 'err'
+    if (classes.includes('warn')) return 'warn'
+    return 'ok'
+  }
+
+  const tiles = $derived.by((): HubTile[] => {
+    const list: HubTile[] = []
+
+    // Sensors — the detailed telemetry, with a live/total stream count.
+    if (sensors) {
+      const classes = sensors.sensors.map((s) => dotClass(s))
+      const live = classes.filter((c) => c === 'ok').length
+      list.push({
+        label: 'Sensors',
+        to: '/sensors',
+        sub: `${live}/${sensors.sensors.length} streams live`,
+        dot: worstDot(classes),
+      })
+    } else {
+      list.push({ label: 'Sensors', to: '/sensors', sub: 'live telemetry streams' })
+    }
+
+    // Trends — a first-class destination (also its own top-level tab); cross-listed
+    // here as the natural drill from a sensor reading.
+    list.push({ label: 'Trends', to: '/trends', sub: 'graph any channel over time' })
+
+    // Fridge — from the fridge sensor node's latest reading (no separate poll).
+    const fridge = sensors?.sensors.find((s) => s.type === 'fridge')
+    if (fridge?.latest) {
+      const c0 = fridge.latest.comp0_temp_c as number | null
+      const c1 = fridge.latest.comp1_temp_c as number | null
+      list.push({
+        label: 'Fridge',
+        to: '/fridge',
+        sub: `${r0(c0)}° · ${r0(c1)}°C`,
+        dot: dotClass(fridge) === 'err' ? 'err' : dotClass(fridge) === 'warn' ? 'warn' : 'ok',
+      })
+    } else {
+      list.push({ label: 'Fridge', to: '/fridge', sub: 'setpoints · power · DC history' })
+    }
+
+    // Offline data — static (its freshness needs a separate /api/data/status read;
+    // deferred to keep the hub to the two aggregates it already polls).
+    list.push({ label: 'Offline data', to: '/data', sub: 'chunk freshness — ready to go dark?' })
+
+    // Time — chrony sync state from the status aggregate.
+    if (status?.ntp) {
+      const synced = status.ntp.synced
+      list.push({
+        label: 'Time',
+        to: '/ntp',
+        sub: synced === true ? 'clock synced' : synced === false ? 'not synced' : 'sync unknown',
+        dot: synced === true ? 'ok' : synced === false ? 'err' : 'warn',
+      })
+    } else {
+      list.push({ label: 'Time', to: '/ntp', sub: 'time sync / chrony' })
+    }
+
+    // GPS — fix mode + sat count from the status aggregate.
+    if (status?.location) {
+      const mode = status.location.mode
+      const fix = mode === 3 ? '3D fix' : mode === 2 ? '2D fix' : 'no fix'
+      const used = status.gnss?.nsat_used
+      list.push({
+        label: 'GPS',
+        to: '/gpsd',
+        sub: used != null ? `${fix} · ${used}/${status.gnss?.nsat_seen ?? '—'} sats` : fix,
+        dot: mode != null && mode >= 2 ? 'ok' : 'warn',
+      })
+    } else {
+      list.push({ label: 'GPS', to: '/gpsd', sub: 'GPS receiver status' })
+    }
+
+    return list
+  })
 </script>
 
 <header class="page-head">
   <h1>Systems</h1>
-  <p class="muted">
-    {#if error}<span class="err-text">{error}</span>{:else}House power · van · environment{/if}
-  </p>
+  <p class="muted">House power · van · environment · diagnostics</p>
 </header>
 
-{#if data}
-  {#each sensors as s (s.id)}
-    {@const groups = groupedKeys(data.meta, metricKeysFor(data, s))}
-    {@const latest = s.latest}
-    <section class="panel">
-      <div class="sec-head">
-        <span class="dot {dotClass(s)}"></span>
-        <span class="sec-title">{DOMAIN_LABELS[s.type] ?? s.node}</span>
-        <span class="sec-age muted">{s.status} · {formatAge(ageSeconds(s.last_seen))}</span>
-      </div>
-      {#each groups as [group, keys] (group)}
-        {#if groups.length > 1 && group}
-          <div class="grp eyebrow">{groupLabel(group)}</div>
-        {/if}
-        <div class="grid">
-          {#each keys as key (key)}
-            {@const f = formatValue(data.meta, key, latest?.[key])}
-            <div class="cell">
-              <div class="lbl muted">{metricMeta(data.meta, key).label}</div>
-              <div class="val">
-                {f.text}{#if f.unit}<span class="u">{f.unit}</span>{/if}
-                {#if f.alt}<span class="alt">{f.alt}</span>{/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/each}
-    </section>
-  {/each}
-
-  <section class="panel">
-    <div class="grp eyebrow">Diagnostics</div>
-    <button class="diag" onclick={() => router.navigate('/trends')}>
-      <span>Trends</span><span class="muted">graph any channel over time</span>
-    </button>
-    <button class="diag" onclick={() => router.navigate('/fridge')}>
-      <span>Fridge</span><span class="muted">zone setpoints, power, DC history</span>
-    </button>
-    <button class="diag" onclick={() => router.navigate('/data')}>
-      <span>Offline data</span><span class="muted">chunk freshness — ready to go dark?</span>
-    </button>
-    <button class="diag" onclick={() => router.navigate('/ntp')}>
-      <span>NTP</span><span class="muted">time sync / chrony</span>
-    </button>
-    <button class="diag" onclick={() => router.navigate('/gpsd')}>
-      <span>gpsd</span><span class="muted">GPS receiver status</span>
-    </button>
-  </section>
-{:else if !error}
-  <p class="muted">Loading…</p>
-{/if}
-
-<style>
-  .err-text {
-    color: var(--err);
-  }
-
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    margin-bottom: 16px;
-    padding: 4px 14px 14px;
-  }
-
-  .sec-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 0 8px;
-  }
-  .sec-title {
-    font-weight: 600;
-    font-size: 16px;
-  }
-  .sec-age {
-    margin-left: auto;
-    font-size: 12px;
-  }
-
-  .grp {
-    margin: 12px 0 6px;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-    gap: 10px 12px;
-  }
-  .cell {
-    min-width: 0;
-  }
-  .lbl {
-    font-size: 11px;
-  }
-  .val {
-    font-size: 18px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .val .u {
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--text-dim);
-    margin-left: 2px;
-  }
-  .val .alt {
-    font-size: 11px;
-    font-weight: 400;
-    color: var(--text-dim);
-    margin-left: 6px;
-  }
-
-  .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--text-dim);
-  }
-  .dot.ok {
-    background: var(--ok);
-  }
-  .dot.warn {
-    background: var(--warn);
-  }
-  .dot.err {
-    background: var(--err);
-  }
-
-  .diag {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
-    width: 100%;
-    padding: 11px 0;
-    border-top: 1px solid var(--border);
-    background: none;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-    color: var(--accent);
-    font: inherit;
-    text-align: left;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .diag .muted {
-    font-size: 12px;
-  }
-</style>
+<SectionHub {tiles} />

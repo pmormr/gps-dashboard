@@ -138,6 +138,44 @@ export function padDomain([lo, hi]: [number, number], frac = 0.08): [number, num
 }
 
 /**
+ * Build an SVG path for a compact sparkline over a value grid.
+ *
+ * Values are the dense bucket grid `/api/sensors/series` returns (nulls for empty
+ * buckets); the line bridges nulls (a 22 px glance sparkline reads better
+ * continuous than shattered — honest gaps are the full Trends chart's job). x is
+ * the value's index fraction across the full grid, so leading/trailing gaps show
+ * as empty margin. y normalizes over the non-null min/max; a flat series sits at
+ * mid-height. Returns '' for fewer than two plottable points (the caller draws
+ * nothing).
+ *
+ * Args:
+ *   values: Per-bucket values aligned to the grid; null = empty bucket.
+ *   width: Path coordinate width (viewBox units).
+ *   height: Path coordinate height (viewBox units).
+ *   pad: Vertical inset so the stroke isn't clipped at the extremes.
+ */
+export function sparklinePath(
+  values: (number | null)[],
+  width: number,
+  height: number,
+  pad = 2
+): string {
+  const pts: { i: number; v: number }[] = []
+  values.forEach((v, i) => {
+    if (v != null && Number.isFinite(v)) pts.push({ i, v })
+  })
+  if (pts.length < 2) return ''
+  const n = values.length
+  const vs = pts.map((p) => p.v)
+  const min = Math.min(...vs)
+  const span = Math.max(...vs) - min
+  const h = height - pad * 2
+  const x = (i: number): number => (n <= 1 ? 0 : (i / (n - 1)) * width)
+  const y = (v: number): number => (span === 0 ? height / 2 : pad + h - ((v - min) / span) * h)
+  return pts.map((p, k) => `${k === 0 ? 'M' : 'L'}${x(p.i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(' ')
+}
+
+/**
  * Assign each distinct unit to an axis side.
  *
  * First unit → left, second → right; any further units share the left axis —
