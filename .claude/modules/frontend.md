@@ -328,6 +328,12 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   mid-zoom doesn't clear the zoom-out stack, so "Zoom out" can step to a pre-zoom window
   rather than the manually-picked one (every restored window is still valid; clearing on
   a foreign picker change is awkward because the live tick mutates `range`).
+- **Systems/Sensors polish** — the nine-tab phone bar ellipsizes the longest labels
+  (Systems ≈ −14 px, Places/Trends −3–5 px) at ≤ ~390 px wide; icons stay, no layout
+  break, and wider phones don't clip — a font-size nudge or icon-only-under-threshold if
+  it bothers on-device. The Systems **Data tile** shows static text (a live freshness dot
+  would need a `/api/data/status` poll). Sensors sparklines use a fixed 12 h window (a
+  6h/24h/7d span toggle if wanted).
 - **Annotation continuation** — annotation *types* (campsite / fuel / scenic / repair); and
   **stops → annotations** — promoting a processor `kind='stop'` / `track_events` stop to a
   curated annotation (deferred from the denoise work; see `.claude/modules/processor.md`).
