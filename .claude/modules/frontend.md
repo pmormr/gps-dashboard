@@ -1,13 +1,14 @@
 # Frontend
 
 **Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
-`static/dist/` (committed) and served by Flask. A persistent nav shell with eight
-top-level destinations (**Home · Map · Drive · Places · Systems · Docs · Sky ·
+`static/dist/` (committed) and served by Flask. A persistent nav shell with nine
+top-level destinations (**Home · Map · Drive · Places · Systems · Trends · Docs · Sky ·
 Radio**); the map is one tab among several, not the privileged single view it once was.
 Mobile-first (the primary client is a phone over the van's WiFi): a bottom tab bar on
 phones, a left sidebar on desktop. (Tab-bar trap: flex items default to
 `min-width:auto`, so a wide label would push the last tab off-screen — `.nav li` sets
-`min-width:0` + label ellipsis. And headless Chrome on macOS floors the window at
+`min-width:0` + label ellipsis; at nine tabs the phone bar is tight, so watch label
+width. And headless Chrome on macOS floors the window at
 **500 px wide**, cropping `--screenshot` below that — measure via CDP, don't trust
 narrow screenshots.)
 
@@ -34,6 +35,15 @@ narrow screenshots.)
 
 - **Shell** (`web/src/lib/Shell.svelte`) — persistent nav chrome + active-tab highlight.
   A `RouteDef.tab` maps a sub-route (`/ntp`, `/gpsd`, `/globe`, …) to its parent tab.
+- **Section pattern** (`routes.ts` `SECTIONS`, `SectionNav.svelte`, `SectionHub.svelte`) —
+  the one shared treatment for "a tab with sub-destinations", replacing the old ad-hoc
+  Systems button list + Sky `.views` strip. `SECTIONS` maps a tab's `to` → its sibling
+  links; **Shell renders `<SectionNav>` for whichever section owns the current route**
+  (keyed by `router.current.tab`), so a sub-view needs zero per-view wiring and Sky gets
+  it by registering itself. `SectionHub` is the tile-grid launcher a section's landing
+  renders (the Systems Overview), each tile a destination with a live one-line status
+  (`HubTile`). A cross-listed link (Trends is a Systems pill **and** its own top-level tab)
+  just navigates out of the section — the hub/nav are launchers, not containers.
 - **Router** (`web/src/lib/router.svelte.ts`, `routes.ts`) — a tiny History-API router
   (no dep); pushState + popstate, so canvas/WebGL state survives tab switches.
 - **Home** (`web/src/views/Home.svelte`) — the status glance, from `GET /api/status` (one
@@ -218,12 +228,25 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   singleton (`stores/places.svelte.ts`) so the session survives tab switches;
   "Show on map" queues `layers.pendingZoom`, enables the pins layer, and navigates —
   Map.svelte consumes the zoom once the engine is up.
-- **Systems** (`Systems.svelte`) — consolidated house/van/cabin telemetry from
-  `/api/sensors` + `METRIC_META` (grouped, unit-converted, per-section liveness).
-  Diagnostics drill-ins (client routes): **Trends** (`Trends.svelte`, below),
-  **Fridge** (`Fridge.svelte`, below), **gpsd** (`Gpsd.svelte`,
-  `GET /api/gpsd/status`), **ntp** (`Ntp.svelte`, `GET /api/ntp`), and **Data**
-  (`Data.svelte`, `GET /api/data/status` — offline-data chunk freshness).
+- **Systems** (`Systems.svelte`) — the section **hub**: a `SectionHub` tile grid, each
+  tile a destination with a live one-line status derived from the already-polled
+  `/api/status` + `/api/sensors` aggregates (no new fetching). Tiles: **Sensors**,
+  **Trends**, **Fridge**, **Offline data** (`Data.svelte`, `GET /api/data/status`),
+  **Time** (`Ntp.svelte`, `GET /api/ntp`), **GPS** (`Gpsd.svelte`, `GET /api/gpsd/status`).
+  The old landing (a per-node card wall + a buried diagnostics button list) is gone — the
+  cards moved to Sensors, the buttons became the hub + the shared section-nav. The Data
+  tile's status is static (its freshness would need a third read).
+- **Sensors** (`Sensors.svelte`, `/sensors` under Systems) — the per-node house/van/cabin
+  telemetry (from `/api/sensors` + `METRIC_META`: grouped, unit-converted, per-section
+  liveness) split out of the Systems landing. Every `chart:true` metric carries an
+  **inline sparkline** and is a tap target into Trends preloaded on that channel — the
+  glance↔history bridge (the harder channels only read against time). Sparklines are
+  **one batched `/api/sensors/series` call** for all chartable addresses over a fixed
+  recent window (12 h, ~60 buckets); the server fans out one query per sensor, so it's
+  never one fetch per sparkline. The sparkline itself is a cheap inline-SVG
+  `charts/Sparkline.svelte` (`sparklinePath` in `charts/util.ts`, Vitest) — **not** the
+  LayerCake `Trend.svelte`, since a card holds dozens. Tap → `stores/trends.svelte.ts`
+  `trendsHandoff.open([addr])` + navigate `/trends` (mirrors `layers.pendingZoom`).
 - **Fridge** (`Fridge.svelte`, `/fridge` under Systems) — the CFX3 control head
   (`/api/fridge/*` — backend in `.claude/modules/sensors.md`). Status polls every
   15 s (DB-backed, cheap — the online banner wears the reading's age); writes are
@@ -236,7 +259,10 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   stays out of the main bundle; `lib/fridge.ts` holds the pure seam
   (history→series adapter, setpoint clamp, presented-unit °C/°F formatting)
   under Vitest.
-- **Trends** (`Trends.svelte`, `/trends` under Systems) — the configurable trend-graph
+- **Trends** (`Trends.svelte`, `/trends`) — a **top-level tab** (📈) and the natural
+  expand target of a Sensors sparkline: on mount it consumes a queued `trendsHandoff`
+  selection in place of its Victron-battery default, over the shared Selection window.
+  The configurable trend-graph
   explorer: a registry-driven metric picker over any sensor channel (grouped by domain,
   `chart:true` columns from `/api/sensors`), overlaid on one bucketed/aligned chart
   (`GET /api/sensors/series` — contract in `.claude/modules/sensors.md`), with
@@ -268,9 +294,10 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   file changed underneath; the server auto-commits — see `api/routes/docs.py`). Edit-only
   by design: file creation/rename stays a laptop/Obsidian operation. The vault is read from
   a separate bare-repo checkout on the Pi — see CLAUDE.md Deployment.
-- **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`), plus **globe**
-  (`globe.ts`, lazy three.js, PC-only) and **skyplot** (`skyplot.ts`, 2D-canvas) drill-ins.
-  The observatory subsystem is in **`.claude/modules/observatory.md`**.
+- **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`); **globe**
+  (`globe.ts`, lazy three.js, PC-only) and **skyplot** (`skyplot.ts`, 2D-canvas) are
+  reached via the shared section-nav (Passes/Skyplot/Globe), which replaced Sky's own
+  `.views` card strip. The observatory subsystem is in **`.claude/modules/observatory.md`**.
 - **Radio** (`Radio.svelte`) — Icom ID-5100A control head (freq/mode/S-meter + CTCSS +
   repeater; `/api/radio/*`), with an honest offline head when rigctld is down.
 

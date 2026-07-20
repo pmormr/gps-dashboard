@@ -127,11 +127,11 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/data/status` — offline-data chunk freshness, derived at read time from the `updater/` registry (Systems → `/data` drill-in; read-only until the plan's Phase 2 runner lands — `plans/data-update-plan.md`)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (+ `/trends`, `/fridge`, `/gpsd`, `/ntp`, `/data` drill-ins) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (a hub; drill-ins `/sensors`, `/fridge`, `/gpsd`, `/ntp`, `/data`) · `/trends` (a top-level tab) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
-**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with eight destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Drive** (`/drive` — follow-camera driving view + destination chevron over the shared map engine) · **Places** (`/places` — master-detail browser/search over the places tier; the map keeps only waypoints) · **Systems** (`/systems` + gpsd/ntp drill-ins) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
+**Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to `static/dist/` (committed) and served by Flask (`api/app.py` catch-all → `dist/index.html` for non-`api`/`tiles`/`static` paths). A persistent nav shell with nine destinations — **Home** (status glance, `/api/status`) · **Map** (`/map`) · **Drive** (`/drive` — follow-camera driving view + destination chevron over the shared map engine) · **Places** (`/places` — master-detail browser/search over the places tier; the map keeps only waypoints) · **Systems** (`/systems` — a hub of tiles launching the sensors/fridge/data/time/gps sub-views) · **Trends** (`/trends` — the graph explorer) · **Docs** (`/docs` — browses the synced `paul-network-docs` vault) · **Sky** (`/sky` = passes + globe/skyplot) · **Radio** (`/radio`). A tab with sub-destinations uses one shared pattern (`SECTIONS` registry + shell-level `SectionNav` + `SectionHub` tiles). Mobile-first (bottom tabs on phones, sidebar on desktop). Heavy libs (MapLibre, three) are npm deps, **dynamic-imported** so the main bundle stays small; the basemap data assets stay in `static/vendor/basemap/`. **Build + commit `static/dist/` before `git push all`** — the Pi never builds. Charting lives in the SPA's Trends view (`/trends`); the legacy Jinja `/sensors` page + vendored uPlot were retired. See **`.claude/modules/frontend.md`** for shell/router/stores + per-view detail, and **`.claude/modules/observatory.md`** for the globe/passes/skyplot subsystem.
 
 ### Basemaps & Terrain
 
@@ -230,6 +230,7 @@ gps-dashboard/
 │       ├── App.svelte, main.ts, app.css
 │       ├── lib/
 │       │   ├── Shell.svelte, router.svelte.ts, routes.ts   # nav shell + client router
+│       │   ├── SectionNav.svelte, SectionHub.svelte        # shared tab-with-sub-destinations pattern (SECTIONS registry)
 │       │   ├── api.ts          # typed JSON API client
 │       │   ├── geo.ts          # pure geo/format helpers
 │       │   ├── map.ts          # MapView MapLibre façade (npm maplibre/pmtiles)
@@ -244,11 +245,11 @@ gps-dashboard/
 │       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
 │       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts, fridge.ts  # view renderers/helpers
 │       │   ├── live.ts, follow.ts, wakelock.ts  # Drive view: live-fix math · follow-camera policy · screen wake lock
-│       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes)
+│       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes) + Sparkline (cheap inline SVG, for Sensors cards)
 │       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
 │       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
-│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet, +PoiIcon shared POI-glyph component), Systems, Trends, Fridge, Data, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
+│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation) · trends (sparkline→Trends handoff)
+│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet, +PoiIcon shared POI-glyph component), Systems (hub), Sensors, Trends, Fridge, Data, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, NotFound
 ├── static/
 │   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
 │   ├── img/                    # tile-error.png + the globe's Earth textures
