@@ -1,5 +1,12 @@
 # picam — hill-climb camera edge encoder
 
+> **Canonical home moved.** The generalized, self-contained provisioning kit now
+> lives in its own repo: **[`hillclimb-cam`](https://github.com/pmormr/hillclimb-cam)**
+> (`~/Github/hillclimb-cam`) — an installer + camera probe + pull-back test, and
+> support for Pi 4/5 and YUYV/MJPEG/H.264 cameras. Use that repo to set up any new
+> camera Pi (including a friend's). The files here are the original picam1 build
+> and stay only until picam1 is re-provisioned from `hillclimb-cam`.
+
 Standalone encoder for a Raspberry Pi + USB webcam at a hill-climb course
 position: capture → hardware H.264 → SRT-publish to the MediaMTX hub on `pmpi1`.
 One 720p camera per Pi (two 720p YUYV cams don't share a Pi's USB 2.0 bus). See

@@ -62,9 +62,13 @@ hub — OBS attaches to MediaMTX for all feeds *and* `/radio`, never to the publ
 - [x] ffmpeg → SRT publish to the hub; verified online + laptop-pullable.
 - [x] systemd unit + env config — `cam-stream@.service` template + wrapper
       `cam-stream.sh` + `/etc/default/cam-stream-<path>` (device pinned by USB
-      `by-path`, `Restart=always`). Source in **`tools/picam/`**. **Provisioning is
-      standalone** (installed on the Pi, *outside* the gps-dashboard deploy hook) —
-      that resolves the earlier open question.
+      `by-path`, `Restart=always`). **Provisioning is standalone** (installed on the
+      Pi, *outside* the gps-dashboard deploy hook) — that resolves the earlier open
+      question. The edge-encoder source has since been **extracted to its own repo,
+      [`hillclimb-cam`](https://github.com/pmormr/hillclimb-cam)** (generalized for
+      Pi 4/5 + YUYV/MJPEG/H.264 cams, with an installer/probe/test), the canonical
+      home for provisioning any new camera Pi; `tools/picam/` is the frozen picam1
+      build until it's re-provisioned from that repo.
 - [x] One-cam-per-Pi is the decision: two 720p YUYV cams can't share a Pi's USB2 bus
       (S3). picam1 = `cam1`; a second angle = a second Pi.
 - [x] **Frame-flow watchdog** — `cam-watchdog@<path>` (source in `tools/picam/`).
