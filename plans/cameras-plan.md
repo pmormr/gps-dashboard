@@ -100,7 +100,7 @@ The fleet (`FLEET` in `sensors/dahua_reader.py`; Hikvision `.55/.56` out of scop
       brackets; **verified on the wire** with `ffprobe` (subtype=1 = h264 704×480,
       subtype=2 = h264 1280×720 on all four).
 
-## Phase 1 — Hub (MediaMTX paths + secret) — config landed, deploy/verify next
+## Phase 1 — Hub (MediaMTX paths + secret) — DONE (2026-07-21)
 
 Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (def
 `false`), `sourceOnDemandCloseAfter`/`sourceOnDemandStartTimeout` (def `10s` each),
@@ -118,12 +118,13 @@ Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (
       loads, listeners start, no URL error). `GPS_DAHUA_PASSWORD_URLENC` added to the Pi
       secret file (URL-encoded twin of the raw password).
 - [x] Confirmed `mediamtx.service` is enabled + active (config change just needs restart).
-- [ ] Push → hook restarts `mediamtx`. Verify pull-back from the LAN:
-      `rtsp://pmpi1:8554/cam-front` (VLC/ffprobe) and browser WHEP at
-      `http://pmpi1:8889/cam-front`. Confirm on-demand: the pull opens on connect, closes
-      after idle (watch the mediamtx journal).
+- [x] Deployed + verified on the wire. All four cams pull H.264 at the C3 resolutions
+      (`ffprobe` via the hub: sub = 704×480@15, `-hd` = 1280×720@30). On-demand confirmed
+      in the journal (`[RTSP source] started on demand` on connect, torn down on
+      disconnect). WHEP endpoint live (`/cam-front/whep` → 204 on preflight; browser video
+      pending the Phase 2 client). Rendered config verified: 0 unsubstituted placeholders.
 
-## Phase 2 — Video WHEP client
+## Phase 2 — Video WHEP client — NEXT
 
 - [ ] Generalize `web/src/lib/radioListen.ts` (audio-only) into a shared WHEP client that
       adds a `video` transceiver and returns a stream for a `<video>`. Keep the bare
