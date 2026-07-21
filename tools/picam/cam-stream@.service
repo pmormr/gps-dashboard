@@ -7,6 +7,9 @@ StartLimitIntervalSec=0
 [Service]
 User=pmorgan
 SupplementaryGroups=video
+RuntimeDirectory=cam-stream
+RuntimeDirectoryPreserve=yes
+TimeoutStopSec=15
 EnvironmentFile=/etc/default/cam-stream-%i
 ExecStart=/usr/local/bin/cam-stream.sh
 Restart=always

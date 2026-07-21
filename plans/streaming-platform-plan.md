@@ -67,11 +67,14 @@ hub — OBS attaches to MediaMTX for all feeds *and* `/radio`, never to the publ
       that resolves the earlier open question.
 - [x] One-cam-per-Pi is the decision: two 720p YUYV cams can't share a Pi's USB2 bus
       (S3). picam1 = `cam1`; a second angle = a second Pi.
-- [ ] **Robustness gap — add before the event.** If the V4L2/HW-encoder state wedges
-      (reproduced by SIGKILLing ffmpeg mid-stream during the two-cam test), ffmpeg
-      blocks in D-state and `Restart=always` can't recover it — only a reboot clears
-      it. Normal one-cam operation didn't reproduce it; still, add a frame-flow
-      watchdog (restart/reboot on no-output).
+- [x] **Frame-flow watchdog** — `cam-watchdog@<path>` (source in `tools/picam/`).
+      Tracks ffmpeg's `-progress out_time_us`; a stall with a *stable* PID triggers
+      recovery — **restart** for a soft stall, **reboot** (rate-limited, can't
+      boot-loop) only for the unkillable D-state device wedge a restart can't clear.
+      A changing PID means the service is already flapping (network/SRT drop →
+      `Restart=always`), so the watchdog stays out — no false reboots on an uplink
+      outage. Detection + restart-recovery verified live (SIGSTOP a running encoder →
+      auto-restarted).
 - [ ] Reconnect/backoff under real link flap (pull the uplink, confirm SRT
       re-establishes) — `Restart=always` covers process exit; validate in the field.
 

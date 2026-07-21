@@ -1,0 +1,14 @@
+[Unit]
+Description=Frame-flow watchdog for cam-stream@%i
+After=cam-stream@%i.service
+Wants=cam-stream@%i.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cam-watchdog.sh %i
+Restart=always
+RestartSec=5
+StateDirectory=cam-watchdog
+
+[Install]
+WantedBy=multi-user.target
