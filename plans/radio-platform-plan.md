@@ -242,28 +242,50 @@ trap: mute the stream while keying.
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.
 
-## Phase 3 — Transmit console (operator-clicked TX) — DESIGNED (R11)
+## Phase 3 — Transmit console (operator-clicked TX) — BUILT (items 1–4), field test open
 
 A `/radio` **Transmit** panel: a filesystem-driven **soundboard** (click a pre-staged
 WAV) + **dual switchable TTS** (espeak-ng / piper) — every send is an attended button
-press by KC3HEU (**R11**), no scheduler, manual ID baked into the audio. Build order
-(safety primitive first; RF de-risk gates going hot but the software builds in
-parallel):
+press by KC3HEU (**R11**), no scheduler, manual ID baked into the audio. The software
+(items 1–4) is built + committed; going hot is gated on the item-5 bench test.
 
-- [ ] **PTT primitive + safety.** `set_ptt` on `api.rigctld.Rigctld`; a keyed-TX
-      helper that wraps every transmission in `try/finally` PTT-release + a hard
-      max-duration watchdog — the never-stuck-keyed invariant (R11). CI-V PTT keeps
-      the Digirig serial port + its RTS guard stack untouched.
-- [ ] **TX audio render + play.** espeak-ng/piper → normalized 48 kHz mono WAV;
-      soundboard WAVs normalize-on-play so nothing overdrives deviation. Play via
-      `aplay` to the Digirig playback substream (full-duplex codec — coexists with
-      the recorder's capture, no dsnoop needed).
-- [ ] **Execution + logging.** Flask route shells out (render/pick → key → play →
-      unkey → log). Add a TX-direction flag to `radio_transmissions`; log the clean
-      source audio as the WAV; a TX-active sentinel suppresses the recorder so RX
-      doesn't double-log the same transmission.
-- [ ] **Frontend.** Transmit console in `/radio` (soundboard grid + TTS box + voice
-      toggle + a prominent keyed/PTT indicator).
+- [x] **PTT primitive + safety.** `Rigctld.set_ptt` + `radio/transmit.py`'s
+      `keyed_tx` guard — `try/finally` release, independent-connection unkey retry,
+      and a `MAX_TX_SECONDS` watchdog that force-unkeys over its own connection.
+- [x] **TX audio render + play.** `render_tts` (espeak-ng/piper → ffmpeg loudnorm →
+      48 kHz mono S16_LE), filesystem soundboard (`soundboard_dir`, normalize-on-play),
+      `transmit_wav` (key → settle → `aplay` to the Digirig → unkey).
+- [x] **Execution + logging.** `POST /api/radio/transmit` (clip|text) + `GET
+      /api/radio/soundboard` (clips + available engines); an in-process lock 409s a
+      concurrent send. `radio_transmissions.is_tx` marks TX rows; `archive_and_log`
+      stores the clean source under `audio_dir()/tx/` with a derived waveform. A
+      `.tx-active` sentinel (`transmit.tx_active`) makes the recorder drop its own
+      loopback (`VoxGate.reset` + `Capture.discard`), so RX never double-logs.
+- [x] **Frontend.** Transmit card on `/radio` (TTS box + soundboard grid + ON-AIR
+      lock + manual-ID reminder; espeak/piper toggle shows only when piper is set) +
+      `is_tx` badge in the log. Verified locally (render + reactive state, 0 console
+      errors); rig-live test is item 5.
 - [ ] **RF de-risk (field, gates going hot).** Low-power TX test — confirm the
-      Digirig USB survives keying (the 2a −71 crash) + TX audio-drive calibration
-      (deviation not overdriven). Not wired hot until the bench passes.
+      Digirig USB survives keying (the 2a −71 crash), that `aplay` playback coexists
+      with the recorder's dsnoop capture, and a TX audio-drive calibration (the rig
+      mic-gain that maps loudnorm's −1.5 dBFS peak to correct deviation, no splatter).
+      Not wired hot until the bench passes. Also set the rig's **TOT** as the hardware
+      never-stuck-keyed backstop.
+
+**Deploy prerequisites (before/with the push):**
+
+- **Run the `is_tx` migration on the Pi *first*** — the transmission-log query now
+  selects `is_tx`, so pushing the code before the column exists 500s the existing
+  `/radio` log (same trap the `waveform` column had):
+  `sqlite3 /mnt/nvme/data/gps_history.db "ALTER TABLE radio_transmissions ADD COLUMN is_tx INTEGER NOT NULL DEFAULT 0;"`
+  (the `DEFAULT 0` backfills existing rows as RX — no script).
+- **`apt install espeak-ng`** on the Pi (offline-cacheable, one-time online) — the
+  default TTS engine. **piper** is optional: drop a voice model on NVMe and point
+  `GPS_RADIO_PIPER_MODEL` at it (a manual install like the MediaMTX binary); until
+  then the UI offers espeak only.
+- **Create `/mnt/nvme/data/radio-tx/soundboard/`** and scp clips into it (any of
+  `.wav/.mp3/.ogg/.m4a/.flac`; ffmpeg normalizes them).
+- The deploy hook restarts `radio-recorder` (radio/ changed) + `gps-dashboard`
+  automatically; no new service. `audio_dir()` must resolve identically in both the
+  dashboard and recorder units (the sentinel rides on it) — already true via the
+  shared `GPS_DB_PATH` default.
