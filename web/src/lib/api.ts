@@ -434,7 +434,9 @@ export function getRadioStatus(): Promise<RadioStatus> {
 
 /** One VOX-captured transmission row. freq/mode tag the active main band at
  *  gate-open while the audio is the A+B mix — trust it only when dcd_main is 1.
- *  has_audio false = the retention pruner kept the row but dropped the WAV. */
+ *  has_audio false = the retention pruner kept the row but dropped the WAV.
+ *  waveform is a record-time envelope (0..255 bar heights) that survives the
+ *  prune; null on rows recorded before the feature or when empty. */
 export interface RadioTransmission {
   id: number
   started_utc: string
@@ -447,6 +449,7 @@ export interface RadioTransmission {
   rms_dbfs: number | null
   lat: number | null
   lon: number | null
+  waveform: number[] | null
   has_audio: boolean
 }
 

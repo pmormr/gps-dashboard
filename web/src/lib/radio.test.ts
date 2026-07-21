@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { sMeter } from './radio'
+import { cursorX, parseWaveform, seekTime, sMeter } from './radio'
 
 describe('sMeter', () => {
   it('returns null for missing readings', () => {
@@ -28,5 +28,46 @@ describe('sMeter', () => {
     expect(sMeter(-5)).toEqual({ label: 'S0', pct: 0 })
     expect(sMeter(300)).toEqual({ label: 'S9+', pct: 100 })
     expect(sMeter(170)?.pct).toBeCloseTo((170 / 255) * 100)
+  })
+})
+
+describe('parseWaveform', () => {
+  it('coerces null/undefined to an empty array', () => {
+    expect(parseWaveform(null)).toEqual([])
+    expect(parseWaveform(undefined)).toEqual([])
+  })
+
+  it('normalizes stored 0..255 heights to 0..1 fractions', () => {
+    expect(parseWaveform([0, 255, 128])).toEqual([0, 1, 128 / 255])
+  })
+
+  it('clamps stray out-of-range values into [0, 1]', () => {
+    expect(parseWaveform([-10, 300])).toEqual([0, 1])
+  })
+})
+
+describe('cursorX', () => {
+  it('maps play time to a pixel offset', () => {
+    expect(cursorX(5, 10, 200)).toBe(100)
+    expect(cursorX(0, 10, 200)).toBe(0)
+    expect(cursorX(10, 10, 200)).toBe(200)
+  })
+
+  it('clamps past the ends and guards a zero duration', () => {
+    expect(cursorX(15, 10, 200)).toBe(200)
+    expect(cursorX(5, 0, 200)).toBe(0)
+  })
+})
+
+describe('seekTime', () => {
+  it('maps a click x to a seek time (inverse of cursorX)', () => {
+    expect(seekTime(100, 200, 10)).toBe(5)
+    expect(seekTime(0, 200, 10)).toBe(0)
+    expect(seekTime(200, 200, 10)).toBe(10)
+  })
+
+  it('clamps past the ends and guards a zero width', () => {
+    expect(seekTime(250, 200, 10)).toBe(10)
+    expect(seekTime(50, 0, 10)).toBe(0)
   })
 })

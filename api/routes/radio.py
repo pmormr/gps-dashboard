@@ -11,6 +11,7 @@ their WAVs, written by the ``radio-recorder`` daemon) — a DB/filesystem read
 path with no rigctld involvement.
 """
 
+import json
 from collections.abc import Callable
 
 from flask import Blueprint, jsonify, request, send_file
@@ -58,10 +59,11 @@ DUALWATCH = b'\x16\x59'
 # Transmission-log columns returned to the client. audio_path stays server-side
 # (the client fetches bytes by id through the audio route); has_audio tells the
 # UI whether a play control makes sense — the retention pruner NULLs audio_path
-# but keeps the row.
+# but keeps the row. waveform is a JSON-string envelope decoded to a real array
+# below, and survives the prune (drawn even once the WAV is gone).
 _TX_COLUMNS = (
     'id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
-    'peak_dbfs, rms_dbfs, lat, lon, audio_path IS NOT NULL AS has_audio'
+    'peak_dbfs, rms_dbfs, lat, lon, waveform, audio_path IS NOT NULL AS has_audio'
 )
 
 
@@ -290,7 +292,14 @@ def list_transmissions():
     sql += ' ORDER BY id DESC LIMIT ?'
     rows = conn.execute(sql, [*params, limit]).fetchall()
 
-    transmissions = [dict(r) | {'has_audio': bool(r['has_audio'])} for r in rows]
+    transmissions = [
+        dict(r)
+        | {
+            'has_audio': bool(r['has_audio']),
+            'waveform': json.loads(r['waveform']) if r['waveform'] else None,
+        }
+        for r in rows
+    ]
     return jsonify({'transmissions': transmissions, 'count': len(transmissions), 'total': total})
 
 

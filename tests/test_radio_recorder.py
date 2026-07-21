@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import wave
 from array import array
@@ -244,6 +245,8 @@ class TestCaptureClose:
         # ±8192 constant amplitude = quarter scale ≈ −12.0 dBFS for both stats.
         assert row['peak_dbfs'] == pytest.approx(-12.0, abs=0.1)
         assert row['rms_dbfs'] == pytest.approx(-12.0, abs=0.1)
+        # One block → one envelope bar; ≈−12 dBFS in the −64 window ≈ 207/255.
+        assert json.loads(row['waveform']) == [207]
 
     def test_ram_buffer_materializes_byte_exact(self, conn, tmp_path, monkeypatch):
         audio_dir = tmp_path / 'audio'

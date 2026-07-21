@@ -218,6 +218,7 @@ def _insert_tx(
     duration_s: float = 8.0,
     dcd_main: int | None = 1,
     audio_path: str | None = None,
+    waveform: str | None = None,
 ) -> int:
     """Insert one ``radio_transmissions`` row into the test DB, returning its id."""
     from api.db import get_connection
@@ -225,8 +226,8 @@ def _insert_tx(
     conn = get_connection()
     cur = conn.execute(
         'INSERT INTO radio_transmissions (started_utc, ended_utc, duration_s, freq_hz, mode, '
-        'dcd_main, peak_dbfs, rms_dbfs, audio_path, lat, lon) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'dcd_main, peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
             '2026-07-18T20:00:00.000Z',
             '2026-07-18T20:00:08.000Z',
@@ -239,6 +240,7 @@ def _insert_tx(
             audio_path,
             39.7,
             -105.2,
+            waveform,
         ),
     )
     conn.commit()
@@ -273,6 +275,15 @@ class TestTransmissionList:
         page2 = client.get(f'/api/radio/transmissions?limit=2&before_id={ids[3]}').get_json()
         assert [t['id'] for t in page2['transmissions']] == [ids[2], ids[1]]
         assert page2['total'] == 5  # total ignores the cursor
+
+    def test_waveform_decoded_to_array_or_null(self, client):
+        # The column stores a JSON string; the payload carries a real array (or null).
+        with_wf = _insert_tx(waveform='[0, 128, 255]')
+        without = _insert_tx(waveform=None)
+        page = client.get('/api/radio/transmissions').get_json()
+        rows = {t['id']: t for t in page['transmissions']}
+        assert rows[with_wf]['waveform'] == [0, 128, 255]
+        assert rows[without]['waveform'] is None
 
     def test_min_s_filters_rows_and_total(self, client):
         _insert_tx(duration_s=5.2, dcd_main=0)  # a touchscreen-beep blip

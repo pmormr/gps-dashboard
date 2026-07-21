@@ -3,6 +3,44 @@
 /** The RAWSTR value the ID-5100 manual pins to S9 (0000=S0, 0170=S9, §13-17). */
 export const RAWSTR_S9 = 170
 
+/** The waveform bar-height encoding ceiling (server stores 0..255 per bar). */
+const WAVEFORM_MAX = 255
+
+/**
+ * Normalize a stored waveform envelope to 0..1 bar fractions for rendering.
+ *
+ * The API already decodes the JSON to `number[]`; this coerces null/absent to an
+ * empty array and clamps each bar into [0, 1] so a stray value can't overflow the
+ * strip. Pure so the strip component stays presentational.
+ */
+export function parseWaveform(waveform: number[] | null | undefined): number[] {
+  if (!waveform) return []
+  return waveform.map((v) => Math.max(0, Math.min(1, v / WAVEFORM_MAX)))
+}
+
+/** Clamp a value into [0, 1]. */
+function unit(x: number): number {
+  return Math.max(0, Math.min(1, x))
+}
+
+/**
+ * Playhead x-position (px) for a play time over a waveform of pixel width `w`.
+ *
+ * Returns 0 for a non-positive duration (nothing to scrub).
+ */
+export function cursorX(t: number, dur: number, w: number): number {
+  return dur > 0 ? unit(t / dur) * w : 0
+}
+
+/**
+ * Seek target (seconds) for a click at x (px) on a waveform of pixel width `w`.
+ *
+ * Returns 0 for a non-positive width (an unmeasured element).
+ */
+export function seekTime(x: number, w: number, dur: number): number {
+  return w > 0 ? unit(x / w) * dur : 0
+}
+
 /** A rendered S-meter reading: the S-unit label and the 0–100 bar fill. */
 export interface SMeterReading {
   label: string

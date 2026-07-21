@@ -36,6 +36,7 @@ two evidence-backed too-low signatures (flap storm / stuck-open static).
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import subprocess
 import sys
@@ -55,6 +56,7 @@ from common.timefmt import age_seconds, format_canonical
 from radio.levels import LevelKeeper
 from radio.paths import audio_dir
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
+from radio.waveform import WAVEFORM_BUCKETS, build_envelope
 
 SAMPLE_RATE = 48000
 BLOCK_SECONDS = 0.1
@@ -198,6 +200,7 @@ class Capture:
     lon: float | None
     writer: wave.Wave_write | None = None
     buffer: list[RingEntry] = field(default_factory=list)
+    peaks: list[int] = field(default_factory=list)
     dcd_poll_ok: bool = True
     frames: int = 0
     sq_sum: int = 0
@@ -211,6 +214,7 @@ class Capture:
             self.writer.writeframesraw(block)
         self.sq_sum += sq
         self.peak = max(self.peak, peak)
+        self.peaks.append(peak)
         self.frames += n
 
     def materialize(self) -> None:
@@ -240,11 +244,12 @@ class Capture:
         self.part_path.rename(final)
         duration = self.frames / SAMPLE_RATE
         ended = self.started + timedelta(seconds=duration)
+        waveform = json.dumps(build_envelope(self.peaks, WAVEFORM_BUCKETS))
         conn.execute(
             'INSERT INTO radio_transmissions '
             '(started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
-            'peak_dbfs, rms_dbfs, audio_path, lat, lon) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (
                 format_canonical(self.started),
                 format_canonical(ended),
@@ -257,6 +262,7 @@ class Capture:
                 self.rel_path,
                 self.lat,
                 self.lon,
+                waveform,
             ),
         )
         conn.commit()

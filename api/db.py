@@ -480,7 +480,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- tag). No band column: get-VFO is unsupported, which band is Main is
         -- unreadable. lat/lon snap from the latest raw fix, NULL when stale.
         -- audio_path is relative to the audio dir and NULLed by the retention
-        -- pruner — the row outlives its audio.
+        -- pruner — the row outlives its audio. waveform is a fixed-N JSON int
+        -- array (0..255 bar heights, absolute dBFS window) derived at record
+        -- time from the per-block peaks, so it survives the audio prune.
         CREATE TABLE IF NOT EXISTS radio_transmissions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             started_utc TEXT NOT NULL,
@@ -493,7 +495,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             rms_dbfs    REAL,
             audio_path  TEXT,
             lat         REAL,
-            lon         REAL
+            lon         REAL,
+            waveform    TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_radio_transmissions_started
             ON radio_transmissions(started_utc);

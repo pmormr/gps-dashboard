@@ -6,13 +6,14 @@
     getRadioStatus,
     getRadioTransmissions,
     postRadio,
-    radioAudioUrl,
     type RadioStatus,
     type RadioTransmission,
   } from '../lib/api'
-  import { RAWSTR_S9, sMeter } from '../lib/radio'
+  import { parseWaveform, RAWSTR_S9, sMeter } from '../lib/radio'
   import Toast from '../lib/Toast.svelte'
   import { useToast } from '../lib/useToast.svelte'
+  import WaveformPlayer from '../lib/WaveformPlayer.svelte'
+  import WaveformStrip from '../lib/WaveformStrip.svelte'
 
   // Standard CTCSS tones (Hz) the ID-5100 supports (from dump_caps).
   const CTCSS_TONES = [
@@ -233,19 +234,27 @@
     {#each txs as t (t.id)}
       <div class="tx-item">
         <button class="tx-row" class:open={expandedId === t.id} onclick={() => toggleTx(t.id)}>
-          <span class="tx-time">{txTime(t.started_utc)}</span>
-          <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
-          <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>
-            {freqMhz(t.freq_hz ?? undefined)}
-            {t.mode ?? ''}{t.dcd_main !== 1 ? ' ?' : ''}
+          <span class="tx-line">
+            <span class="tx-time">{txTime(t.started_utc)}</span>
+            <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
+            <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>
+              {freqMhz(t.freq_hz ?? undefined)}
+              {t.mode ?? ''}{t.dcd_main !== 1 ? ' ?' : ''}
+            </span>
+            {#if !t.has_audio}<span class="tx-pruned">no audio</span>{/if}
           </span>
-          {#if !t.has_audio}<span class="tx-pruned">no audio</span>{/if}
+          {#if t.waveform && expandedId !== t.id}
+            <span class="tx-strip"><WaveformStrip samples={parseWaveform(t.waveform)} height={20} /></span>
+          {/if}
         </button>
         {#if expandedId === t.id}
           <div class="tx-detail">
             {#if t.has_audio}
-              <!-- svelte-ignore a11y_media_has_caption -->
-              <audio controls autoplay preload="metadata" src={radioAudioUrl(t.id)}></audio>
+              <WaveformPlayer
+                id={t.id}
+                durationS={t.duration_s}
+                samples={parseWaveform(t.waveform)}
+              />
             {:else}
               <div class="note">Audio pruned by retention — metadata only.</div>
             {/if}
@@ -620,8 +629,8 @@
   }
   .tx-row {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
     width: 100%;
     background: none;
     border: none;
@@ -629,6 +638,17 @@
     padding: 10px 2px;
     text-align: left;
     font-variant-numeric: tabular-nums;
+  }
+  .tx-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+  }
+  .tx-strip {
+    display: block;
+    width: 100%;
+    opacity: 0.85;
   }
   .tx-row.open {
     color: var(--accent);
@@ -660,10 +680,6 @@
   }
   .tx-detail {
     padding: 2px 2px 12px;
-  }
-  .tx-detail audio {
-    width: 100%;
-    height: 40px;
   }
   .tx-meta {
     display: flex;
