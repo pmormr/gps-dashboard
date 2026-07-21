@@ -357,7 +357,8 @@
     powering = true
     try {
       await postRadio('/api/radio/power', { on })
-      toaster.toast(on ? 'Power-on sent' : 'Power-off sent')
+      // The rig ignores CI-V power while in Repeater Mode — don't claim it worked.
+      toaster.toast(inRepeater ? 'Sent — but the rig ignores CI-V in Repeater Mode' : on ? 'Power-on sent' : 'Power-off sent')
       if (on) setTimeout(poll, 3000) // let the rig wake, then refresh the readout
     } catch (e) {
       toaster.toast(errMsg(e), true)
@@ -423,6 +424,11 @@
 
   const freqMhz = (hz: number | undefined): string => (hz == null ? '—' : (hz / 1e6).toFixed(3))
   const smeter = $derived(s?.online ? sMeter(s.rawstr) : null)
+
+  // The rig answered but rejects CI-V (RPRT -9) — i.e. it's in Repeater Mode. All
+  // CI-V writes (tune, tone, power) are silently ignored until it's exited on the
+  // touchscreen; only RTS keying gets through.
+  const inRepeater = $derived(s != null && !s.online && s.reachable === true)
 
   // Log freq tag. A cross-band Repeater-Mode TX (freq_b_hz set) went out on both
   // bands — show the pair + a `repeater` marker (the freqs are inferred, so the
@@ -533,7 +539,7 @@
       RTS hardware keying — transmits even while the rig is in Repeater Mode (CI-V PTT is blocked
       there). Freq/mode can't be read back in that mode, so the log row tags them blank.
     </div>
-  {:else if s && !s.online && s.reachable}
+  {:else if inRepeater}
     <div class="note keyer-warn">
       Rig is in Repeater Mode — CI-V keying will be rejected. Switch to RTS PTT to transmit.
     </div>
@@ -857,6 +863,12 @@
       {powerConfirm ? 'Confirm off' : 'Turn off'}
     </button>
   </div>
+  {#if inRepeater}
+    <div class="note keyer-warn">
+      CI-V is blocked in Repeater Mode — power off/on is ignored (it acks but does nothing). Exit
+      Repeater Mode on the rig's touchscreen; a physical power cycle is the only way out remotely.
+    </div>
+  {/if}
   <div class="note">
     Remote power over CI-V (bare <code>18 00</code> off · 25× <code>FE</code> wakeup + <code
       >18 01</code
