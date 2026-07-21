@@ -135,20 +135,28 @@ Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (
       folded in and removed; `Radio.svelte` now calls `startWhep(whepEndpoint('radio'),
       { media: ['audio'], … })` — behavior-identical (same URL/flow/error text). Test moved
       to `whep.test.ts`. Typecheck + 160 tests + build all green.
-- [ ] Video path (`media: ['video']`) exercised end-to-end in Phase 3 (needs a `<video>`).
+- [x] Video path exercised end-to-end by the Phase 3 grid's tap-to-live (`media: ['video']`).
 
-## Phase 3 — Cameras tab (glance-first)
+## Phase 3 — Cameras tab (glance-first) — built (deploy/verify next)
 
-- [ ] New top-level **Cameras** tab (`SECTIONS`/`routes.ts`/`Shell`, Radio-style), 2×2 grid.
-- [ ] **Design fork — grid rendering:**
-  - (a) **Live sub streams on-demand** — simplest, one code path; but ~4 continuous
-    streams while the tab is open (~2 Mbps over HaLow from home). Ship as the MVP to prove
-    camera → hub → browser end-to-end.
-  - (b) **JPEG snapshot thumbnails + tap-to-live** — near-zero idle, HaLow-friendly; needs
-    a small Flask snapshot-proxy route (`GET /api/cameras/<node>/snapshot`, server-side
-    digest fetch → JPEG, creds stay server-side). Add after (a) for bandwidth.
-- [ ] Cameras registry for the API/frontend (node → host, stream URLs). Reuse/adapt
-      `FLEET` from `sensors/dahua_reader.py` rather than duplicating IPs.
+**Grid rendering: option (b) — JPEG thumbnails first** (chosen for the from-home HaLow
+glance, the primary use). Placement: a **10th top-level tab** (📷), per the plan's
+glance-first intent (accepts the narrow-phone label crowding — nav notes).
+
+- [x] Top-level **Cameras** tab wired (`routes.ts` NAV + routes; `Cameras.svelte`). 2×2 grid.
+- [x] **Server:** extracted `sensors/fleet.py` (no-dep `Device`/`FLEET`, so the web app
+      reuses fleet identity without pulling in MQTT — `dahua_reader`/`dahua_probe`/tests now
+      import from it). `api/routes/cameras.py`: `GET /api/cameras` (node/label/hub-path;
+      hosts stay server-side) + `GET /api/cameras/<node>/snapshot` (server-side digest to
+      `snapshot.cgi?channel=1&subtype=1` → JPEG; 404 unknown/NVR, 502 refused, 503
+      unreachable). `EnvironmentFile=-/etc/default/gps-dahua` added to `gps-dashboard.service`
+      so the proxy has the password. 6 route tests.
+- [x] **Client:** grid polls the snapshot proxy on a shared cache-bust stamp
+      (`SNAPSHOT_REFRESH_MS` 5 s, gated on visibility + paused while live); tap a tile →
+      live 720p (`-hd`) WHEP video via the Phase 2 client, wake-lock held while watching.
+      Pure bits in `lib/cameras.ts` (+ test). Typecheck + 163 tests + build green.
+- [ ] Deploy + verify on-device: `/api/cameras` list, a real JPEG from the snapshot proxy,
+      thumbnails render, tap → live plays (LAN).
 
 ## Phase 4 — Expand + driving mode
 

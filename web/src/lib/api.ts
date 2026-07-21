@@ -1076,3 +1076,18 @@ export interface DataStatus {
 export function getDataStatus(): Promise<DataStatus> {
   return getJSON<DataStatus>('/api/data/status')
 }
+
+// ── Cameras (the van's Dahua cams via the MediaMTX hub) ──
+
+/** One viewable camera: fleet node, UI label, and MediaMTX hub path (`cam-<pos>`;
+ *  `<path>-hd` is the 720p expand feed). */
+export interface Camera {
+  node: string
+  label: string
+  path: string
+}
+
+/** Fetch the viewable camera list for the grid. */
+export function getCameras(): Promise<{ cameras: Camera[] }> {
+  return getJSON<{ cameras: Camera[] }>('/api/cameras')
+}

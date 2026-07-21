@@ -30,7 +30,6 @@ import argparse
 import os
 import random
 import sys
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import requests
@@ -38,6 +37,7 @@ import urllib3
 from requests.auth import HTTPDigestAuth
 
 from sensors.dahua_rpc import Rpc2Error, Rpc2Session
+from sensors.fleet import FLEET, FLEET_STREAMS, Device
 from sensors.runner import Reading, run_fleet_publisher, used_percent
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -53,34 +53,6 @@ PATH_RECORD_MODE = '/cgi-bin/configManager.cgi?action=getConfig&name=RecordMode'
 
 #: The NVR's HDD device name for the SMART query (single-disk unit).
 NVR_HDD_NAME = '/dev/sda'
-
-
-@dataclass(frozen=True)
-class Device:
-    """One fleet member."""
-
-    node: str
-    host: str
-    is_nvr: bool
-
-    @property
-    def rpc_base(self) -> str:
-        """The device's RPC2 base URL — the NVR only speaks RPC2 over HTTPS."""
-        return f'{"https" if self.is_nvr else "http"}://{self.host}'
-
-
-#: The active Dahua fleet (vault hostnames). Hikvision cams (.55/.56) are out of
-#: scope — different API (ISAPI), not recording.
-FLEET: tuple[Device, ...] = (
-    Device('van-nvr', '192.168.42.50', is_nvr=True),
-    Device('van-cam-front', '192.168.42.51', is_nvr=False),
-    Device('van-cam-blind-left', '192.168.42.52', is_nvr=False),
-    Device('van-cam-blind-right', '192.168.42.53', is_nvr=False),
-    Device('van-cam-rear', '192.168.42.54', is_nvr=False),
-)
-
-#: Node → sensor type, the ``run_fleet_publisher`` stream map.
-FLEET_STREAMS: dict[str, str] = {d.node: ('nvr' if d.is_nvr else 'camera') for d in FLEET}
 
 
 def parse_storage(text: str) -> tuple[int | None, int | None]:

@@ -1,6 +1,7 @@
 import type { Component } from 'svelte'
 
 import Places from '../views/Places.svelte'
+import Cameras from '../views/Cameras.svelte'
 import Data from '../views/Data.svelte'
 import Docs from '../views/Docs.svelte'
 import Drive from '../views/Drive.svelte'
@@ -47,6 +48,7 @@ export const routes: RouteDef[] = [
   { path: '/trends', component: Trends, tab: '/trends' },
   { path: '/fridge', component: Fridge, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
+  { path: '/cameras', component: Cameras, tab: '/cameras' },
 ]
 
 /** Fallback view for an unmatched client path. */
@@ -69,6 +71,7 @@ export const NAV: NavItem[] = [
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
   { label: 'Radio', icon: '📻', to: '/radio' },
+  { label: 'Cameras', icon: '📷', to: '/cameras' },
 ]
 
 /** One link in a section's secondary nav (the sticky pill strip). */
