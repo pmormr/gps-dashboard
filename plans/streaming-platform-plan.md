@@ -47,23 +47,33 @@ hub — OBS attaches to MediaMTX for all feeds *and* `/radio`, never to the publ
   `van-edge`; Starlink is failover. YouTube Live RTMP. (Details + `mwan3` note in the
   network-docs event page.)
 
-## Phase 0 — MediaMTX ingest enablement
+## Phase 0 — MediaMTX ingest enablement — DONE (2026-07-20)
 
-- [ ] `deploy/mediamtx.yml`: set **`srt: true`** (currently off) and add `paths:`
-      `cam1`–`cam4` (`source: publisher`). Keep `radio` as-is. Deploy hook already
-      restarts `mediamtx` on config change — ships on push, no manual `systemctl`.
-- [ ] Verify a test SRT publish (ffmpeg from the laptop) shows up and pulls back via
-      RTSP (`rtsp://pmpi1:8554/cam1`) and WebRTC (`http://pmpi1:8889/cam1`).
+- [x] `deploy/mediamtx.yml`: `srt: true` (`:8890`) + `paths:` `cam1`–`cam4`
+      (`source: publisher`), `radio` unchanged. Deployed to `pmpi1` (hook restarts
+      `mediamtx`); `[SRT] started` confirmed in the log.
+- [x] End-to-end verified: picam1 SRT-publishes `cam1`, pulls back via
+      `rtsp://pmpi1:8554/cam1` from the OBS laptop (h264 1280x720).
 
-## Phase 1 — Edge encoder (per-Pi)
+## Phase 1 — Edge encoder (per-Pi) — LANDED on picam1 (2026-07-20)
 
-- [ ] Bring up one Pi + USB cam on the bench: enumerate formats, pick the cheapest
-      encode path (native H.264 passthrough → `h264_v4l2m2m` → `libx264`).
-- [ ] ffmpeg → SRT publish to the hub, with reconnect/backoff (link flap is expected).
-- [ ] systemd unit + env config (device, WxH, fps, bitrate, hub host/port, streamid).
-      **Open:** do these Pis deploy via a bare-repo hook like `pmpi1`, or stay
-      standalone (scp'd unit)? They're separate hosts, off the gps-dashboard deploy
-      path — leaning standalone + a tiny provisioning script. Decide before Phase 3.
+- [x] Bench bring-up: LifeCam HD-3000 is YUYV-only, 720p@10 (S3); encode via the Pi 4
+      HW `h264_v4l2m2m`.
+- [x] ffmpeg → SRT publish to the hub; verified online + laptop-pullable.
+- [x] systemd unit + env config — `cam-stream@.service` template + wrapper
+      `cam-stream.sh` + `/etc/default/cam-stream-<path>` (device pinned by USB
+      `by-path`, `Restart=always`). Source in **`tools/picam/`**. **Provisioning is
+      standalone** (installed on the Pi, *outside* the gps-dashboard deploy hook) —
+      that resolves the earlier open question.
+- [x] One-cam-per-Pi is the decision: two 720p YUYV cams can't share a Pi's USB2 bus
+      (S3). picam1 = `cam1`; a second angle = a second Pi.
+- [ ] **Robustness gap — add before the event.** If the V4L2/HW-encoder state wedges
+      (reproduced by SIGKILLing ffmpeg mid-stream during the two-cam test), ffmpeg
+      blocks in D-state and `Restart=always` can't recover it — only a reboot clears
+      it. Normal one-cam operation didn't reproduce it; still, add a frame-flow
+      watchdog (restart/reboot on no-output).
+- [ ] Reconnect/backoff under real link flap (pull the uplink, confirm SRT
+      re-establishes) — `Restart=always` covers process exit; validate in the field.
 
 ## Phase 2 — OBS production
 
