@@ -423,13 +423,24 @@
 
 {#if !s}
   <div class="status-banner err">Connecting…</div>
-{:else if !s.online}
+{:else if s.online}
+  <div class="status-banner ok">● Connected</div>
+{:else if s.reachable}
+  <div class="status-banner warn">
+    Rig on — remote control blocked. The ID-5100 rejects CI-V commands while Repeater Mode is
+    engaged{s.rprt != null ? ` (RPRT ${s.rprt})` : ''}. Readout and control return once you exit
+    Repeater Mode on the rig's touchscreen.
+  </div>
+{:else if s.service === 'active'}
   <div class="status-banner err">
-    Radio offline — rigctld {s.service ?? 'unreachable'}. Connect the CI-V cable and enable the
-    radio-control service.
+    rigctld is running but the rig isn't answering — check the rig is powered on and the CI-V cable
+    is seated.
   </div>
 {:else}
-  <div class="status-banner ok">● Connected</div>
+  <div class="status-banner err">
+    Radio control offline — radio-control service {s.service ?? 'unreachable'}. Connect the CI-V
+    cable and enable the radio-control service.
+  </div>
 {/if}
 
 <div class="card">

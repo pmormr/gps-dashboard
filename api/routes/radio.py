@@ -124,9 +124,12 @@ def status():
     """Live main-band state read from the rig via rigctld.
 
     Returns freq/mode/S-meter plus the tone and repeater settings and the rig's
-    DCD/PTT flags. When rigctld is unreachable (cable unplugged or the service
-    disabled), returns 503 with the systemd service state so the page can render an
-    honest "offline" head instead of erroring.
+    DCD/PTT flags. Always HTTP 200 — check ``online``. On failure the body carries
+    ``online: False`` plus ``reachable``: ``True`` when the rig answered with a
+    Hamlib error (it's powered on and on the CI-V bus but refusing the read — what
+    Repeater Mode does, ``RPRT -9``), ``False`` for a transport outage (daemon down,
+    cable dead, timeout). The raw ``rprt`` code and the systemd service state ride
+    along too, so the page can render a specific head instead of a blanket "offline".
     """
     try:
         with Rigctld() as rig:
@@ -142,7 +145,21 @@ def status():
             ptt = rig.get_ptt()
             dualwatch = rig.get_dualwatch()
     except RigctldError as exc:
-        return jsonify({'online': False, 'service': proc.service_state(SERVICE), 'error': str(exc)})
+        # A real Hamlib RPRT code means rigctld reached the rig and it answered — the
+        # rig is powered on and on the bus, it just refused the read. The ID-5100
+        # rejects CI-V reads/writes (RPRT -9) while Repeater Mode is engaged, and that
+        # mode is touchscreen-only to exit. Flag that (reachable=True) so the page
+        # says "in Repeater Mode" rather than "connect the cable"; rprt is None only
+        # for a real transport outage (daemon down, cable dead, timeout).
+        return jsonify(
+            {
+                'online': False,
+                'reachable': exc.rprt is not None,
+                'rprt': exc.rprt,
+                'service': proc.service_state(SERVICE),
+                'error': str(exc),
+            }
+        )
 
     return jsonify(
         {

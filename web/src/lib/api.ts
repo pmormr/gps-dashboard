@@ -408,9 +408,13 @@ export function getPasses(hours: number, mask: number): Promise<PassesResponse> 
   return getJSON<PassesResponse>(`/api/passes?hours=${hours}&mask=${mask}`)
 }
 
-/** Live ID-5100A main-band state; online:false (with service state) when rigctld is down. */
+/** Live ID-5100A main-band state. online:false carries reachable — true when the
+ *  rig answered with a Hamlib error (on the bus but refusing reads, e.g. Repeater
+ *  Mode; rprt is the raw code), false for a transport outage (daemon/cable/timeout). */
 export interface RadioStatus {
   online: boolean
+  reachable?: boolean
+  rprt?: number | null
   service?: string
   error?: string
   freq_hz?: number

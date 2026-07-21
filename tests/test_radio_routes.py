@@ -17,9 +17,12 @@ from api.rigctld import RigctldError
 class FakeRig:
     """In-memory stand-in for :class:`api.rigctld.Rigctld`."""
 
-    def __init__(self, *, fail_enter: bool = False, set_rprt: int | None = None) -> None:
+    def __init__(
+        self, *, fail_enter: bool = False, set_rprt: int | None = None, read_rprt: int | None = None
+    ) -> None:
         self._fail_enter = fail_enter
         self._set_rprt = set_rprt
+        self._read_rprt = read_rprt
         self.calls: list[tuple] = []
 
     def __enter__(self) -> FakeRig:
@@ -30,6 +33,9 @@ class FakeRig:
     def __exit__(self, *exc: object) -> None: ...
 
     def get_freq(self) -> int:
+        # Repeater Mode: the rig answers, but rejects the read (RPRT -9).
+        if self._read_rprt is not None:
+            raise RigctldError('get_freq failed', rprt=self._read_rprt)
         return 146520000
 
     def get_mode(self) -> tuple[str, int]:
@@ -160,7 +166,23 @@ def test_status_offline_when_daemon_unreachable(client, monkeypatch):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['online'] is False
+    assert data['reachable'] is False  # transport outage: rprt is None
+    assert data['rprt'] is None
     assert data['service'] == 'inactive'
+
+
+def test_status_reachable_but_refused_in_repeater_mode(client, monkeypatch):
+    # The rig answers (on the CI-V bus) but rejects the read with RPRT -9 — what
+    # Repeater Mode does. reachable=True lets the page say "in Repeater Mode".
+    _patch_rig(monkeypatch, read_rprt=-9)
+    monkeypatch.setattr(radio.proc, 'service_state', lambda _name: 'active')
+    resp = client.get('/api/radio/status')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['online'] is False
+    assert data['reachable'] is True
+    assert data['rprt'] == -9
+    assert data['service'] == 'active'
 
 
 def test_set_freq_ok(client, monkeypatch):
