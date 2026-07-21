@@ -14,7 +14,7 @@
     type SoundboardClip,
   } from '../lib/api'
   import { parseWaveform, RAWSTR_S9, sMeter } from '../lib/radio'
-  import { startListen, type ListenSession } from '../lib/radioListen'
+  import { startWhep, whepEndpoint, type WhepSession } from '../lib/whep'
   import Toast from '../lib/Toast.svelte'
   import { useToast } from '../lib/useToast.svelte'
   import WaveformPlayer from '../lib/WaveformPlayer.svelte'
@@ -116,7 +116,7 @@
   let listenErr = $state('')
   let listenVol = $state(loadPref('radioListenVol', 80))
   let audioEl = $state<HTMLAudioElement>()
-  let session: ListenSession | null = null
+  let session: WhepSession | null = null
 
   function stopSession(): void {
     session?.close()
@@ -140,7 +140,11 @@
     listenState = 'connecting'
     listenErr = ''
     try {
-      session = await startListen(undefined, onListenClosed)
+      session = await startWhep(whepEndpoint('radio'), {
+        media: ['audio'],
+        onClosed: onListenClosed,
+        unreachableMessage: 'Could not reach the audio hub — is radio-stream running?',
+      })
       if (audioEl) {
         audioEl.srcObject = session.stream
         audioEl.volume = listenVol / 100

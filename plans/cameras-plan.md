@@ -126,12 +126,16 @@ Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (
       disconnect). WHEP endpoint live (`/cam-front/whep` → 204 on preflight; browser video
       pending the Phase 2 client). Rendered config verified: 0 unsubstituted placeholders.
 
-## Phase 2 — Video WHEP client — NEXT
+## Phase 2 — Video WHEP client — DONE (2026-07-21)
 
-- [ ] Generalize `web/src/lib/radioListen.ts` (audio-only) into a shared WHEP client that
-      adds a `video` transceiver and returns a stream for a `<video>`. Keep the bare
-      `fetch` + `RTCPeerConnection`, host-ICE-only, no-STUN approach. Factor a common
-      `whep.ts`; radio keeps audio-only, cameras use video.
+- [x] Factored `web/src/lib/whep.ts`: the generic client `startWhep(url, { media,
+      onClosed, unreachableMessage })` + `whepEndpoint(path, loc)`, media kinds chosen by
+      the caller (one recvonly transceiver each). Kept the bare `fetch` +
+      `RTCPeerConnection`, host-ICE-only, no-STUN approach verbatim. `radioListen.ts`
+      folded in and removed; `Radio.svelte` now calls `startWhep(whepEndpoint('radio'),
+      { media: ['audio'], … })` — behavior-identical (same URL/flow/error text). Test moved
+      to `whep.test.ts`. Typecheck + 160 tests + build all green.
+- [ ] Video path (`media: ['video']`) exercised end-to-end in Phase 3 (needs a `<video>`).
 
 ## Phase 3 — Cameras tab (glance-first)
 
