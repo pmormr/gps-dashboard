@@ -299,7 +299,14 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   reached via the shared section-nav (Passes/Skyplot/Globe), which replaced Sky's own
   `.views` card strip. The observatory subsystem is in **`.claude/modules/observatory.md`**.
 - **Radio** (`Radio.svelte`) — Icom ID-5100A control head (freq/mode/S-meter + CTCSS +
-  repeater; `/api/radio/*`), with an honest offline head when rigctld is down.
+  repeater; `/api/radio/*`), with an honest offline head when rigctld is down. Below the
+  controls, the recorded-transmission log: each collapsed row carries a thin full-width
+  **waveform strip**; expanding one swaps in `WaveformPlayer` (the strip is the scrub
+  surface — playhead synced to the `<audio>` `currentTime` + click-to-seek, native
+  transport kept below). The envelope is absolute-encoded (0..255 bar heights) and
+  record-time-derived, so it's cross-clip comparable and survives the audio prune; the
+  presentational `WaveformStrip` (SVG bars, played/unplayed split) is shared by both, fed
+  by `parseWaveform`/`cursorX`/`seekTime` in `lib/radio.ts`.
 
 ## Deferred
 

@@ -6,6 +6,11 @@ pure VOX gate (``radio/vox.py``); each opening becomes a WAV file with a
 ring-buffer pre-roll, and each close inserts one GPS-snapped
 ``radio_transmissions`` row. Design is R8 in ``plans/radio-platform-plan.md``.
 
+Each row also carries a compact ``waveform`` envelope — the per-block peaks
+resampled + absolute-encoded (``radio/waveform.py``) at close. Storing it on the
+row means the player/log strip draw with no WAV re-decode and the waveform
+outlives the audio the retention pruner drops.
+
 Startup pins state the hardware won't hold for us: the C-Media codec resets to
 max gain + AGC ON on every USB replug (the 2a trap), and the rig's AF level
 sets the SP1 record level. Both pins re-run on every session (re)start, so a
