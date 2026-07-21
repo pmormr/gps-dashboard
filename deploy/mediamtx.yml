@@ -62,40 +62,45 @@ paths:
   # attaches, at ~1-2 s connect latency. The 10s close/start-timeout defaults
   # apply. rtspTransport: tcp — no UDP loss on the pull leg.
   #
-  # ${GPS_DAHUA_PASSWORD} interpolates from /etc/default/gps-dahua (C5 —
-  # EnvironmentFile on mediamtx.service; same secret the dahua_reader uses).
+  # ${GPS_DAHUA_PASSWORD_URLENC} interpolates from /etc/default/gps-dahua (C5 —
+  # EnvironmentFile on mediamtx.service). It is the URL-percent-encoded twin of
+  # GPS_DAHUA_PASSWORD (the raw form the dahua_reader uses for digest auth): the
+  # password has a char illegal in a URL's userinfo, and MediaMTX's Go url.Parse
+  # rejects the raw value ("is not a valid URL", crash-loop) where ffprobe
+  # tolerated it. Both vars live in the root-600 secret file — keep them in sync
+  # if the camera password is ever rotated.
   # RTSP form: rtsp://admin:<pw>@<host>:554/cam/realmonitor?channel=1&subtype=N
   # (subtype=1 sub, subtype=2 third). Do NOT reuse the cam1-cam4 names above —
   # those are the hill-climb SRT publisher paths, a different mechanism.
   cam-front:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=1
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=1
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-front-hd:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=2
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=2
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-blind-left:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=1
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=1
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-blind-left-hd:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=2
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=2
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-blind-right:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=1
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=1
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-blind-right-hd:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=2
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=2
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-rear:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=1
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=1
     sourceOnDemand: yes
     rtspTransport: tcp
   cam-rear-hd:
-    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=2
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=2
     sourceOnDemand: yes
     rtspTransport: tcp

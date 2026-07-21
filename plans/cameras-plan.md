@@ -61,6 +61,17 @@ The fleet (`FLEET` in `sensors/dahua_reader.py`; Hikvision `.55/.56` out of scop
 - **C8 — Low-latency levers:** short GOP (1 s, done in C3), pre-warm driving streams (C4),
   low decode res (D1/720p). These target the HDMI-latency complaint directly.
 
+## Operational traps
+
+- **MediaMTX rejects the raw password in the RTSP URL (learned Phase 1).** The Dahua
+  password has a char illegal in a URL's userinfo; MediaMTX's Go `url.Parse` errors
+  `'rtsp://…' is not a valid URL` and the service **crash-loops** (taking the radio
+  stream down with it), where `ffprobe`'s laxer parser tolerated the same URL in Phase 0.
+  Fix: a **URL-percent-encoded** twin `GPS_DAHUA_PASSWORD_URLENC` in the root-600
+  `/etc/default/gps-dahua` (a manual, out-of-git line — the deploy hook doesn't touch it),
+  referenced by the yaml; the raw `GPS_DAHUA_PASSWORD` stays for the dahua_reader's digest
+  auth. Keep both in sync on a password rotation.
+
 ## Operational traps (learned during Phase 0)
 
 - **Dahua `setConfig` needs URL-encoded brackets.** On this firmware
