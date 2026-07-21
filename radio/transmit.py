@@ -417,6 +417,7 @@ def archive_and_log(
     mode: str | None,
     lat: float | None,
     lon: float | None,
+    freq_b_hz: int | None = None,
 ) -> int:
     """Archive a transmitted WAV under the audio root and insert its log row.
 
@@ -428,10 +429,12 @@ def archive_and_log(
         conn: Open DB connection.
         played_wav: The normalized WAV that was transmitted (the clean source).
         started: UTC time the transmission began.
-        freq_hz: Active-band frequency at transmit time, or ``None``.
-        mode: Active-band mode, or ``None``.
+        freq_hz: Active/main-band frequency at transmit time, or ``None``.
+        mode: Active/main-band mode, or ``None``.
         lat: GPS-snapped latitude, or ``None`` when stale/absent.
         lon: GPS-snapped longitude, or ``None`` when stale/absent.
+        freq_b_hz: The second band's frequency for a cross-band Repeater-Mode
+            transmission (it went out on both), or ``None`` for a single band.
 
     Returns:
         The new row's id.
@@ -445,8 +448,8 @@ def archive_and_log(
     cur = conn.execute(
         'INSERT INTO radio_transmissions '
         '(started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
-        'peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform, is_tx) '
-        'VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 1)',
+        'peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform, is_tx, freq_b_hz) '
+        'VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 1, ?)',
         (
             format_canonical(started),
             format_canonical(ended),
@@ -459,6 +462,7 @@ def archive_and_log(
             lat,
             lon,
             json.dumps(waveform),
+            freq_b_hz,
         ),
     )
     conn.commit()

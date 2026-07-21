@@ -83,8 +83,46 @@ VFO_MODE = b'\x07'
 # below, and survives the prune (drawn even once the WAV is gone).
 _TX_COLUMNS = (
     'id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
-    'peak_dbfs, rms_dbfs, lat, lon, waveform, is_tx, audio_path IS NOT NULL AS has_audio'
+    'peak_dbfs, rms_dbfs, lat, lon, waveform, is_tx, freq_b_hz, '
+    'audio_path IS NOT NULL AS has_audio'
 )
+
+# Last-known rig frequency, for inferring a Repeater-Mode transmission's freq.
+# CI-V reads fail (RPRT -9) in Repeater Mode, so the live rig_snapshot() comes back
+# empty — but the freq can't change without exiting the mode (which restores CI-V
+# and refreshes this), so the frozen last-online read *is* the true repeater freq.
+# _staged_* records the A/B pair from the last cross-band stage so a repeater TX can
+# tag both bands it goes out on; the pair is only trusted when its main band still
+# matches the frozen main freq (else the operator has since retuned).
+# Single Flask process (``python api/app.py``), so module globals suffice.
+_last_freq_hz: int | None = None
+_last_mode: str | None = None
+_staged_main_hz: int | None = None
+_staged_other_hz: int | None = None
+
+
+def _remember_main(freq_hz: int | None, mode: str | None) -> None:
+    """Cache a live main-band read; a ``None`` freq (unreadable) is ignored."""
+    global _last_freq_hz, _last_mode
+    if freq_hz is not None:
+        _last_freq_hz, _last_mode = freq_hz, mode
+
+
+def _remember_staged(main_hz: int, other_hz: int) -> None:
+    """Record the last cross-band staged pair (main band + the other band)."""
+    global _staged_main_hz, _staged_other_hz
+    _staged_main_hz, _staged_other_hz = main_hz, other_hz
+
+
+def _infer_freq() -> tuple[int | None, str | None, int | None]:
+    """Best guess ``(freq_hz, mode, freq_b_hz)`` when the live read failed (Repeater Mode).
+
+    Returns the frozen last-online main-band freq/mode, plus the staged pair's
+    other band only when that pair's main still matches the frozen freq (so a
+    stale pair from before a retune is dropped). All ``None`` when nothing cached.
+    """
+    pair_current = _staged_main_hz is not None and _staged_main_hz == _last_freq_hz
+    return _last_freq_hz, _last_mode, (_staged_other_hz if pair_current else None)
 
 
 def _tone_mode(tone: bool | None, tsql: bool | None) -> str:
@@ -145,6 +183,7 @@ def status():
             dcd = rig.get_dcd()
             ptt = rig.get_ptt()
             dualwatch = rig.get_dualwatch()
+        _remember_main(freq, mode)  # freeze the last live read for Repeater-Mode inference
     except RigctldError as exc:
         # A real Hamlib RPRT code means rigctld reached the rig and it answered — the
         # rig is powered on and on the bus, it just refused the read. The ID-5100
@@ -387,6 +426,8 @@ def stage_crossband():
         rig.set_func('TONE', tone_on)
         rig.set_func('TSQL', tsql_on)
 
+    main_band, other_band = (band_a, band_b) if main == 'a' else (band_b, band_a)
+
     def action(rig: Rigctld) -> None:
         apply_band(rig, 'a', band_a)
         apply_band(rig, 'b', band_b)
@@ -394,6 +435,10 @@ def stage_crossband():
             rig.set_level('RFPOWER', float(rfpower))
         rig.send_civ(DUALWATCH + b'\x01')  # dualwatch ON: both bands live
         rig.send_civ(BAND_SELECT[main])  # leave the chosen band as Main
+        # All CI-V commands succeeded — remember the pair for Repeater-Mode inference
+        # (the operator engages Repeater Mode next, after which CI-V goes dark).
+        _remember_main(main_band['freq'], main_band['mode'])
+        _remember_staged(main_band['freq'], other_band['freq'])
 
     return _apply(action)
 
@@ -499,10 +544,24 @@ def do_transmit():
                 except OSError as exc:  # RTS keyer: the Digirig serial device won't open/toggle
                     return jsonify({'ok': False, 'error': f'RTS keying failed: {exc}'}), 503
             freq, mode, _ = rig_snapshot()
+            if freq is None:
+                # Live read failed — in Repeater Mode CI-V is NAK'd. Infer from the
+                # frozen last-online freq (+ the staged pair's other band, if current).
+                freq, mode, freq_b = _infer_freq()
+            else:
+                _remember_main(freq, mode)  # keep the cache fresh from this live read
+                freq_b = None
             conn = get_connection()
             lat, lon = gps_snap(conn)
             tx_id = transmit.archive_and_log(
-                conn, wav, started=started, freq_hz=freq, mode=mode, lat=lat, lon=lon
+                conn,
+                wav,
+                started=started,
+                freq_hz=freq,
+                mode=mode,
+                lat=lat,
+                lon=lon,
+                freq_b_hz=freq_b,
             )
         return jsonify({'ok': True, 'id': tx_id})
     except transmit.TransmitError as exc:

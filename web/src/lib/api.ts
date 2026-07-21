@@ -447,6 +447,9 @@ export interface RadioTransmission {
   ended_utc: string
   duration_s: number
   freq_hz: number | null
+  /** Second band of a cross-band Repeater-Mode transmission (it went out on both
+   *  freqs, inferred while CI-V was blocked); null for a normal single-band row. */
+  freq_b_hz: number | null
   mode: string | null
   dcd_main: number | null
   peak_dbfs: number | null

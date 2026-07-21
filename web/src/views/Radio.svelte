@@ -423,6 +423,14 @@
 
   const freqMhz = (hz: number | undefined): string => (hz == null ? '—' : (hz / 1e6).toFixed(3))
   const smeter = $derived(s?.online ? sMeter(s.rawstr) : null)
+
+  // Log freq tag. A cross-band Repeater-Mode TX (freq_b_hz set) went out on both
+  // bands — show the pair + a `repeater` marker (the freqs are inferred, so the
+  // tag is dimmed like any unconfirmed row); otherwise the usual freq + mode.
+  const txTag = (t: RadioTransmission): string =>
+    t.freq_b_hz != null
+      ? `${freqMhz(t.freq_hz ?? undefined)} ↔ ${freqMhz(t.freq_b_hz)} · repeater`
+      : `${freqMhz(t.freq_hz ?? undefined)} ${t.mode ?? ''}${t.dcd_main !== 1 ? ' ?' : ''}`.trim()
 </script>
 
 <header class="page-head">
@@ -595,10 +603,7 @@
             {#if t.is_tx === 1}<span class="tx-badge">TX</span>{/if}
             <span class="tx-time">{txTime(t.started_utc)}</span>
             <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
-            <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>
-              {freqMhz(t.freq_hz ?? undefined)}
-              {t.mode ?? ''}{t.dcd_main !== 1 ? ' ?' : ''}
-            </span>
+            <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>{txTag(t)}</span>
             {#if !t.has_audio}<span class="tx-pruned">no audio</span>{/if}
           </span>
           {#if t.waveform && expandedId !== t.id}
@@ -638,7 +643,8 @@
   {/if}
   <div class="note">
     Freq/mode tag the main band at capture start; ? = the main squelch was closed, so the audio
-    may be sub-band traffic or local noise.
+    may be sub-band traffic or local noise. “A ↔ B · repeater” = a cross-band transmission that
+    went out on both bands (freqs inferred — CI-V can't be read in Repeater Mode).
   </div>
 </div>
 
