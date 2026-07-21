@@ -155,7 +155,7 @@ duplex/offset — live via the `radio-control` rigctld service (model 3071,
 redundant on model 3071). Deploy-hook enabled-gated restart stanza live. Play-by-play
 in git history.
 
-## Phase 1.5 — Control-plane enrichment (CI-V only) — DONE except 1.5e
+## Phase 1.5 — Control-plane enrichment (CI-V only) — DONE except 1.5e parts 2–3 (rig validation)
 
 Rides the existing rigctld daemon (**R7**: raw CI-V goes *through* rigctld via
 `send_cmd`, never a second serial client). Landed: calibrated S-meter (RAWSTR
@@ -165,19 +165,29 @@ rigctld's *non-extended* `send_cmd_rx`). The 2e noise-storm diagnosis traced cha
 to a **marginal main-band squelch (0.165) → raised to 0.25** — squelch level is the
 first knob to check if chatter returns. D-STAR heard-log dropped (Paul doesn't use it).
 
-- [ ] **1.5e — cross-band repeater support (PROPOSED).** Repeater Mode itself is
-      **not CI-V-controllable** — the manual's command table has no enter/exit
-      command (no `1A` extended family on this rig), community sources show no
-      undocumented one, and blind write-fuzzing the rig is poor risk/reward. Scope
-      is everything *around* the USA-only mode instead: **(1)** a one-tap "stage
-      cross-band" action that sets both bands' freq/mode/tone (band-pin + sets),
-      dualwatch ON (raw CI-V `16 59 01` — a required precondition), and TX power,
-      leaving only the touchscreen confirm; **(2)** live-validate whether the rig
-      accepts CI-V at all inside Repeater Mode (front panel locks to [MONI]);
-      **(3)** validated CI-V power off/on (`18`, wakeup preamble before `18 01`) —
-      Repeater Mode survives power-off, enabling remote power-cycling. Part-97 note:
-      cross-band retransmission has station-ID obligations the 5100 doesn't
-      automate; operator's responsibility, outside the app.
+**1.5e — cross-band repeater support.** Repeater Mode itself is **not
+CI-V-controllable** — the manual's command table has no enter/exit command (no
+`1A` extended family on this rig), community sources show no undocumented one,
+and blind write-fuzzing the rig is poor risk/reward. Scope is everything
+*around* the USA-only mode instead:
+
+- [x] **(1) one-tap staging (2026-07-21).** `POST /api/radio/stage_crossband`
+      (`api/routes/radio.py`) applies, in one rigctld connection: pin band A →
+      freq/mode/tone → pin band B → freq/mode/tone → TX power → dualwatch ON
+      (`16 59 01`) → restore the chosen Main band; any rig refusal aborts (502).
+      The `/radio` "Cross-band repeater" card is the collapsed A/B form.
+      Repeater Mode is still the operator's touchscreen confirm.
+- [ ] **(2) CI-V-in-Repeater-Mode validation (needs the rig).** Live-check
+      whether the rig accepts CI-V at all inside Repeater Mode (front panel locks
+      to [MONI]). Pure validation, no code — determines whether staging must
+      happen *before* engaging the mode (current assumption) or can adjust after.
+- [ ] **(3) CI-V power off/on (needs the rig).** `18`, wakeup preamble before
+      `18 01`. Repeater Mode survives power-off, enabling remote power-cycling.
+      **Deliberately not built yet:** power-*on* needs the finicky FE-byte
+      preamble (baud-specific), and a power-off that can't be undone remotely
+      would strand the rig — validate power-on at the rig (via a probe) *before*
+      wiring any UI. Part-97 note: cross-band retransmission has station-ID
+      obligations the 5100 doesn't automate; operator's responsibility.
 
 ## Phase 2 — Transmission recording — DONE except the field/purchase items
 

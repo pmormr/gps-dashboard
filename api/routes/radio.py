@@ -254,6 +254,97 @@ def set_repeater():
     return _apply(action)
 
 
+def _parse_band(spec: object, label: str) -> dict:
+    """Validate one band's cross-band staging spec, or raise ``ValueError``.
+
+    A spec is ``{"freq_hz": >0, "mode": <RADIO_MODES>, "tone"?: {"mode":
+    off|tone|tsql, "hz"?: number}}``. The tone defaults to off; ``hz`` is
+    required whenever a tone is enabled. Returns the normalized fields the
+    staging sequence applies.
+    """
+    if not isinstance(spec, dict):
+        raise ValueError(f"'{label}' must be an object with freq_hz/mode")
+    freq = spec.get('freq_hz')
+    if not isinstance(freq, (int, float)) or isinstance(freq, bool) or freq <= 0:
+        raise ValueError(f"'{label}.freq_hz' must be a positive number")
+    mode = spec.get('mode')
+    if mode not in RADIO_MODES:
+        raise ValueError(f"'{label}.mode' must be one of {RADIO_MODES}")
+    tone = spec.get('tone') or {'mode': 'off'}
+    if not isinstance(tone, dict):
+        raise ValueError(f"'{label}.tone' must be an object")
+    tone_mode = tone.get('mode', 'off')
+    if tone_mode not in TONE_MODES:
+        raise ValueError(f"'{label}.tone.mode' must be one of {tuple(TONE_MODES)}")
+    hz = tone.get('hz')
+    if tone_mode != 'off' and (not isinstance(hz, (int, float)) or isinstance(hz, bool) or hz <= 0):
+        raise ValueError(f"'{label}.tone.hz' is required when a tone is enabled")
+    return {
+        'freq': int(freq),
+        'mode': mode,
+        'tone_mode': tone_mode,
+        'hz': hz if tone_mode != 'off' else None,
+    }
+
+
+@radio_bp.post('/api/radio/stage_crossband')
+def stage_crossband():
+    """Stage a cross-band-repeat setup — configure both bands + dualwatch at once.
+
+    Body::
+
+        {"a": <band spec>, "b": <band spec>,
+         "rfpower"?: <0..1>, "main"?: "a"|"b"}
+
+    where a band spec is ``{"freq_hz": >0, "mode": <RADIO_MODES>,
+    "tone"?: {"mode": off|tone|tsql, "hz"?: number}}``.
+
+    Applies in one rigctld connection, in order: pin band A Main → set its
+    freq/mode/tone → pin band B Main → set its freq/mode/tone → set TX power
+    (if given) → dualwatch ON → restore the requested Main band (default ``a``).
+    Any rig refusal aborts the sequence (502).
+
+    Repeater Mode itself is **not** CI-V-controllable on this rig (1.5e) — this
+    only stages the two bands; the operator engages Repeater Mode on the
+    touchscreen afterward. Cross-band retransmission carries station-ID
+    obligations the rig doesn't automate (operator's responsibility).
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        band_a = _parse_band(data.get('a'), 'a')
+        band_b = _parse_band(data.get('b'), 'b')
+    except ValueError as exc:
+        return error(str(exc), 400)
+    main = data.get('main', 'a')
+    if main not in BAND_SELECT:
+        return error("'main' must be 'a' or 'b'", 400)
+    rfpower = data.get('rfpower')
+    if rfpower is not None and (
+        not isinstance(rfpower, (int, float)) or isinstance(rfpower, bool) or not 0 <= rfpower <= 1
+    ):
+        return error("'rfpower' must be a number in 0..1", 400)
+
+    def apply_band(rig: Rigctld, band: str, spec: dict) -> None:
+        rig.send_civ(BAND_SELECT[band])
+        rig.set_freq(spec['freq'])
+        rig.set_mode(spec['mode'], 0)
+        if spec['hz']:
+            rig.set_ctcss_tone(round(spec['hz'] * 10))
+        tone_on, tsql_on = TONE_MODES[spec['tone_mode']]
+        rig.set_func('TONE', tone_on)
+        rig.set_func('TSQL', tsql_on)
+
+    def action(rig: Rigctld) -> None:
+        apply_band(rig, 'a', band_a)
+        apply_band(rig, 'b', band_b)
+        if rfpower is not None:
+            rig.set_level('RFPOWER', float(rfpower))
+        rig.send_civ(DUALWATCH + b'\x01')  # dualwatch ON: both bands live
+        rig.send_civ(BAND_SELECT[main])  # leave the chosen band as Main
+
+    return _apply(action)
+
+
 def _resolve_clip(filename: str) -> Path | None:
     """Resolve a soundboard filename to a real file inside the soundboard dir.
 

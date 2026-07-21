@@ -145,6 +145,42 @@
     if (audioEl && listenState === 'live') audioEl.muted = sending
   })
 
+  // Cross-band repeater staging (1.5e). Advanced/occasional — collapsed by
+  // default. Persisted as one blob so a dialed-in pair survives reloads.
+  interface XbForm {
+    aFreq: number
+    aMode: string
+    aTone: number // CTCSS Hz; 0 = no tone
+    bFreq: number
+    bMode: string
+    bTone: number
+    power: number // normalized RFPOWER (matches RF_POWERS)
+    main: 'a' | 'b'
+  }
+  const XB_DEFAULT: XbForm = {
+    aFreq: 146.52,
+    aMode: 'FM',
+    aTone: 0,
+    bFreq: 445.0,
+    bMode: 'FM',
+    bTone: 0,
+    power: 42 / 255,
+    main: 'a',
+  }
+  function loadXb(): XbForm {
+    try {
+      return { ...XB_DEFAULT, ...JSON.parse(localStorage.getItem('radioXbForm') ?? '{}') }
+    } catch {
+      return XB_DEFAULT
+    }
+  }
+  let xb = $state<XbForm>(loadXb())
+  let xbShow = $state(false)
+  let xbStaging = $state(false)
+  $effect(() => {
+    localStorage.setItem('radioXbForm', JSON.stringify(xb))
+  })
+
   let s = $state<RadioStatus | null>(null)
   let freqInput = $state<number | null>(null)
   let ctcss = $state(100)
@@ -259,6 +295,30 @@
   }
   const transmitClip = (filename: string): Promise<void> =>
     doTransmit({ clip: filename, settle_ms: settleMs })
+
+  const bandBody = (mhz: number, mode: string, toneHz: number) => ({
+    freq_hz: Math.round(mhz * 1e6),
+    mode,
+    tone: toneHz > 0 ? { mode: 'tone', hz: toneHz } : { mode: 'off' },
+  })
+  async function stageCrossband(): Promise<void> {
+    if (xbStaging) return
+    xbStaging = true
+    try {
+      await postRadio('/api/radio/stage_crossband', {
+        a: bandBody(xb.aFreq, xb.aMode, xb.aTone),
+        b: bandBody(xb.bFreq, xb.bMode, xb.bTone),
+        rfpower: xb.power,
+        main: xb.main,
+      })
+      await poll()
+      toaster.toast('Staged — engage Repeater Mode on the rig')
+    } catch (e) {
+      toaster.toast(errMsg(e), true)
+    } finally {
+      xbStaging = false
+    }
+  }
 
   function onBlipToggle(): void {
     expandedId = null
@@ -613,6 +673,74 @@
     <button onclick={applyCurrentShift}>Apply shift</button>
   </div>
   <div class="note">2 m repeaters use 600 kHz; 70 cm uses 5000 kHz.</div>
+</div>
+
+<div class="card">
+  <button class="xb-head" onclick={() => (xbShow = !xbShow)}>
+    <span class="card-title eyebrow">Cross-band repeater</span>
+    <span class="xb-chevron" class:open={xbShow}>▸</span>
+  </button>
+  {#if xbShow}
+    <div class="xb-bands">
+      <div class="xb-band">
+        <div class="sub-label">Band A · {xb.main === 'a' ? 'main' : 'sub'}</div>
+        <input
+          type="number"
+          step="0.001"
+          min="0"
+          inputmode="decimal"
+          aria-label="Band A frequency (MHz)"
+          bind:value={xb.aFreq}
+        />
+        <select bind:value={xb.aMode} aria-label="Band A mode">
+          {#each MODES as m (m.v)}<option value={m.v}>{m.l}</option>{/each}
+        </select>
+        <select bind:value={xb.aTone} aria-label="Band A tone">
+          <option value={0}>No tone</option>
+          {#each CTCSS_TONES as hz (hz)}<option value={hz}>{hz.toFixed(1)} Hz</option>{/each}
+        </select>
+      </div>
+      <div class="xb-band">
+        <div class="sub-label">Band B · {xb.main === 'b' ? 'main' : 'sub'}</div>
+        <input
+          type="number"
+          step="0.001"
+          min="0"
+          inputmode="decimal"
+          aria-label="Band B frequency (MHz)"
+          bind:value={xb.bFreq}
+        />
+        <select bind:value={xb.bMode} aria-label="Band B mode">
+          {#each MODES as m (m.v)}<option value={m.v}>{m.l}</option>{/each}
+        </select>
+        <select bind:value={xb.bTone} aria-label="Band B tone">
+          <option value={0}>No tone</option>
+          {#each CTCSS_TONES as hz (hz)}<option value={hz}>{hz.toFixed(1)} Hz</option>{/each}
+        </select>
+      </div>
+    </div>
+    <div class="sub-label">TX power</div>
+    <div class="seg">
+      {#each RF_POWERS as p (p.l)}
+        <button class:active={Math.abs(xb.power - p.v) < 0.05} onclick={() => (xb.power = p.v)}>
+          {p.l}
+        </button>
+      {/each}
+    </div>
+    <div class="sub-label">Leave active (Main)</div>
+    <div class="seg">
+      <button class:active={xb.main === 'a'} onclick={() => (xb.main = 'a')}>Band A</button>
+      <button class:active={xb.main === 'b'} onclick={() => (xb.main = 'b')}>Band B</button>
+    </div>
+    <button class="primary xb-stage" disabled={xbStaging} onclick={stageCrossband}>
+      {xbStaging ? 'Staging…' : 'Stage cross-band'}
+    </button>
+    <div class="note">
+      Sets both bands' freq/mode/tone and TX power, then turns dualwatch on. Repeater Mode itself
+      isn't remote-controllable — engage it on the rig's touchscreen afterward. You're the control
+      operator: cross-band retransmission still needs your station ID (KC3HEU).
+    </div>
+  {/if}
 </div>
 
 <Toast c={toaster} />
@@ -1014,6 +1142,42 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 8px;
+  }
+
+  .xb-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .xb-head .card-title {
+    margin-bottom: 0;
+  }
+  .xb-chevron {
+    color: var(--text-dim);
+    transition: transform 0.15s;
+  }
+  .xb-chevron.open {
+    transform: rotate(90deg);
+  }
+  .xb-bands {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .xb-band {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .xb-stage {
+    width: 100%;
+    margin-top: 12px;
   }
   .pad {
     padding: 14px 10px;

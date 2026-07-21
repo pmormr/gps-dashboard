@@ -216,6 +216,102 @@ def test_set_repeater_requires_offset_for_shift(client, monkeypatch):
     assert resp.status_code == 400
 
 
+class TestStageCrossband:
+    """``POST /api/radio/stage_crossband`` — the 1.5e two-band staging sequence."""
+
+    def test_sequences_both_bands_then_restores_main(self, client, monkeypatch):
+        fake = FakeRig()
+        monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: fake)
+        resp = client.post(
+            '/api/radio/stage_crossband',
+            json={
+                'a': {'freq_hz': 146520000, 'mode': 'FM', 'tone': {'mode': 'off'}},
+                'b': {'freq_hz': 445000000, 'mode': 'FM', 'tone': {'mode': 'tone', 'hz': 100.0}},
+                'rfpower': 0.5,
+                'main': 'a',
+            },
+        )
+        assert resp.status_code == 200
+        assert fake.calls == [
+            ('send_civ', b'\x07\xd0'),  # pin A Main
+            ('set_freq', 146520000),
+            ('set_mode', 'FM', 0),
+            ('set_func', 'TONE', False),
+            ('set_func', 'TSQL', False),
+            ('send_civ', b'\x07\xd1'),  # pin B Main
+            ('set_freq', 445000000),
+            ('set_mode', 'FM', 0),
+            ('set_ctcss_tone', 1000),  # 100.0 Hz → tenths
+            ('set_func', 'TONE', True),
+            ('set_func', 'TSQL', False),
+            ('set_level', 'RFPOWER', 0.5),
+            ('send_civ', b'\x16\x59\x01'),  # dualwatch ON
+            ('send_civ', b'\x07\xd0'),  # restore Main = A
+        ]
+
+    def test_omits_power_when_absent_and_restores_b(self, client, monkeypatch):
+        fake = FakeRig()
+        monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: fake)
+        resp = client.post(
+            '/api/radio/stage_crossband',
+            json={
+                'a': {'freq_hz': 146520000, 'mode': 'FM'},
+                'b': {'freq_hz': 445000000, 'mode': 'FM'},
+                'main': 'b',
+            },
+        )
+        assert resp.status_code == 200
+        assert ('set_level', 'RFPOWER', 0.5) not in fake.calls
+        assert not any(c[0] == 'set_level' for c in fake.calls)
+        assert fake.calls[-2:] == [('send_civ', b'\x16\x59\x01'), ('send_civ', b'\x07\xd1')]
+
+    def test_rejects_bad_band_and_tone(self, client, monkeypatch):
+        _patch_rig(monkeypatch)
+        # missing mode on band a
+        assert (
+            client.post(
+                '/api/radio/stage_crossband',
+                json={'a': {'freq_hz': 146520000}, 'b': {'freq_hz': 445000000, 'mode': 'FM'}},
+            ).status_code
+            == 400
+        )
+        # tone enabled without an hz
+        assert (
+            client.post(
+                '/api/radio/stage_crossband',
+                json={
+                    'a': {'freq_hz': 146520000, 'mode': 'FM'},
+                    'b': {'freq_hz': 445000000, 'mode': 'FM', 'tone': {'mode': 'tone'}},
+                },
+            ).status_code
+            == 400
+        )
+
+    def test_rejects_bad_main_and_power(self, client, monkeypatch):
+        _patch_rig(monkeypatch)
+        base = {
+            'a': {'freq_hz': 146520000, 'mode': 'FM'},
+            'b': {'freq_hz': 445000000, 'mode': 'FM'},
+        }
+        assert (
+            client.post('/api/radio/stage_crossband', json=base | {'main': 'c'}).status_code == 400
+        )
+        assert (
+            client.post('/api/radio/stage_crossband', json=base | {'rfpower': 2}).status_code == 400
+        )
+
+    def test_rig_refusal_is_502(self, client, monkeypatch):
+        _patch_rig(monkeypatch, set_rprt=-1)
+        resp = client.post(
+            '/api/radio/stage_crossband',
+            json={
+                'a': {'freq_hz': 146520000, 'mode': 'FM'},
+                'b': {'freq_hz': 445000000, 'mode': 'FM'},
+            },
+        )
+        assert resp.status_code == 502
+
+
 def _insert_tx(
     *,
     duration_s: float = 8.0,
