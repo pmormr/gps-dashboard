@@ -88,6 +88,9 @@ class FakeRig:
     def send_civ(self, payload: bytes) -> None:
         self._write('send_civ', payload)
 
+    def set_powerstat(self, on: bool) -> None:
+        self._write('set_powerstat', on)
+
 
 def _patch_rig(monkeypatch, **kwargs) -> None:
     monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: FakeRig(**kwargs))
@@ -214,6 +217,25 @@ def test_set_repeater_requires_offset_for_shift(client, monkeypatch):
     _patch_rig(monkeypatch)
     resp = client.post('/api/radio/repeater', json={'shift': 'plus'})
     assert resp.status_code == 400
+
+
+def test_set_power_on_off(client, monkeypatch):
+    fake = FakeRig()
+    monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: fake)
+    assert client.post('/api/radio/power', json={'on': True}).status_code == 200
+    assert client.post('/api/radio/power', json={'on': False}).status_code == 200
+    assert fake.calls == [('set_powerstat', True), ('set_powerstat', False)]
+
+
+def test_set_power_rejects_non_bool(client, monkeypatch):
+    _patch_rig(monkeypatch)
+    assert client.post('/api/radio/power', json={'on': 1}).status_code == 400
+    assert client.post('/api/radio/power', json={}).status_code == 400
+
+
+def test_set_power_daemon_unreachable_is_503(client, monkeypatch):
+    _patch_rig(monkeypatch, fail_enter=True)
+    assert client.post('/api/radio/power', json={'on': True}).status_code == 503
 
 
 class TestStageCrossband:

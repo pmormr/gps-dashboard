@@ -155,7 +155,7 @@ duplex/offset — live via the `radio-control` rigctld service (model 3071,
 redundant on model 3071). Deploy-hook enabled-gated restart stanza live. Play-by-play
 in git history.
 
-## Phase 1.5 — Control-plane enrichment (CI-V only) — DONE except 1.5e parts 2–3 (rig validation)
+## Phase 1.5 — Control-plane enrichment (CI-V only) — DONE except 1.5e part 2 (CI-V-in-Repeater-Mode check)
 
 Rides the existing rigctld daemon (**R7**: raw CI-V goes *through* rigctld via
 `send_cmd`, never a second serial client). Landed: calibrated S-meter (RAWSTR
@@ -181,13 +181,18 @@ and blind write-fuzzing the rig is poor risk/reward. Scope is everything
       whether the rig accepts CI-V at all inside Repeater Mode (front panel locks
       to [MONI]). Pure validation, no code — determines whether staging must
       happen *before* engaging the mode (current assumption) or can adjust after.
-- [ ] **(3) CI-V power off/on (needs the rig).** `18`, wakeup preamble before
-      `18 01`. Repeater Mode survives power-off, enabling remote power-cycling.
-      **Deliberately not built yet:** power-*on* needs the finicky FE-byte
-      preamble (baud-specific), and a power-off that can't be undone remotely
-      would strand the rig — validate power-on at the rig (via a probe) *before*
-      wiring any UI. Part-97 note: cross-band retransmission has station-ID
-      obligations the 5100 doesn't automate; operator's responsibility.
+- [x] **(3) CI-V power off/on (validated + built, 2026-07-21).** `POST
+      /api/radio/power {on}` → `Rigctld.set_powerstat` (raw CI-V `18`): off = bare
+      `FE FE 8C E0 18 00 FD`; on = **25× `FE` wakeup preamble** (19200 baud;
+      manual §13-17: 19200→25/9600→13/4800→7) + `FE FE 8C E0 18 01 FD`. Both
+      directions validated on the rig (off and on observed in isolation).
+      **Hamlib's own `set_powerstat` is an unreliable no-op on model 3071** — the
+      raw path is what's used. **The rig exposes no readable power state**
+      (`get_powerstat`/`get_freq` both return cached values), so it's
+      fire-and-forget; the `/radio` "Rig power" card is two action buttons
+      (power-off two-tap-confirmed), not a toggle. Caveats surfaced in the UI:
+      TX power resets and squelch reverts to ~0.165 after a power cycle (manual
+      note *3; the recorder's LevelKeeper re-asserts SQL within ~a minute).
 
 ## Phase 2 — Transmission recording — DONE except the field/purchase items
 
@@ -208,13 +213,12 @@ wiring facts (they inform the open items below):**
   (ModemManager masked, gpsd `USBAUTO=false`, `deploy/99-digirig.rules`,
   `digirig-rts-clear` oneshot) is non-negotiable — see CLAUDE.md.
 
-- [ ] **2c-tail — needs Paul at the rig / in the field.** (1) Reboot test
-      **watching the rig**: the clearer's open() blips RTS for ~ms (kernel
-      behavior, accepted) — confirm it doesn't meaningfully key TX and that
-      post-boot RTS reads clear (`journalctl -u digirig-rts-clear -b`). (2) The
-      RAWSTR-pegged/DCD-false anomaly did **not** reproduce (RAWSTR 17 + DCD false =
-      sane; DCD read 1 when open) — keep an eye out, but both reads look healthy.
-      `dcd_main` is now polled across the capture (R9), so it's a much stronger hint.
+- [x] **2c-tail reboot test — PASSED 2026-07-21.** Rebooted the Pi watching the
+      rig: **no TX activity**; `journalctl -u digirig-rts-clear -b` shows the
+      oneshot fired ~1 s after the Digirig (CP2102N) enumerated →
+      `/dev/digirig: RTS=clear DTR=clear`. The kernel's ~ms open()-blip doesn't
+      meaningfully key TX. (The RAWSTR-pegged/DCD-false anomaly never reproduced;
+      `dcd_main` is polled across the capture per R9 — a strong confidence hint.)
 - [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
       the 10–20 dB pad (decouples cabin listening volume from record level —
       without it, cranking AF for the speaker also cranks the Digirig leg;
@@ -227,7 +231,12 @@ wiring facts (they inform the open items below):**
       on top of the USB one (redundant, plus a transformer in the voice path). **USB
       isolator adopted + inline; audio isolator shelved.** VOX thresholds lowered
       −40/−45 → −52/−56 to exploit the new floor (~12 dB weaker signals now trip
-      the gate). Engine-running / alternator-whine re-check still open.
+      the gate). **Engine-running / alternator-whine re-check — PASSED 2026-07-21**
+      (`radio_floor.py` via dsnoop, AF 0.25, engine off vs idling): floor
+      unchanged — engine-on median block −66 vs −64 off (within the intermittent
+      147.420 traffic variance), the high band *fell* (−74→−75.5) and low-frac
+      eased (0.93→0.89) ⇒ no alternator whine, no added hum. Still open: the
+      Y-splitter + 10–20 dB pad purchase (re-run the AF calibration when it lands).
 - [ ] **Flagged (discuss before acting): CI-V-via-Digirig consolidation.** The
       Digirig serial port could replace the CH343 CI-V adapter (TX/RX bridged =
       same single-wire topology), freeing a USB port. Needs a separate CI-V

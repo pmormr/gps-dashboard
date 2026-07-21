@@ -180,6 +180,24 @@ def set_dualwatch():
     return _apply(lambda rig: rig.send_civ(DUALWATCH + (b'\x01' if on else b'\x00')))
 
 
+@radio_bp.post('/api/radio/power')
+def set_power():
+    """Power the rig on or off via raw CI-V command 18 (1.5e). Body: ``{"on": bool}``.
+
+    Power-ON sends the 25× ``0xFE`` wakeup preamble the rig's asleep CI-V circuit
+    needs; power-OFF is a bare ``18 00``. The rig exposes no readable power state
+    (``get_powerstat``/``get_freq`` are cached), so this is fire-and-forget — the
+    client can't read back the result. Two operator notes: TX power reverts to
+    default after an off→on cycle (manual note *3), and the rig forgets a
+    CI-V-set squelch on power-off (re-assert SQL after a power cycle).
+    """
+    data = request.get_json(silent=True) or {}
+    on = data.get('on')
+    if not isinstance(on, bool):
+        return error("'on' must be a boolean", 400)
+    return _apply(lambda rig: rig.set_powerstat(on))
+
+
 @radio_bp.post('/api/radio/level')
 def set_level():
     """Set a rig level. Body: ``{"level": af|sql|rfpower, "value": <0..1>}``."""

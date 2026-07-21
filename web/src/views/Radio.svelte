@@ -181,6 +181,12 @@
     localStorage.setItem('radioXbForm', JSON.stringify(xb))
   })
 
+  // Rig power (1.5e). Fire-and-forget CI-V — the rig can't report power state, so
+  // these are actions, not a toggle. Power-off gets a two-tap confirm.
+  let powering = $state(false)
+  let powerConfirm = $state(false)
+  let powerConfirmTimer: number | undefined
+
   let s = $state<RadioStatus | null>(null)
   let freqInput = $state<number | null>(null)
   let ctcss = $state(100)
@@ -320,6 +326,35 @@
     }
   }
 
+  async function sendPower(on: boolean): Promise<void> {
+    if (powering) return
+    powering = true
+    try {
+      await postRadio('/api/radio/power', { on })
+      toaster.toast(on ? 'Power-on sent' : 'Power-off sent')
+      if (on) setTimeout(poll, 3000) // let the rig wake, then refresh the readout
+    } catch (e) {
+      toaster.toast(errMsg(e), true)
+    } finally {
+      powering = false
+    }
+  }
+  function powerOn(): void {
+    powerConfirm = false
+    if (powerConfirmTimer) clearTimeout(powerConfirmTimer)
+    sendPower(true)
+  }
+  function powerOff(): void {
+    if (powerConfirm) {
+      powerConfirm = false
+      if (powerConfirmTimer) clearTimeout(powerConfirmTimer)
+      sendPower(false)
+    } else {
+      powerConfirm = true
+      powerConfirmTimer = window.setTimeout(() => (powerConfirm = false), 4000)
+    }
+  }
+
   function onBlipToggle(): void {
     expandedId = null
     loadTxs(true)
@@ -356,6 +391,7 @@
   })
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer)
+    if (powerConfirmTimer) clearTimeout(powerConfirmTimer)
     stopSession()
   })
 
@@ -741,6 +777,23 @@
       operator: cross-band retransmission still needs your station ID (KC3HEU).
     </div>
   {/if}
+</div>
+
+<div class="card">
+  <div class="card-title eyebrow">Rig power</div>
+  <div class="seg">
+    <button onclick={powerOn} disabled={powering}>Turn on</button>
+    <button class="danger" class:armed={powerConfirm} onclick={powerOff} disabled={powering}>
+      {powerConfirm ? 'Confirm off' : 'Turn off'}
+    </button>
+  </div>
+  <div class="note">
+    Remote power over CI-V (bare <code>18 00</code> off · 25× <code>FE</code> wakeup + <code
+      >18 01</code
+    > on). The rig can't report its power state, so this is fire-and-forget. After a power-on it
+    resets TX power and reverts squelch — re-check the Levels card (the recorder re-asserts squelch
+    within about a minute).
+  </div>
 </div>
 
 <Toast c={toaster} />
@@ -1178,6 +1231,24 @@
   .xb-stage {
     width: 100%;
     margin-top: 12px;
+  }
+
+  button.danger {
+    border-color: color-mix(in srgb, var(--err) 55%, var(--border));
+    color: var(--err);
+  }
+  button.danger.armed {
+    background: var(--err);
+    border-color: var(--err);
+    color: #fff;
+    font-weight: 600;
+  }
+  .note code {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    padding: 0 3px;
   }
   .pad {
     padding: 14px 10px;

@@ -212,6 +212,27 @@ def test_send_civ_wire_format():
     assert sock.sent == [f'+\\{cmd}\n']
 
 
+def test_set_powerstat_off_is_bare_18_00():
+    # Power-off: no preamble, bare FE FE 8C E0 18 00 FD.
+    cmd = 'send_cmd \\0xfe\\0xfe\\0x8c\\0xe0\\0x18\\0x00\\0xfd'
+    sock = FakeSocket({cmd: 'send_cmd: ...\nReply: RPRT 0\n'})
+    rig = Rigctld()
+    rig._sock = sock  # type: ignore[assignment]
+    rig.set_powerstat(False)
+    assert sock.sent == [f'+\\{cmd}\n']
+
+
+def test_set_powerstat_on_prepends_25_fe_preamble():
+    # Power-on: 25x 0xFE wakeup preamble, then FE FE 8C E0 18 01 FD.
+    preamble = '\\0xfe' * 25
+    cmd = f'send_cmd {preamble}\\0xfe\\0xfe\\0x8c\\0xe0\\0x18\\0x01\\0xfd'
+    sock = FakeSocket({cmd: 'send_cmd: ...\nReply: RPRT 0\n'})
+    rig = Rigctld()
+    rig._sock = sock  # type: ignore[assignment]
+    rig.set_powerstat(True)
+    assert sock.sent == [f'+\\{cmd}\n']
+
+
 def test_send_civ_raises_on_rprt_error():
     cmd = 'send_cmd \\0xfe\\0xfe\\0x8c\\0xe0\\0x07\\0xd0\\0xfd'
     rig = make_rig({cmd: 'send_cmd: ...\nReply: RPRT -9\n'})

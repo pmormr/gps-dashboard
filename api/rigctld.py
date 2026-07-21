@@ -78,6 +78,13 @@ def parse_reply(raw: str) -> Reply:
     raise RigctldError('no RPRT terminator in rigctld reply')
 
 
+#: 0xFE wakeup-preamble bytes prepended to a power-ON CI-V frame at 19200 baud
+#: (the deployed rigctld link speed). The ID-5100's CI-V circuit sleeps when the
+#: rig is powered off; the preamble wakes it before it will read ``18 01``
+#: (manual §13-17: 19200→25, 9600→13, 4800→7). Validated on the rig 2026-07-21.
+POWER_ON_PREAMBLE = 25
+
+
 class Rigctld:
     """A short-lived connection to rigctld; one per request is fine on localhost.
 
@@ -168,29 +175,24 @@ class Rigctld:
             raise RigctldError(f'rigctld {cmd!r} failed (RPRT {reply.rprt})', rprt=reply.rprt)
         return reply
 
-    def send_civ(self, payload: bytes, addr: int = 0x8C, ctrl: int = 0xE0) -> None:
-        """Send a raw CI-V frame through rigctld's ``send_cmd`` passthrough.
+    def _send_cmd_bytes(self, data: bytes) -> None:
+        """Put arbitrary bytes on the CI-V bus via rigctld's ``send_cmd``; raise on RPRT != 0.
 
-        For commands the Hamlib backend doesn't model (R7 in
-        ``plans/radio-platform-plan.md``) — the payload is the command/sub-command/
-        data bytes from the manual's CI-V table, wrapped here in the
-        ``FE FE <addr> <ctrl> ... FD`` envelope. ``send_cmd`` replies differ from
-        every other command: the ``RPRT`` terminator rides on the ``Reply:`` line
-        (captured live 2026-07-02), so this parses the code directly instead of
-        via :func:`parse_reply`.
+        The caller supplies the exact wire bytes (full envelope, plus any
+        wakeup preamble). ``send_cmd`` replies differ from every other command:
+        the ``RPRT`` terminator rides on the ``Reply:`` line (captured live
+        2026-07-02), so this parses the code directly instead of via
+        :func:`parse_reply`.
 
         Args:
-            payload: Command, sub-command, and data bytes (no envelope).
-            addr: The rig's CI-V address.
-            ctrl: The controller's CI-V address.
+            data: The exact bytes to send.
 
         Raises:
             RigctldError: On a transport error or a non-zero ``RPRT``.
         """
         if self._sock is None:
-            raise RigctldError('send_civ() called outside a "with Rigctld()" block')
-        frame = bytes((0xFE, 0xFE, addr, ctrl)) + payload + b'\xfd'
-        arg = ''.join(f'\\0x{b:02x}' for b in frame)
+            raise RigctldError('send_cmd called outside a "with Rigctld()" block')
+        arg = ''.join(f'\\0x{b:02x}' for b in data)
         try:
             self._sock.sendall(f'+\\send_cmd {arg}\n'.encode())
             raw = self._read_reply()
@@ -202,6 +204,48 @@ class Rigctld:
         rprt = int(raw[idx + 5 :].split(None, 1)[0])
         if rprt != 0:
             raise RigctldError(f'rigctld send_cmd failed (RPRT {rprt})', rprt=rprt)
+
+    def send_civ(self, payload: bytes, addr: int = 0x8C, ctrl: int = 0xE0) -> None:
+        """Send a raw CI-V frame through rigctld's ``send_cmd`` passthrough.
+
+        For commands the Hamlib backend doesn't model (R7 in
+        ``plans/radio-platform-plan.md``) — the payload is the command/sub-command/
+        data bytes from the manual's CI-V table, wrapped here in the
+        ``FE FE <addr> <ctrl> ... FD`` envelope.
+
+        Args:
+            payload: Command, sub-command, and data bytes (no envelope).
+            addr: The rig's CI-V address.
+            ctrl: The controller's CI-V address.
+
+        Raises:
+            RigctldError: On a transport error or a non-zero ``RPRT``.
+        """
+        self._send_cmd_bytes(bytes((0xFE, 0xFE, addr, ctrl)) + payload + b'\xfd')
+
+    def set_powerstat(self, on: bool, addr: int = 0x8C, ctrl: int = 0xE0) -> None:
+        """Power the rig on or off via raw CI-V command 18 (ID-5100 manual §13-17).
+
+        Driven directly rather than through Hamlib's ``set_powerstat`` (an
+        unreliable no-op on the model-3071 backend) and **fire-and-forget** — the
+        rig exposes no readable power state (``get_powerstat``/``get_freq`` return
+        cached values). Power-ON prepends a wakeup preamble of
+        :data:`POWER_ON_PREAMBLE` × ``0xFE``: the rig's CI-V circuit sleeps when
+        powered off and won't read ``18 01`` without it. Validated on the rig
+        2026-07-21 (off = bare ``18 00``; on = 25× ``FE`` + ``18 01`` at 19200 baud).
+
+        Args:
+            on: ``True`` to power on (with preamble), ``False`` to power off.
+            addr: The rig's CI-V address.
+            ctrl: The controller's CI-V address.
+
+        Raises:
+            RigctldError: On a transport error or a non-zero ``RPRT``.
+        """
+        frame = bytes((0xFE, 0xFE, addr, ctrl)) + (b'\x18\x01' if on else b'\x18\x00') + b'\xfd'
+        if on:
+            frame = b'\xfe' * POWER_ON_PREAMBLE + frame
+        self._send_cmd_bytes(frame)
 
     def read_civ(
         self, payload: bytes, data_len: int = 1, addr: int = 0x8C, ctrl: int = 0xE0
