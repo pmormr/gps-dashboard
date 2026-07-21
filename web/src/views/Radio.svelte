@@ -51,6 +51,16 @@
     { v: 213 / 255, l: 'High' },
   ]
 
+  // The race-net cross-band preset (the event setup): the 2m race net relayed to
+  // a 70cm HT link. The 70cm side runs tone squelch (TSQL) so only the tone-tagged
+  // HT gets retransmitted onto the net; 2m stays open. Tweak freqs/tone/power here.
+  const RACE_PRESET = {
+    a: { freq_hz: 147_555_000, mode: 'FM', tone: { mode: 'off' } }, // 2m race net (open)
+    b: { freq_hz: 446_175_000, mode: 'FM', tone: { mode: 'tsql', hz: 203.5 } }, // 70cm HT link (TSQL)
+    rfpower: 213 / 255, // High — the van repeater wants range
+    main: 'a', // keep 2m as Main
+  } as const
+
   // Transmission log. BLIP_S sits just above the recorder's minimum capture
   // length (~5.2 s: pre-roll + hang), so the hide-blips filter drops the
   // touchscreen-beep/kerchunk captures without touching real short traffic.
@@ -307,24 +317,31 @@
     mode,
     tone: toneHz > 0 ? { mode: 'tone', hz: toneHz } : { mode: 'off' },
   })
-  async function stageCrossband(): Promise<void> {
+  async function stage(body: unknown, ok: string): Promise<void> {
     if (xbStaging) return
     xbStaging = true
     try {
-      await postRadio('/api/radio/stage_crossband', {
-        a: bandBody(xb.aFreq, xb.aMode, xb.aTone),
-        b: bandBody(xb.bFreq, xb.bMode, xb.bTone),
-        rfpower: xb.power,
-        main: xb.main,
-      })
+      await postRadio('/api/radio/stage_crossband', body)
       await poll()
-      toaster.toast('Staged — engage Repeater Mode on the rig')
+      toaster.toast(ok)
     } catch (e) {
       toaster.toast(errMsg(e), true)
     } finally {
       xbStaging = false
     }
   }
+  const stageCrossband = (): Promise<void> =>
+    stage(
+      {
+        a: bandBody(xb.aFreq, xb.aMode, xb.aTone),
+        b: bandBody(xb.bFreq, xb.bMode, xb.bTone),
+        rfpower: xb.power,
+        main: xb.main,
+      },
+      'Staged — engage Repeater Mode on the rig',
+    )
+  const stageRaceNet = (): Promise<void> =>
+    stage(RACE_PRESET, 'Race net staged — engage Repeater Mode on the rig')
 
   async function sendPower(on: boolean): Promise<void> {
     if (powering) return
@@ -717,6 +734,14 @@
     <span class="xb-chevron" class:open={xbShow}>▸</span>
   </button>
   {#if xbShow}
+    <button class="primary xb-preset" disabled={xbStaging} onclick={stageRaceNet}>
+      {xbStaging ? 'Staging…' : 'Stage race net'}
+    </button>
+    <div class="note xb-preset-note">
+      147.555 (2m net) ↔ 446.175 (70cm HT link) · TSQL {RACE_PRESET.b.tone.hz} Hz on 70cm · dualwatch
+      on. Then engage Repeater Mode on the rig's touchscreen.
+    </div>
+    <div class="xb-divider">or configure manually</div>
     <div class="xb-bands">
       <div class="xb-band">
         <div class="sub-label">Band A · {xb.main === 'a' ? 'main' : 'sub'}</div>
@@ -1231,6 +1256,30 @@
   .xb-stage {
     width: 100%;
     margin-top: 12px;
+  }
+  .xb-preset {
+    width: 100%;
+    margin-top: 4px;
+  }
+  .xb-preset-note {
+    margin-bottom: 4px;
+  }
+  .xb-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .xb-divider::before,
+  .xb-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
   }
 
   button.danger {
