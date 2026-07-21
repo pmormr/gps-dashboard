@@ -108,3 +108,27 @@ paths:
     source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=2
     sourceOnDemand: yes
     rtspTransport: tcp
+
+  # Full-res main streams (subtype=0): H.265 2688×1520 + the camera's main-stream
+  # audio (front PCM / rear G.711). These are **RTSP-only** — consume in OBS/VLC at
+  # rtsp://<pi>:8554/cam-<pos>-main. They do NOT work in the browser WebRTC page
+  # (WHEP can't decode H.265); that's the only reason the grid uses the H.264
+  # sub/third feeds. On-demand, so the camera only serves this second main
+  # connection while someone's actually viewing — the NVR's own recording pull is
+  # untouched (we pull direct from the camera, not via the NVR; C2).
+  cam-front-main:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=0
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-blind-left-main:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=0
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-blind-right-main:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=0
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-rear-main:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=0
+    sourceOnDemand: yes
+    rtspTransport: tcp
