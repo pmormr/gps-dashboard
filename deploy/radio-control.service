@@ -1,6 +1,6 @@
 # rigctld owning the Icom ID-5100A CI-V serial port (model 3071), exposing Hamlib's
 # TCP text protocol on 127.0.0.1:4532 for the Flask radio routes. The daemon-owns-the
-# -port model also solves serial contention (R2/R3 in plans/radio-platform-plan.md).
+# -port model also solves serial contention (R2/R3 in .claude/modules/radio.md).
 #
 # Enabled-gated like sensor-obd/sensor-victron: stays DISABLED until the CI-V cable is
 # wired, so a host without the radio never crash-loops. To bring up:

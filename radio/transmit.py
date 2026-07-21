@@ -1,7 +1,7 @@
 """Transmit plane — key the Icom ID-5100A for the announce/soundboard console.
 
 The TX sibling of :mod:`radio.recorder`. Phase 3 (R11 in
-``plans/radio-platform-plan.md``) is **operator-clicked only**: every transmission
+``.claude/modules/radio.md``) is **operator-clicked only**: every transmission
 is a ``/radio`` button press by the licensed control op (KC3HEU), so there is no
 scheduler and no automatic-control exposure.
 

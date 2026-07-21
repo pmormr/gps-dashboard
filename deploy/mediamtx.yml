@@ -1,4 +1,4 @@
-# MediaMTX — the van's media hub (R10 in plans/radio-platform-plan.md).
+# MediaMTX — the van's media hub (R10 in .claude/modules/radio.md).
 # Radio audio + hill-climb camera feeds (plans/streaming-platform-plan.md).
 # Cameras publish over SRT (streamid publish:camN); the van's Dahua cams could
 # also be proxied later with `source: rtsp://...` paths.

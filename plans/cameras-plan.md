@@ -2,7 +2,7 @@
 
 > Living plan. **Started 2026-07-21.** Bring the van's four Dahua IP cameras into
 > the Van OS SPA for **glancing** (primary) and a low-latency **driving mode**
-> (fast-follow). Reuses the radio's **MediaMTX** hub (R10, `plans/radio-platform-plan.md`)
+> (fast-follow). Reuses the radio's **MediaMTX** hub (R10, `.claude/modules/radio.md`)
 > as the single aggregation point — the "hub later proxies the Dahua cams" future
 > named there. Distinct from `plans/streaming-platform-plan.md` (that is the
 > hill-climb *event* cams, edge Pis pushing SRT; this is the van's own IP cams,

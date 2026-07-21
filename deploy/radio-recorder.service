@@ -1,6 +1,6 @@
 # Radio transmission recorder — VOX-gated capture off the Digirig (SP1 A+B mix)
 # → WAV files + GPS-snapped radio_transmissions rows. Design: R8 in
-# plans/radio-platform-plan.md.
+# .claude/modules/radio.md.
 #
 # Enabled-gated like sensor-victron/radio-control — stays disabled until the
 # Digirig is wired and live-validated, so a host without one never crash-loops.

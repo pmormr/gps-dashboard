@@ -473,7 +473,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
 
         -- Radio RX transmission log — written by the radio-recorder daemon
-        -- (VOX-gated capture off the Digirig; plans/radio-platform-plan.md R8).
+        -- (VOX-gated capture off the Digirig; .claude/modules/radio.md R8).
         -- freq_hz/mode/dcd_main are a rigctld snapshot at gate-open and read the
         -- ACTIVE MAIN BAND only, while the audio is SP1's A+B mix — dcd_main
         -- marks that tag's confidence (a sub-band signal may carry a wrong freq

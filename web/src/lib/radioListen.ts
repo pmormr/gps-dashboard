@@ -1,4 +1,4 @@
-/** WHEP live-listen client for the radio audio stream (R10 in the radio plan).
+/** WHEP live-listen client for the radio audio stream (R10 in .claude/modules/radio.md).
  *
  * Listens to the MediaMTX `radio` path (published by `radio-stream.service`)
  * with a bare `fetch` + `RTCPeerConnection` — no signaling library. Non-trickle:

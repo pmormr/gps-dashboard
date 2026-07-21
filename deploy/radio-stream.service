@@ -1,4 +1,4 @@
-# Live radio audio publisher (R10 in plans/radio-platform-plan.md) — shared
+# Live radio audio publisher (R10 in .claude/modules/radio.md) — shared
 # Digirig capture (dsnoop, deploy/asound.conf) → Opus 48 kHz mono → the
 # MediaMTX hub. Listeners attach to the hub, never to this unit:
 #   VLC/OBS  rtsp://<pi>:8554/radio

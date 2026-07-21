@@ -3,7 +3,7 @@
 
 Captures N seconds off the Digirig codec and reports the broadband RMS/peak floor
 in dBFS, the per-block spread, and a cheap low/high energy split, so the
-ground-isolator experiment (the 2f tail in ``plans/radio-platform-plan.md``) gets
+ground-isolator experiment (the Hardware notes in ``.claude/modules/radio.md``) gets
 a repeatable, comparable measurement per config instead of an ear judgement.
 
 Measure a *muted* channel (squelch closed) to read the capture path's own floor —

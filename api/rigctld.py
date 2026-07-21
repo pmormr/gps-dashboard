@@ -3,7 +3,7 @@
 A long-lived ``rigctld`` (model 3071, the Icom ID-5100) owns the CI-V serial port
 and exposes its line protocol on ``127.0.0.1:4532``; the radio routes talk to it
 through this module rather than a Python Hamlib binding (see R2 in
-``plans/radio-platform-plan.md``). Every command is sent in rigctld's *extended*
+``.claude/modules/radio.md``). Every command is sent in rigctld's *extended*
 mode — prefixed ``+\\`` and using the long command name — so the reply is a
 self-delimiting block terminated by ``RPRT <code>`` (``0`` = ok, negative = Hamlib
 errno) with labelled field values. The exact wire format was captured against a
@@ -209,7 +209,7 @@ class Rigctld:
         """Send a raw CI-V frame through rigctld's ``send_cmd`` passthrough.
 
         For commands the Hamlib backend doesn't model (R7 in
-        ``plans/radio-platform-plan.md``) — the payload is the command/sub-command/
+        ``.claude/modules/radio.md``) — the payload is the command/sub-command/
         data bytes from the manual's CI-V table, wrapped here in the
         ``FE FE <addr> <ctrl> ... FD`` envelope.
 
@@ -362,7 +362,7 @@ class Rigctld:
         """Key (``on=True``) or unkey the transmitter via CI-V PTT.
 
         The transmit primitive for the announce path (R11 in
-        ``plans/radio-platform-plan.md``). Keying puts the rig on the air, so
+        ``.claude/modules/radio.md``). Keying puts the rig on the air, so
         no code calls this directly: the only intended caller is the guarded
         ``keyed_tx`` context manager in :mod:`radio.transmit`, which guarantees
         a matching unkey in a ``finally`` plus a watchdog. A stuck key is

@@ -4,7 +4,7 @@ Standalone daemon, the radio-plane sibling of the GPS logger: a continuous
 ``arecord`` pipe off the Digirig codec feeds fixed 100 ms blocks through the
 pure VOX gate (``radio/vox.py``); each opening becomes a WAV file with a
 ring-buffer pre-roll, and each close inserts one GPS-snapped
-``radio_transmissions`` row. Design is R8 in ``plans/radio-platform-plan.md``.
+``radio_transmissions`` row. Design is R8 in ``.claude/modules/radio.md``.
 
 Each row also carries a compact ``waveform`` envelope — sub-block peaks
 (``WAVEFORM_SUBBLOCKS`` per block, for time resolution past the block cadence)
@@ -28,7 +28,7 @@ tag's confidence.
 Commit rule (2e): the gate discards captures with fewer than
 ``MIN_LOUD_BLOCKS`` above-threshold blocks — squelch-crackle/beep transients
 sit at exactly voice level, so activity, not level, separates them (see the
-corpus analysis in ``plans/radio-platform-plan.md``). Captures buffer in RAM
+corpus analysis in ``.claude/modules/radio.md``). Captures buffer in RAM
 until they cross the rule; a discard never touches disk or the DB.
 
 Levels: AF is the record-level calibration and is re-asserted on **every**

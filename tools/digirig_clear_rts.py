@@ -7,7 +7,7 @@ opens the port, explicitly deasserts RTS and DTR, and verifies the result. It
 runs from a udev-triggered oneshot (``deploy/digirig-rts-clear.service``) on
 every enumeration, including boot coldplug.
 
-Caveat, accepted in ``plans/radio-platform-plan.md`` (2b): the Linux tty layer
+Caveat, accepted in ``.claude/modules/radio.md`` (the RTS=PTT trap): the Linux tty layer
 asserts RTS+DTR *on open*, so the clearer itself blips PTT for a few
 milliseconds — there is no portable way to open a tty without that, and a
 millisecond blip beats an indefinitely held key. The clearing ioctl runs

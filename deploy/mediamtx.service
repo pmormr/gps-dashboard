@@ -1,4 +1,4 @@
-# MediaMTX media hub (R10 in plans/radio-platform-plan.md) — RTSP + WebRTC
+# MediaMTX media hub (R10 in .claude/modules/radio.md) — RTSP + WebRTC
 # fan-out for the radio audio stream now, Dahua camera proxying later.
 #
 # The binary is a manual install (static arm64 build at /mnt/nvme/mediamtx/;

@@ -7,7 +7,7 @@
 # section on purpose: the device unit is the only trigger.
 #
 # The tty open itself blips RTS for a few ms (kernel behavior, unavoidable) —
-# accepted in plans/radio-platform-plan.md (2b); a ms blip beats a held key.
+# accepted in .claude/modules/radio.md (the RTS=PTT trap); a ms blip beats a held key.
 [Unit]
 Description=Digirig RTS/DTR clearer (PTT guard)
 After=dev-digirig.device

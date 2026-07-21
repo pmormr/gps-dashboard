@@ -1,7 +1,7 @@
 # Live Video Streaming Platform Plan (Hill Climb)
 
 > Living plan. **Greenfield as of 2026-07-20.** Reuses the MediaMTX hub built for
-> the radio (**R10**, `plans/radio-platform-plan.md`) as the single aggregation
+> the radio (**R10**, `.claude/modules/radio.md`) as the single aggregation
 > point — this adds camera ingest, a Pi-side edge encoder, and OBS production on
 > top of it. The **network/RF/IP** side (5 GHz PtP backhaul, camera-Pi IP plan,
 > egress) is documented in `paul-network-docs` → `events/2026-hillclimb.md`.
