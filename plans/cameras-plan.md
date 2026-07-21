@@ -84,25 +84,18 @@ The fleet (`FLEET` in `sensors/dahua_reader.py`; Hikvision `.55/.56` out of scop
       brackets; **verified on the wire** with `ffprobe` (subtype=1 = h264 704×480,
       subtype=2 = h264 1280×720 on all four).
 
-## Phase 1 — Hub (MediaMTX paths + secret) — NEXT
+## Phase 1 — Hub (MediaMTX paths + secret) — config landed, deploy/verify next
 
-- [ ] `deploy/mediamtx.yml`: add on-demand pull paths for the four cams. Sub for glance;
-      720p for expand/driving. Sketch (verify exact on-demand/transport keys against the
-      pinned **v1.19.2** schema — likely `sourceOnDemand`, `sourceOnDemandCloseAfter`,
-      `rtspTransport`):
-      ```yaml
-      cam-front:
-        source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=1
-        sourceOnDemand: yes
-        rtspTransport: tcp
-      cam-front-hd:
-        source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=2
-        sourceOnDemand: yes
-        rtspTransport: tcp
-      # …repeat for blind-left .52 / blind-right .53 / rear .54 (subtype 1 + 2 each)
-      ```
-- [ ] `deploy/mediamtx.service`: add `EnvironmentFile=-/etc/default/gps-dahua` so the
-      `${GPS_DAHUA_PASSWORD}` interpolation resolves.
+Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (def
+`false`), `sourceOnDemandCloseAfter`/`sourceOnDemandStartTimeout` (def `10s` each),
+`rtspTransport` (per-path, `automatic|udp|multicast|tcp` — distinct from the global
+`rtspTransports` list). Left the 10s close/start-timeout defaults implicit.
+
+- [x] `deploy/mediamtx.yml`: added 8 on-demand pull paths — `cam-<pos>` (sub, glance) +
+      `cam-<pos>-hd` (third, 720p expand/driving) for front/blind-left/blind-right/rear.
+      `rtspTransport: tcp`. Validated the YAML parses (8 paths, `${…}` preserved literal).
+- [x] `deploy/mediamtx.service`: added `EnvironmentFile=-/etc/default/gps-dahua` (leading
+      `-` = optional) so the `${GPS_DAHUA_PASSWORD}` interpolation resolves.
 - [ ] Push → hook restarts `mediamtx`. Verify pull-back from the LAN:
       `rtsp://pmpi1:8554/cam-front` (VLC/ffprobe) and browser WHEP at
       `http://pmpi1:8889/cam-front`. Confirm on-demand: the pull opens on connect, closes

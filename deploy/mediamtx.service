@@ -1,5 +1,6 @@
 # MediaMTX media hub (R10 in .claude/modules/radio.md) — RTSP + WebRTC
-# fan-out for the radio audio stream now, Dahua camera proxying later.
+# fan-out for the radio audio stream and the van's Dahua cams, pulled
+# on-demand (plans/cameras-plan.md).
 #
 # The binary is a manual install (static arm64 build at /mnt/nvme/mediamtx/;
 # the deploy hook copies only *.service/*.timer). The config lives in the
@@ -12,6 +13,10 @@ After=network.target
 [Service]
 Type=simple
 User=pmorgan
+# The Dahua RTSP source paths interpolate ${GPS_DAHUA_PASSWORD} from this file
+# (root-600, out of git — the same secret the dahua_reader uses). Leading `-`:
+# absent until the cameras plane is deployed, and the radio paths don't need it.
+EnvironmentFile=-/etc/default/gps-dahua
 ExecStart=/mnt/nvme/mediamtx/mediamtx /mnt/nvme/gps-dashboard/deploy/mediamtx.yml
 Restart=always
 RestartSec=5

@@ -1,7 +1,6 @@
 # MediaMTX — the van's media hub (R10 in .claude/modules/radio.md).
-# Radio audio + hill-climb camera feeds (plans/streaming-platform-plan.md).
-# Cameras publish over SRT (streamid publish:camN); the van's Dahua cams could
-# also be proxied later with `source: rtsp://...` paths.
+# Radio audio + hill-climb camera feeds (plans/streaming-platform-plan.md) +
+# the van's own Dahua IP cams, pulled on-demand (plans/cameras-plan.md).
 #
 # Read from the deploy checkout by mediamtx.service, so config edits deploy on
 # push (the Pi-side hook restarts mediamtx when this file changes). The binary
@@ -52,3 +51,51 @@ paths:
     source: publisher
   cam4:
     source: publisher
+
+  # The van's four Dahua IP cams (plans/cameras-plan.md), pulled direct from each
+  # camera (C2 — not via the NVR, so recording load is untouched). Two paths per
+  # cam: the sub stream (H.264 D1@15, the glance feed) and the third stream
+  # (`-hd`, H.264 720p@30, the expand + driving feed). The main stream stays
+  # H.265 for NVR recording and is never proxied (WebRTC can't decode H.265).
+  #
+  # sourceOnDemand (C4): idle cost is zero — nothing is pulled until a viewer
+  # attaches, at ~1-2 s connect latency. The 10s close/start-timeout defaults
+  # apply. rtspTransport: tcp — no UDP loss on the pull leg.
+  #
+  # ${GPS_DAHUA_PASSWORD} interpolates from /etc/default/gps-dahua (C5 —
+  # EnvironmentFile on mediamtx.service; same secret the dahua_reader uses).
+  # RTSP form: rtsp://admin:<pw>@<host>:554/cam/realmonitor?channel=1&subtype=N
+  # (subtype=1 sub, subtype=2 third). Do NOT reuse the cam1-cam4 names above —
+  # those are the hill-climb SRT publisher paths, a different mechanism.
+  cam-front:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=1
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-front-hd:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=2
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-blind-left:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=1
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-blind-left-hd:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.52:554/cam/realmonitor?channel=1&subtype=2
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-blind-right:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=1
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-blind-right-hd:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.53:554/cam/realmonitor?channel=1&subtype=2
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-rear:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=1
+    sourceOnDemand: yes
+    rtspTransport: tcp
+  cam-rear-hd:
+    source: rtsp://admin:${GPS_DAHUA_PASSWORD}@192.168.42.54:554/cam/realmonitor?channel=1&subtype=2
+    sourceOnDemand: yes
+    rtspTransport: tcp
