@@ -451,6 +451,8 @@ export interface RadioTransmission {
   lon: number | null
   waveform: number[] | null
   has_audio: boolean
+  /** 1 = an operator transmission (console-sent, clean source); 0 = a received capture. */
+  is_tx: number
 }
 
 /** One page of the transmission log; `total` counts all rows matching `minS`. */
@@ -471,6 +473,31 @@ export function getRadioTransmissions(
 /** URL of a transmission's WAV (the `<audio>` src; server supports Range). */
 export function radioAudioUrl(id: number): string {
   return `/api/radio/transmissions/${id}/audio`
+}
+
+/** One staged soundboard clip: the filename (the transmit id) + a display label. */
+export interface SoundboardClip {
+  filename: string
+  label: string
+}
+
+/** Transmit-console config: staged clips + the TTS engines available on the Pi. */
+export interface TransmitConfig {
+  clips: SoundboardClip[]
+  engines: string[]
+}
+
+/** Fetch the transmit console's soundboard clips + available TTS engines. */
+export function getSoundboard(): Promise<TransmitConfig> {
+  return getJSON<TransmitConfig>('/api/radio/soundboard')
+}
+
+/** Transmit a soundboard clip or a TTS phrase; resolves to the new log row id.
+ *  Throws Error(message) on a rig refusal / busy transmit / render failure. */
+export function transmitRadio(
+  body: { clip: string } | { text: string; engine?: string },
+): Promise<{ ok: boolean; id: number }> {
+  return sendJSON<{ ok: boolean; id: number }>('/api/radio/transmit', 'POST', body)
 }
 
 /** POST a radio control write; throws Error(message) on a rig/daemon refusal. */

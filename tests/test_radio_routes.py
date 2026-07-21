@@ -354,9 +354,10 @@ class TestTransmitConsole:
         (sb / 'radio-check.mp3').write_bytes(b'')
         (sb / 'notes.txt').write_bytes(b'')  # non-audio → ignored
         monkeypatch.setenv('GPS_RADIO_SOUNDBOARD_DIR', str(sb))
-        clips = client.get('/api/radio/soundboard').get_json()['clips']
-        assert [c['filename'] for c in clips] == ['meet_at_camp.wav', 'radio-check.mp3']
-        assert clips[0]['label'] == 'meet at camp'
+        body = client.get('/api/radio/soundboard').get_json()
+        assert [c['filename'] for c in body['clips']] == ['meet_at_camp.wav', 'radio-check.mp3']
+        assert body['clips'][0]['label'] == 'meet at camp'
+        assert 'espeak' in body['engines']  # always available; piper only when configured
 
     def test_transmit_requires_exactly_one_source(self, client):
         assert client.post('/api/radio/transmit', json={}).status_code == 400

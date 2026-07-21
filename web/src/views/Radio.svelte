@@ -5,9 +5,12 @@
   import {
     getRadioStatus,
     getRadioTransmissions,
+    getSoundboard,
     postRadio,
+    transmitRadio,
     type RadioStatus,
     type RadioTransmission,
+    type SoundboardClip,
   } from '../lib/api'
   import { parseWaveform, RAWSTR_S9, sMeter } from '../lib/radio'
   import Toast from '../lib/Toast.svelte'
@@ -58,6 +61,14 @@
   let txError = $state('')
   let hideBlips = $state(false)
   let expandedId = $state<number | null>(null)
+
+  // Transmit console (operator-clicked TX). Soundboard clips + TTS text; every
+  // send keys the rig, so `sending` locks the whole console for the duration.
+  let clips = $state<SoundboardClip[]>([])
+  let engines = $state<string[]>(['espeak'])
+  let ttsText = $state('')
+  let engine = $state('espeak')
+  let sending = $state(false)
 
   let s = $state<RadioStatus | null>(null)
   let freqInput = $state<number | null>(null)
@@ -138,6 +149,36 @@
     }
   }
 
+  async function loadSoundboard(): Promise<void> {
+    try {
+      const cfg = await getSoundboard()
+      clips = cfg.clips
+      engines = cfg.engines
+      if (!engines.includes(engine)) engine = engines[0] ?? 'espeak'
+    } catch {
+      /* leave the defaults; the transmit call surfaces any real error */
+    }
+  }
+
+  async function doTransmit(body: { clip: string } | { text: string; engine?: string }): Promise<void> {
+    if (sending) return
+    sending = true
+    try {
+      await transmitRadio(body)
+      toaster.toast('Transmitted')
+      loadTxs(true) // the new is_tx row shows at the top of the log
+    } catch (e) {
+      toaster.toast(errMsg(e), true)
+    } finally {
+      sending = false
+    }
+  }
+
+  function transmitText(): void {
+    if (ttsText.trim()) doTransmit({ text: ttsText, engine })
+  }
+  const transmitClip = (filename: string): Promise<void> => doTransmit({ clip: filename })
+
   function onBlipToggle(): void {
     expandedId = null
     loadTxs(true)
@@ -169,6 +210,7 @@
   onMount(() => {
     poll()
     loadTxs(true)
+    loadSoundboard()
     pollTimer = window.setInterval(poll, 2000)
   })
   onDestroy(() => {
@@ -217,6 +259,48 @@
 </div>
 
 <div class="card">
+  <div class="card-title eyebrow">Transmit</div>
+  {#if sending}
+    <div class="on-air"><span class="dot"></span>ON AIR — transmitting…</div>
+  {/if}
+  <textarea
+    class="tts"
+    rows="2"
+    placeholder="Type a message to speak — include KC3HEU"
+    bind:value={ttsText}
+    disabled={sending}
+  ></textarea>
+  <div class="tx-send">
+    {#if engines.length > 1}
+      <div class="seg voice">
+        {#each engines as e (e)}
+          <button class:active={engine === e} disabled={sending} onclick={() => (engine = e)}>
+            {e === 'espeak' ? 'Robotic' : 'Natural'}
+          </button>
+        {/each}
+      </div>
+    {/if}
+    <button class="primary say" disabled={sending || !ttsText.trim()} onclick={transmitText}>
+      Speak &amp; transmit
+    </button>
+  </div>
+  {#if clips.length}
+    <div class="sub-label">Soundboard</div>
+    <div class="board">
+      {#each clips as c (c.filename)}
+        <button class="pad" disabled={sending} onclick={() => transmitClip(c.filename)}>
+          {c.label}
+        </button>
+      {/each}
+    </div>
+  {/if}
+  <div class="note">
+    Each press keys the rig and transmits on the active band. Station ID is your responsibility —
+    include KC3HEU in the message or clip (§97.119).
+  </div>
+</div>
+
+<div class="card">
   <div class="card-title eyebrow">Transmissions{txTotal ? ` — ${txTotal}` : ''}</div>
   <div class="tx-controls">
     <label class="tx-toggle">
@@ -235,6 +319,7 @@
       <div class="tx-item">
         <button class="tx-row" class:open={expandedId === t.id} onclick={() => toggleTx(t.id)}>
           <span class="tx-line">
+            {#if t.is_tx === 1}<span class="tx-badge">TX</span>{/if}
             <span class="tx-time">{txTime(t.started_utc)}</span>
             <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
             <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>
@@ -694,4 +779,85 @@
     margin-top: 10px;
   }
 
+  .tx-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--err);
+    border: 1px solid var(--err);
+    border-radius: 4px;
+    padding: 0 4px;
+    align-self: center;
+  }
+
+  .on-air {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--err);
+    background: color-mix(in srgb, var(--err) 12%, transparent);
+    border: 1px solid var(--err);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+  }
+  .on-air .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--err);
+    animation: pulse 1s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+
+  textarea.tts {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 9px 11px;
+    font: inherit;
+    font-size: 15px;
+    resize: vertical;
+    margin-bottom: 8px;
+  }
+  textarea.tts:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .tx-send {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .seg.voice {
+    flex: none;
+  }
+  .seg.voice button {
+    min-width: 72px;
+  }
+  .say {
+    flex: 1;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+  .pad {
+    padding: 14px 10px;
+    font-weight: 600;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+  .pad:disabled {
+    opacity: 0.5;
+  }
 </style>

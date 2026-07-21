@@ -271,9 +271,19 @@ def _resolve_clip(filename: str) -> Path | None:
 
 @radio_bp.get('/api/radio/soundboard')
 def soundboard():
-    """List the staged soundboard clips the console can transmit (sorted by label)."""
+    """Transmit-console config: staged soundboard clips + the available TTS engines.
+
+    ``engines`` lists espeak-ng always and piper only when a voice model is
+    configured, so the UI never offers an engine that would 500 on use.
+    """
     clips = transmit.list_soundboard(soundboard_dir())
-    return jsonify({'clips': [{'filename': c.filename, 'label': c.label} for c in clips]})
+    engines = ['espeak'] + (['piper'] if transmit.PIPER_MODEL else [])
+    return jsonify(
+        {
+            'clips': [{'filename': c.filename, 'label': c.label} for c in clips],
+            'engines': engines,
+        }
+    )
 
 
 @radio_bp.post('/api/radio/transmit')
