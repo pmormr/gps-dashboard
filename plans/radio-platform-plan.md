@@ -155,7 +155,7 @@ duplex/offset — live via the `radio-control` rigctld service (model 3071,
 redundant on model 3071). Deploy-hook enabled-gated restart stanza live. Play-by-play
 in git history.
 
-## Phase 1.5 — Control-plane enrichment (CI-V only) — DONE except 1.5e part 2 (CI-V-in-Repeater-Mode check)
+## Phase 1.5 — Control-plane enrichment (CI-V only) — DONE (1.5e closed 2026-07-21)
 
 Rides the existing rigctld daemon (**R7**: raw CI-V goes *through* rigctld via
 `send_cmd`, never a second serial client). Landed: calibrated S-meter (RAWSTR
@@ -185,10 +185,17 @@ and blind write-fuzzing the rig is poor risk/reward. Scope is everything
       presets always stage into VFO — and *every* freq set (`_tune`) sends `07`
       first, else programming a freq while on a Memory/Call channel just overrides
       the channel's displayed frequency (the "2m call" cosmetic bug).
-- [ ] **(2) CI-V-in-Repeater-Mode validation (needs the rig).** Live-check
-      whether the rig accepts CI-V at all inside Repeater Mode (front panel locks
-      to [MONI]). Pure validation, no code — determines whether staging must
-      happen *before* engaging the mode (current assumption) or can adjust after.
+- [x] **(2) CI-V-in-Repeater-Mode validation — DONE 2026-07-21 (on the rig).**
+      **Repeater Mode is touchscreen-only, both directions.** In `[MONI]`: a
+      `set_freq` is **rejected** (`RPRT -9` = rig-rejected), while `07` (VFO select)
+      and `16 59 00` (dualwatch off — the mode's own precondition) are
+      **acknowledged (`RPRT 0`) but ignored** (no display change). So there's no
+      CI-V lever to enter *or* exit the mode. **Confirms staging must happen before
+      engaging** (the `stage_crossband`/preset flow is correct); exit is manual.
+      Operational note: the recorder's LevelKeeper AF-pin writes will `RPRT -9`
+      each heartbeat while the rig is in Repeater Mode (harmless — capture is via
+      the codec, not CI-V), and an app **Tune** press fails cleanly (502) rather
+      than disrupting the mode.
 - [x] **(3) CI-V power off/on (validated + built, 2026-07-21).** `POST
       /api/radio/power {on}` → `Rigctld.set_powerstat` (raw CI-V `18`): off = bare
       `FE FE 8C E0 18 00 FD`; on = **25× `FE` wakeup preamble** (19200 baud;
