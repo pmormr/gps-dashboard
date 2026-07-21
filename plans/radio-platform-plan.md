@@ -225,7 +225,7 @@ wiring facts (they inform the open items below):**
       rigctld (RTS = PTT on this port!), and live validation. Current CH343 path
       is deployed and proven — no urgency.
 
-## Phase 2f — Live listen / network audio stream (R10) — DONE except 2f-e
+## Phase 2f — Live listen / network audio stream (R10) — DONE except the Dahua proxy
 
 MediaMTX hub (`mediamtx` service, static binary + `deploy/mediamtx.yml`) + ALSA
 dsnoop shared capture (`deploy/asound.conf`) + ffmpeg Opus publisher
@@ -238,9 +238,20 @@ isolator decision above). Level keeper
 clamp + bounded evidence-backed guard raises (never auto-lowered). Monitor-feedback
 trap: mute the stream while keying.
 
-- [ ] **2f-e — deferred polish:** Listen-live embed on `/radio` (WHEP = bare
-      `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
-      entries so OBS pulls everything from the one hub.
+- [x] **2f-e — Listen-live embed (2026-07-21).** `/radio` "Listen live" card:
+      bare `fetch` + `RTCPeerConnection` WHEP client (`web/src/lib/radioListen.ts`),
+      non-trickle (host candidates only — no STUN on the offline LAN), POST the SDP
+      offer straight to `http://<pi>:8889/radio/whep`. Cross-origin is fine —
+      MediaMTX v1.19.2 sends `Access-Control-Allow-Origin: *` on WHEP (verified);
+      teardown is client-side `pc.close()` (never WHEP DELETE, buggy in this
+      version). Monitor-volume slider + the R10 monitor-feedback trap
+      (auto-mute while `sending`). Not gated on the CI-V readout — the stream
+      plane is independent.
+- [ ] **Dahua camera `paths:` proxy (deferred).** MediaMTX `source: rtsp://...`
+      entries so OBS pulls the cams from the one hub. Blocked on a secrets story:
+      the RTSP creds can't live in the committed `mediamtx.yml` (no-secrets-in-repo),
+      and MediaMTX does no env-substitution in its config. Needs a
+      runtime-substitution/templating step before it can land.
 
 ## Phase 3 — Transmit console (operator-clicked TX) — DONE + DEPLOYED (RF bench passed 2026-07-21)
 

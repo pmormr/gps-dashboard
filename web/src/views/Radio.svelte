@@ -13,6 +13,7 @@
     type SoundboardClip,
   } from '../lib/api'
   import { parseWaveform, RAWSTR_S9, sMeter } from '../lib/radio'
+  import { startListen, type ListenSession } from '../lib/radioListen'
   import Toast from '../lib/Toast.svelte'
   import { useToast } from '../lib/useToast.svelte'
   import WaveformPlayer from '../lib/WaveformPlayer.svelte'
@@ -87,6 +88,61 @@
   })
   $effect(() => {
     localStorage.setItem('radioSettleMs', String(settleMs))
+  })
+
+  // Live listen (WHEP → MediaMTX hub). Independent of the CI-V control plane, so
+  // it stays available even when the rig readout is offline.
+  type ListenState = 'idle' | 'connecting' | 'live' | 'error'
+  let listenState = $state<ListenState>('idle')
+  let listenErr = $state('')
+  let listenVol = $state(loadPref('radioListenVol', 80))
+  let audioEl = $state<HTMLAudioElement>()
+  let session: ListenSession | null = null
+
+  function stopSession(): void {
+    session?.close()
+    session = null
+    if (audioEl) audioEl.srcObject = null
+  }
+  function onListenClosed(): void {
+    // Fired only when the peer drops on its own — a user Stop sets 'idle' first.
+    if (listenState === 'live') {
+      listenState = 'error'
+      listenErr = 'Stream dropped'
+    }
+    stopSession()
+  }
+  async function toggleListen(): Promise<void> {
+    if (listenState === 'connecting' || listenState === 'live') {
+      listenState = 'idle'
+      stopSession()
+      return
+    }
+    listenState = 'connecting'
+    listenErr = ''
+    try {
+      session = await startListen(undefined, onListenClosed)
+      if (audioEl) {
+        audioEl.srcObject = session.stream
+        audioEl.volume = listenVol / 100
+        audioEl.muted = sending
+        await audioEl.play().catch(() => {}) // click gesture allows playback; ignore edge rejections
+      }
+      listenState = 'live'
+    } catch (e) {
+      stopSession()
+      listenErr = errMsg(e)
+      listenState = 'error'
+    }
+  }
+  $effect(() => {
+    if (audioEl) audioEl.volume = listenVol / 100
+    localStorage.setItem('radioListenVol', String(listenVol))
+  })
+  // Monitor-feedback trap (R10): silence the monitor while keying so your own
+  // TX audio doesn't blast back through the listener.
+  $effect(() => {
+    if (audioEl && listenState === 'live') audioEl.muted = sending
   })
 
   let s = $state<RadioStatus | null>(null)
@@ -240,6 +296,7 @@
   })
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer)
+    stopSession()
   })
 
   const freqMhz = (hz: number | undefined): string => (hz == null ? '—' : (hz / 1e6).toFixed(3))
@@ -280,6 +337,39 @@
       <span>S-meter</span>
       <span>{smeter ? `${smeter.label} (${Math.round(s!.rawstr!)})` : '—'}</span>
     </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title eyebrow">Listen live</div>
+  <div class="listen-row">
+    <button
+      class="primary listen-btn"
+      class:live={listenState === 'live'}
+      onclick={toggleListen}
+      disabled={listenState === 'connecting'}
+    >
+      {#if listenState === 'live'}■ Stop{:else if listenState === 'connecting'}Connecting…{:else}▶ Listen{/if}
+    </button>
+    <div class="listen-status">
+      {#if listenState === 'live'}
+        <span class="live-dot"></span>Live{sending ? ' · muted (TX)' : ''}
+      {:else if listenState === 'error'}
+        <span class="err-text">{listenErr}</span>
+      {:else}
+        Off
+      {/if}
+    </div>
+  </div>
+  {#if listenState === 'live' || listenState === 'connecting'}
+    <div class="sub-label">Monitor volume — {listenVol}%</div>
+    <input type="range" min="0" max="100" bind:value={listenVol} />
+  {/if}
+  <!-- svelte-ignore a11y_media_has_caption -->
+  <audio bind:this={audioEl} class="hidden-audio"></audio>
+  <div class="note">
+    Streams the received audio (SP1 A+B mix) over WebRTC from the van's media hub. Auto-mutes while
+    you transmit.
   </div>
 </div>
 
@@ -819,6 +909,41 @@
     border-radius: 4px;
     padding: 0 4px;
     align-self: center;
+  }
+
+  .listen-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .listen-btn {
+    flex: none;
+    min-width: 130px;
+  }
+  .listen-btn.live {
+    background: var(--err);
+    border-color: var(--err);
+    color: #fff;
+  }
+  .listen-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .live-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .listen-status .err-text {
+    color: var(--err);
+  }
+  .hidden-audio {
+    display: none;
   }
 
   .on-air {
