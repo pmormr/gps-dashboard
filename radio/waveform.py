@@ -25,14 +25,14 @@ from radio.vox import amplitude_dbfs
 
 #: Sub-windows measured per 100 ms VOX block. One whole-block peak would cap the
 #: envelope's time resolution at the block cadence (~10 bars/s), too coarse for
-#: the short transmissions that dominate the log; 5 sub-windows lift it to ~50/s.
-WAVEFORM_SUBBLOCKS = 5
+#: the short transmissions that dominate the log; 10 sub-windows lift it to ~100/s.
+WAVEFORM_SUBBLOCKS = 10
 
-#: Buckets per stored envelope. At :data:`WAVEFORM_SUBBLOCKS` = 5 (~50 samples/s)
+#: Buckets per stored envelope. At :data:`WAVEFORM_SUBBLOCKS` = 10 (~100 samples/s)
 #: a capture up to ~9.6 s stays at full sub-window resolution; longer captures
 #: resample down. Shorter captures yield fewer buckets — the renderer handles
-#: variable length. ~480 ints ≈ 2 KB/row, trivial beside the MB-scale WAV.
-WAVEFORM_BUCKETS = 480
+#: variable length. ~960 ints ≈ 4 KB/row, trivial beside the MB-scale WAV.
+WAVEFORM_BUCKETS = 960
 
 #: dBFS mapped to 0 (bar floor); 0 dBFS maps to 255 (bar ceiling). Default −64 tracks
 #: the isolator-era capture floor; env-overridable so it isn't a frozen magic number.
