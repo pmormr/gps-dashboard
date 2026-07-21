@@ -25,3 +25,21 @@ def audio_dir() -> Path:
         The directory transmission WAVs live under.
     """
     return Path(os.environ.get('GPS_RADIO_AUDIO_DIR', str(db.DB_PATH.parent / 'radio-audio')))
+
+
+def soundboard_dir() -> Path:
+    """Resolve the transmit soundboard root: ``GPS_RADIO_SOUNDBOARD_DIR``, else beside the DB.
+
+    Staged clips the operator drops here (scp) are transmitted by the console.
+    Deliberately outside :func:`audio_dir` so the recorder's retention pruner
+    never eats them, and resolved at call time like ``audio_dir`` so tests and
+    ``GPS_DB_PATH`` overrides follow the DB.
+
+    Returns:
+        The directory soundboard clips live under.
+    """
+    return Path(
+        os.environ.get(
+            'GPS_RADIO_SOUNDBOARD_DIR', str(db.DB_PATH.parent / 'radio-tx' / 'soundboard')
+        )
+    )
