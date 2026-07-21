@@ -115,6 +115,29 @@ The clone cable touches only the control plane.
   obligations: station ID (§97.119), a control operator, automatic-control limits, no
   broadcasting/music. Designed in (call-sign ID injection + a sane trigger model), not
   bolted on. Recording your own RX is unencumbered.
+- **R11 — transmit console: operator-clicked, not automated (Phase 3, 2026-07-20).**
+  TX is **attended remote control only** — every transmission is a `/radio` button
+  press by the licensed control op (**KC3HEU**); no scheduler/beacon, which sidesteps
+  §97.109 automatic-control limits and §97.113(b) broadcasting entirely (the two live
+  Part-97 hazards R5 flagged). Two input methods: a **filesystem-driven soundboard**
+  (WAVs dropped under the audio root, listed + click-to-send) and **dual switchable
+  TTS** — espeak-ng default (the offline Microsoft-Sam-family formant synth) with
+  piper the natural-voice alternate; both are manual/system installs like Hamlib
+  (espeak-ng = apt, piper = a committed NVMe model), not carried by `uv sync`.
+  **PTT = CI-V** (`set_ptt` via rigctld), chosen over the Digirig RTS line so the
+  Digirig serial port and its RTS=PTT guard stack stay untouched; a `try/finally`
+  release + a hard max-duration watchdog enforce the **never-stuck-keyed invariant**
+  (a wedged transmitter is the worst failure mode — illegal, jams the freq, cooks the
+  finals). **Self-TX is logged from the clean source audio** (the exact rendered/
+  played bytes, not the SP1 loopback): one `radio_transmissions` row tagged
+  TX-direction so the log unifies RX + TX, and a TX-active sentinel suppresses the
+  recorder so RX never double-logs the same transmission. **Callsign ID is
+  operator-manual** — baked into the message text / clips, never auto-injected
+  (KC3HEU's call; the console offers no backstop by design). **RF-ingress gate:** the
+  2a TX crashed the Digirig USB (−71), so first on-air tests are low-power with a TX
+  audio-drive (deviation) calibration before the path goes hot. (Chose a Flask route
+  that shells out over a `radio-announce` daemon for v1 — button-press cadence, short
+  transmissions; promote to a daemon only if codec contention forces it.)
 
 ## Phase 0 — Feasibility — DONE (2026-06-24)
 
@@ -219,10 +242,28 @@ trap: mute the stream while keying.
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.
 
-## Phase 3 — Announcements (needs TX audio + PTT)
+## Phase 3 — Transmit console (operator-clicked TX) — DESIGNED (R11)
 
-- [ ] TX audio injection (mic jack) + PTT keying (CI-V PTT via rigctld, or hardware).
-- [ ] Scheduler/trigger model + Part-97 station-ID injection (**R5**).
-- **Q5 — Phase 3 PTT method:** CI-V PTT (proven in `dump_caps`) is primary; the
-  Digirig's RJ-45 PTT line is the hardware fallback. **RF-ingress watch:** the 2a TX
-  crashed the Digirig USB interface (error −71) — first TX tests at low power.
+A `/radio` **Transmit** panel: a filesystem-driven **soundboard** (click a pre-staged
+WAV) + **dual switchable TTS** (espeak-ng / piper) — every send is an attended button
+press by KC3HEU (**R11**), no scheduler, manual ID baked into the audio. Build order
+(safety primitive first; RF de-risk gates going hot but the software builds in
+parallel):
+
+- [ ] **PTT primitive + safety.** `set_ptt` on `api.rigctld.Rigctld`; a keyed-TX
+      helper that wraps every transmission in `try/finally` PTT-release + a hard
+      max-duration watchdog — the never-stuck-keyed invariant (R11). CI-V PTT keeps
+      the Digirig serial port + its RTS guard stack untouched.
+- [ ] **TX audio render + play.** espeak-ng/piper → normalized 48 kHz mono WAV;
+      soundboard WAVs normalize-on-play so nothing overdrives deviation. Play via
+      `aplay` to the Digirig playback substream (full-duplex codec — coexists with
+      the recorder's capture, no dsnoop needed).
+- [ ] **Execution + logging.** Flask route shells out (render/pick → key → play →
+      unkey → log). Add a TX-direction flag to `radio_transmissions`; log the clean
+      source audio as the WAV; a TX-active sentinel suppresses the recorder so RX
+      doesn't double-log the same transmission.
+- [ ] **Frontend.** Transmit console in `/radio` (soundboard grid + TTS box + voice
+      toggle + a prominent keyed/PTT indicator).
+- [ ] **RF de-risk (field, gates going hot).** Low-power TX test — confirm the
+      Digirig USB survives keying (the 2a −71 crash) + TX audio-drive calibration
+      (deviation not overdriven). Not wired hot until the bench passes.
