@@ -4,9 +4,8 @@ Kept free of I/O so the recorder's gating behavior is table-testable: the
 recorder feeds one RMS measurement per fixed-size audio block and acts on the
 returned transitions. All levels are dBFS relative to S16 full scale (0 dBFS =
 ±32768); all times are counted in fed blocks, so the machine is clockless and
-deterministic. Thresholds come from the 2a smoke test: −49 dBFS RMS
-closed-squelch floor vs −28 open-squelch static (R8 in
-``plans/radio-platform-plan.md``).
+deterministic. The live threshold values and the measured floor they track are
+the recorder's concern (``radio/recorder.py``).
 """
 
 from __future__ import annotations

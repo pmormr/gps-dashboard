@@ -185,13 +185,16 @@ wiring facts (they inform the open items below):**
 - [ ] **Purchase:** 3.5 mm Y-splitter (restores the cabin speaker SP1 muted) +
       the 10–20 dB pad (decouples cabin listening volume from record level —
       without it, cranking AF for the speaker also cranks the Digirig leg;
-      re-run the AF calibration when it lands). **Isolator decision:** the
-      −50 dBFS floor is Digirig/USB-end, so an audio-path ground-loop isolator
-      cannot fix it — run the clean-USB-power experiment first (powered hub /
-      battery laptop): floor drops ⇒ buy a **USB isolator or powered hub**; floor
-      stays ⇒ codec self-noise ⇒ de-noise filter is the endgame. Engine-running
-      re-check still open (alternator whine is the classic van ground-loop source;
-      engine-off floor was clean — an audio isolator may yet earn a place there).
+      re-run the AF calibration when it lands). **Isolator decision — RESOLVED
+      2026-07-21** (measured with `tools/radio_floor.py`): the ~−50 dBFS floor was
+      USB-domain digital contamination — a 1 kHz USB-SOF family + a 180 Hz–1 kHz
+      hump sitting *in the voice band*. A **USB ground isolator** cuts it ~13 dB
+      (floor → ~−64, static/signal unchanged ⇒ real SNR, not attenuation, and
+      electrically transparent); the audio isolator gave only ~4 dB alone and ~1 dB
+      on top of the USB one (redundant, plus a transformer in the voice path). **USB
+      isolator adopted + inline; audio isolator shelved.** VOX thresholds lowered
+      −40/−45 → −52/−56 to exploit the new floor (~12 dB weaker signals now trip
+      the gate). Engine-running / alternator-whine re-check still open.
 - [ ] **Flagged (discuss before acting): CI-V-via-Digirig consolidation.** The
       Digirig serial port could replace the CH343 CI-V adapter (TX/RX bridged =
       same single-wire topology), freeing a USB port. Needs a separate CI-V
@@ -204,9 +207,10 @@ wiring facts (they inform the open items below):**
 MediaMTX hub (`mediamtx` service, static binary + `deploy/mediamtx.yml`) + ALSA
 dsnoop shared capture (`deploy/asound.conf`) + ffmpeg Opus publisher
 (`radio-stream`) → `rtsp://<pi>:8554/radio` + `http://<pi>:8889/radio` (WebRTC).
-Deployed 2026-07-18. AF recalibrated 0.15 → 0.25 via live listening; the **−50 dBFS
-floor is input-referred at the Digirig/USB end** (an audio-path isolator can't fix it
-— the open clean-USB-power experiment is in the Purchase item above). Level keeper
+Deployed 2026-07-18. AF recalibrated 0.15 → 0.25 via live listening; the ~−50 dBFS
+floor was input-referred USB-domain contamination — a **USB ground isolator** (added
+2026-07-21) cuts it ~13 dB to ~−64 with the signal path unchanged (see the resolved
+isolator decision above). Level keeper
 (`radio/levels.py`): AF config-pinned each heartbeat, SQL operator-owned with a deaf
 clamp + bounded evidence-backed guard raises (never auto-lowered). Monitor-feedback
 trap: mute the stream while keying.

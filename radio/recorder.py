@@ -65,10 +65,13 @@ PREROLL_BLOCKS = 30  # 3 s of context ahead of the gate opening
 HANG_BLOCKS = 20  # 2 s under the close threshold ends a capture
 MAX_BLOCKS = 3000  # 5 min hard cap per file (held carrier → consecutive files)
 
-# Field-tunable thresholds (R8): measured floor −49 dBFS RMS, open-squelch
-# static −28. Hysteresis pair, both env-overridable in the unit.
-OPEN_DBFS = float(os.environ.get('GPS_RADIO_OPEN_DBFS', '-40'))
-CLOSE_DBFS = float(os.environ.get('GPS_RADIO_CLOSE_DBFS', '-45'))
+# Field-tunable thresholds. With the USB ground isolator inline the capture
+# floor is ~−64 dBFS RMS (loudest floor block ~−58); open-squelch static ~−17.
+# OPEN clears the loudest floor block by ~6 dB so the floor never trips it;
+# CLOSE stays above the floor too, so floor blocks fall below it and the gate
+# still closes. Hysteresis pair, both env-overridable in the unit.
+OPEN_DBFS = float(os.environ.get('GPS_RADIO_OPEN_DBFS', '-52'))
+CLOSE_DBFS = float(os.environ.get('GPS_RADIO_CLOSE_DBFS', '-56'))
 #: Commit rule (2e): a capture keeps only if it holds this many loud blocks
 #: (≥ OPEN_DBFS). Corpus-derived: blip transients measured 1–5 loud blocks at
 #: exactly voice level, voice 10–12 — level can't separate them, activity can.
