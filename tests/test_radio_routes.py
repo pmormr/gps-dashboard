@@ -538,8 +538,9 @@ class TestTransmitConsole:
                 w.writeframes(array('h', [1000, -1000] * 4800).tobytes())
             return out
 
-        def fake_transmit(wav, *, settle_s=0.25, max_seconds=120):
+        def fake_transmit(wav, *, settle_s=0.25, max_seconds=120, keyer=None):
             seen['settle_s'] = settle_s
+            seen['keyer'] = keyer
 
         monkeypatch.setattr(radio.transmit, 'render_tts', fake_render)
         monkeypatch.setattr(radio.transmit, 'transmit_wav', fake_transmit)
@@ -551,6 +552,32 @@ class TestTransmitConsole:
         assert resp.status_code == 200
         assert seen['rate'] == 0.5
         assert seen['settle_s'] == 0.4  # 400 ms → 0.4 s
+        assert seen['keyer'] is radio.transmit.keyed_tx  # CI-V is the default
+
+    def test_transmit_rts_keyer_selected(self, client, monkeypatch, tmp_path):
+        monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
+        seen: dict[str, object] = {}
+
+        def fake_render(text, out, *, engine='espeak', piper_model='', rate=1.0):
+            with wave.open(str(out), 'wb') as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(array('h', [1000, -1000] * 4800).tobytes())
+            return out
+
+        monkeypatch.setattr(radio.transmit, 'render_tts', fake_render)
+        monkeypatch.setattr(radio.transmit, 'transmit_wav', lambda *a, **k: seen.update(k))
+        monkeypatch.setattr(radio, 'rig_snapshot', lambda: (None, None, None))  # repeater: blocked
+
+        resp = client.post('/api/radio/transmit', json={'text': 'KC3HEU', 'keyer': 'rts'})
+        assert resp.status_code == 200
+        assert seen['keyer'] is radio.keyed_tx_rts  # the RTS path, not CI-V
+
+    def test_transmit_rejects_unknown_keyer(self, client, monkeypatch):
+        _patch_rig(monkeypatch)
+        resp = client.post('/api/radio/transmit', json={'text': 'hi', 'keyer': 'serial'})
+        assert resp.status_code == 400
 
     def test_transmit_unknown_clip_404(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv('GPS_RADIO_SOUNDBOARD_DIR', str(tmp_path / 'sb'))

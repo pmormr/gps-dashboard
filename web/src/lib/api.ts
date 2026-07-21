@@ -496,13 +496,18 @@ export function getSoundboard(): Promise<TransmitConfig> {
   return getJSON<TransmitConfig>('/api/radio/soundboard')
 }
 
+/** How PTT is triggered: `civ` = CI-V (blocked in Repeater Mode), `rts` = the
+ *  Digirig RTS line (the only path that transmits while cross-band repeating). */
+export type RadioKeyer = 'civ' | 'rts'
+
 /** Transmit a soundboard clip or a TTS phrase; resolves to the new log row id.
- *  `settle_ms` = post-key delay before audio; `rate` = TTS speed (<1 slower).
+ *  `settle_ms` = post-key delay before audio; `rate` = TTS speed (<1 slower);
+ *  `keyer` = the PTT path (default `civ`).
  *  Throws Error(message) on a rig refusal / busy transmit / render failure. */
 export function transmitRadio(
   body:
-    | { clip: string; settle_ms?: number }
-    | { text: string; engine?: string; rate?: number; settle_ms?: number },
+    | { clip: string; settle_ms?: number; keyer?: RadioKeyer }
+    | { text: string; engine?: string; rate?: number; settle_ms?: number; keyer?: RadioKeyer },
 ): Promise<{ ok: boolean; id: number }> {
   return sendJSON<{ ok: boolean; id: number }>('/api/radio/transmit', 'POST', body)
 }

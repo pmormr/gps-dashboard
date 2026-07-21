@@ -8,6 +8,7 @@
     getSoundboard,
     postRadio,
     transmitRadio,
+    type RadioKeyer,
     type RadioStatus,
     type RadioTransmission,
     type SoundboardClip,
@@ -80,6 +81,14 @@
   let ttsText = $state('')
   let engine = $state('espeak')
   let sending = $state(false)
+
+  // How PTT is keyed. CI-V (default) is blocked while the rig is in Repeater Mode;
+  // RTS keys the Digirig line directly, the only path that transmits in that mode.
+  // Explicit + persisted — the operator opts into the hardware-key path.
+  let keyer = $state<RadioKeyer>(localStorage.getItem('radioKeyer') === 'rts' ? 'rts' : 'civ')
+  $effect(() => {
+    localStorage.setItem('radioKeyer', keyer)
+  })
 
   // Per-transmission tuning, persisted so a dialed-in rate/delay survives reloads.
   // rate = TTS speed multiplier (50% = half speed); settle = post-key delay so the
@@ -295,7 +304,7 @@
     if (sending) return
     sending = true
     try {
-      await transmitRadio(body)
+      await transmitRadio({ ...body, keyer })
       toaster.toast('Transmitted')
       loadTxs(true) // the new is_tx row shows at the top of the log
     } catch (e) {
@@ -501,6 +510,25 @@
   <div class="card-title eyebrow">Transmit</div>
   {#if sending}
     <div class="on-air"><span class="dot"></span>ON AIR — transmitting…</div>
+  {/if}
+  <div class="sub-label" style="margin-top: 0">Keying</div>
+  <div class="seg">
+    <button class:active={keyer === 'civ'} disabled={sending} onclick={() => (keyer = 'civ')}>
+      CI-V PTT
+    </button>
+    <button class:active={keyer === 'rts'} disabled={sending} onclick={() => (keyer = 'rts')}>
+      RTS PTT
+    </button>
+  </div>
+  {#if keyer === 'rts'}
+    <div class="note">
+      RTS hardware keying — transmits even while the rig is in Repeater Mode (CI-V PTT is blocked
+      there). Freq/mode can't be read back in that mode, so the log row tags them blank.
+    </div>
+  {:else if s && !s.online && s.reachable}
+    <div class="note keyer-warn">
+      Rig is in Repeater Mode — CI-V keying will be rejected. Switch to RTS PTT to transmit.
+    </div>
   {/if}
   <textarea
     class="tts"
@@ -1016,6 +1044,9 @@
     font-size: 12px;
     color: var(--text-dim);
     margin-top: 6px;
+  }
+  .note.keyer-warn {
+    color: var(--warn);
   }
 
   .tx-controls {

@@ -24,8 +24,8 @@ import sys
 import threading
 import time
 import wave
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -72,6 +72,11 @@ TX_LOUDNORM = os.environ.get('GPS_RADIO_TX_LOUDNORM', 'loudnorm=I=-16:TP=-1.5:LR
 #: Soundboard file types the console lists; ffmpeg normalizes them all to the TX
 #: format, so non-WAV sources are free.
 SOUNDBOARD_EXTS = ('.wav', '.mp3', '.ogg', '.m4a', '.flac')
+
+#: A keying context-manager factory: called ``keyer(max_seconds=...)`` and used as
+#: a ``with`` block that holds PTT for its duration. :func:`keyed_tx` (CI-V, this
+#: module) and :func:`radio.ptt.keyed_tx_rts` (RTS hardware) both satisfy it.
+Keyer = Callable[..., AbstractContextManager[None]]
 
 
 def _force_unkey() -> None:
@@ -299,24 +304,33 @@ def prepare_clip(src: Path, out: Path) -> Path:
 
 
 def transmit_wav(
-    wav: Path, *, settle_s: float = TX_SETTLE_SECONDS, max_seconds: float = MAX_TX_SECONDS
+    wav: Path,
+    *,
+    settle_s: float = TX_SETTLE_SECONDS,
+    max_seconds: float = MAX_TX_SECONDS,
+    keyer: Keyer = keyed_tx,
 ) -> None:
-    """Key the rig, play ``wav`` out the Digirig, then unkey — via the item-1 guard.
+    """Key the rig, play ``wav`` out the Digirig, then unkey — via a keyer guard.
 
-    Keying goes through :func:`keyed_tx`, so PTT is guaranteed released however
-    playback exits. aplay is bounded by ``max_seconds`` so a hung player can't
-    outlive the watchdog (a clip longer than the cap is truncated, by design).
+    ``keyer`` selects the PTT path: the default CI-V :func:`keyed_tx`, or
+    :func:`radio.ptt.keyed_tx_rts` for RTS hardware keying — the only path that
+    works while the rig is in cross-band Repeater Mode, which NAKs CI-V PTT.
+    Either keyer guarantees PTT is released however playback exits; aplay is
+    bounded by ``max_seconds`` so a hung player can't outlive the watchdog (a
+    clip longer than the cap is truncated, by design).
 
     Args:
         wav: A normalized WAV to transmit.
         settle_s: Delay after keying before audio starts.
         max_seconds: PTT/playback ceiling (the watchdog bound).
+        keyer: The keying context-manager factory (called ``keyer(max_seconds=...)``).
 
     Raises:
         TransmitError: If playback fails.
-        RigctldError: If keying fails.
+        RigctldError: If CI-V keying fails.
+        OSError: If RTS keying fails (the Digirig serial device won't open/toggle).
     """
-    with keyed_tx(max_seconds):
+    with keyer(max_seconds=max_seconds):
         time.sleep(settle_s)
         _run_tool(aplay_argv(wav), timeout=max_seconds)
 

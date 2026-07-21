@@ -26,6 +26,7 @@ from api.rigctld import Rigctld, RigctldError
 from common import proc
 from radio import transmit
 from radio.paths import audio_dir, soundboard_dir
+from radio.ptt import keyed_tx_rts
 from radio.recorder import gps_snap, rig_snapshot
 
 radio_bp = Blueprint('radio', __name__)
@@ -439,14 +440,19 @@ def do_transmit():
         synthesized speech (``rate`` is a speed multiplier, <1 slower).
 
     Both forms accept ``"settle_ms"`` (0..2000, default 250) — the post-key delay
-    before audio starts, so the receiving rigs open squelch before the first word.
+    before audio starts, so the receiving rigs open squelch before the first word —
+    and ``"keyer"`` (``"civ"`` default | ``"rts"``): how PTT is triggered. CI-V
+    keying is blocked while the rig is in cross-band Repeater Mode (it NAKs every
+    CI-V command); ``"rts"`` keys the Digirig's RTS line instead, the only path
+    that transmits in that mode.
 
     Keys the rig through the never-stuck-keyed guard (R11), plays the normalized
     audio out the Digirig, and logs the clean source as an ``is_tx`` row. Callsign
     ID is the operator's responsibility — bake KC3HEU into the text/clip.
 
     Status: 409 if a transmit is already in flight; 502/503 on a rig
-    refusal/unreachable daemon; 500 on a render/playback tool failure.
+    refusal/unreachable daemon (CI-V) or an unkeyable RTS device; 500 on a
+    render/playback tool failure.
     """
     data = request.get_json(silent=True) or {}
     clip = data.get('clip')
@@ -468,6 +474,10 @@ def do_transmit():
     rate = data.get('rate', 1.0)
     if not isinstance(rate, (int, float)) or isinstance(rate, bool) or not 0.2 <= rate <= 2.0:
         return error("'rate' must be a number in 0.2..2.0", 400)
+    keyer_name = data.get('keyer', 'civ')
+    if keyer_name not in ('civ', 'rts'):
+        return error("'keyer' must be 'civ' or 'rts'", 400)
+    keyer = keyed_tx_rts if keyer_name == 'rts' else transmit.keyed_tx
 
     if not _TX_LOCK.acquire(blocking=False):
         return jsonify({'ok': False, 'error': 'a transmission is already in progress'}), 409
@@ -484,7 +494,10 @@ def do_transmit():
 
             started = datetime.now(UTC)
             with transmit.tx_active():
-                transmit.transmit_wav(wav, settle_s=settle_ms / 1000)
+                try:
+                    transmit.transmit_wav(wav, settle_s=settle_ms / 1000, keyer=keyer)
+                except OSError as exc:  # RTS keyer: the Digirig serial device won't open/toggle
+                    return jsonify({'ok': False, 'error': f'RTS keying failed: {exc}'}), 503
             freq, mode, _ = rig_snapshot()
             conn = get_connection()
             lat, lon = gps_snap(conn)
