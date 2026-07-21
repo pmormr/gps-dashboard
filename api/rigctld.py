@@ -314,6 +314,18 @@ class Rigctld:
         """Tune the active VFO to ``hz``."""
         self.command(f'set_freq {hz}')
 
+    def set_ptt(self, on: bool) -> None:
+        """Key (``on=True``) or unkey the transmitter via CI-V PTT.
+
+        The transmit primitive for the announce path (R11 in
+        ``plans/radio-platform-plan.md``). Keying puts the rig on the air, so
+        no code calls this directly: the only intended caller is the guarded
+        ``keyed_tx`` context manager in :mod:`radio.transmit`, which guarantees
+        a matching unkey in a ``finally`` plus a watchdog. A stuck key is
+        illegal, jams the channel, and cooks the finals.
+        """
+        self.command(f'set_ptt {1 if on else 0}')
+
     def set_mode(self, mode: str, passband: int = 0) -> None:
         """Set the active VFO mode; ``passband=0`` lets the backend pick its default."""
         self.command(f'set_mode {mode} {passband}')

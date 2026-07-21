@@ -184,6 +184,15 @@ def test_set_func_encodes_bool():
     assert sock.sent == ['+\\set_func TONE 1\n']
 
 
+def test_set_ptt_encodes_bool():
+    for on, code in ((True, 1), (False, 0)):
+        sock = FakeSocket({f'set_ptt {code}': f'set_ptt: {code}\nRPRT 0\n'})
+        rig = Rigctld()
+        rig._sock = sock  # type: ignore[assignment]
+        rig.set_ptt(on)
+        assert sock.sent == [f'+\\set_ptt {code}\n']
+
+
 def test_set_level_wire_format():
     sock = FakeSocket({'set_level AF 0.35': 'set_level: AF 0.35\nRPRT 0\n'})
     rig = Rigctld()
