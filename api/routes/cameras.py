@@ -7,18 +7,23 @@ browser. Live video is *not* served here — that rides the MediaMTX WHEP hub
 (the ``cam-<pos>`` paths in ``deploy/mediamtx.yml``); this route is only the
 cheap still-image path the HaLow-friendly thumbnail grid polls.
 
-The snapshot pulls the **sub** stream (``subtype=1``, ~D1) rather than the H.265
-main, so a still is a small JPEG suited to HaLow. ``node`` is resolved through
-the fixed registry (never used to build an arbitrary host), so the proxy can't
-be pointed off-fleet. Error mapping mirrors the other device routes: 404 unknown
-node, 502 the camera refused, 503 unreachable.
+This firmware's ``snapshot.cgi`` **ignores** ``subtype`` — it always returns the
+~600 kB main-res still (verified on the wire) — so the proxy **downscales** it to
+a small thumbnail before answering. The big fetch stays on the van LAN; only the
+small thumbnail crosses HaLow to a browser at home, which is the whole point of
+the thumbnail grid. ``node`` is resolved through the fixed registry (never used
+to build an arbitrary host), so the proxy can't be pointed off-fleet. Error
+mapping mirrors the other device routes: 404 unknown node, 502 the camera refused
+or returned a non-image, 503 unreachable.
 """
 
+import io
 import os
 from dataclasses import dataclass
 
 import requests
 from flask import Blueprint, Response, abort
+from PIL import Image, UnidentifiedImageError
 from requests.auth import HTTPDigestAuth
 
 from sensors.fleet import FLEET
@@ -28,8 +33,22 @@ cameras_bp = Blueprint('cameras', __name__)
 #: Per-request timeout for the upstream snapshot fetch.
 SNAPSHOT_TIMEOUT_S = 5.0
 
-#: Dahua still-image CGI. subtype=1 = the sub stream (small JPEG for HaLow).
-SNAPSHOT_PATH = '/cgi-bin/snapshot.cgi?channel=1&subtype=1'
+#: Dahua still-image CGI (main res — subtype is ignored on this firmware).
+SNAPSHOT_PATH = '/cgi-bin/snapshot.cgi?channel=1'
+
+#: Thumbnail fit box (longest side, px) and JPEG quality — tuned for HaLow: a
+#: 2688×1520 still shrinks to ~480×271, ~600 kB → ~20 kB.
+THUMB_BOX = (480, 480)
+THUMB_QUALITY = 70
+
+
+def _downscale(jpeg: bytes) -> bytes:
+    """Shrink a main-res JPEG to a HaLow-sized thumbnail (aspect preserved)."""
+    img = Image.open(io.BytesIO(jpeg))
+    img.thumbnail(THUMB_BOX)  # in-place, only ever shrinks
+    out = io.BytesIO()
+    img.convert('RGB').save(out, format='JPEG', quality=THUMB_QUALITY)
+    return out.getvalue()
 
 
 @dataclass(frozen=True)
@@ -65,7 +84,7 @@ def list_cameras() -> dict[str, list[dict[str, str]]]:
 
 @cameras_bp.get('/api/cameras/<node>/snapshot')
 def snapshot(node: str) -> Response:
-    """Proxy one camera's current JPEG still (server-side digest auth)."""
+    """Proxy one camera's still, downscaled to a thumbnail (server-side digest auth)."""
     camera = _CAMERA_BY_NODE.get(node)
     if camera is None:
         abort(404)
@@ -80,4 +99,8 @@ def snapshot(node: str) -> Response:
         abort(503)
     if not resp.ok:
         abort(502)
-    return Response(resp.content, mimetype='image/jpeg', headers={'Cache-Control': 'no-store'})
+    try:
+        thumb = _downscale(resp.content)
+    except (UnidentifiedImageError, OSError):
+        abort(502)  # camera answered 200 with something that isn't a decodable image
+    return Response(thumb, mimetype='image/jpeg', headers={'Cache-Control': 'no-store'})

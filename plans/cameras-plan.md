@@ -81,6 +81,12 @@ The fleet (`FLEET` in `sensors/dahua_reader.py`; Hikvision `.55/.56` out of scop
 
 ## Operational traps (learned during Phase 0)
 
+- **`snapshot.cgi` ignores `subtype` — always main-res (learned Phase 3).** On this
+  firmware `snapshot.cgi?channel=1&subtype={0,1,2}` all return the ~600 kB 2688×1520 main
+  still (verified on the wire), so there's no small-still param. The snapshot proxy fetches
+  the main still on the van LAN and **downscales it server-side** (Pillow → ~480 px, ~20 kB)
+  so only the thumbnail crosses HaLow — the whole point of the thumbnail grid. Same family
+  as the `setConfig` silent-param trap below.
 - **Dahua `setConfig` needs URL-encoded brackets.** On this firmware
   `configManager.cgi?action=setConfig&Encode[0]…` with **literal** brackets returns an
   empty body and **silently changes nothing**; `%5B`/`%5D`-encoded brackets return `OK`
@@ -148,9 +154,10 @@ glance-first intent (accepts the narrow-phone label crowding — nav notes).
       reuses fleet identity without pulling in MQTT — `dahua_reader`/`dahua_probe`/tests now
       import from it). `api/routes/cameras.py`: `GET /api/cameras` (node/label/hub-path;
       hosts stay server-side) + `GET /api/cameras/<node>/snapshot` (server-side digest to
-      `snapshot.cgi?channel=1&subtype=1` → JPEG; 404 unknown/NVR, 502 refused, 503
-      unreachable). `EnvironmentFile=-/etc/default/gps-dahua` added to `gps-dashboard.service`
-      so the proxy has the password. 6 route tests.
+      `snapshot.cgi?channel=1`, **downscaled with Pillow** to a ~480 px/~20 kB thumbnail —
+      subtype is ignored, see trap; 404 unknown/NVR, 502 refused/non-image, 503 unreachable).
+      `EnvironmentFile=-/etc/default/gps-dahua` added to `gps-dashboard.service` so the proxy
+      has the password. Pillow added as a runtime dep. 7 route tests.
 - [x] **Client:** grid polls the snapshot proxy on a shared cache-bust stamp
       (`SNAPSHOT_REFRESH_MS` 5 s, gated on visibility + paused while live); tap a tile →
       live 720p (`-hd`) WHEP video via the Phase 2 client, wake-lock held while watching.
