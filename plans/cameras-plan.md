@@ -143,7 +143,7 @@ Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (
       to `whep.test.ts`. Typecheck + 160 tests + build all green.
 - [x] Video path exercised end-to-end by the Phase 3 grid's tap-to-live (`media: ['video']`).
 
-## Phase 3 — Cameras tab (glance-first) — built (deploy/verify next)
+## Phase 3 — Cameras tab (glance-first) — DONE (2026-07-21)
 
 **Grid rendering: option (b) — JPEG thumbnails first** (chosen for the from-home HaLow
 glance, the primary use). Placement: a **10th top-level tab** (📷), per the plan's
@@ -162,8 +162,15 @@ glance-first intent (accepts the narrow-phone label crowding — nav notes).
       (`SNAPSHOT_REFRESH_MS` 5 s, gated on visibility + paused while live); tap a tile →
       live 720p (`-hd`) WHEP video via the Phase 2 client, wake-lock held while watching.
       Pure bits in `lib/cameras.ts` (+ test). Typecheck + 163 tests + build green.
-- [ ] Deploy + verify on-device: `/api/cameras` list, a real JPEG from the snapshot proxy,
-      thumbnails render, tap → live plays (LAN).
+- [x] Deployed + verified on-device (browser-driven): all four thumbnails load (~13–23 kB
+      at 480×271, self-scheduling refresh — an initial shared-timer version starved the
+      slowest tile; per-tile self-scheduling fixed it), tap → live plays **1280×720** WHEP
+      video (`readyState` 4), close tears down cleanly, 0 JS errors (a transient rear-camera
+      snapshot 503 is retried gracefully). Snapshot proxy returns a real downscaled JPEG.
+
+**Deferred to Phase 4 / polish:** a busy camera occasionally 503s a snapshot (it's serving
+the NVR main stream); the retry recovers it, but a short server-side last-good cache would
+smooth the grid. Driving-mode multiview + glass-to-glass latency vs the NVR HDMI still open.
 
 ## Phase 4 — Expand + driving mode
 
