@@ -60,7 +60,7 @@ from api.rigctld import Rigctld, RigctldError
 from common.proc import run
 from common.timefmt import age_seconds, format_canonical
 from radio.levels import LevelKeeper
-from radio.paths import audio_dir
+from radio.paths import audio_dir, tx_sentinel_path
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
 from radio.waveform import WAVEFORM_BUCKETS, WAVEFORM_SUBBLOCKS, block_subpeaks, build_envelope
 
@@ -238,6 +238,18 @@ class Capture:
         for block, _, _, _ in self.buffer:
             self.writer.writeframesraw(block)
         self.buffer.clear()
+
+    def discard(self) -> None:
+        """Abandon an in-progress capture: close and delete any partial file.
+
+        No DB row is written. Used when the recorder must drop what it was
+        tracking outside the normal gate close — e.g. the operator's own transmit
+        keyed mid-capture (the loopback must not be logged as received).
+        """
+        if self.writer is not None:
+            self.writer.close()
+            self.writer = None
+            self.part_path.unlink(missing_ok=True)
 
     def note_dcd(self, dcd: bool) -> None:
         """Fold one squelch reading in: any open reading makes ``dcd_main`` 1."""
@@ -484,6 +496,7 @@ def run_session(conn: Connection, keeper: LevelKeeper) -> None:
 
     ring: deque[RingEntry] = deque(maxlen=PREROLL_BLOCKS)
     gate = VoxGate(OPEN_DBFS, CLOSE_DBFS, HANG_BLOCKS, MAX_BLOCKS, MIN_LOUD_BLOCKS)
+    tx_sentinel = tx_sentinel_path()
     cap: Capture | None = None
     blocks = captures = discarded = 0
     rms_min = rms_max = rms_last = 0.0
@@ -495,6 +508,16 @@ def run_session(conn: Connection, keeper: LevelKeeper) -> None:
             block = read_block(proc.stdout)
             if not block:
                 raise RuntimeError(f'arecord exited (rc={proc.poll()})')
+            if tx_sentinel.exists():
+                # Our own transmit is keyed — suppress recording so the rig's
+                # monitor/sidetone loopback is never logged as a received
+                # transmission; the TX path logs the clean source itself (R11).
+                if cap is not None:
+                    cap.discard()
+                    cap = None
+                gate.reset()
+                ring.clear()
+                continue
             sq, peak, n = block_energy(block)
             rms = rms_dbfs(sq, n)
             keeper.feed_block(rms)

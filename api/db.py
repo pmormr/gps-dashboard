@@ -482,7 +482,11 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- audio_path is relative to the audio dir and NULLed by the retention
         -- pruner — the row outlives its audio. waveform is a fixed-N JSON int
         -- array (0..255 bar heights, absolute dBFS window) derived at record
-        -- time from the per-block peaks, so it survives the audio prune.
+        -- time from the per-block peaks, so it survives the audio prune. is_tx=1
+        -- marks an operator transmission (the console's clean-source log row, R11);
+        -- 0 (the default) is a received capture. Fresh-init DDL only — the live
+        -- table gets `ALTER TABLE ... ADD COLUMN is_tx INTEGER NOT NULL DEFAULT 0`
+        -- by hand; the DEFAULT backfills the existing RX rows, no script.
         CREATE TABLE IF NOT EXISTS radio_transmissions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             started_utc TEXT NOT NULL,
@@ -496,7 +500,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             audio_path  TEXT,
             lat         REAL,
             lon         REAL,
-            waveform    TEXT
+            waveform    TEXT,
+            is_tx       INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_radio_transmissions_started
             ON radio_transmissions(started_utc);

@@ -16,17 +16,31 @@ software: set the rig's own time-out timer (TOT) as a hardware backstop.
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import wave
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
+from sqlite3 import Connection
 
 from api.rigctld import Rigctld, RigctldError
+from common.timefmt import format_canonical
+from radio.paths import audio_dir, tx_sentinel_path
+from radio.vox import amplitude_dbfs, block_energy, rms_dbfs
+from radio.waveform import (
+    WAVEFORM_BUCKETS,
+    WAVEFORM_SUBBLOCKS,
+    block_subpeaks,
+    build_envelope,
+)
 
 #: Hard ceiling on how long PTT may stay asserted for one transmission — a hung
 #: playback cannot sit on the air longer than this. Env-overridable in the unit.
@@ -284,3 +298,134 @@ def transmit_wav(
     with keyed_tx(max_seconds):
         time.sleep(settle_s)
         _run_tool(aplay_argv(wav), timeout=max_seconds)
+
+
+# --- self-TX logging: sentinel + clean-source archive + row ---------------------------
+
+
+@contextmanager
+def tx_active() -> Iterator[None]:
+    """Mark self-TX in progress so the recorder suppresses logging its loopback.
+
+    Creates the sentinel the recorder polls (:func:`radio.paths.tx_sentinel_path`)
+    and removes it on exit however the block ends — so a failed transmit can never
+    wedge the recorder permanently off.
+    """
+    sentinel = tx_sentinel_path()
+    sentinel.parent.mkdir(parents=True, exist_ok=True)
+    sentinel.touch()
+    try:
+        yield
+    finally:
+        sentinel.unlink(missing_ok=True)
+
+
+def tx_rel_path(started: datetime) -> str:
+    """Relative archive path for a TX recording: ``tx/YYYY-MM/....wav``.
+
+    A ``tx/`` subtree keeps operator transmissions visually separate from RX
+    captures on disk; both live under the audio root, so the retention pruner and
+    the audio route cover them the same way.
+
+    Args:
+        started: UTC start of the transmission.
+
+    Returns:
+        The relative path (month subdir, ms-distinct name).
+    """
+    return started.strftime('tx/%Y-%m/%Y%m%d-%H%M%S') + f'-{started.microsecond // 1000:03d}.wav'
+
+
+def wav_envelope(path: Path) -> tuple[float, float, float, list[int]]:
+    """Derive ``(duration_s, peak_dbfs, rms_dbfs, waveform)`` from a mono S16 WAV.
+
+    Decodes the clean source we transmitted so a TX row carries the same stats and
+    waveform strip as an RX capture — reusing the recorder's per-block peak/energy
+    and the shared envelope builder, but over the whole file at once rather than
+    the recorder's incremental path.
+
+    Args:
+        path: A mono S16_LE WAV (the normalized audio that was transmitted).
+
+    Returns:
+        Duration in seconds, whole-file peak/RMS in dBFS, and the 0..255 envelope.
+    """
+    with wave.open(str(path), 'rb') as w:
+        n_frames = w.getnframes()
+        rate = w.getframerate()
+        raw = w.readframes(n_frames)
+    block_bytes = max(2, int(rate * 0.1) * 2)  # 100 ms blocks, matching the recorder cadence
+    peak = sq_sum = total = 0
+    peaks: list[int] = []
+    for i in range(0, len(raw), block_bytes):
+        block = raw[i : i + block_bytes]
+        sq, blk_peak, n = block_energy(block)
+        sq_sum += sq
+        peak = max(peak, blk_peak)
+        total += n
+        peaks.extend(block_subpeaks(block, WAVEFORM_SUBBLOCKS))
+    duration = n_frames / rate if rate else 0.0
+    return (
+        duration,
+        round(amplitude_dbfs(float(peak)), 1),
+        round(rms_dbfs(sq_sum, total), 1),
+        build_envelope(peaks, WAVEFORM_BUCKETS),
+    )
+
+
+def archive_and_log(
+    conn: Connection,
+    played_wav: Path,
+    *,
+    started: datetime,
+    freq_hz: int | None,
+    mode: str | None,
+    lat: float | None,
+    lon: float | None,
+) -> int:
+    """Archive a transmitted WAV under the audio root and insert its log row.
+
+    The row is ``is_tx=1`` and carries the clean source audio plus a waveform
+    built from it, so the unified ``/radio`` log renders a transmission exactly
+    like a received capture. ``dcd_main`` is NULL — squelch is meaningless on TX.
+
+    Args:
+        conn: Open DB connection.
+        played_wav: The normalized WAV that was transmitted (the clean source).
+        started: UTC time the transmission began.
+        freq_hz: Active-band frequency at transmit time, or ``None``.
+        mode: Active-band mode, or ``None``.
+        lat: GPS-snapped latitude, or ``None`` when stale/absent.
+        lon: GPS-snapped longitude, or ``None`` when stale/absent.
+
+    Returns:
+        The new row's id.
+    """
+    duration, peak_dbfs, rms_val, waveform = wav_envelope(played_wav)
+    rel = tx_rel_path(started)
+    dest = audio_dir() / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(played_wav, dest)
+    ended = started + timedelta(seconds=duration)
+    cur = conn.execute(
+        'INSERT INTO radio_transmissions '
+        '(started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
+        'peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform, is_tx) '
+        'VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 1)',
+        (
+            format_canonical(started),
+            format_canonical(ended),
+            round(duration, 3),
+            freq_hz,
+            mode,
+            peak_dbfs,
+            rms_val,
+            rel,
+            lat,
+            lon,
+            json.dumps(waveform),
+        ),
+    )
+    conn.commit()
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid

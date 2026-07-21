@@ -9,13 +9,27 @@ from a wedged caller. ``Rigctld`` is faked at the module boundary so every
 
 from __future__ import annotations
 
+import sqlite3
 import time
+import wave
+from array import array
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from api.db import init_db
 from api.rigctld import RigctldError
 from radio import transmit
+
+
+def write_wav(path: Path, samples: list[int], rate: int = 48000) -> None:
+    """Write mono S16_LE samples to a WAV (test fixture for the envelope/log paths)."""
+    with wave.open(str(path), 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(array('h', samples).tobytes())
 
 
 def make_fake_rig(events: list[object], fail_unkey: bool = False) -> type:
@@ -142,3 +156,66 @@ def test_render_tts_rejects_unknown_engine(tmp_path: Path) -> None:
 def test_render_tts_piper_without_model_raises(tmp_path: Path) -> None:
     with pytest.raises(transmit.TransmitError, match='model'):
         transmit.render_tts('hello', tmp_path / 'out.wav', engine='piper', piper_model='')
+
+
+# --- self-TX logging: sentinel, naming, envelope, archive+row -------------------------
+
+
+def test_tx_active_sentinel_created_and_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
+    sentinel = transmit.tx_sentinel_path()
+    assert not sentinel.exists()
+    with transmit.tx_active():
+        assert sentinel.exists()
+    assert not sentinel.exists()
+
+
+def test_tx_active_removes_sentinel_on_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
+    with pytest.raises(RuntimeError):
+        with transmit.tx_active():
+            raise RuntimeError('transmit blew up')
+    assert not transmit.tx_sentinel_path().exists()  # never wedges the recorder off
+
+
+def test_tx_rel_path_layout() -> None:
+    started = datetime(2026, 7, 20, 13, 5, 9, 250_000, tzinfo=UTC)
+    assert transmit.tx_rel_path(started) == 'tx/2026-07/20260720-130509-250.wav'
+
+
+def test_wav_envelope_stats(tmp_path: Path) -> None:
+    wav = tmp_path / 'tone.wav'
+    write_wav(wav, [16000, -16000] * 24000)  # 1 s of ±16000 at 48 kHz
+    duration, peak_dbfs, rms_dbfs, waveform = transmit.wav_envelope(wav)
+    assert duration == pytest.approx(1.0, abs=0.01)
+    assert peak_dbfs == pytest.approx(-6.2, abs=0.3)  # 16000/32768 ≈ -6.2 dBFS
+    assert rms_dbfs == pytest.approx(-6.2, abs=0.3)  # constant amplitude → RMS == peak
+    assert waveform and all(0 <= b <= 255 for b in waveform)
+
+
+def test_archive_and_log_inserts_tx_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
+    wav = tmp_path / 'src.wav'
+    write_wav(wav, [8000, -8000] * 12000)  # 0.5 s
+    conn = sqlite3.connect(':memory:')
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+
+    started = datetime(2026, 7, 20, 13, 0, 0, tzinfo=UTC)
+    tx_id = transmit.archive_and_log(
+        conn, wav, started=started, freq_hz=146520000, mode='FM', lat=39.7, lon=-105.1
+    )
+
+    row = conn.execute('SELECT * FROM radio_transmissions WHERE id = ?', (tx_id,)).fetchone()
+    assert row['is_tx'] == 1
+    assert row['dcd_main'] is None  # squelch is meaningless on TX
+    assert row['freq_hz'] == 146520000 and row['mode'] == 'FM'
+    assert row['lat'] == 39.7 and row['lon'] == -105.1
+    assert row['audio_path'].startswith('tx/2026-07/')
+    assert row['duration_s'] == pytest.approx(0.5, abs=0.01)
+    # The clean source was archived under the audio root at the stored rel path.
+    assert (transmit.audio_dir() / row['audio_path']).is_file()

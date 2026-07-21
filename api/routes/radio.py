@@ -12,7 +12,11 @@ path with no rigctld involvement.
 """
 
 import json
+import tempfile
+import threading
 from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
 
@@ -20,11 +24,19 @@ from api.db import get_connection
 from api.params import error, parse_limit
 from api.rigctld import Rigctld, RigctldError
 from common import proc
-from radio.paths import audio_dir
+from radio import transmit
+from radio.paths import audio_dir, soundboard_dir
+from radio.recorder import gps_snap, rig_snapshot
 
 radio_bp = Blueprint('radio', __name__)
 
 SERVICE = 'radio-control'
+
+#: Serializes transmits so a double-click can't key twice or interleave audio.
+#: The app runs single-process (``python api/app.py``), so an in-process lock
+#: suffices; the sentinel file (:func:`radio.transmit.tx_active`) handles the
+#: separate recorder process.
+_TX_LOCK = threading.Lock()
 
 # Modes Hamlib reports for the ID-5100 (1a dump_caps). The route validates against
 # this set so ``set_mode`` never forwards arbitrary text to the rig.
@@ -63,7 +75,7 @@ DUALWATCH = b'\x16\x59'
 # below, and survives the prune (drawn even once the WAV is gone).
 _TX_COLUMNS = (
     'id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
-    'peak_dbfs, rms_dbfs, lat, lon, waveform, audio_path IS NOT NULL AS has_audio'
+    'peak_dbfs, rms_dbfs, lat, lon, waveform, is_tx, audio_path IS NOT NULL AS has_audio'
 )
 
 
@@ -240,6 +252,85 @@ def set_repeater():
         rig.set_rptr_shift(SHIFT_TO_RIG[shift])
 
     return _apply(action)
+
+
+def _resolve_clip(filename: str) -> Path | None:
+    """Resolve a soundboard filename to a real file inside the soundboard dir.
+
+    Guards against path traversal: the resolved path must stay under the root and
+    be a supported audio file. Returns ``None`` for anything that fails the check.
+    """
+    root = soundboard_dir().resolve()
+    path = (root / filename).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        return None
+    if path.suffix.lower() not in transmit.SOUNDBOARD_EXTS:
+        return None
+    return path
+
+
+@radio_bp.get('/api/radio/soundboard')
+def soundboard():
+    """List the staged soundboard clips the console can transmit (sorted by label)."""
+    clips = transmit.list_soundboard(soundboard_dir())
+    return jsonify({'clips': [{'filename': c.filename, 'label': c.label} for c in clips]})
+
+
+@radio_bp.post('/api/radio/transmit')
+def do_transmit():
+    """Transmit a soundboard clip or a TTS phrase on the active band.
+
+    Body is exactly one of:
+      - ``{"clip": "<filename>"}`` — a staged soundboard file, or
+      - ``{"text": "...", "engine"?: "espeak"|"piper"}`` — synthesized speech.
+
+    Keys the rig through the never-stuck-keyed guard (R11), plays the normalized
+    audio out the Digirig, and logs the clean source as an ``is_tx`` row. Callsign
+    ID is the operator's responsibility — bake KC3HEU into the text/clip.
+
+    Status: 409 if a transmit is already in flight; 502/503 on a rig
+    refusal/unreachable daemon; 500 on a render/playback tool failure.
+    """
+    data = request.get_json(silent=True) or {}
+    clip = data.get('clip')
+    text = data.get('text')
+    if bool(clip) == bool(text):
+        return error("provide exactly one of 'clip' or 'text'", 400)
+    engine = data.get('engine', 'espeak')
+    if text and engine not in ('espeak', 'piper'):
+        return error("'engine' must be 'espeak' or 'piper'", 400)
+    if text and not isinstance(text, str):
+        return error("'text' must be a string", 400)
+
+    if not _TX_LOCK.acquire(blocking=False):
+        return jsonify({'ok': False, 'error': 'a transmission is already in progress'}), 409
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / 'tx.wav'
+            if clip:
+                src = _resolve_clip(clip)
+                if src is None:
+                    return error('unknown soundboard clip', 404)
+                transmit.prepare_clip(src, wav)
+            else:
+                transmit.render_tts(text, wav, engine=engine)
+
+            started = datetime.now(UTC)
+            with transmit.tx_active():
+                transmit.transmit_wav(wav)
+            freq, mode, _ = rig_snapshot()
+            conn = get_connection()
+            lat, lon = gps_snap(conn)
+            tx_id = transmit.archive_and_log(
+                conn, wav, started=started, freq_hz=freq, mode=mode, lat=lat, lon=lon
+            )
+        return jsonify({'ok': True, 'id': tx_id})
+    except transmit.TransmitError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+    except RigctldError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), (503 if exc.rprt is None else 502)
+    finally:
+        _TX_LOCK.release()
 
 
 @radio_bp.get('/api/radio/transmissions')

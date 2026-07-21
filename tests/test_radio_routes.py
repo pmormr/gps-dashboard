@@ -7,6 +7,9 @@ fake reproduces the context-manager shape and the getter/setter surface the rout
 
 from __future__ import annotations
 
+import wave
+from array import array
+
 import api.routes.radio as radio
 from api.rigctld import RigctldError
 
@@ -339,3 +342,58 @@ class TestTransmissionAudio:
         (tmp_path / 'secret.bin').write_bytes(b'not audio')
         tx = _insert_tx(audio_path='../secret.bin')
         assert client.get(f'/api/radio/transmissions/{tx}/audio').status_code == 404
+
+
+class TestTransmitConsole:
+    """``GET /api/radio/soundboard`` + ``POST /api/radio/transmit`` — the TX console."""
+
+    def test_soundboard_lists_clips(self, client, monkeypatch, tmp_path):
+        sb = tmp_path / 'sb'
+        sb.mkdir()
+        (sb / 'meet_at_camp.wav').write_bytes(b'')
+        (sb / 'radio-check.mp3').write_bytes(b'')
+        (sb / 'notes.txt').write_bytes(b'')  # non-audio → ignored
+        monkeypatch.setenv('GPS_RADIO_SOUNDBOARD_DIR', str(sb))
+        clips = client.get('/api/radio/soundboard').get_json()['clips']
+        assert [c['filename'] for c in clips] == ['meet_at_camp.wav', 'radio-check.mp3']
+        assert clips[0]['label'] == 'meet at camp'
+
+    def test_transmit_requires_exactly_one_source(self, client):
+        assert client.post('/api/radio/transmit', json={}).status_code == 400
+        both = client.post('/api/radio/transmit', json={'clip': 'x.wav', 'text': 'hi'})
+        assert both.status_code == 400
+
+    def test_transmit_rejects_bad_engine(self, client):
+        resp = client.post('/api/radio/transmit', json={'text': 'hi', 'engine': 'festival'})
+        assert resp.status_code == 400
+
+    def test_transmit_unknown_clip_404(self, client, monkeypatch, tmp_path):
+        monkeypatch.setenv('GPS_RADIO_SOUNDBOARD_DIR', str(tmp_path / 'sb'))
+        assert client.post('/api/radio/transmit', json={'clip': 'nope.wav'}).status_code == 404
+
+    def test_transmit_tts_logs_tx_row(self, client, monkeypatch, tmp_path):
+        monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
+
+        def fake_render(text, out, *, engine='espeak', piper_model=''):
+            # Stand in for espeak + ffmpeg: write a valid 0.2 s WAV to `out`.
+            with wave.open(str(out), 'wb') as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(array('h', [4000, -4000] * 4800).tobytes())
+            return out
+
+        monkeypatch.setattr(radio.transmit, 'render_tts', fake_render)
+        monkeypatch.setattr(radio.transmit, 'transmit_wav', lambda *a, **k: None)  # no rig/aplay
+        monkeypatch.setattr(radio, 'rig_snapshot', lambda: (146520000, 'FM', None))
+
+        resp = client.post('/api/radio/transmit', json={'text': 'KC3HEU mobile testing'})
+        assert resp.status_code == 200
+        tx_id = resp.get_json()['id']
+
+        # It lands in the unified log as a TX row with its clean-source audio.
+        page = client.get('/api/radio/transmissions').get_json()
+        row = next(t for t in page['transmissions'] if t['id'] == tx_id)
+        assert row['is_tx'] == 1
+        assert row['freq_hz'] == 146520000 and row['mode'] == 'FM'
+        assert row['has_audio'] is True

@@ -171,3 +171,16 @@ class TestCommitRule:
         g = VoxGate(open_dbfs=-40.0, close_dbfs=-45.0, hang_blocks=1, max_blocks=100)
         g.feed(-30.0)
         assert g.feed(-50.0) is GateEvent.CLOSE
+
+    def test_reset_returns_to_closed_without_event(self):
+        g = VoxGate(
+            open_dbfs=-40.0, close_dbfs=-45.0, hang_blocks=3, max_blocks=100, min_loud_blocks=2
+        )
+        g.feed(-30.0)
+        g.feed(-30.0)
+        assert g.is_open and g.loud_blocks == 2
+        g.reset()
+        assert not g.is_open and g.loud_blocks == 0
+        # After reset the next loud block opens a fresh capture (no lingering state).
+        assert g.feed(-30.0) is GateEvent.OPEN
+        assert g.loud_blocks == 1

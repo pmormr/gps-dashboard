@@ -141,6 +141,19 @@ class VoxGate:
         self._quiet_run = 0
         self._blocks_open = 0
 
+    def reset(self) -> None:
+        """Return the gate to the closed state, dropping any in-progress capture.
+
+        The recorder calls this when it must abandon what it was tracking without
+        a normal close — e.g. while the operator's own transmit is keyed (the
+        loopback must not be recorded). No event is emitted; the caller drops its
+        capture separately.
+        """
+        self.is_open = False
+        self.loud_blocks = 0
+        self._quiet_run = 0
+        self._blocks_open = 0
+
     def feed(self, level_dbfs: float) -> GateEvent | None:
         """Advance the gate by one block.
 

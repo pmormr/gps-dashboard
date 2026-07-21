@@ -43,3 +43,17 @@ def soundboard_dir() -> Path:
             'GPS_RADIO_SOUNDBOARD_DIR', str(db.DB_PATH.parent / 'radio-tx' / 'soundboard')
         )
     )
+
+
+def tx_sentinel_path() -> Path:
+    """Path to the self-TX sentinel the recorder polls (a dotfile under the audio root).
+
+    The transmit console creates it while keyed so the recorder drops its own
+    monitor/sidetone loopback instead of logging the operator's transmission a
+    second time (the TX path logs the clean source itself). Resolved at call time
+    like :func:`audio_dir` so the console and the recorder always agree on it.
+
+    Returns:
+        The sentinel file path.
+    """
+    return audio_dir() / '.tx-active'
