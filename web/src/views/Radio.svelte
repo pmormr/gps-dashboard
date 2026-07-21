@@ -78,10 +78,12 @@
     const v = raw == null ? NaN : Number(raw)
     return Number.isFinite(v) ? v : d
   }
-  let ratePct = $state(loadPref('radioRatePct', 50))
+  // Key is versioned (…V2) so the raised 75% default supersedes any value an
+  // earlier build auto-persisted, rather than being masked by it.
+  let ratePct = $state(loadPref('radioTtsRatePctV2', 75))
   let settleMs = $state(loadPref('radioSettleMs', 250))
   $effect(() => {
-    localStorage.setItem('radioRatePct', String(ratePct))
+    localStorage.setItem('radioTtsRatePctV2', String(ratePct))
   })
   $effect(() => {
     localStorage.setItem('radioSettleMs', String(settleMs))

@@ -242,12 +242,13 @@ trap: mute the stream while keying.
       `fetch` + `RTCPeerConnection`, no heavy lib); Dahua camera `paths:` proxy
       entries so OBS pulls everything from the one hub.
 
-## Phase 3 — Transmit console (operator-clicked TX) — BUILT (items 1–4), field test open
+## Phase 3 — Transmit console (operator-clicked TX) — DONE + DEPLOYED (RF bench passed 2026-07-21)
 
 A `/radio` **Transmit** panel: a filesystem-driven **soundboard** (click a pre-staged
 WAV) + **dual switchable TTS** (espeak-ng / piper) — every send is an attended button
-press by KC3HEU (**R11**), no scheduler, manual ID baked into the audio. The software
-(items 1–4) is built + committed; going hot is gated on the item-5 bench test.
+press by KC3HEU (**R11**), no scheduler, manual ID baked into the audio. Built, deployed,
+and field-tested; only optional polish (a piper voice model, a quantitative deviation
+check) remains.
 
 - [x] **PTT primitive + safety.** `Rigctld.set_ptt` + `radio/transmit.py`'s
       `keyed_tx` guard — `try/finally` release, independent-connection unkey retry,
@@ -265,18 +266,21 @@ press by KC3HEU (**R11**), no scheduler, manual ID baked into the audio. The sof
       lock + manual-ID reminder; espeak/piper toggle shows only when piper is set) +
       `is_tx` badge in the log. Verified locally (render + reactive state, 0 console
       errors); rig-live test is item 5.
-- [ ] **RF de-risk (field, gates going hot).** Low-power TX test — confirm the
-      Digirig USB survives keying (the 2a −71 crash), that `aplay` playback coexists
-      with the recorder's dsnoop capture, and a TX audio-drive calibration (the rig
-      mic-gain that maps loudnorm's −1.5 dBFS peak to correct deviation, no splatter).
-      Not wired hot until the bench passes. Also set the rig's **TOT** as the hardware
+- [x] **RF de-risk (field) — PASSED 2026-07-21.** TX works well; **no Digirig USB
+      crash even at HIGH power** — the 2a −71 was the unplug/replug, not transmitting
+      (RF-ingress watch-item closed). Playback + capture coexist. Levels fine by ear;
+      a *quantitative* deviation check (scope/meter) is the only remaining calibration,
+      deferred as optional. Still recommended: set the rig's **TOT** as the hardware
       never-stuck-keyed backstop.
+- [x] **Post-field tuning.** Key-up delay (default 250 ms) + TTS speech rate
+      (**default 75 %**) are per-transmit UI sliders (`settle_ms`/`rate` in the POST,
+      localStorage-persisted); rate maps to espeak wpm and piper length-scale.
 
-**Deploy prerequisites (before/with the push):**
+**Deploy — DONE 2026-07-21** (kept as the rebuild record):
 
-- **Run the `is_tx` migration on the Pi *first*** — the transmission-log query now
-  selects `is_tx`, so pushing the code before the column exists 500s the existing
-  `/radio` log (same trap the `waveform` column had):
+- **Ran the `is_tx` migration on the Pi *first*** — the transmission-log query
+  selects `is_tx`, so pushing the code before the column exists would 500 the
+  existing `/radio` log (same trap the `waveform` column had):
   `sqlite3 /mnt/nvme/data/gps_history.db "ALTER TABLE radio_transmissions ADD COLUMN is_tx INTEGER NOT NULL DEFAULT 0;"`
   (the `DEFAULT 0` backfills existing rows as RX — no script).
 - **`apt install espeak-ng`** on the Pi (offline-cacheable, one-time online) — the

@@ -21,6 +21,7 @@ import pytest
 from api.db import init_db
 from api.rigctld import RigctldError
 from radio import transmit
+from radio.paths import audio_dir, tx_sentinel_path
 
 
 def write_wav(path: Path, samples: list[int], rate: int = 48000) -> None:
@@ -47,8 +48,7 @@ def make_fake_rig(events: list[object], fail_unkey: bool = False) -> type:
         def __enter__(self) -> FakeRig:
             return self
 
-        def __exit__(self, *_a: object) -> bool:
-            return False
+        def __exit__(self, *_a: object) -> None: ...
 
         def set_ptt(self, on: bool) -> None:
             events.append(bool(on))
@@ -191,7 +191,7 @@ def test_tx_active_sentinel_created_and_removed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
-    sentinel = transmit.tx_sentinel_path()
+    sentinel = tx_sentinel_path()
     assert not sentinel.exists()
     with transmit.tx_active():
         assert sentinel.exists()
@@ -205,7 +205,7 @@ def test_tx_active_removes_sentinel_on_exception(
     with pytest.raises(RuntimeError):
         with transmit.tx_active():
             raise RuntimeError('transmit blew up')
-    assert not transmit.tx_sentinel_path().exists()  # never wedges the recorder off
+    assert not tx_sentinel_path().exists()  # never wedges the recorder off
 
 
 def test_tx_rel_path_layout() -> None:
@@ -244,4 +244,4 @@ def test_archive_and_log_inserts_tx_row(tmp_path: Path, monkeypatch: pytest.Monk
     assert row['audio_path'].startswith('tx/2026-07/')
     assert row['duration_s'] == pytest.approx(0.5, abs=0.01)
     # The clean source was archived under the audio root at the stored rel path.
-    assert (transmit.audio_dir() / row['audio_path']).is_file()
+    assert (audio_dir() / row['audio_path']).is_file()
