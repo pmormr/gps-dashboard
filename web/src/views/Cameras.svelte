@@ -7,12 +7,16 @@
   import { acquireWakeLock, releaseWakeLock } from '../lib/wakelock'
   import { startWhep, whepEndpoint, type WhepSession } from '../lib/whep'
 
-  // Glance-first grid: each tile is a JPEG still refreshed on a shared cache-bust
-  // stamp (cheap, HaLow-friendly). Tapping a tile opens the live 720p WHEP feed.
+  // Glance-first grid: each tile is a downscaled JPEG still, refreshed per-tile.
+  // Refresh is self-scheduled (next fetch fires only after the current one loads,
+  // never mid-flight) so a slow tile just refreshes less often instead of being
+  // cancelled every cycle — and the grid self-throttles to available bandwidth.
+  // Tapping a tile opens the live 720p WHEP feed.
   let cameras = $state<Camera[]>([])
   let loadError = $state('')
-  let bust = $state(1) // shared cache-buster; bumping it refetches every tile
+  let bust = $state<Record<string, number>>({}) // node → cache-bust stamp
   let offline = $state<Record<string, boolean>>({}) // node → last snapshot failed
+  const timers: Record<string, number> = {} // node → pending refresh timer
 
   // Live overlay (tap a tile → 720p WHEP video over the Phase 2 client).
   let liveCam = $state<Camera | null>(null)
@@ -21,27 +25,47 @@
   let videoEl = $state<HTMLVideoElement>()
   let session: WhepSession | null = null
 
-  function tick(): void {
-    // Pause polling while watching a feed (grid hidden) or backgrounded.
-    if (liveCam || document.hidden) return
-    bust += 1
+  function kick(node: string): void {
+    bust = { ...bust, [node]: (bust[node] ?? 0) + 1 }
+  }
+  function kickAll(): void {
+    for (const c of cameras) kick(c.node)
+  }
+  function scheduleRefresh(node: string): void {
+    clearTimeout(timers[node])
+    // Pause while a feed is up (grid hidden) or the tab is backgrounded; the
+    // close / visibility handlers re-kick to resume.
+    timers[node] = window.setTimeout(() => {
+      if (!liveCam && !document.hidden) kick(node)
+    }, SNAPSHOT_REFRESH_MS)
+  }
+
+  function onImgLoad(node: string): void {
+    if (offline[node]) offline = { ...offline, [node]: false }
+    scheduleRefresh(node)
+  }
+  function onImgError(node: string): void {
+    if (!offline[node]) offline = { ...offline, [node]: true }
+    scheduleRefresh(node) // keep retrying on the same cadence
+  }
+  function onVisible(): void {
+    if (document.visibilityState === 'visible' && !liveCam) kickAll()
   }
 
   onMount(() => {
     getCameras()
-      .then((r) => (cameras = r.cameras))
+      .then((r) => {
+        cameras = r.cameras
+        bust = Object.fromEntries(r.cameras.map((c) => [c.node, 1])) // first load per tile
+      })
       .catch((e) => (loadError = errMsg(e)))
-    const timer = window.setInterval(tick, SNAPSHOT_REFRESH_MS)
-    return () => clearInterval(timer)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      for (const id of Object.values(timers)) clearTimeout(id)
+    }
   })
-  onDestroy(() => closeLive())
-
-  function onImgError(node: string): void {
-    if (!offline[node]) offline = { ...offline, [node]: true }
-  }
-  function onImgLoad(node: string): void {
-    if (offline[node]) offline = { ...offline, [node]: false }
-  }
+  onDestroy(() => stopLive())
 
   function onLiveDropped(): void {
     // Fired only when the peer drops on its own — a user close resets state first.
@@ -73,12 +97,16 @@
     }
   }
 
-  function closeLive(): void {
+  function stopLive(): void {
     session?.close()
     session = null
     if (videoEl) videoEl.srcObject = null
     liveCam = null
     releaseWakeLock()
+  }
+  function closeLive(): void {
+    stopLive()
+    if (document.visibilityState === 'visible') kickAll() // resume the grid
   }
 </script>
 
@@ -94,11 +122,8 @@
 <div class="grid">
   {#each cameras as cam (cam.node)}
     <button class="tile" onclick={() => openLive(cam)} aria-label={`Expand ${cam.label}`}>
-      {#if offline[cam.node]}
-        <div class="tile-offline">No image</div>
-      {:else}
-        <img src={snapshotUrl(cam.node, bust)} alt={cam.label} onerror={() => onImgError(cam.node)} onload={() => onImgLoad(cam.node)} />
-      {/if}
+      <img src={snapshotUrl(cam.node, bust[cam.node] ?? 0)} alt={cam.label} onload={() => onImgLoad(cam.node)} onerror={() => onImgError(cam.node)} />
+      {#if offline[cam.node]}<div class="tile-offline">No image</div>{/if}
       <span class="tile-label">{cam.label}</span>
     </button>
   {/each}
@@ -146,11 +171,15 @@
     object-fit: cover;
     display: block;
   }
+  /* Opaque overlay covers the broken-image glyph while a tile is offline; the
+     img keeps loading underneath, so a recovered camera clears it on next load. */
   .tile-offline {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100%;
+    background: var(--surface);
     color: var(--text-dim);
     font-size: 0.85rem;
   }
