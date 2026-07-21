@@ -179,6 +179,21 @@ smooth the grid. Driving-mode multiview + glass-to-glass latency vs the NVR HDMI
       short-GOP 720p, latency-first. Decide placement — its own Cameras sub-view vs adjacent
       to the Drive view. Validate glass-to-glass latency vs the NVR HDMI feed.
 
+## Streams available through the hub (reference)
+
+Every path is on-demand (idle cost zero). Per camera `<pos>` ∈ {front, blind-left,
+blind-right, rear}:
+
+| Path | Codec / res | Consumer |
+|---|---|---|
+| `cam-<pos>` | H.264 D1 704×480 | WebRTC (grid tile) + RTSP |
+| `cam-<pos>-hd` | H.264 720p | WebRTC (tap-to-live) + RTSP |
+| `cam-<pos>-main` | **H.265 2688×1520 + audio** (front PCM / rear G.711; blind cams none) | **RTSP only** (OBS/VLC — WHEP can't decode H.265) |
+
+- RTSP: `rtsp://192.168.42.178:8554/<path>` · WebRTC page: `http://192.168.42.178:8889/<path>`
+  (H.264 paths only). OBS: **Media Source** → uncheck Local File → paste the RTSP URL →
+  add input option `rtsp_transport=tcp`.
+
 ## Open items / notes
 
 - A bigger NVR HDD is the real lever if more than ~2–4 days of recording retention is ever
