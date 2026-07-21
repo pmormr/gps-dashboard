@@ -170,6 +170,14 @@ def test_set_freq_ok(client, monkeypatch):
     assert resp.get_json()['ok'] is True
 
 
+def test_set_freq_switches_to_vfo_first(client, monkeypatch):
+    # Every freq set selects VFO mode first (07), else a Memory/Call channel sticks.
+    fake = FakeRig()
+    monkeypatch.setattr(radio, 'Rigctld', lambda *a, **k: fake)
+    client.post('/api/radio/freq', json={'hz': 146520000})
+    assert fake.calls == [('send_civ', b'\x07'), ('set_freq', 146520000)]
+
+
 def test_set_freq_rejects_non_positive(client, monkeypatch):
     _patch_rig(monkeypatch)
     resp = client.post('/api/radio/freq', json={'hz': 0})
@@ -256,11 +264,13 @@ class TestStageCrossband:
         assert resp.status_code == 200
         assert fake.calls == [
             ('send_civ', b'\x07\xd0'),  # pin A Main
+            ('send_civ', b'\x07'),  # VFO mode A
             ('set_freq', 146520000),
             ('set_mode', 'FM', 0),
             ('set_func', 'TONE', False),
             ('set_func', 'TSQL', False),
             ('send_civ', b'\x07\xd1'),  # pin B Main
+            ('send_civ', b'\x07'),  # VFO mode B
             ('set_freq', 445000000),
             ('set_mode', 'FM', 0),
             ('set_ctcss_tone', 1000),  # 100.0 Hz → tenths

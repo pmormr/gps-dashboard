@@ -68,6 +68,13 @@ BAND_SELECT = {'a': b'\x07\xd0', 'b': b'\x07\xd1'}
 # mutes the sub band everywhere, including the recorder's SP1 (A+B) feed.
 DUALWATCH = b'\x16\x59'
 
+# CI-V cmd 07 (bare): select VFO mode on the active band (manual §13-17). Every
+# frequency set switches to VFO mode first — setting a freq while the band sits on
+# a Memory/Call channel only overrides the channel's displayed frequency (the
+# "2m call" cosmetic bug), it doesn't leave VFO mode. Selecting Memory mode has no
+# CI-V command on this rig, so app-side presets always stage into VFO.
+VFO_MODE = b'\x07'
+
 # Transmission-log columns returned to the client. audio_path stays server-side
 # (the client fetches bytes by id through the audio route); has_audio tells the
 # UI whether a play control makes sense — the retention pruner NULLs audio_path
@@ -86,6 +93,16 @@ def _tone_mode(tone: bool | None, tsql: bool | None) -> str:
     if tone:
         return 'tone'
     return 'off'
+
+
+def _tune(rig: Rigctld, hz: int) -> None:
+    """Switch the active band to VFO mode, then set its frequency.
+
+    The VFO-mode select (:data:`VFO_MODE`) guards against a lingering Memory/Call
+    channel — see that constant. Every frequency set goes through here.
+    """
+    rig.send_civ(VFO_MODE)
+    rig.set_freq(hz)
 
 
 def _apply(action: Callable[[Rigctld], None]):
@@ -148,12 +165,12 @@ def status():
 
 @radio_bp.post('/api/radio/freq')
 def set_freq():
-    """Tune the active band. Body: ``{"hz": <positive number>}``."""
+    """Tune the active band (switching to VFO mode first). Body: ``{"hz": <positive>}``."""
     data = request.get_json(silent=True) or {}
     hz = data.get('hz')
     if not isinstance(hz, (int, float)) or isinstance(hz, bool) or hz <= 0:
         return error("'hz' must be a positive number", 400)
-    return _apply(lambda rig: rig.set_freq(int(hz)))
+    return _apply(lambda rig: _tune(rig, int(hz)))
 
 
 @radio_bp.post('/api/radio/band')
@@ -344,7 +361,7 @@ def stage_crossband():
 
     def apply_band(rig: Rigctld, band: str, spec: dict) -> None:
         rig.send_civ(BAND_SELECT[band])
-        rig.set_freq(spec['freq'])
+        _tune(rig, spec['freq'])  # VFO mode + freq (else a Memory/Call channel sticks)
         rig.set_mode(spec['mode'], 0)
         if spec['hz']:
             rig.set_ctcss_tone(round(spec['hz'] * 10))

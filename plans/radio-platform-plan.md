@@ -171,12 +171,20 @@ CI-V-controllable** — the manual's command table has no enter/exit command (no
 and blind write-fuzzing the rig is poor risk/reward. Scope is everything
 *around* the USA-only mode instead:
 
-- [x] **(1) one-tap staging (2026-07-21).** `POST /api/radio/stage_crossband`
-      (`api/routes/radio.py`) applies, in one rigctld connection: pin band A →
-      freq/mode/tone → pin band B → freq/mode/tone → TX power → dualwatch ON
-      (`16 59 01`) → restore the chosen Main band; any rig refusal aborts (502).
-      The `/radio` "Cross-band repeater" card is the collapsed A/B form.
+- [x] **(1) one-tap staging (2026-07-21, live-validated on the rig).** `POST
+      /api/radio/stage_crossband` (`api/routes/radio.py`) applies, in one rigctld
+      connection: for each band → pin as Main (`07 D0`/`D1`) → **select VFO mode
+      (bare `07`)** → set freq/mode/tone; then TX power → dualwatch ON (`16 59 01`)
+      → restore the chosen Main band; any rig refusal aborts (502). The
+      `/radio` "Cross-band repeater" card has a **"Stage race net" preset** (147.555
+      2m open ↔ 446.175 70cm TSQL 203.5, dualwatch on) plus the manual A/B form.
       Repeater Mode is still the operator's touchscreen confirm.
+      **CI-V mode finding:** bare `07` = absolute "Select VFO mode" (idempotent
+      when already in VFO; **not** a toggle — verified live). **There is no CI-V
+      command to select Memory mode** (`08` absent from the table), so app-side
+      presets always stage into VFO — and *every* freq set (`_tune`) sends `07`
+      first, else programming a freq while on a Memory/Call channel just overrides
+      the channel's displayed frequency (the "2m call" cosmetic bug).
 - [ ] **(2) CI-V-in-Repeater-Mode validation (needs the rig).** Live-check
       whether the rig accepts CI-V at all inside Repeater Mode (front panel locks
       to [MONI]). Pure validation, no code — determines whether staging must
