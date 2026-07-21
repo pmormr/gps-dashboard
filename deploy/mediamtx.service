@@ -14,11 +14,11 @@ After=network.target
 Type=simple
 User=pmorgan
 # The Dahua RTSP sources carry the camera password, which must stay out of git.
-# mediamtx.yml ships as a template with a ${GPS_DAHUA_PASSWORD_URLENC} placeholder
-# (MediaMTX itself does not interpolate ${VAR}); mediamtx-run.sh substitutes it
-# from this EnvironmentFile at startup and writes the rendered config into the
-# tmpfs RuntimeDirectory (0600). Leading `-`: the secret is optional — the
-# radio-only paths need none and the service starts dormant without it.
+# mediamtx.yml ships as a template (MediaMTX itself does not interpolate ${VAR});
+# mediamtx-run.sh reads GPS_DAHUA_PASSWORD from this EnvironmentFile at startup,
+# URL-encodes it, substitutes the placeholder, and writes the rendered config
+# into the tmpfs RuntimeDirectory (0600). Leading `-`: the secret is optional —
+# the radio-only paths need none and the service starts dormant without it.
 RuntimeDirectory=mediamtx
 RuntimeDirectoryMode=0700
 EnvironmentFile=-/etc/default/gps-dahua

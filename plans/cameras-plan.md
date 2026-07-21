@@ -70,12 +70,14 @@ The fleet (`FLEET` in `sensors/dahua_reader.py`; Hikvision `.55/.56` out of scop
   throwaway config: `${MYTESTVAR}` came through untouched. Fix: `mediamtx.yml` is a
   **template**; `deploy/mediamtx-run.sh` substitutes the placeholder at service start and
   runs the hub on a rendered copy in the unit's tmpfs `RuntimeDirectory` (0600).
-- **The camera password isn't URL-safe.** It has a char illegal in a URL's userinfo
-  (`ffprobe` tolerated it in Phase 0; Go's `url.Parse` does not). So the wrapper
-  substitutes a **URL-percent-encoded** twin `GPS_DAHUA_PASSWORD_URLENC` — a second
-  root-600 line in `/etc/default/gps-dahua` (manual, out-of-git; the deploy hook doesn't
-  touch it), alongside the raw `GPS_DAHUA_PASSWORD` the dahua_reader keeps for digest auth.
-  Keep both in sync on a password rotation.
+- **The password wasn't the problem — the braces were (red herring, learned Phase 1).**
+  The crash log redacted `admin:<pw>@` and `<pw>` happened to also match the literal
+  `${…}`, so it *looked* like a bad password char. It wasn't: the current password is
+  URL-valid. The wrapper still **URL-percent-encodes** the password it substitutes —
+  purely defensive, so a future rotation to a genuinely-unsafe char (`@ / : #` space)
+  can't reintroduce the crash. Single secret var `GPS_DAHUA_PASSWORD` (root-600
+  `/etc/default/gps-dahua`, the raw form the dahua_reader also uses for digest auth); the
+  wrapper derives the encoding, so there's no second var to keep in sync.
 
 ## Operational traps (learned during Phase 0)
 
@@ -113,10 +115,10 @@ Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (
 - [x] `deploy/mediamtx.service`: added `EnvironmentFile=-/etc/default/gps-dahua` +
       `RuntimeDirectory=mediamtx` (0700), and pointed `ExecStart` at the render wrapper.
 - [x] `deploy/mediamtx-run.sh`: render wrapper — MediaMTX won't interpolate `${VAR}`, so
-      it substitutes `${GPS_DAHUA_PASSWORD_URLENC}` into the yaml at start and execs the
-      hub on the rendered `/run/mediamtx/mediamtx.yml` (validated on spare ports: config
-      loads, listeners start, no URL error). `GPS_DAHUA_PASSWORD_URLENC` added to the Pi
-      secret file (URL-encoded twin of the raw password).
+      it reads the single `GPS_DAHUA_PASSWORD` from the secret file, URL-encodes it,
+      substitutes the placeholder, and execs the hub on the rendered
+      `/run/mediamtx/mediamtx.yml` (validated on spare ports: config loads, listeners
+      start, no URL error).
 - [x] Confirmed `mediamtx.service` is enabled + active (config change just needs restart).
 - [x] Deployed + verified on the wire. All four cams pull H.264 at the C3 resolutions
       (`ffprobe` via the hub: sub = 704×480@15, `-hd` = 1280×720@30). On-demand confirmed
