@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cursorX, parseWaveform, seekTime, sMeter } from './radio'
+import { barsPath, cursorX, parseWaveform, seekTime, sMeter } from './radio'
 
 describe('sMeter', () => {
   it('returns null for missing readings', () => {
@@ -43,6 +43,27 @@ describe('parseWaveform', () => {
 
   it('clamps stray out-of-range values into [0, 1]', () => {
     expect(parseWaveform([-10, 300])).toEqual([0, 1])
+  })
+})
+
+describe('barsPath', () => {
+  it('is empty for no samples', () => {
+    expect(barsPath([])).toBe('')
+  })
+
+  it('emits one bar subpath per sample', () => {
+    const d = barsPath([0.5, 0.5, 0.5])
+    expect((d.match(/M/g) ?? []).length).toBe(3)
+  })
+
+  it('spans full height for a max sample and centers it', () => {
+    // sample 1 → h=100, y=(100-100)/2=0.
+    expect(barsPath([1])).toBe('M0.1 0.00h0.8v100.00h-0.8z')
+  })
+
+  it('floors silence to a hairline so the strip stays continuous', () => {
+    // sample 0 → h=2 (the floor), y=49.
+    expect(barsPath([0])).toBe('M0.1 49.00h0.8v2.00h-0.8z')
   })
 })
 

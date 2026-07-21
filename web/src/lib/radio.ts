@@ -18,6 +18,24 @@ export function parseWaveform(waveform: number[] | null | undefined): number[] {
   return waveform.map((v) => Math.max(0, Math.min(1, v / WAVEFORM_MAX)))
 }
 
+/**
+ * SVG path data for a waveform as centered vertical bars in a `0 0 N 100` viewBox.
+ *
+ * One `<path>` renders the whole strip (cheap DOM even at hundreds of bars); the
+ * player draws a second path from a played prefix to color it. Each bar sits in a
+ * 1-unit slot (0.8 wide, 0.1 gap each side), height = sample × 100 with a 2-unit
+ * floor so silence keeps a hairline. Pure so the strip stays presentational.
+ */
+export function barsPath(samples: number[]): string {
+  let d = ''
+  for (let i = 0; i < samples.length; i++) {
+    const h = Math.max(samples[i] * 100, 2)
+    const y = ((100 - h) / 2).toFixed(2)
+    d += `M${i + 0.1} ${y}h0.8v${h.toFixed(2)}h-0.8z`
+  }
+  return d
+}
+
 /** Clamp a value into [0, 1]. */
 function unit(x: number): number {
   return Math.max(0, Math.min(1, x))

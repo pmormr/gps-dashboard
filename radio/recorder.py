@@ -6,7 +6,8 @@ pure VOX gate (``radio/vox.py``); each opening becomes a WAV file with a
 ring-buffer pre-roll, and each close inserts one GPS-snapped
 ``radio_transmissions`` row. Design is R8 in ``plans/radio-platform-plan.md``.
 
-Each row also carries a compact ``waveform`` envelope — the per-block peaks
+Each row also carries a compact ``waveform`` envelope — sub-block peaks
+(``WAVEFORM_SUBBLOCKS`` per block, for time resolution past the block cadence)
 resampled + absolute-encoded (``radio/waveform.py``) at close. Storing it on the
 row means the player/log strip draw with no WAV re-decode and the waveform
 outlives the audio the retention pruner drops.
@@ -61,7 +62,7 @@ from common.timefmt import age_seconds, format_canonical
 from radio.levels import LevelKeeper
 from radio.paths import audio_dir
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
-from radio.waveform import WAVEFORM_BUCKETS, build_envelope
+from radio.waveform import WAVEFORM_BUCKETS, WAVEFORM_SUBBLOCKS, block_subpeaks, build_envelope
 
 SAMPLE_RATE = 48000
 BLOCK_SECONDS = 0.1
@@ -212,14 +213,19 @@ class Capture:
     peak: int = 0
 
     def write(self, block: bytes, sq: int, peak: int, n: int) -> None:
-        """Append one block (to the WAV or the RAM buffer) and fold its stats."""
+        """Append one block (to the WAV or the RAM buffer) and fold its stats.
+
+        The waveform envelope accumulates ``WAVEFORM_SUBBLOCKS`` peaks per block
+        (sub-block sampling) so its time resolution beats the VOX block cadence;
+        the whole-block ``peak`` still feeds the ``peak_dbfs`` stat.
+        """
         if self.writer is None:
             self.buffer.append((block, sq, peak, n))
         else:
             self.writer.writeframesraw(block)
         self.sq_sum += sq
         self.peak = max(self.peak, peak)
-        self.peaks.append(peak)
+        self.peaks.extend(block_subpeaks(block, WAVEFORM_SUBBLOCKS))
         self.frames += n
 
     def materialize(self) -> None:

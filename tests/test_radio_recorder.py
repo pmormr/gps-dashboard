@@ -17,6 +17,7 @@ from api.rigctld import RigctldError
 from radio.levels import LevelKeeper
 from radio.recorder import Capture, audio_rel_path, gps_snap, prune_selection, read_block
 from radio.vox import block_energy
+from radio.waveform import WAVEFORM_SUBBLOCKS
 
 
 @pytest.fixture
@@ -245,8 +246,9 @@ class TestCaptureClose:
         # ±8192 constant amplitude = quarter scale ≈ −12.0 dBFS for both stats.
         assert row['peak_dbfs'] == pytest.approx(-12.0, abs=0.1)
         assert row['rms_dbfs'] == pytest.approx(-12.0, abs=0.1)
-        # One block → one envelope bar; ≈−12 dBFS in the −64 window ≈ 207/255.
-        assert json.loads(row['waveform']) == [207]
+        # One block → WAVEFORM_SUBBLOCKS bars (sub-block sampling), each the same
+        # constant amplitude; ≈−12 dBFS in the −64 window ≈ 207/255.
+        assert json.loads(row['waveform']) == [207] * WAVEFORM_SUBBLOCKS
 
     def test_ram_buffer_materializes_byte_exact(self, conn, tmp_path, monkeypatch):
         audio_dir = tmp_path / 'audio'

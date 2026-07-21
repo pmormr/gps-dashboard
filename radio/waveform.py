@@ -17,14 +17,22 @@ frozen as a magic number.
 
 from __future__ import annotations
 
+import array
 import os
 from collections.abc import Sequence
 
 from radio.vox import amplitude_dbfs
 
-#: Buckets per stored envelope. Captures shorter than this many blocks (~9.6 s at
-#: 100 ms/block) yield fewer buckets — the renderer handles variable length.
-WAVEFORM_BUCKETS = 96
+#: Sub-windows measured per 100 ms VOX block. One whole-block peak would cap the
+#: envelope's time resolution at the block cadence (~10 bars/s), too coarse for
+#: the short transmissions that dominate the log; 5 sub-windows lift it to ~50/s.
+WAVEFORM_SUBBLOCKS = 5
+
+#: Buckets per stored envelope. At :data:`WAVEFORM_SUBBLOCKS` = 5 (~50 samples/s)
+#: a capture up to ~9.6 s stays at full sub-window resolution; longer captures
+#: resample down. Shorter captures yield fewer buckets — the renderer handles
+#: variable length. ~480 ints ≈ 2 KB/row, trivial beside the MB-scale WAV.
+WAVEFORM_BUCKETS = 480
 
 #: dBFS mapped to 0 (bar floor); 0 dBFS maps to 255 (bar ceiling). Default −64 tracks
 #: the isolator-era capture floor; env-overridable so it isn't a frozen magic number.
@@ -43,6 +51,33 @@ def _encode(peak: int) -> int:
     span = -WAVEFORM_FLOOR_DBFS
     frac = (amplitude_dbfs(float(peak)) - WAVEFORM_FLOOR_DBFS) / span
     return max(0, min(255, round(frac * 255)))
+
+
+def block_subpeaks(block: bytes, k: int) -> list[int]:
+    """Peak amplitude of each of ``k`` equal sub-windows of one S16_LE mono block.
+
+    Sub-block sampling lifts the envelope's time resolution above the VOX block
+    cadence (a single whole-block peak would cap it there). A trailing odd byte
+    (torn read) is ignored; an empty block yields ``k`` zeros.
+
+    Args:
+        block: Raw little-endian signed-16-bit mono samples.
+        k: Sub-windows to split the block into.
+
+    Returns:
+        ``k`` linear peak amplitudes (0..32768), in order.
+    """
+    samples = array.array('h')
+    usable = len(block) - (len(block) % 2)
+    samples.frombytes(block[:usable])
+    m = len(samples)
+    if m == 0:
+        return [0] * k
+    out: list[int] = []
+    for i in range(k):
+        window = samples[i * m // k : (i + 1) * m // k]
+        out.append(max(max(window), -min(window)) if window else 0)
+    return out
 
 
 def build_envelope(peaks: Sequence[int], buckets: int) -> list[int]:
