@@ -628,13 +628,19 @@ class TestTransmitConsole:
 
     def test_transmit_infers_repeater_pair_when_civ_blocked(self, client, monkeypatch, tmp_path):
         self._stub_render_and_key(monkeypatch, tmp_path)
-        monkeypatch.setattr(radio, 'rig_snapshot', lambda: (None, None, None))  # repeater: CI-V NAK
-        # Frozen last-online read + a matching staged pair (both bands known).
-        monkeypatch.setattr(radio, '_last_freq_hz', 146520000)
-        monkeypatch.setattr(radio, '_last_mode', 'FM')
-        monkeypatch.setattr(radio, '_staged_main_hz', 146520000)
-        monkeypatch.setattr(radio, '_staged_other_hz', 445000000)
-
+        _patch_rig(monkeypatch)  # FakeRig accepts the stage commands
+        # Stage a cross-band pair → the shared store remembers 146.520 + 445.000.
+        stage = client.post(
+            '/api/radio/stage_crossband',
+            json={
+                'a': {'freq_hz': 146520000, 'mode': 'FM'},
+                'b': {'freq_hz': 445000000, 'mode': 'FM'},
+                'main': 'a',
+            },
+        )
+        assert stage.status_code == 200
+        # Now in Repeater Mode: live reads fail, so the row is inferred from the store.
+        monkeypatch.setattr(radio, 'rig_snapshot', lambda: (None, None, None))
         resp = client.post('/api/radio/transmit', json={'text': 'KC3HEU', 'keyer': 'rts'})
         assert resp.status_code == 200
         tx_id = resp.get_json()['id']
@@ -646,30 +652,12 @@ class TestTransmitConsole:
 
     def test_transmit_repeater_main_only_without_matching_pair(self, client, monkeypatch, tmp_path):
         self._stub_render_and_key(monkeypatch, tmp_path)
+        _patch_rig(monkeypatch)
+        # A live status read seeds the main band only (no staged pair).
+        assert client.get('/api/radio/status').get_json()['online'] is True
         monkeypatch.setattr(radio, 'rig_snapshot', lambda: (None, None, None))
-        monkeypatch.setattr(radio, '_last_freq_hz', 146520000)
-        monkeypatch.setattr(radio, '_last_mode', 'FM')
-        monkeypatch.setattr(radio, '_staged_main_hz', None)  # no staged pair (manual setup)
-        monkeypatch.setattr(radio, '_staged_other_hz', None)
-
         resp = client.post('/api/radio/transmit', json={'text': 'KC3HEU', 'keyer': 'rts'})
         tx_id = resp.get_json()['id']
         page = client.get('/api/radio/transmissions').get_json()
         row = next(t for t in page['transmissions'] if t['id'] == tx_id)
         assert row['freq_hz'] == 146520000 and row['freq_b_hz'] is None
-
-
-def test_infer_freq_pair_current_stale_and_empty(monkeypatch):
-    monkeypatch.setattr(radio, '_last_freq_hz', 146520000)
-    monkeypatch.setattr(radio, '_last_mode', 'FM')
-    monkeypatch.setattr(radio, '_staged_main_hz', 146520000)
-    monkeypatch.setattr(radio, '_staged_other_hz', 445000000)
-    assert radio._infer_freq() == (146520000, 'FM', 445000000)  # pair still current
-
-    monkeypatch.setattr(radio, '_last_freq_hz', 147000000)  # retuned since staging
-    assert radio._infer_freq() == (147000000, 'FM', None)  # stale pair dropped
-
-    monkeypatch.setattr(radio, '_last_freq_hz', None)
-    monkeypatch.setattr(radio, '_last_mode', None)
-    monkeypatch.setattr(radio, '_staged_main_hz', None)
-    assert radio._infer_freq() == (None, None, None)  # nothing cached

@@ -511,6 +511,18 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_radio_transmissions_started
             ON radio_transmissions(started_utc);
 
+        -- One-row store (id=1) of the last-known rig frequency, shared across the
+        -- web app and the recorder process so a Repeater-Mode capture/transmission
+        -- (CI-V unreadable) can be tagged from the frozen last-online read + the
+        -- last staged cross-band pair. See radio/freqstate.py.
+        CREATE TABLE IF NOT EXISTS radio_freq_state (
+            id              INTEGER PRIMARY KEY CHECK (id = 1),
+            last_freq_hz    INTEGER,
+            last_mode       TEXT,
+            staged_main_hz  INTEGER,
+            staged_other_hz INTEGER
+        );
+
         -- Drone telemetry tier — aerial GPS tracks extracted from DJI footage by
         -- tools/import_drone.py (offline batch import, NOT the live MQTT path).
         -- One row per clip; canonical ms-UTC puts drone points on the same time

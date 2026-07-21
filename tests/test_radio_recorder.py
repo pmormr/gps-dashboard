@@ -7,6 +7,7 @@ import json
 import os
 import wave
 from array import array
+from collections import deque
 from datetime import UTC, datetime
 
 import pytest
@@ -14,6 +15,7 @@ import pytest
 import radio.recorder as recorder
 from api.db import init_db, now_canonical
 from api.rigctld import RigctldError
+from radio import freqstate
 from radio.levels import LevelKeeper
 from radio.recorder import Capture, audio_rel_path, gps_snap, prune_selection, read_block
 from radio.vox import block_energy
@@ -249,6 +251,25 @@ class TestCaptureClose:
         # One block → WAVEFORM_SUBBLOCKS bars (sub-block sampling), each the same
         # constant amplitude; ≈−12 dBFS in the −64 window ≈ 207/255.
         assert json.loads(row['waveform']) == [207] * WAVEFORM_SUBBLOCKS
+        assert row['freq_b_hz'] is None  # a normal single-band capture
+
+    def test_open_capture_infers_repeater_pair(self, conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(recorder, 'AUDIO_DIR', tmp_path / 'audio')
+        monkeypatch.setattr(recorder, 'rig_snapshot', lambda: (None, None, None))  # Repeater Mode
+        freqstate.remember_main(conn, 146520000, 'FM')
+        freqstate.remember_staged(conn, 146520000, 445000000)
+
+        cap = recorder.open_capture(conn, deque())
+        assert cap.freq_hz == 146520000
+        assert cap.mode == 'FM'
+        assert cap.freq_b_hz == 445000000  # the RX audio is the A+B mix
+
+    def test_open_capture_remembers_live_read(self, conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(recorder, 'AUDIO_DIR', tmp_path / 'audio')
+        monkeypatch.setattr(recorder, 'rig_snapshot', lambda: (147120000, 'FM', 1))  # normal mode
+        recorder.open_capture(conn, deque())
+        # A live read seeds the store, so a later blocked read can infer it.
+        assert freqstate.infer_freq(conn) == (147120000, 'FM', None)
 
     def test_ram_buffer_materializes_byte_exact(self, conn, tmp_path, monkeypatch):
         audio_dir = tmp_path / 'audio'

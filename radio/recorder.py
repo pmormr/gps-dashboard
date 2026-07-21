@@ -59,6 +59,7 @@ from api.db import get_connection, init_db
 from api.rigctld import Rigctld, RigctldError
 from common.proc import run
 from common.timefmt import age_seconds, format_canonical
+from radio import freqstate
 from radio.levels import LevelKeeper
 from radio.paths import audio_dir, tx_sentinel_path
 from radio.vox import GateEvent, VoxGate, amplitude_dbfs, block_energy, rms_dbfs
@@ -204,6 +205,7 @@ class Capture:
     dcd_main: int | None
     lat: float | None
     lon: float | None
+    freq_b_hz: int | None = None
     writer: wave.Wave_write | None = None
     buffer: list[RingEntry] = field(default_factory=list)
     peaks: list[int] = field(default_factory=list)
@@ -271,8 +273,8 @@ class Capture:
         conn.execute(
             'INSERT INTO radio_transmissions '
             '(started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, '
-            'peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform, freq_b_hz) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (
                 format_canonical(self.started),
                 format_canonical(ended),
@@ -286,6 +288,7 @@ class Capture:
                 self.lat,
                 self.lon,
                 waveform,
+                self.freq_b_hz,
             ),
         )
         conn.commit()
@@ -424,6 +427,13 @@ def open_capture(conn: Connection, ring: deque[RingEntry]) -> Capture:
     started = datetime.now(UTC) - timedelta(seconds=len(ring) * BLOCK_SECONDS)
     rel = audio_rel_path(started)
     freq, mode, dcd = rig_snapshot()
+    if freq is None:
+        # CI-V unreadable — in Repeater Mode the received audio is the A+B mix, so
+        # infer both bands from the frozen last-online read + the staged pair.
+        freq, mode, freq_b = freqstate.infer_freq(conn)
+    else:
+        freqstate.remember_main(conn, freq, mode)  # freeze this live read for later
+        freq_b = None
     lat, lon = gps_snap(conn)
     cap = Capture(
         part_path=AUDIO_DIR / (rel + '.part'),
@@ -432,6 +442,7 @@ def open_capture(conn: Connection, ring: deque[RingEntry]) -> Capture:
         freq_hz=freq,
         mode=mode,
         dcd_main=dcd,
+        freq_b_hz=freq_b,
         lat=lat,
         lon=lon,
     )
