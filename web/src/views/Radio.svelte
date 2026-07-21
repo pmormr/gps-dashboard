@@ -70,6 +70,23 @@
   let engine = $state('espeak')
   let sending = $state(false)
 
+  // Per-transmission tuning, persisted so a dialed-in rate/delay survives reloads.
+  // rate = TTS speed multiplier (50% = half speed); settle = post-key delay so the
+  // receiving rigs open squelch before the first word.
+  const loadPref = (k: string, d: number): number => {
+    const raw = localStorage.getItem(k)
+    const v = raw == null ? NaN : Number(raw)
+    return Number.isFinite(v) ? v : d
+  }
+  let ratePct = $state(loadPref('radioRatePct', 50))
+  let settleMs = $state(loadPref('radioSettleMs', 250))
+  $effect(() => {
+    localStorage.setItem('radioRatePct', String(ratePct))
+  })
+  $effect(() => {
+    localStorage.setItem('radioSettleMs', String(settleMs))
+  })
+
   let s = $state<RadioStatus | null>(null)
   let freqInput = $state<number | null>(null)
   let ctcss = $state(100)
@@ -160,7 +177,11 @@
     }
   }
 
-  async function doTransmit(body: { clip: string } | { text: string; engine?: string }): Promise<void> {
+  async function doTransmit(
+    body:
+      | { clip: string; settle_ms?: number }
+      | { text: string; engine?: string; rate?: number; settle_ms?: number },
+  ): Promise<void> {
     if (sending) return
     sending = true
     try {
@@ -175,9 +196,11 @@
   }
 
   function transmitText(): void {
-    if (ttsText.trim()) doTransmit({ text: ttsText, engine })
+    if (ttsText.trim())
+      doTransmit({ text: ttsText, engine, rate: ratePct / 100, settle_ms: settleMs })
   }
-  const transmitClip = (filename: string): Promise<void> => doTransmit({ clip: filename })
+  const transmitClip = (filename: string): Promise<void> =>
+    doTransmit({ clip: filename, settle_ms: settleMs })
 
   function onBlipToggle(): void {
     expandedId = null
@@ -283,6 +306,12 @@
     <button class="primary say" disabled={sending || !ttsText.trim()} onclick={transmitText}>
       Speak &amp; transmit
     </button>
+  </div>
+  <div class="tx-tune">
+    <div class="sub-label">Speech rate — {ratePct}% <span class="hint">· text-to-speech</span></div>
+    <input type="range" min="30" max="150" step="10" bind:value={ratePct} disabled={sending} />
+    <div class="sub-label">Key-up delay — {settleMs} ms</div>
+    <input type="range" min="0" max="1000" step="50" bind:value={settleMs} disabled={sending} />
   </div>
   {#if clips.length}
     <div class="sub-label">Soundboard</div>
@@ -845,6 +874,14 @@
   }
   .say {
     flex: 1;
+  }
+  .tx-tune {
+    margin-top: 4px;
+    margin-bottom: 4px;
+  }
+  .tx-tune .hint {
+    color: var(--text-dim);
+    font-weight: 400;
   }
   .board {
     display: grid;

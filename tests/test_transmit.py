@@ -103,9 +103,17 @@ def test_espeak_argv_shape() -> None:
 
 
 def test_piper_argv_text_on_stdin() -> None:
-    # Text is NOT in argv (piper reads stdin) — only model + output.
+    # Text is NOT in argv (piper reads stdin) — only model, length-scale, output.
     argv = transmit.piper_argv(Path('/models/lessac.onnx'), Path('/tmp/out.wav'))
-    assert argv == ['piper', '--model', '/models/lessac.onnx', '--output_file', '/tmp/out.wav']
+    assert argv == [
+        'piper',
+        '--model',
+        '/models/lessac.onnx',
+        '--length-scale',
+        '1',
+        '--output_file',
+        '/tmp/out.wav',
+    ]
 
 
 def test_normalize_argv_pins_tx_format() -> None:
@@ -156,6 +164,24 @@ def test_render_tts_rejects_unknown_engine(tmp_path: Path) -> None:
 def test_render_tts_piper_without_model_raises(tmp_path: Path) -> None:
     with pytest.raises(transmit.TransmitError, match='model'):
         transmit.render_tts('hello', tmp_path / 'out.wav', engine='piper', piper_model='')
+
+
+def test_render_tts_rate_scales_espeak_wpm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(transmit, '_run_tool', lambda argv, **k: calls.append(argv))
+    transmit.render_tts('hello', tmp_path / 'o.wav', engine='espeak', rate=0.5)
+    espeak = calls[0]  # calls[1] is normalize
+    assert espeak[espeak.index('-s') + 1] == str(round(transmit.ESPEAK_WPM * 0.5))
+
+
+def test_render_tts_rate_scales_piper_length(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(transmit, '_run_tool', lambda argv, **k: calls.append(argv))
+    transmit.render_tts('hi', tmp_path / 'o.wav', engine='piper', piper_model='/m.onnx', rate=0.5)
+    piper = calls[0]
+    assert piper[piper.index('--length-scale') + 1] == '2'  # 1 / 0.5, %g-formatted
 
 
 # --- self-TX logging: sentinel, naming, envelope, archive+row -------------------------

@@ -46,9 +46,10 @@ from radio.waveform import (
 #: playback cannot sit on the air longer than this. Env-overridable in the unit.
 MAX_TX_SECONDS = float(os.environ.get('GPS_RADIO_MAX_TX_SECONDS', '120'))
 
-#: Delay after keying before audio starts — the rig needs a beat to come up on TX
-#: or it clips the first syllable. Env-overridable.
-TX_SETTLE_SECONDS = float(os.environ.get('GPS_RADIO_TX_SETTLE_SECONDS', '0.2'))
+#: Default delay after keying before audio starts — the receiving rigs need a beat
+#: to open squelch or they clip the first word. Field-measured ~250 ms; the UI
+#: overrides it per transmission, this is the fallback + env default.
+TX_SETTLE_SECONDS = float(os.environ.get('GPS_RADIO_TX_SETTLE_SECONDS', '0.25'))
 
 #: ALSA playback device (the Digirig codec's playback substream; full-duplex, so
 #: it coexists with the recorder's dsnoop capture). ``plughw`` handles conversion.
@@ -186,9 +187,21 @@ def espeak_argv(
     return ['espeak-ng', '-v', voice, '-s', str(wpm), '-w', str(out), text]
 
 
-def piper_argv(model: Path, out: Path) -> list[str]:
-    """piper argv rendering to WAV ``out`` (the text is supplied on stdin)."""
-    return ['piper', '--model', str(model), '--output_file', str(out)]
+def piper_argv(model: Path, out: Path, length_scale: float = 1.0) -> list[str]:
+    """piper argv rendering to WAV ``out`` (the text is supplied on stdin).
+
+    ``length_scale`` stretches the timing — >1 is slower — the piper analogue of
+    espeak's words-per-minute (``length_scale = 1 / rate``).
+    """
+    return [
+        'piper',
+        '--model',
+        str(model),
+        '--length-scale',
+        f'{length_scale:g}',
+        '--output_file',
+        str(out),
+    ]
 
 
 def normalize_argv(src: Path, dst: Path, loudnorm: str = TX_LOUDNORM) -> list[str]:
@@ -235,7 +248,12 @@ def _run_tool(
 
 
 def render_tts(
-    text: str, out: Path, *, engine: str = 'espeak', piper_model: str = PIPER_MODEL
+    text: str,
+    out: Path,
+    *,
+    engine: str = 'espeak',
+    piper_model: str = PIPER_MODEL,
+    rate: float = 1.0,
 ) -> Path:
     """Render ``text`` to a normalized 48 kHz mono WAV at ``out``.
 
@@ -247,6 +265,9 @@ def render_tts(
         out: Destination WAV path for the normalized render.
         engine: ``'espeak'`` (default, robotic) or ``'piper'`` (natural).
         piper_model: Path to the piper voice model; required for the piper engine.
+        rate: Speech-speed multiplier — 1.0 is each engine's normal, 0.5 half
+            speed. Maps to espeak words-per-minute (``ESPEAK_WPM * rate``) and to
+            piper's length scale (``1 / rate``).
 
     Returns:
         ``out``.
@@ -261,9 +282,9 @@ def render_tts(
     if engine == 'piper':
         if not piper_model:
             raise TransmitError('piper engine selected but no voice model configured')
-        _run_tool(piper_argv(Path(piper_model), raw), stdin_text=text)
+        _run_tool(piper_argv(Path(piper_model), raw, length_scale=1.0 / rate), stdin_text=text)
     elif engine == 'espeak':
-        _run_tool(espeak_argv(text, raw))
+        _run_tool(espeak_argv(text, raw, wpm=max(1, round(ESPEAK_WPM * rate))))
     else:
         raise TransmitError(f'unknown TTS engine {engine!r}')
     _run_tool(normalize_argv(raw, out))

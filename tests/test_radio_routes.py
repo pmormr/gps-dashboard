@@ -368,6 +368,40 @@ class TestTransmitConsole:
         resp = client.post('/api/radio/transmit', json={'text': 'hi', 'engine': 'festival'})
         assert resp.status_code == 400
 
+    def test_transmit_rejects_bad_settle_and_rate(self, client):
+        assert (
+            client.post('/api/radio/transmit', json={'text': 'hi', 'settle_ms': 9000}).status_code
+            == 400
+        )
+        assert client.post('/api/radio/transmit', json={'text': 'hi', 'rate': 5}).status_code == 400
+
+    def test_transmit_passes_settle_and_rate_through(self, client, monkeypatch, tmp_path):
+        monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
+        seen: dict[str, float] = {}
+
+        def fake_render(text, out, *, engine='espeak', piper_model='', rate=1.0):
+            seen['rate'] = rate
+            with wave.open(str(out), 'wb') as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(array('h', [1000, -1000] * 4800).tobytes())
+            return out
+
+        def fake_transmit(wav, *, settle_s=0.25, max_seconds=120):
+            seen['settle_s'] = settle_s
+
+        monkeypatch.setattr(radio.transmit, 'render_tts', fake_render)
+        monkeypatch.setattr(radio.transmit, 'transmit_wav', fake_transmit)
+        monkeypatch.setattr(radio, 'rig_snapshot', lambda: (146520000, 'FM', None))
+
+        resp = client.post(
+            '/api/radio/transmit', json={'text': 'hi KC3HEU', 'rate': 0.5, 'settle_ms': 400}
+        )
+        assert resp.status_code == 200
+        assert seen['rate'] == 0.5
+        assert seen['settle_s'] == 0.4  # 400 ms → 0.4 s
+
     def test_transmit_unknown_clip_404(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv('GPS_RADIO_SOUNDBOARD_DIR', str(tmp_path / 'sb'))
         assert client.post('/api/radio/transmit', json={'clip': 'nope.wav'}).status_code == 404
@@ -375,7 +409,7 @@ class TestTransmitConsole:
     def test_transmit_tts_logs_tx_row(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv('GPS_RADIO_AUDIO_DIR', str(tmp_path / 'audio'))
 
-        def fake_render(text, out, *, engine='espeak', piper_model=''):
+        def fake_render(text, out, *, engine='espeak', piper_model='', rate=1.0):
             # Stand in for espeak + ffmpeg: write a valid 0.2 s WAV to `out`.
             with wave.open(str(out), 'wb') as w:
                 w.setnchannels(1)

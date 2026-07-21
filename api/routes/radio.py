@@ -292,7 +292,11 @@ def do_transmit():
 
     Body is exactly one of:
       - ``{"clip": "<filename>"}`` — a staged soundboard file, or
-      - ``{"text": "...", "engine"?: "espeak"|"piper"}`` — synthesized speech.
+      - ``{"text": "...", "engine"?: "espeak"|"piper", "rate"?: <0.2..2.0>}`` —
+        synthesized speech (``rate`` is a speed multiplier, <1 slower).
+
+    Both forms accept ``"settle_ms"`` (0..2000, default 250) — the post-key delay
+    before audio starts, so the receiving rigs open squelch before the first word.
 
     Keys the rig through the never-stuck-keyed guard (R11), plays the normalized
     audio out the Digirig, and logs the clean source as an ``is_tx`` row. Callsign
@@ -311,6 +315,16 @@ def do_transmit():
         return error("'engine' must be 'espeak' or 'piper'", 400)
     if text and not isinstance(text, str):
         return error("'text' must be a string", 400)
+    settle_ms = data.get('settle_ms', 250)
+    if (
+        not isinstance(settle_ms, (int, float))
+        or isinstance(settle_ms, bool)
+        or not 0 <= settle_ms <= 2000
+    ):
+        return error("'settle_ms' must be a number in 0..2000", 400)
+    rate = data.get('rate', 1.0)
+    if not isinstance(rate, (int, float)) or isinstance(rate, bool) or not 0.2 <= rate <= 2.0:
+        return error("'rate' must be a number in 0.2..2.0", 400)
 
     if not _TX_LOCK.acquire(blocking=False):
         return jsonify({'ok': False, 'error': 'a transmission is already in progress'}), 409
@@ -323,11 +337,11 @@ def do_transmit():
                     return error('unknown soundboard clip', 404)
                 transmit.prepare_clip(src, wav)
             else:
-                transmit.render_tts(text, wav, engine=engine)
+                transmit.render_tts(text, wav, engine=engine, rate=rate)
 
             started = datetime.now(UTC)
             with transmit.tx_active():
-                transmit.transmit_wav(wav)
+                transmit.transmit_wav(wav, settle_s=settle_ms / 1000)
             freq, mode, _ = rig_snapshot()
             conn = get_connection()
             lat, lon = gps_snap(conn)

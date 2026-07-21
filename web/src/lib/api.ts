@@ -493,9 +493,12 @@ export function getSoundboard(): Promise<TransmitConfig> {
 }
 
 /** Transmit a soundboard clip or a TTS phrase; resolves to the new log row id.
+ *  `settle_ms` = post-key delay before audio; `rate` = TTS speed (<1 slower).
  *  Throws Error(message) on a rig refusal / busy transmit / render failure. */
 export function transmitRadio(
-  body: { clip: string } | { text: string; engine?: string },
+  body:
+    | { clip: string; settle_ms?: number }
+    | { text: string; engine?: string; rate?: number; settle_ms?: number },
 ): Promise<{ ok: boolean; id: number }> {
   return sendJSON<{ ok: boolean; id: number }>('/api/radio/transmit', 'POST', body)
 }
