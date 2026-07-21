@@ -63,14 +63,19 @@ The fleet (`FLEET` in `sensors/dahua_reader.py`; Hikvision `.55/.56` out of scop
 
 ## Operational traps
 
-- **MediaMTX rejects the raw password in the RTSP URL (learned Phase 1).** The Dahua
-  password has a char illegal in a URL's userinfo; MediaMTX's Go `url.Parse` errors
-  `'rtsp://…' is not a valid URL` and the service **crash-loops** (taking the radio
-  stream down with it), where `ffprobe`'s laxer parser tolerated the same URL in Phase 0.
-  Fix: a **URL-percent-encoded** twin `GPS_DAHUA_PASSWORD_URLENC` in the root-600
-  `/etc/default/gps-dahua` (a manual, out-of-git line — the deploy hook doesn't touch it),
-  referenced by the yaml; the raw `GPS_DAHUA_PASSWORD` stays for the dahua_reader's digest
-  auth. Keep both in sync on a password rotation.
+- **MediaMTX v1.19.2 does not interpolate `${VAR}` in config values (learned Phase 1).**
+  C5 assumed it would; it doesn't — a `${…}` left in a `source:` URL reaches Go's
+  `url.Parse` literally (the `{`/`}` are illegal) and the service **crash-loops** with
+  `'rtsp://…' is not a valid URL`, taking the radio stream down with it. Verified with a
+  throwaway config: `${MYTESTVAR}` came through untouched. Fix: `mediamtx.yml` is a
+  **template**; `deploy/mediamtx-run.sh` substitutes the placeholder at service start and
+  runs the hub on a rendered copy in the unit's tmpfs `RuntimeDirectory` (0600).
+- **The camera password isn't URL-safe.** It has a char illegal in a URL's userinfo
+  (`ffprobe` tolerated it in Phase 0; Go's `url.Parse` does not). So the wrapper
+  substitutes a **URL-percent-encoded** twin `GPS_DAHUA_PASSWORD_URLENC` — a second
+  root-600 line in `/etc/default/gps-dahua` (manual, out-of-git; the deploy hook doesn't
+  touch it), alongside the raw `GPS_DAHUA_PASSWORD` the dahua_reader keeps for digest auth.
+  Keep both in sync on a password rotation.
 
 ## Operational traps (learned during Phase 0)
 
@@ -105,14 +110,18 @@ Schema verified against the v1.19.2 reference `mediamtx.yml`: `sourceOnDemand` (
 - [x] `deploy/mediamtx.yml`: added 8 on-demand pull paths — `cam-<pos>` (sub, glance) +
       `cam-<pos>-hd` (third, 720p expand/driving) for front/blind-left/blind-right/rear.
       `rtspTransport: tcp`. Validated the YAML parses (8 paths, `${…}` preserved literal).
-- [x] `deploy/mediamtx.service`: added `EnvironmentFile=-/etc/default/gps-dahua` (leading
-      `-` = optional) so the `${GPS_DAHUA_PASSWORD}` interpolation resolves.
+- [x] `deploy/mediamtx.service`: added `EnvironmentFile=-/etc/default/gps-dahua` +
+      `RuntimeDirectory=mediamtx` (0700), and pointed `ExecStart` at the render wrapper.
+- [x] `deploy/mediamtx-run.sh`: render wrapper — MediaMTX won't interpolate `${VAR}`, so
+      it substitutes `${GPS_DAHUA_PASSWORD_URLENC}` into the yaml at start and execs the
+      hub on the rendered `/run/mediamtx/mediamtx.yml` (validated on spare ports: config
+      loads, listeners start, no URL error). `GPS_DAHUA_PASSWORD_URLENC` added to the Pi
+      secret file (URL-encoded twin of the raw password).
+- [x] Confirmed `mediamtx.service` is enabled + active (config change just needs restart).
 - [ ] Push → hook restarts `mediamtx`. Verify pull-back from the LAN:
       `rtsp://pmpi1:8554/cam-front` (VLC/ffprobe) and browser WHEP at
       `http://pmpi1:8889/cam-front`. Confirm on-demand: the pull opens on connect, closes
       after idle (watch the mediamtx journal).
-- [ ] Confirm `mediamtx.service` is enabled (radio 2f already runs it; a config-only
-      change just needs the restart).
 
 ## Phase 2 — Video WHEP client
 
