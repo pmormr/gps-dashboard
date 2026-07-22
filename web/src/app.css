@@ -12,6 +12,9 @@
   --err: #ef5350;
   --nav-h: 56px;
   --sidebar-w: 220px;
+  /* Desktop content cap: readability over raw width-fill on a parked laptop
+     (~1440px). Control/prose pages cap here; dense tables opt out via .app-page--wide. */
+  --content-max: 1140px;
 
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
@@ -41,6 +44,30 @@ a {
 /* Shared view primitives */
 .muted {
   color: var(--text-dim);
+}
+
+/* Desktop content layout. A flowing/capped page: opt-in per view (Map/Drive stay
+   full-bleed). Caps width for readability and centers under the sidebar; `--wide`
+   lets a dense table fill the available width instead. */
+.app-page {
+  max-width: var(--content-max);
+  margin-inline: auto;
+  /* A query container so views lay out by their own width, not the viewport —
+     robust to the sidebar and any second pane. Views use `@container` inside. */
+  container-type: inline-size;
+}
+.app-page--wide {
+  max-width: none;
+}
+
+/* Responsive panel grid: multi-column on desktop, one column on phones, with no
+   media query — auto-fit collapses columns as width shrinks. Callers tune column
+   count by setting `--dash-min` (larger min ⇒ fewer, wider columns). */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--dash-min, 340px), 1fr));
+  gap: 16px;
+  align-items: start;
 }
 
 /* Small-caps section-label recipe. Compose with a layout class for spacing,

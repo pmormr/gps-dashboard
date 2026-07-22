@@ -72,7 +72,8 @@
   let txLoading = $state(false)
   let txError = $state('')
   let hideBlips = $state(false)
-  let expandedId = $state<number | null>(null)
+  // The log is master-detail: the selected row plays + shows meta in the detail pane.
+  let selectedId = $state<number | null>(null)
 
   // Transmit console (operator-clicked TX). Soundboard clips + TTS text; every
   // send keys the rig, so `sending` locks the whole console for the duration.
@@ -387,12 +388,12 @@
   }
 
   function onBlipToggle(): void {
-    expandedId = null
+    selectedId = null
     loadTxs(true)
   }
 
-  const toggleTx = (id: number): void => {
-    expandedId = expandedId === id ? null : id
+  const selectTx = (id: number): void => {
+    selectedId = id
   }
 
   const txTime = (iso: string): string =>
@@ -428,6 +429,7 @@
 
   const freqMhz = (hz: number | undefined): string => (hz == null ? '—' : (hz / 1e6).toFixed(3))
   const smeter = $derived(s?.online ? sMeter(s.rawstr) : null)
+  const selectedTx = $derived(txs.find((t) => t.id === selectedId) ?? null)
 
   // The rig answered but rejects CI-V (RPRT -9) — i.e. it's in Repeater Mode. All
   // CI-V writes (tune, tone, power) are silently ignored until it's exited on the
@@ -443,6 +445,7 @@
       : `${freqMhz(t.freq_hz ?? undefined)} ${t.mode ?? ''}${t.dcd_main !== 1 ? ' ?' : ''}`.trim()
 </script>
 
+<div class="app-page">
 <header class="page-head">
   <h1>Radio — Icom ID-5100A</h1>
   <p class="muted">Main band · CI-V control</p>
@@ -491,6 +494,8 @@
   </div>
 </div>
 
+<div class="rig-cols">
+<div class="rig-col">
 <div class="card">
   <div class="card-title eyebrow">Listen live</div>
   <div class="listen-row">
@@ -591,73 +596,8 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="card-title eyebrow">Transmissions{txTotal ? ` — ${txTotal}` : ''}</div>
-  <div class="tx-controls">
-    <label class="tx-toggle">
-      <input type="checkbox" bind:checked={hideBlips} onchange={onBlipToggle} />
-      Hide blips (&lt;{BLIP_S}s)
-    </label>
-    <button onclick={() => loadTxs(true)} disabled={txLoading}>Refresh</button>
-  </div>
-  {#if txError}
-    <div class="note">Could not load the log — {txError}</div>
-  {:else if txs.length === 0}
-    <div class="note">{txLoading ? 'Loading…' : 'No captures yet.'}</div>
-  {/if}
-  <div class="tx-list">
-    {#each txs as t (t.id)}
-      <div class="tx-item">
-        <button class="tx-row" class:open={expandedId === t.id} onclick={() => toggleTx(t.id)}>
-          <span class="tx-line">
-            {#if t.is_tx === 1}<span class="tx-badge">TX</span>{/if}
-            <span class="tx-time">{txTime(t.started_utc)}</span>
-            <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
-            <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>{txTag(t)}</span>
-            {#if !t.has_audio}<span class="tx-pruned">no audio</span>{/if}
-          </span>
-          {#if t.waveform && expandedId !== t.id}
-            <span class="tx-strip"><WaveformStrip samples={parseWaveform(t.waveform)} height={20} /></span>
-          {/if}
-        </button>
-        {#if expandedId === t.id}
-          <div class="tx-detail">
-            {#if t.has_audio}
-              <WaveformPlayer
-                id={t.id}
-                durationS={t.duration_s}
-                samples={parseWaveform(t.waveform)}
-              />
-            {:else}
-              <div class="note">Audio pruned by retention — metadata only.</div>
-            {/if}
-            <div class="tx-meta">
-              <span>Peak {fmtDb(t.peak_dbfs)}</span>
-              <span>RMS {fmtDb(t.rms_dbfs)}</span>
-              <span>Main squelch {t.dcd_main === 1 ? 'open — tag confirmed' : 'closed — tag unconfirmed'}</span>
-              <span
-                >{t.lat != null && t.lon != null
-                  ? `${t.lat.toFixed(5)}, ${t.lon.toFixed(5)}`
-                  : 'no GPS fix'}</span
-              >
-            </div>
-          </div>
-        {/if}
-      </div>
-    {/each}
-  </div>
-  {#if txs.length < txTotal}
-    <button class="tx-more" onclick={() => loadTxs(false)} disabled={txLoading}>
-      {txLoading ? 'Loading…' : `Load more (${txTotal - txs.length} older)`}
-    </button>
-  {/if}
-  <div class="note">
-    Freq/mode tag the main band at capture start; ? = the main squelch was closed, so the audio
-    may be sub-band traffic or local noise. “A ↔ B · repeater” = a cross-band transmission that
-    went out on both bands (freqs inferred — CI-V can't be read in Repeater Mode).
-  </div>
 </div>
-
+<div class="rig-col rig-col--wide">
 <div class="card">
   <div class="card-title eyebrow">Tune</div>
   <div class="field">
@@ -882,14 +822,129 @@
   </div>
 </div>
 
+</div>
+</div>
+
+<div class="card log">
+  <div class="card-title eyebrow">Transmissions{txTotal ? ` — ${txTotal}` : ''}</div>
+  <div class="tx-controls">
+    <label class="tx-toggle">
+      <input type="checkbox" bind:checked={hideBlips} onchange={onBlipToggle} />
+      Hide blips (&lt;{BLIP_S}s)
+    </label>
+    <button onclick={() => loadTxs(true)} disabled={txLoading}>Refresh</button>
+  </div>
+  {#if txError}
+    <div class="note">Could not load the log — {txError}</div>
+  {:else if txs.length === 0}
+    <div class="note">{txLoading ? 'Loading…' : 'No captures yet.'}</div>
+  {/if}
+  <div class="log-md">
+    <div class="log-list">
+      {#each txs as t (t.id)}
+        <button class="tx-row" class:selected={selectedId === t.id} onclick={() => selectTx(t.id)}>
+          <span class="tx-line">
+            {#if t.is_tx === 1}<span class="tx-badge">TX</span>{/if}
+            <span class="tx-time">{txTime(t.started_utc)}</span>
+            <span class="tx-dur">{t.duration_s.toFixed(1)}s</span>
+            <span class="tx-tag" class:unconfirmed={t.dcd_main !== 1}>{txTag(t)}</span>
+            {#if !t.has_audio}<span class="tx-pruned">no audio</span>{/if}
+          </span>
+          {#if t.waveform}
+            <span class="tx-strip"
+              ><WaveformStrip samples={parseWaveform(t.waveform)} height={20} /></span
+            >
+          {/if}
+        </button>
+      {/each}
+      {#if txs.length < txTotal}
+        <button class="tx-more" onclick={() => loadTxs(false)} disabled={txLoading}>
+          {txLoading ? 'Loading…' : `Load more (${txTotal - txs.length} older)`}
+        </button>
+      {/if}
+    </div>
+    <div class="log-detail">
+      {#if selectedTx}
+        {#if selectedTx.has_audio}
+          <WaveformPlayer
+            id={selectedTx.id}
+            durationS={selectedTx.duration_s}
+            samples={parseWaveform(selectedTx.waveform)}
+          />
+        {:else}
+          <div class="note">Audio pruned by retention — metadata only.</div>
+        {/if}
+        <div class="tx-meta">
+          <span>Peak {fmtDb(selectedTx.peak_dbfs)}</span>
+          <span>RMS {fmtDb(selectedTx.rms_dbfs)}</span>
+          <span
+            >Main squelch {selectedTx.dcd_main === 1
+              ? 'open — tag confirmed'
+              : 'closed — tag unconfirmed'}</span
+          >
+          <span
+            >{selectedTx.lat != null && selectedTx.lon != null
+              ? `${selectedTx.lat.toFixed(5)}, ${selectedTx.lon.toFixed(5)}`
+              : 'no GPS fix'}</span
+          >
+        </div>
+      {:else}
+        <div class="note log-empty">Select a transmission to play it and see details.</div>
+      {/if}
+    </div>
+  </div>
+  <div class="note">
+    Freq/mode tag the main band at capture start; ? = the main squelch was closed, so the audio
+    may be sub-band traffic or local noise. “A ↔ B · repeater” = a cross-band transmission that
+    went out on both bands (freqs inferred — CI-V can't be read in Repeater Mode).
+  </div>
+</div>
+</div>
+
 <Toast c={toaster} />
 
 <style>
+  .app-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  /* Operate (Listen · Transmit · log) beside Configure (Tune…Power): one column
+     on a phone, two on a laptop. Container query keys off the page's own width,
+     so the sidebar doesn't fool it. The operate column runs wider (the log). */
+  .rig-cols {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .rig-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  /* On a laptop the operate column (Listen · Transmit) stays a single column,
+     while the configure panels fill the rest as a balanced two-column masonry —
+     packing their uneven heights instead of leaving a tall void beside them. */
+  @container (min-width: 760px) {
+    .rig-cols {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr);
+    }
+    .rig-col--wide {
+      display: block;
+      columns: 2;
+      column-gap: 16px;
+    }
+    .rig-col--wide > .card {
+      break-inside: avoid;
+      margin-bottom: 16px;
+    }
+  }
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    margin-bottom: 16px;
     padding: 14px;
   }
   .card-title {
@@ -1096,12 +1151,43 @@
   .tx-controls button {
     flex: none;
   }
-  .tx-list {
+  /* The log is master-detail: a scrollable list beside a sticky player/detail
+     pane on a laptop, stacked on a phone. Bounded height keeps a long log from
+     driving the whole page's scroll. */
+  .log-md {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  @container (min-width: 780px) {
+    .log-md {
+      grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+    }
+  }
+  .log-list {
     display: flex;
     flex-direction: column;
+    max-height: 440px;
+    overflow-y: auto;
+    min-width: 0;
   }
-  .tx-item + .tx-item {
+  .tx-row + .tx-row {
     border-top: 1px solid var(--border);
+  }
+  .log-detail {
+    min-width: 0;
+  }
+  @container (min-width: 780px) {
+    .log-detail {
+      position: sticky;
+      top: 8px;
+      align-self: start;
+    }
+  }
+  .log-empty {
+    padding: 20px 8px;
+    text-align: center;
   }
   .tx-row {
     display: flex;
@@ -1110,8 +1196,8 @@
     width: 100%;
     background: none;
     border: none;
-    border-radius: 0;
-    padding: 10px 2px;
+    border-radius: 6px;
+    padding: 10px 8px;
     text-align: left;
     font-variant-numeric: tabular-nums;
   }
@@ -1126,8 +1212,8 @@
     width: 100%;
     opacity: 0.85;
   }
-  .tx-row.open {
-    color: var(--accent);
+  .tx-row.selected {
+    background: var(--accent-dim);
   }
   .tx-time {
     font-size: 13px;
@@ -1153,9 +1239,6 @@
     border-radius: 4px;
     padding: 1px 5px;
     white-space: nowrap;
-  }
-  .tx-detail {
-    padding: 2px 2px 12px;
   }
   .tx-meta {
     display: flex;
