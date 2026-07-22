@@ -59,8 +59,47 @@
   }
 
   const snrText = (p: SatPass): string => (p.max_snr != null ? `${p.max_snr.toFixed(0)} dB·Hz` : '—')
+
+  // Desktop table sort. Chronological (rise) by default; peak/signal default to
+  // descending (best passes first). Phone keeps the same order via the cards.
+  type SortKey = 'sat' | 'rise' | 'peak' | 'dur' | 'sig'
+  let sortKey = $state<SortKey>('rise')
+  let sortDir = $state(1)
+
+  function sortBy(k: SortKey): void {
+    if (sortKey === k) {
+      sortDir = -sortDir
+    } else {
+      sortKey = k
+      sortDir = k === 'peak' || k === 'sig' ? -1 : 1
+    }
+  }
+  const ind = (k: SortKey): string => (sortKey === k ? (sortDir < 0 ? ' ↓' : ' ↑') : '')
+
+  const numKey = (p: SatPass): number => {
+    switch (sortKey) {
+      case 'peak':
+        return p.peak_el
+      case 'dur':
+        return p.duration_s
+      case 'sig':
+        return p.max_snr ?? -Infinity
+      default:
+        return p.rise_unix
+    }
+  }
+  const sortedPasses = $derived(
+    data == null
+      ? []
+      : [...data.passes].sort((a, b) =>
+          sortKey === 'sat'
+            ? a.name.localeCompare(b.name) * sortDir
+            : (numKey(a) - numKey(b)) * sortDir,
+        ),
+  )
 </script>
 
+<div class="app-page">
 <header class="page-head">
   <h1>Sky</h1>
   <p class="muted">
@@ -103,43 +142,96 @@
         : 'No orbits fit yet — a few hours of logged satellite observations are needed first.'}
     </div>
   {:else}
-    {#each data.passes as p (`${p.gnssid}-${p.svid}-${p.rise_unix}`)}
-      {@const w = whenLabel(p)}
-      <div class="pass">
-        <div class="pass-head">
-          <span class="sat">
-            <span class="sw" style="background:{gnssColor(p.gnssid)}"></span>{p.name}
-          </span>
-          <span class="sys muted">{p.system}</span>
-          <span class="when {w.cls}">{w.text}</span>
-        </div>
-        <div class="legs">
-          <div class="leg">
-            <div class="leg-name">Rise</div>
-            <div class="leg-time">{clock(p.rise_unix)}</div>
-            <div class="leg-sub muted">{compass(p.rise_az)} · {p.rise_az.toFixed(0)}°</div>
+    <!-- Desktop: a dense sortable table (one row per pass). -->
+    <div class="passes-table">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" class:sorted={sortKey === 'sat'} onclick={() => sortBy('sat')}
+              >Satellite{ind('sat')}</th
+            >
+            <th>System</th>
+            <th class="sortable" class:sorted={sortKey === 'rise'} onclick={() => sortBy('rise')}
+              >When{ind('rise')}</th
+            >
+            <th>Rise</th>
+            <th class="sortable" class:sorted={sortKey === 'peak'} onclick={() => sortBy('peak')}
+              >Peak{ind('peak')}</th
+            >
+            <th>Set</th>
+            <th class="sortable" class:sorted={sortKey === 'dur'} onclick={() => sortBy('dur')}
+              >Dur{ind('dur')}</th
+            >
+            <th class="sortable" class:sorted={sortKey === 'sig'} onclick={() => sortBy('sig')}
+              >Signal{ind('sig')}</th
+            >
+          </tr>
+        </thead>
+        <tbody>
+          {#each sortedPasses as p (`${p.gnssid}-${p.svid}-${p.rise_unix}`)}
+            {@const w = whenLabel(p)}
+            <tr>
+              <td class="sat-cell">
+                <span class="sw" style="background:{gnssColor(p.gnssid)}"></span>{p.name}
+              </td>
+              <td class="muted">{p.system}</td>
+              <td class="when {w.cls}">{w.text}</td>
+              <td>{clock(p.rise_unix)} <span class="az muted">{compass(p.rise_az)}</span></td>
+              <td>
+                <b class="peak-el">{p.peak_el.toFixed(0)}°</b>
+                {clock(p.peak_unix)}
+                <span class="az muted">{compass(p.peak_az)}</span>
+              </td>
+              <td>{clock(p.set_unix)} <span class="az muted">{compass(p.set_az)}</span></td>
+              <td>{humanGap(p.duration_s)}</td>
+              <td>{snrText(p)}{#if p.used}<span class="used"> · used</span>{/if}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Phone: the card layout stays first-class. -->
+    <div class="passes-cards">
+      {#each sortedPasses as p (`${p.gnssid}-${p.svid}-${p.rise_unix}`)}
+        {@const w = whenLabel(p)}
+        <div class="pass">
+          <div class="pass-head">
+            <span class="sat">
+              <span class="sw" style="background:{gnssColor(p.gnssid)}"></span>{p.name}
+            </span>
+            <span class="sys muted">{p.system}</span>
+            <span class="when {w.cls}">{w.text}</span>
           </div>
-          <div class="leg peak">
-            <div class="leg-name">Peak {p.peak_el.toFixed(0)}°</div>
-            <div class="leg-time">{clock(p.peak_unix)}</div>
-            <div class="leg-sub muted">{compass(p.peak_az)} · {p.peak_az.toFixed(0)}°</div>
+          <div class="legs">
+            <div class="leg">
+              <div class="leg-name">Rise</div>
+              <div class="leg-time">{clock(p.rise_unix)}</div>
+              <div class="leg-sub muted">{compass(p.rise_az)} · {p.rise_az.toFixed(0)}°</div>
+            </div>
+            <div class="leg peak">
+              <div class="leg-name">Peak {p.peak_el.toFixed(0)}°</div>
+              <div class="leg-time">{clock(p.peak_unix)}</div>
+              <div class="leg-sub muted">{compass(p.peak_az)} · {p.peak_az.toFixed(0)}°</div>
+            </div>
+            <div class="leg">
+              <div class="leg-name">Set</div>
+              <div class="leg-time">{clock(p.set_unix)}</div>
+              <div class="leg-sub muted">{compass(p.set_az)} · {p.set_az.toFixed(0)}°</div>
+            </div>
           </div>
-          <div class="leg">
-            <div class="leg-name">Set</div>
-            <div class="leg-time">{clock(p.set_unix)}</div>
-            <div class="leg-sub muted">{compass(p.set_az)} · {p.set_az.toFixed(0)}°</div>
+          <div class="pass-foot muted">
+            <span>Duration <b>{humanGap(p.duration_s)}</b></span>
+            <span>Signal <b>{snrText(p)}</b>{p.used ? ' · used' : ''}</span>
           </div>
         </div>
-        <div class="pass-foot muted">
-          <span>Duration <b>{humanGap(p.duration_s)}</b></span>
-          <span>Signal <b>{snrText(p)}</b>{p.used ? ' · used' : ''}</span>
-        </div>
-      </div>
-    {/each}
+      {/each}
+    </div>
   {/if}
 {:else if !error}
   <p class="muted">Loading…</p>
 {/if}
+</div>
 
 <style>
   .err-text {
@@ -277,5 +369,82 @@
   .pass-foot b {
     color: var(--text);
     font-weight: 600;
+  }
+
+  /* Desktop = dense table, phone = the cards above. Container query keys off the
+     page's own width (the .app-page root), so the sidebar doesn't fool it. */
+  .passes-table {
+    display: none;
+  }
+  @container (min-width: 720px) {
+    .passes-table {
+      display: block;
+    }
+    .passes-cards {
+      display: none;
+    }
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg);
+    text-align: left;
+    white-space: nowrap;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  th.sortable {
+    cursor: pointer;
+    user-select: none;
+  }
+  th.sortable:hover {
+    color: var(--text);
+  }
+  th.sorted {
+    color: var(--accent);
+  }
+  tbody td {
+    padding: 7px 10px;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr:hover td {
+    background: var(--surface);
+  }
+  .sat-cell {
+    font-weight: 600;
+  }
+  .sat-cell .sw {
+    display: inline-block;
+    margin-right: 7px;
+    vertical-align: middle;
+  }
+  td.when.up {
+    color: var(--ok);
+  }
+  td.when.soon {
+    color: var(--warn);
+  }
+  .peak-el {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .az {
+    font-size: 11px;
+  }
+  .used {
+    color: var(--ok);
   }
 </style>

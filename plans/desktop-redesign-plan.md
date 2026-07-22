@@ -78,8 +78,14 @@ dense table (~35 rows/screen), Systems a full dashboard.
       Cross-band/Power) / full-width **master-detail** log inbox (scrollable list +
       sticky player-detail pane). **3.87 → 1.83 screens** @1440; phone unchanged;
       163 tests + svelte-check clean; verified on the live van at 1440 + 390.
-- [ ] **Sky/Passes** → dense passes table + master-detail passes | skyplot;
-      land-on-content.
+- [x] **Sky/Passes** → dense **sortable** table (Sat/System/When/Rise/Peak/Set/Dur/
+      Signal; 5 sortable cols, sticky header) on desktop; the cards stay on phone,
+      toggled by container query. Lands on content already (Passes is the default).
+      **16.4 → 4.11 screens** @1440; sort verified (Peak → 90°/88°/88°); phone cards
+      intact; svelte-check clean; verified on live van at 1440 + 390.
+  - [ ] *Follow-on (optional):* master-detail passes **|** skyplot — click a row →
+        its arc on an embedded skyplot. More feature than density fix; the table
+        already solved the offender. Decide whether it's worth the canvas wiring.
 - [ ] **Systems + Diagnostics** live dashboards (the overview components from 1.3).
 
 ### Phase 3 — Sweep the rest
