@@ -17,7 +17,11 @@
 
 logLevel: info
 
-api: false
+# Control API — localhost only (127.0.0.1), read by the dashboard's /api/mediamtx
+# status page for per-path stream state (ready/tracks/readers). Not exposed to the
+# LAN; the read-only listing is all the status page needs.
+api: yes
+apiAddress: 127.0.0.1:9997
 metrics: false
 pprof: false
 playback: false
