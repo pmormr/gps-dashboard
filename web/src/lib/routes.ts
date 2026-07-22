@@ -3,6 +3,7 @@ import type { Component } from 'svelte'
 import Places from '../views/Places.svelte'
 import Cameras from '../views/Cameras.svelte'
 import Data from '../views/Data.svelte'
+import Diagnostics from '../views/Diagnostics.svelte'
 import Docs from '../views/Docs.svelte'
 import Drive from '../views/Drive.svelte'
 import Fridge from '../views/Fridge.svelte'
@@ -38,16 +39,17 @@ export const routes: RouteDef[] = [
   { path: '/drive', component: Drive, tab: '/drive' },
   { path: '/places', component: Places, tab: '/places' },
   { path: '/systems', component: Systems, tab: '/systems' },
+  { path: '/diagnostics', component: Diagnostics, tab: '/diagnostics' },
   { path: '/docs', component: Docs, tab: '/docs', prefix: true },
   { path: '/sky', component: Sky, tab: '/sky' },
   { path: '/passes', component: Sky, tab: '/sky' },
   { path: '/globe', component: Globe, tab: '/sky' },
   { path: '/skyplot', component: Skyplot, tab: '/sky' },
-  { path: '/ntp', component: Ntp, tab: '/systems' },
-  { path: '/gpsd', component: Gpsd, tab: '/systems' },
-  { path: '/syslog', component: Syslog, tab: '/systems' },
-  { path: '/mediamtx', component: Mediamtx, tab: '/systems' },
-  { path: '/data', component: Data, tab: '/systems' },
+  { path: '/ntp', component: Ntp, tab: '/diagnostics' },
+  { path: '/gpsd', component: Gpsd, tab: '/diagnostics' },
+  { path: '/syslog', component: Syslog, tab: '/diagnostics' },
+  { path: '/mediamtx', component: Mediamtx, tab: '/diagnostics' },
+  { path: '/data', component: Data, tab: '/diagnostics' },
   { path: '/sensors', component: Sensors, tab: '/systems' },
   { path: '/trends', component: Trends, tab: '/trends' },
   { path: '/fridge', component: Fridge, tab: '/systems' },
@@ -71,12 +73,20 @@ export const NAV: NavItem[] = [
   { label: 'Drive', icon: '🧭', to: '/drive' },
   { label: 'Places', icon: '🏞️', to: '/places' },
   { label: 'Systems', icon: '🔋', to: '/systems' },
+  { label: 'Diagnostics', icon: '🩺', to: '/diagnostics' },
   { label: 'Trends', icon: '📈', to: '/trends' },
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
   { label: 'Radio', icon: '📻', to: '/radio' },
   { label: 'Cameras', icon: '📷', to: '/cameras' },
 ]
+
+/**
+ * Tabs kept on the phone bottom bar; everything else in NAV folds into a "More"
+ * sheet (the desktop sidebar always shows all of NAV). Eleven tabs crush a phone
+ * bar — five + More keeps the primary destinations one tap away.
+ */
+export const PHONE_PRIMARY_TABS: string[] = ['/', '/map', '/drive', '/places', '/radio']
 
 /** One link in a section's secondary nav (the sticky pill strip). */
 export interface SectionLink {
@@ -96,11 +106,14 @@ export const SECTIONS: Record<string, SectionLink[]> = {
     { label: 'Sensors', to: '/sensors' },
     { label: 'Trends', to: '/trends' },
     { label: 'Fridge', to: '/fridge' },
-    { label: 'Data', to: '/data' },
+  ],
+  '/diagnostics': [
+    { label: 'Overview', to: '/diagnostics' },
     { label: 'Time', to: '/ntp' },
     { label: 'GPS', to: '/gpsd' },
     { label: 'Logs', to: '/syslog' },
     { label: 'Media', to: '/mediamtx' },
+    { label: 'Data', to: '/data' },
   ],
   '/sky': [
     { label: 'Passes', to: '/sky' },

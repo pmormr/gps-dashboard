@@ -2,10 +2,21 @@
   import type { Snippet } from 'svelte'
 
   import { router } from './router.svelte'
-  import { NAV } from './routes'
+  import { NAV, PHONE_PRIMARY_TABS } from './routes'
   import SectionNav from './SectionNav.svelte'
 
   let { children }: { children: Snippet } = $props()
+
+  // Phone bottom bar shows the primary tabs + a "More" sheet for the rest; the
+  // desktop sidebar shows all of NAV (CSS reveals the overflow items there).
+  let moreOpen = $state(false)
+  const overflowNav = NAV.filter((n) => !PHONE_PRIMARY_TABS.includes(n.to))
+  const inOverflow = $derived(!PHONE_PRIMARY_TABS.includes(router.current.tab))
+
+  function go(to: string): void {
+    router.navigate(to)
+    moreOpen = false
+  }
 </script>
 
 <div class="shell">
@@ -13,19 +24,40 @@
     <div class="brand">Van OS</div>
     <ul>
       {#each NAV as item (item.label)}
-        <li>
+        <li class:nav-overflow={!PHONE_PRIMARY_TABS.includes(item.to)}>
           <button
             class="navitem"
             class:active={router.current.tab === item.to}
-            onclick={() => router.navigate(item.to)}
+            onclick={() => go(item.to)}
           >
             <span class="icon">{item.icon}</span>
             <span class="label">{item.label}</span>
           </button>
         </li>
       {/each}
+      <li class="nav-more">
+        <button class="navitem" class:active={inOverflow} onclick={() => (moreOpen = !moreOpen)}>
+          <span class="icon">⋯</span>
+          <span class="label">More</span>
+        </button>
+      </li>
     </ul>
   </nav>
+
+  {#if moreOpen}
+    <button class="more-backdrop" aria-label="Close menu" onclick={() => (moreOpen = false)}></button>
+    <div class="more-sheet">
+      {#each overflowNav as item (item.to)}
+        <button
+          class="more-item"
+          class:active={router.current.tab === item.to}
+          onclick={() => go(item.to)}
+        >
+          <span class="icon">{item.icon}</span><span>{item.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <main class="content">
     <SectionNav />
@@ -103,7 +135,61 @@
     color: var(--accent);
   }
 
+  /* Phone: the overflow tabs live in the More sheet, not the bar. */
+  @media (max-width: 767px) {
+    .nav-overflow {
+      display: none;
+    }
+  }
+  .more-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(0, 0, 0, 0.45);
+    border: none;
+    cursor: default;
+  }
+  .more-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    z-index: 95;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+  .more-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font: inherit;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .more-item.active {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .more-item .icon {
+    font-size: 18px;
+  }
+
   @media (min-width: 768px) {
+    /* Desktop sidebar shows every tab — no overflow, no More. */
+    .nav-more,
+    .more-sheet,
+    .more-backdrop {
+      display: none;
+    }
     .shell {
       display: flex;
       min-height: 100svh;

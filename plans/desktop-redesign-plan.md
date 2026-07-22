@@ -64,13 +64,18 @@ dense table (~35 rows/screen), Systems a full dashboard.
       it (and reconcile with the Places pattern).
 
 ### Phase 1 — IA / navigation
-- [ ] Add **Diagnostics** tab (🩺); split `SECTIONS`; retag `ntp`/`gpsd`/`syslog`/
-      `mediamtx`/`data` routes → `tab: '/diagnostics'`; new `/diagnostics` route.
-- [ ] Phone **"More" overflow** for lower-traffic tabs (keeps the bottom bar sane
-      at 11 destinations; desktop sidebar shows all).
-- [ ] Systems Overview → **live dashboard** (reuse `/api/status` + `/api/sensors`
-      aggregates; new reads only if needed). Diagnostics Overview → **health board**.
-      Desktop lands on the dashboard; pills switch focused sub-views.
+- [x] Added **Diagnostics** tab (🩺); split `SECTIONS`; retagged `ntp`/`gpsd`/
+      `syslog`/`mediamtx`/`data` → `tab: '/diagnostics'`; new `/diagnostics` route +
+      `Diagnostics.svelte`. Systems now = Sensors/Trends/Fridge; Diagnostics =
+      Time/GPS/Logs/Media/Data.
+- [x] Phone **"More" overflow** — `PHONE_PRIMARY_TABS` (Home/Map/Drive/Places/Radio)
+      stay on the bar (65px each, no clipping); the other six fold into a 2-col More
+      sheet. Desktop sidebar shows all 11 (More hidden). CSS-only reveal.
+- [x] Systems Overview → **live subsystem dashboard** (House power SOC/V/solar/load,
+      Cabin temp/humidity/IAQ, Fridge — from `/api/status` + `/api/sensors`) over the
+      launcher tiles. Diagnostics Overview → **health board** (5 status tiles).
+  - [ ] *Polish:* extract a shared `StatPanel` — Systems' `.panel/.stat` recipe
+        mirrors Home's. Diagnostics could gain richer glances (offset ms, buffer).
 
 ### Phase 2 — Worst offenders (prove the primitives)
 - [x] **Radio** → readout (full-width) / **operate** column (Listen · Transmit)
