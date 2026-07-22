@@ -91,20 +91,24 @@
       list.push({ label: 'GPS', to: '/gpsd', sub: 'GPS receiver status' })
     }
 
-    // Logs — the syslog-ng relay's liveness from the status aggregate's service
-    // strip (no new poll); buffer depth lives on the /syslog drill-in.
-    const syslog = status?.services?.find((s) => s.name === 'syslog-ng')
+    // Logs / Media — service liveness from the status aggregate's service strip
+    // (no new poll); the buffer/stream detail lives on each drill-in.
+    const svcDot = (name: string): 'ok' | 'warn' | 'err' | undefined => {
+      const svc = status?.services?.find((s) => s.name === name)
+      if (!svc) return undefined
+      return svc.state === 'active' ? 'ok' : svc.state === 'failed' ? 'err' : 'warn'
+    }
     list.push({
       label: 'Logs',
       to: '/syslog',
       sub: 'syslog buffer → Graylog',
-      dot: syslog
-        ? syslog.state === 'active'
-          ? 'ok'
-          : syslog.state === 'failed'
-            ? 'err'
-            : 'warn'
-        : undefined,
+      dot: svcDot('syslog-ng'),
+    })
+    list.push({
+      label: 'Media',
+      to: '/mediamtx',
+      sub: 'camera + radio stream hub',
+      dot: svcDot('mediamtx'),
     })
 
     return list

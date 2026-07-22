@@ -10,6 +10,7 @@ import Globe from '../views/Globe.svelte'
 import Gpsd from '../views/Gpsd.svelte'
 import Home from '../views/Home.svelte'
 import Map from '../views/Map.svelte'
+import Mediamtx from '../views/Mediamtx.svelte'
 import NotFound from '../views/NotFound.svelte'
 import Ntp from '../views/Ntp.svelte'
 import Radio from '../views/Radio.svelte'
@@ -45,6 +46,7 @@ export const routes: RouteDef[] = [
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
   { path: '/syslog', component: Syslog, tab: '/systems' },
+  { path: '/mediamtx', component: Mediamtx, tab: '/systems' },
   { path: '/data', component: Data, tab: '/systems' },
   { path: '/sensors', component: Sensors, tab: '/systems' },
   { path: '/trends', component: Trends, tab: '/trends' },
@@ -98,6 +100,7 @@ export const SECTIONS: Record<string, SectionLink[]> = {
     { label: 'Time', to: '/ntp' },
     { label: 'GPS', to: '/gpsd' },
     { label: 'Logs', to: '/syslog' },
+    { label: 'Media', to: '/mediamtx' },
   ],
   '/sky': [
     { label: 'Passes', to: '/sky' },

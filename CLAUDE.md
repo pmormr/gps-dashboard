@@ -126,10 +126,11 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/radio/soundboard` · `POST /api/radio/transmit` — transmit console (R11): staged soundboard clips + available TTS engines, and operator-clicked TX (`clip` | TTS `text`+`engine`+`rate`, `settle_ms`, `keyer` civ|rts); keys via `keyed_tx` (CI-V) or `keyed_tx_rts` (RTS hardware — the only path that transmits while the rig is in Repeater Mode, which NAKs all CI-V), logs an `is_tx` row from the clean source. 409 = a transmit already in flight; 502/503 = rig refusal/unreachable or unkeyable RTS device; 500 = render/playback failure
 - `GET /api/ntp` — chrony/NTP status (Systems drill-in)
 - `GET /api/syslog` — syslog-ng relay + Graylog forward/buffer health (Systems → `/syslog` drill-in); reads buffer counters via `sudo -n syslog-ng-ctl stats`, degrades to service/listener checks when unreadable. A rising `queued` off-grid is healthy — only `dropped>0` / service-down / not-listening fail
+- `GET /api/mediamtx` — MediaMTX media-hub health + per-path stream state (Systems → `/mediamtx` drill-in); reads the hub's localhost control API (`127.0.0.1:9997`, `api: yes` in `deploy/mediamtx.yml`) for ready/tracks/viewers. On-demand cam paths idle (`ready:false`) is healthy — only service-down / API-unreachable / not-listening fail
 - `GET /api/data/status` — offline-data chunk freshness, derived at read time from the `updater/` registry (Systems → `/data` drill-in; read-only until the plan's Phase 2 runner lands — `plans/data-update-plan.md`)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (a hub; drill-ins `/sensors`, `/fridge`, `/gpsd`, `/ntp`, `/syslog`, `/data`) · `/trends` (a top-level tab) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (a hub; drill-ins `/sensors`, `/fridge`, `/gpsd`, `/ntp`, `/syslog`, `/mediamtx`, `/data`) · `/trends` (a top-level tab) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
@@ -187,7 +188,8 @@ gps-dashboard/
 │       ├── status.py           # /api/status (Home glance aggregate read)
 │       ├── status_gpsd.py      # /api/gpsd/status + /api/gpsd/sky + /api/gpsd/live (gpsd drill-in + skyplot + Drive feed)
 │       ├── status_ntp.py       # /api/ntp (Systems → ntp drill-in)
-│       └── status_syslog.py    # /api/syslog (syslog-ng relay + Graylog buffer health; Systems → syslog drill-in)
+│       ├── status_syslog.py    # /api/syslog (syslog-ng relay + Graylog buffer health; Systems → syslog drill-in)
+│       └── status_mediamtx.py  # /api/mediamtx (MediaMTX hub + per-path stream state; Systems → mediamtx drill-in)
 ├── common/                     # shared core library (imported across api/tools/processor)
 │   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
 │   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry + on-sky angular sep

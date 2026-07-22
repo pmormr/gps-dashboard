@@ -46,6 +46,7 @@ _STATUS_SERVICES = (
     'radio-control',
     'chrony',
     'syslog-ng',
+    'mediamtx',
 )
 
 

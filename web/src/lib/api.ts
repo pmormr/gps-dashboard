@@ -238,6 +238,36 @@ export function getSyslog(): Promise<SyslogStatus> {
   return getJSON<SyslogStatus>('/api/syslog')
 }
 
+/** One MediaMTX hub path (stream): live state, codecs, and viewer count. */
+export interface MediamtxPath {
+  name: string
+  /** True when the source is connected/publishing (on-demand cams are false when idle). */
+  ready: boolean
+  /** Source type string (e.g. rtspSource, rtspSession, publisher), or null. */
+  source: string | null
+  /** Codec labels of the live tracks (empty when idle). */
+  tracks: string[]
+  /** Number of clients currently reading this path. */
+  readers: number
+  bytes_received: number
+  bytes_sent: number
+}
+
+export interface MediamtxStatus {
+  overall_ok: boolean
+  checks: StatusCheck[]
+  service_state: string
+  api_ok: boolean
+  listening: { rtsp: boolean; webrtc: boolean }
+  summary: { total: number; ready: number; readers: number }
+  paths: MediamtxPath[]
+}
+
+/** Fetch the MediaMTX media-hub status. */
+export function getMediamtx(): Promise<MediamtxStatus> {
+  return getJSON<MediamtxStatus>('/api/mediamtx')
+}
+
 export interface GpsdLatest {
   timestamp: string
   lat: number
