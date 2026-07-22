@@ -94,9 +94,20 @@ dense table (~35 rows/screen), Systems a full dashboard.
 - [ ] **Systems + Diagnostics** live dashboards (the overview components from 1.3).
 
 ### Phase 3 — Sweep the rest
-Apply `AppPage` / `DashboardGrid` / `DataTable` + a density pass to: Home,
-Sensors, Trends, Fridge, Docs, Places (density only — already master-detail),
-the StatusCheckPage drill-ins (Data/Time/GPS/Logs/Media), Cameras.
+Triage @1440 (screens tall): Sensors 4.3, Trends 1.7, Docs 1.5, Fridge 1.3,
+Cameras 1.05, Home/Data/GPS/Places ~1. So only Sensors was a real offender.
+- [x] **Sensors** — node panels → container-query masonry (4.3 → 2.5 screens).
+- [x] **Fridge** — the two symmetric zone cards sit 2-up (were full-width stacked).
+- [x] **StatusCheckPage** (GPS/Time/Logs/Media drill-ins) — check + detail panels
+      → masonry, so they use the width instead of stretching label→value rows.
+- [ ] **Assessed already-fine** (≤1.7 screens, left as-is): Home (full-width
+      multi-panel dashboard), Trends (chart wants width), Cameras (grid), Places
+      (master-detail), Docs (two-pane). Optional: an `.app-page` cap for wide
+      (>1440) monitors + give `Data.svelte` the drill-in masonry. Low value @1440.
+
+**Note on the cap:** `--content-max` (1140) barely bites at 1440 (content area is
+~1172px). The density win at 1440 is **columns**, not the cap — the cap is for
+wide monitors. Every conversion leaned on container-query columns accordingly.
 
 ### Phase 4 — Verify + ship
 - [ ] playwright-cli at **~1440 AND ~390** for every touched view (phone stays
