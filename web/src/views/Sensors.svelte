@@ -85,6 +85,7 @@
   }
 </script>
 
+<div class="app-page">
 <header class="page-head">
   <h1>Sensors</h1>
   <p class="muted">
@@ -93,6 +94,7 @@
 </header>
 
 {#if data}
+  <div class="node-cols">
   {#each sensors as s (s.id)}
     {@const groups = groupedKeys(data.meta, metricKeysFor(data, s))}
     {@const latest = s.latest}
@@ -137,13 +139,27 @@
       {/each}
     </section>
   {/each}
+  </div>
 {:else if !error}
   <p class="muted">Loading…</p>
 {/if}
+</div>
 
 <style>
   .err-text {
     color: var(--err);
+  }
+
+  /* Desktop: pack the node panels into a masonry (varying heights, no voids);
+     one column on a phone. Container query keys off the .app-page width. */
+  @container (min-width: 720px) {
+    .node-cols {
+      columns: 340px;
+      column-gap: 16px;
+    }
+    .node-cols > .panel {
+      break-inside: avoid;
+    }
   }
 
   .panel {
