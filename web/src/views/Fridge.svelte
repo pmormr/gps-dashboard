@@ -152,6 +152,7 @@
     formatTemp(drafts[zone] ?? val(`comp${zone}_set_c`), unit)
 </script>
 
+<div class="app-page">
 <header class="page-head">
   <h1>Fridge — Dometic CFX3 75DZ</h1>
   <p class="muted">DDMP control · zone setpoints, power, DC history</p>
@@ -168,6 +169,7 @@
   <div class="status-banner ok">● Online{dataAge ? ` · data ${dataAge} old` : ''}</div>
 {/if}
 
+<div class="dash-grid zones">
 {#each ZONES as zone (zone)}
   {@const measured = val(`comp${zone}_temp_c`)}
   {@const power = val(`comp${zone}_power`)}
@@ -225,6 +227,7 @@
     {/if}
   </div>
 {/each}
+</div>
 
 <div class="card">
   <div class="eyebrow">Power</div>
@@ -266,15 +269,23 @@
     </p>
   {/if}
 </div>
+</div>
 
 <Toast c={toaster} />
 
 <style>
+  .app-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .zones {
+    --dash-min: 400px;
+  }
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    margin-bottom: 16px;
     padding: 14px;
   }
   .zone-head {

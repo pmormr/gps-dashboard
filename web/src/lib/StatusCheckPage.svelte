@@ -30,7 +30,7 @@
   } = $props()
 </script>
 
-<div class="status-check">
+<div class="status-check app-page">
   <header class="page-head">
     <h1>{title}</h1>
     <p class="muted">
@@ -43,6 +43,7 @@
       {status.overall_ok ? '✓ All checks passing' : '✗ One or more checks failing'}
     </div>
 
+    <div class="checks-cols">
     <section class="panel">
       <div class="panel-title eyebrow">Checks</div>
       {#each status.checks as c (c.name)}
@@ -55,6 +56,7 @@
     </section>
 
     {@render children?.()}
+    </div>
   {:else if !error}
     <p class="muted">Loading…</p>
   {/if}
@@ -64,6 +66,18 @@
   /* Shared with the parent's snippet content — scoped to the wrapper, not global. */
   :global(.status-check .err-text) {
     color: var(--err);
+  }
+
+  /* Desktop: pack the check + detail panels into a masonry so they use the width
+     instead of stretching label→value rows across it. One column on a phone. */
+  @container (min-width: 720px) {
+    .checks-cols {
+      columns: 380px;
+      column-gap: 16px;
+    }
+    :global(.checks-cols > .panel) {
+      break-inside: avoid;
+    }
   }
 
   :global(.status-check .panel) {
