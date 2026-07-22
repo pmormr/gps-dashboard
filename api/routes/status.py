@@ -45,6 +45,7 @@ _STATUS_SERVICES = (
     'sensor-dahua',
     'radio-control',
     'chrony',
+    'syslog-ng',
 )
 
 

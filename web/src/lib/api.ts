@@ -208,6 +208,36 @@ export function getNtp(): Promise<NtpStatus> {
   return getJSON<NtpStatus>('/api/ntp')
 }
 
+/** syslog-ng buffer counters; any field is null when stats aren't readable. */
+export interface SyslogStats {
+  /** Messages held in the on-disk buffer (0 = drained/online; >0 = buffering off-grid). */
+  queued: number | null
+  /** Messages lost to a buffer overflow — should always be 0. */
+  dropped: number | null
+  /** Total messages delivered to Graylog. */
+  written: number | null
+  /** Forward throughput over the last hour (events/sec). */
+  eps_1h: number | null
+  /** Messages relayed from other van devices (source s_net). */
+  relayed: number | null
+  /** This Pi's own messages (source s_src). */
+  local: number | null
+}
+
+export interface SyslogStatus {
+  overall_ok: boolean
+  checks: StatusCheck[]
+  service_state: string
+  listening: { udp: boolean; tcp: boolean }
+  destination: string
+  stats: SyslogStats | null
+}
+
+/** Fetch the syslog-ng relay + Graylog forward/buffer status. */
+export function getSyslog(): Promise<SyslogStatus> {
+  return getJSON<SyslogStatus>('/api/syslog')
+}
+
 export interface GpsdLatest {
   timestamp: string
   lat: number

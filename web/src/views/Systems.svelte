@@ -91,6 +91,22 @@
       list.push({ label: 'GPS', to: '/gpsd', sub: 'GPS receiver status' })
     }
 
+    // Logs — the syslog-ng relay's liveness from the status aggregate's service
+    // strip (no new poll); buffer depth lives on the /syslog drill-in.
+    const syslog = status?.services?.find((s) => s.name === 'syslog-ng')
+    list.push({
+      label: 'Logs',
+      to: '/syslog',
+      sub: 'syslog buffer → Graylog',
+      dot: syslog
+        ? syslog.state === 'active'
+          ? 'ok'
+          : syslog.state === 'failed'
+            ? 'err'
+            : 'warn'
+        : undefined,
+    })
+
     return list
   })
 </script>

@@ -20,6 +20,7 @@ from api.routes.sensors import sensors_bp
 from api.routes.status import status_bp
 from api.routes.status_gpsd import status_gpsd_bp
 from api.routes.status_ntp import status_ntp_bp
+from api.routes.status_syslog import status_syslog_bp
 from api.routes.tiles import tiles_bp
 
 
@@ -47,6 +48,7 @@ def create_app():
     app.register_blueprint(tiles_bp)
     app.register_blueprint(status_gpsd_bp)
     app.register_blueprint(status_ntp_bp)
+    app.register_blueprint(status_syslog_bp)
 
     dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'static', 'dist'))
 

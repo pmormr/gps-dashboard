@@ -125,10 +125,11 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/radio/transmissions` · `GET /api/radio/transmissions/:id/audio` — recorded-transmission log (newest-first keyset paging; `min_s` = the blip filter; RX + `is_tx` operator transmissions unified) + Range-capable WAV playback; `has_audio` false = the retention pruner kept the row but dropped the file (the audio route 404s)
 - `GET /api/radio/soundboard` · `POST /api/radio/transmit` — transmit console (R11): staged soundboard clips + available TTS engines, and operator-clicked TX (`clip` | TTS `text`+`engine`+`rate`, `settle_ms`, `keyer` civ|rts); keys via `keyed_tx` (CI-V) or `keyed_tx_rts` (RTS hardware — the only path that transmits while the rig is in Repeater Mode, which NAKs all CI-V), logs an `is_tx` row from the clean source. 409 = a transmit already in flight; 502/503 = rig refusal/unreachable or unkeyable RTS device; 500 = render/playback failure
 - `GET /api/ntp` — chrony/NTP status (Systems drill-in)
+- `GET /api/syslog` — syslog-ng relay + Graylog forward/buffer health (Systems → `/syslog` drill-in); reads buffer counters via `sudo -n syslog-ng-ctl stats`, degrades to service/listener checks when unreadable. A rising `queued` off-grid is healthy — only `dropped>0` / service-down / not-listening fail
 - `GET /api/data/status` — offline-data chunk freshness, derived at read time from the `updater/` registry (Systems → `/data` drill-in; read-only until the plan's Phase 2 runner lands — `plans/data-update-plan.md`)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (a hub; drill-ins `/sensors`, `/fridge`, `/gpsd`, `/ntp`, `/data`) · `/trends` (a top-level tab) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (a hub; drill-ins `/sensors`, `/fridge`, `/gpsd`, `/ntp`, `/syslog`, `/data`) · `/trends` (a top-level tab) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio`. There are no server-rendered pages left — the app is SPA-only.
 
 ### Frontend
 
@@ -185,7 +186,8 @@ gps-dashboard/
 │       ├── radio.py            # /api/radio/* (Icom ID-5100A CI-V control via rigctld; /radio is SPA-served)
 │       ├── status.py           # /api/status (Home glance aggregate read)
 │       ├── status_gpsd.py      # /api/gpsd/status + /api/gpsd/sky + /api/gpsd/live (gpsd drill-in + skyplot + Drive feed)
-│       └── status_ntp.py       # /api/ntp (Systems → ntp drill-in)
+│       ├── status_ntp.py       # /api/ntp (Systems → ntp drill-in)
+│       └── status_syslog.py    # /api/syslog (syslog-ng relay + Graylog buffer health; Systems → syslog drill-in)
 ├── common/                     # shared core library (imported across api/tools/processor)
 │   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
 │   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry + on-sky angular sep

@@ -16,6 +16,7 @@ import Radio from '../views/Radio.svelte'
 import Sensors from '../views/Sensors.svelte'
 import Skyplot from '../views/Skyplot.svelte'
 import Sky from '../views/Sky.svelte'
+import Syslog from '../views/Syslog.svelte'
 import Systems from '../views/Systems.svelte'
 import Trends from '../views/Trends.svelte'
 
@@ -43,6 +44,7 @@ export const routes: RouteDef[] = [
   { path: '/skyplot', component: Skyplot, tab: '/sky' },
   { path: '/ntp', component: Ntp, tab: '/systems' },
   { path: '/gpsd', component: Gpsd, tab: '/systems' },
+  { path: '/syslog', component: Syslog, tab: '/systems' },
   { path: '/data', component: Data, tab: '/systems' },
   { path: '/sensors', component: Sensors, tab: '/systems' },
   { path: '/trends', component: Trends, tab: '/trends' },
@@ -95,6 +97,7 @@ export const SECTIONS: Record<string, SectionLink[]> = {
     { label: 'Data', to: '/data' },
     { label: 'Time', to: '/ntp' },
     { label: 'GPS', to: '/gpsd' },
+    { label: 'Logs', to: '/syslog' },
   ],
   '/sky': [
     { label: 'Passes', to: '/sky' },
