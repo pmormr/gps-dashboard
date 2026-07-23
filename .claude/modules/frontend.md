@@ -1,16 +1,19 @@
 # Frontend
 
 **Van OS** — a client-side SPA (Svelte 5 + Vite + TypeScript) in `web/`, built to
-`static/dist/` (committed) and served by Flask. A persistent nav shell with nine
-top-level destinations (**Home · Map · Drive · Places · Systems · Trends · Docs · Sky ·
-Radio**); the map is one tab among several, not the privileged single view it once was.
-Mobile-first (the primary client is a phone over the van's WiFi): a bottom tab bar on
-phones, a left sidebar on desktop. (Tab-bar trap: flex items default to
+`static/dist/` (committed) and served by Flask. A persistent nav shell with eleven
+top-level destinations (**Home · Map · Drive · Places · Systems · Diagnostics · Trends ·
+Docs · Sky · Radio · Cameras** — Cameras is still plan-tracked, `plans/cameras-plan.md`);
+the map is one tab among several, not the privileged single view it once was.
+Mobile-first *and* desktop-first (the primary client is a phone over the van's WiFi, but a
+parked laptop now gets real multi-column content — see **Desktop layout** below): a bottom
+tab bar on phones, a left sidebar on desktop. (Tab-bar trap: flex items default to
 `min-width:auto`, so a wide label would push the last tab off-screen — `.nav li` sets
-`min-width:0` + label ellipsis; at nine tabs the phone bar is tight, so watch label
-width. And headless Chrome on macOS floors the window at
-**500 px wide**, cropping `--screenshot` below that — measure via CDP, don't trust
-narrow screenshots.)
+`min-width:0` + label ellipsis. Eleven tabs overflow the phone bar, so only
+`PHONE_PRIMARY_TABS` (Home/Map/Drive/Places/Radio) stay on it; the rest fold into a
+**"More" sheet** (CSS-only reveal) — the desktop sidebar still shows all eleven. And
+headless Chrome on macOS floors the window at **500 px wide**, cropping `--screenshot`
+below that — measure via CDP, don't trust narrow screenshots.)
 
 ## Build & serve
 
@@ -41,7 +44,8 @@ narrow screenshots.)
   links; **Shell renders `<SectionNav>` for whichever section owns the current route**
   (keyed by `router.current.tab`), so a sub-view needs zero per-view wiring and Sky gets
   it by registering itself. `SectionHub` is the tile-grid launcher a section's landing
-  renders (the Systems Overview), each tile a destination with a live one-line status
+  renders (the **Systems** and **Diagnostics** overviews, each pairing it with a live
+  glance/health board above the tiles), each tile a destination with a live one-line status
   (`HubTile`). A cross-listed link (Trends is a Systems pill **and** its own top-level tab)
   just navigates out of the section — the hub/nav are launchers, not containers.
 - **Router** (`web/src/lib/router.svelte.ts`, `routes.ts`) — a tiny History-API router
@@ -71,6 +75,33 @@ narrow screenshots.)
   `StatusCheckPage`), and snippet bodies must re-assert nullability (`row!` / an inner
   `{#if}`). Shared shells built this way: `StatusCheckPage` (gpsd/NTP), `DataAgeBanner`
   (place/event), `Toast` (Fridge/Radio).
+
+## Desktop layout
+
+The shell went sidebar-on-desktop early; the **content** got its desktop story in the
+2026-07 desktop-first pass. Every view *adds* a desktop layout without replacing the phone
+one. Primitives (in `app.css`):
+
+- **`.app-page`** — caps content at `--content-max` (1140px), centers it, and is a
+  **container-query root**. `.app-page--wide` opts out of the cap to fill. **Fill-vs-cap
+  rule:** control/prose panels cap; dense tables fill the wider width. (At ~1440px the cap
+  barely bites — the real density win is *columns*, not the cap; the cap is for wide
+  monitors.)
+- **`.dash-grid`** — auto-fit multi-column grid that collapses to one column; `--dash-min`
+  tunes the column count. Backs the Home/Systems dashboards and the Sensors/Fridge/status
+  masonries.
+- **Breakpoints are pure CSS** — media queries for the shell (768px) + **container
+  queries** for per-view columns (keyed off the page's own width, so they're immune to the
+  sidebar). No JS viewport store; a one-pane-vs-two view uses CSS + a `detailOpen` flag
+  (Places, Radio).
+- **`StatPanel.svelte`** — the one glance-panel recipe (uppercase name + big headline
+  metric over a stat-cell grid) shared by Home's status board and Systems' live glance. A
+  headline carries a tight `unit` suffix and/or a spaced `alt`; `dim`/`note`/`warn` cover
+  staleness/fault; `statMin` tunes stat-cell density.
+- **Master-detail is inline-per-view, not yet a shared shell.** Radio (log list | player
+  detail, CSS-grid + container query) and Places (list | detail) each roll their own;
+  Sky/Passes chose a **dense sortable table** over master-detail. Extract a shared shell
+  only when a third caller needs it.
 
 ## Map view (`/map`)
 
@@ -228,14 +259,21 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   singleton (`stores/places.svelte.ts`) so the session survives tab switches;
   "Show on map" queues `layers.pendingZoom`, enables the pins layer, and navigates —
   Map.svelte consumes the zoom once the engine is up.
-- **Systems** (`Systems.svelte`) — the section **hub**: a `SectionHub` tile grid, each
-  tile a destination with a live one-line status derived from the already-polled
-  `/api/status` + `/api/sensors` aggregates (no new fetching). Tiles: **Sensors**,
-  **Trends**, **Fridge**, **Offline data** (`Data.svelte`, `GET /api/data/status`),
-  **Time** (`Ntp.svelte`, `GET /api/ntp`), **GPS** (`Gpsd.svelte`, `GET /api/gpsd/status`).
-  The old landing (a per-node card wall + a buried diagnostics button list) is gone — the
-  cards moved to Sensors, the buttons became the hub + the shared section-nav. The Data
-  tile's status is static (its freshness would need a third read).
+- **Systems** (`Systems.svelte`) — the physical-subsystem section. Its Overview is a **live
+  glance dashboard** (House power / Cabin / Fridge `StatPanel`s in a `.dash-grid`, from the
+  already-polled `/api/status` + `/api/sensors` — no new fetching) *over* a `SectionHub`
+  tile grid (**Sensors · Trends · Fridge**, each with a live one-line status). The old
+  landing (a per-node card wall + a buried diagnostics button list) is gone — the cards
+  moved to Sensors, the service/infra diagnostics split off to Diagnostics (below).
+- **Diagnostics** (`Diagnostics.svelte`, 🩺) — the service/infra **health** section, split
+  from Systems in the desktop pass so Systems stays "van subsystems". Overview is a health
+  board of status tiles (statuses from the `/api/status` aggregate); sub-destinations:
+  **Time** (`Ntp`, `/api/ntp`), **GPS** (`Gpsd`, `/api/gpsd/status`), **Logs** (syslog,
+  `/api/syslog`), **Media** (mediamtx, `/api/mediamtx`), **Offline data** (`Data`,
+  `/api/data/status`; its tile status is static — freshness would need a third read).
+  Mechanically one `NAV` entry + a split `SECTIONS` + a `tab` retag of five routes in
+  `routes.ts`. The GPS/Time/Logs/Media drill-ins share `StatusCheckPage` (checks | detail
+  masonry).
 - **Sensors** (`Sensors.svelte`, `/sensors` under Systems) — the per-node house/van/cabin
   telemetry (from `/api/sensors` + `METRIC_META`: grouped, unit-converted, per-section
   liveness) split out of the Systems landing. Every `chart:true` metric carries an
@@ -294,14 +332,19 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   file changed underneath; the server auto-commits — see `api/routes/docs.py`). Edit-only
   by design: file creation/rename stays a laptop/Obsidian operation. The vault is read from
   a separate bare-repo checkout on the Pi — see CLAUDE.md Deployment.
-- **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`); **globe**
+- **Sky** (`Sky.svelte`) — the passes schedule (`/api/passes`), rendered as a **dense
+  sortable table** on desktop (Sat/System/When/Rise/Peak/Set/Dur/Signal, sticky header) and
+  the tall cards on phone, container-query toggled; **globe**
   (`globe.ts`, lazy three.js, PC-only) and **skyplot** (`skyplot.ts`, 2D-canvas) are
   reached via the shared section-nav (Passes/Skyplot/Globe), which replaced Sky's own
   `.views` card strip. The observatory subsystem is in **`.claude/modules/observatory.md`**.
 - **Radio** (`Radio.svelte`) — Icom ID-5100A control head (freq/mode/S-meter + CTCSS +
-  repeater; `/api/radio/*`), with an honest offline head when rigctld is down. Below the
-  controls, the recorded-transmission log: each collapsed row carries a thin full-width
-  **waveform strip**; expanding one swaps in `WaveformPlayer` (the strip is the scrub
+  repeater; `/api/radio/*`), with an honest offline head when rigctld is down. Desktop lays
+  it out as readout / operate column / configure masonry / **master-detail** log inbox
+  (scrollable list | sticky player pane, CSS-grid via container query); phone stays the
+  stacked single column. In the log, each collapsed row carries a thin full-width
+  **waveform strip**; expanding one (phone) or selecting it (desktop) swaps in
+  `WaveformPlayer` (the strip is the scrub
   surface — playhead synced to the `<audio>` `currentTime` + click-to-seek, native
   transport kept below). The envelope is absolute-encoded (0..255 bar heights) and
   record-time-derived, so it's cross-clip comparable and survives the audio prune; the
