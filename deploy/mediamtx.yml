@@ -14,6 +14,13 @@
 # STUN needed on the offline LAN (host candidates via webrtcIPsFromInterfaces).
 # SRT (:8890) is enabled for camera ingest — the hill-climb Pi encoders publish
 # over SRT for its retransmit + latency buffer on the lossy long-distance link.
+# RTMP (:1935) is enabled for the DJI drone's built-in "Custom RTMP" live stream:
+# the DJI app publishes to rtmp://<pi>:1935/drone1 (or /drone2) (H.264/AAC),
+# consumed like any other path (WebRTC http://<pi>:8889/drone1, or RTSP
+# rtsp://<pi>:8554/drone1 in OBS/VLC). The phone running the DJI app must be on the
+# van LAN to reach the hub. No auth — trusted LAN, matching the rest of the hub.
+# (The public cloud hub on vps202051 runs the same two paths but WITH auth — see
+# paul-network-docs cloud/devices/vps202051.md.)
 
 logLevel: info
 
@@ -25,7 +32,7 @@ apiAddress: 127.0.0.1:9997
 metrics: false
 pprof: false
 playback: false
-rtmp: false
+rtmp: true
 hls: false
 srt: true
 moq: false
@@ -39,9 +46,20 @@ webrtcAddress: :8889
 
 srtAddress: :8890
 
+rtmpAddress: :1935
+
 paths:
   # Live radio audio (Digirig SP1 A+B mix), published by radio-stream.service.
   radio:
+    source: publisher
+
+  # DJI drone live video, RTMP-published by the DJI app's Custom RTMP feature to
+  # rtmp://<pi>:1935/drone1 (or /drone2 — two slots for two drones / a spare).
+  # H.264/AAC, so it plays in the browser WebRTC page (unlike the H.265 cam-*-main
+  # feeds). Nothing pulls it until a viewer attaches.
+  drone1:
+    source: publisher
+  drone2:
     source: publisher
 
   # Hill-climb live stream: each course-position Pi runs ffmpeg and SRT-publishes
