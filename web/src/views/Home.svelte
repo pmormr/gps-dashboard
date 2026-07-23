@@ -3,6 +3,7 @@
   import { celsiusToF, fmtDurationSecs, metersToFeet } from '../lib/geo'
   import { poll } from '../lib/poll.svelte'
   import { decodeCoded } from '../lib/sensors'
+  import StatPanel, { type Stat } from '../lib/StatPanel.svelte'
 
   let updated = $state('')
   const feed = poll<Status>(getStatus, 5000, () => {
@@ -23,14 +24,6 @@
     pi: 120e3,
     router: 120e3,
     recording: 300e3,
-  }
-
-  interface Stat {
-    label: string
-    value: string
-    // Small secondary readout under the value (e.g. the °F of a °C temp).
-    alt?: string
-    warn?: boolean
   }
 
   interface Panel {
@@ -356,28 +349,7 @@
 
 <div class="panels">
   {#each panels as p (p.name)}
-    <section class="panel" class:dim={p.dim}>
-      <header class="panel-head">
-        <span class="panel-name">{p.name}</span>
-        <span class="panel-metric" class:warn-text={p.warn}>
-          {p.headline}{#if p.alt}<span class="alt">{p.alt}</span>{/if}
-        </span>
-      </header>
-      {#if p.note}
-        <p class="panel-note" class:warn-text={p.warn} class:muted={!p.warn}>{p.note}</p>
-      {/if}
-      {#if p.stats.length}
-        <div class="stats">
-          {#each p.stats as st (st.label)}
-            <div class="stat">
-              <div class="stat-label">{st.label}</div>
-              <div class="stat-value" class:warn-text={st.warn}>{st.value}</div>
-              {#if st.alt}<div class="stat-alt">{st.alt}</div>{/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
+    <StatPanel {...p} />
   {/each}
 </div>
 
@@ -405,88 +377,8 @@
     gap: 12px;
   }
 
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px;
-  }
-
-  .panel.dim {
-    opacity: 0.5;
-  }
-
-  .panel-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .panel-name {
-    font-size: 13px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
-  }
-
-  .panel-metric {
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .panel-metric .alt {
-    font-size: 13px;
-    font-weight: 400;
-    color: var(--text-dim);
-    margin-left: 6px;
-  }
-
-  .panel-note {
-    margin: 4px 0 0;
-    font-size: 12px;
-    text-align: right;
-  }
-
-  .stats {
-    margin-top: 14px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    gap: 12px 16px;
-  }
-
-  .stat {
-    min-width: 0;
-  }
-
-  .stat-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-dim);
-  }
-
-  .stat-value {
-    margin-top: 2px;
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .stat-alt {
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
   .err-text {
     color: var(--err);
-  }
-
-  .warn-text {
-    color: var(--warn);
   }
 
   .health {

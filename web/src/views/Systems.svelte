@@ -10,6 +10,7 @@
   import { poll } from '../lib/poll.svelte'
   import type { HubTile } from '../lib/routes'
   import SectionHub from '../lib/SectionHub.svelte'
+  import StatPanel from '../lib/StatPanel.svelte'
   import { dotClass } from '../lib/sensors'
 
   const sensorsFeed = poll<SensorsResponse>(getSensors, 30000)
@@ -69,61 +70,41 @@
   </header>
 
   <div class="dash-grid glance">
-    <section class="panel">
-      <div class="panel-head">
-        <span class="panel-name">House power</span>
-        <span class="panel-metric">{r0(status?.house?.battery_soc)}<span class="unit">%</span></span>
-      </div>
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-label">Battery</div>
-          <div class="stat-value">{r0(status?.house?.battery_power)} W</div>
-          <div class="stat-alt">{r2(status?.house?.battery_voltage)} V</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Solar</div>
-          <div class="stat-value">{r0(status?.house?.pv_power)} W</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">DC load</div>
-          <div class="stat-value">{r0(status?.house?.dc_system_power)} W</div>
-        </div>
-      </div>
-    </section>
+    <StatPanel
+      name="House power"
+      headline={r0(status?.house?.battery_soc)}
+      unit="%"
+      statMin="70px"
+      stats={[
+        {
+          label: 'Battery',
+          value: `${r0(status?.house?.battery_power)} W`,
+          alt: `${r2(status?.house?.battery_voltage)} V`,
+        },
+        { label: 'Solar', value: `${r0(status?.house?.pv_power)} W` },
+        { label: 'DC load', value: `${r0(status?.house?.dc_system_power)} W` },
+      ]}
+    />
 
-    <section class="panel">
-      <div class="panel-head">
-        <span class="panel-name">Cabin</span>
-        <span class="panel-metric">{r1(status?.cabin?.temp_c)}<span class="unit">°C</span></span>
-      </div>
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-label">Feels</div>
-          <div class="stat-value">{f0(status?.cabin?.temp_c)}°F</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Humidity</div>
-          <div class="stat-value">{r0(status?.cabin?.humidity_pct)}%</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">IAQ</div>
-          <div class="stat-value">{r0(status?.cabin?.iaq)}</div>
-        </div>
-      </div>
-    </section>
+    <StatPanel
+      name="Cabin"
+      headline={r1(status?.cabin?.temp_c)}
+      unit="°C"
+      statMin="70px"
+      stats={[
+        { label: 'Feels', value: `${f0(status?.cabin?.temp_c)}°F` },
+        { label: 'Humidity', value: `${r0(status?.cabin?.humidity_pct)}%` },
+        { label: 'IAQ', value: r0(status?.cabin?.iaq) },
+      ]}
+    />
 
-    <section class="panel">
-      <div class="panel-head">
-        <span class="panel-name">Fridge</span>
-        <span class="panel-metric">{r0(fridgeC0)}<span class="unit">°C</span></span>
-      </div>
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-label">Zone 2</div>
-          <div class="stat-value">{r0(fridgeC1)}°C</div>
-        </div>
-      </div>
-    </section>
+    <StatPanel
+      name="Fridge"
+      headline={r0(fridgeC0)}
+      unit="°C"
+      statMin="70px"
+      stats={[{ label: 'Zone 2', value: `${r0(fridgeC1)}°C` }]}
+    />
   </div>
 
   <div class="eyebrow explore-label">Explore</div>
@@ -137,64 +118,9 @@
     gap: 16px;
   }
   /* Compact glance panels — narrower min than the launcher tiles so power/cabin/
-     fridge sit three-up on a laptop. NB: the .panel/.stat recipe mirrors Home's;
-     extract a shared StatPanel in the polish pass. */
+     fridge sit three-up on a laptop. The panel/stat recipe lives in StatPanel. */
   .glance {
     --dash-min: 260px;
-  }
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px;
-  }
-  .panel-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .panel-name {
-    font-size: 13px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-dim);
-  }
-  .panel-metric {
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-  .panel-metric .unit {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-dim);
-    margin-left: 3px;
-  }
-  .stats {
-    margin-top: 12px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
-    gap: 10px 14px;
-  }
-  .stat-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-dim);
-  }
-  .stat-value {
-    margin-top: 2px;
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-  .stat-alt {
-    font-size: 11px;
-    color: var(--text-dim);
   }
   .explore-label {
     margin-top: 4px;
