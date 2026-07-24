@@ -248,7 +248,10 @@
               {#if st.codec && st.codec !== 'unknown'}
                 <span class="cod cod-{st.codec}">{st.codec}</span>
               {/if}
-              {#if rates[key]?.outR}<span class="rate">↑{rates[key].outR}</span>{/if}
+              {#if st.ingest === 'live' && rates[key]?.inR}
+                <span class="rate">↓{rates[key].inR}</span>
+              {/if}
+              {#if st.pulling && rates[key]?.outR}<span class="rate">↑{rates[key].outR}</span>{/if}
             {/if}
           </div>
         </button>
