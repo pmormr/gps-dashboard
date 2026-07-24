@@ -230,11 +230,11 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 
 ## Phases
 
-### Phase 0 — Feed registry + secret plumbing (backbone) · race-day
-- [ ] `broadcast/feeds.py`: `Feed`/`SendSpec` dataclasses + `FEEDS` covering both hubs.
-- [ ] `render_feeds(env)` — interpolate `${ENV_KEY}` placeholders → finished payload (pure, env dict in).
-- [ ] `/etc/default/gps-broadcast` (Pi, root-600, gitignored) + `deploy/gps-dashboard.service` gains `EnvironmentFile=-/etc/default/gps-broadcast`. Document the file in CLAUDE.md (Deployment) + the manual-install carve-out.
-- [ ] Tests: registry integrity (required fields, `expected_tracks` parse, **no secret literals** in the module), render interpolation.
+### Phase 0 — Feed registry + secret plumbing (backbone) · race-day ✅
+- [x] `broadcast/feeds.py`: `Feed`/`SendSpec` dataclasses + `FEEDS` covering both hubs. Single-URL forms + referenced env keys are **derived** (`render_feed`/`env_keys`), not stored, so fielded/single-URL can't drift and there's no hand-kept secret-ref list.
+- [x] `render_feeds(env)` — pure `${ENV_KEY}` interpolation; a missing key is left literal + reported in per-feed + top-level `missing_secrets` (visible "secret not set" signal).
+- [x] `/etc/default/gps-broadcast` (Pi, root-600) + `deploy/gps-dashboard.service` `EnvironmentFile=-/etc/default/gps-broadcast` (leading `-` optional — van feeds need no secrets). Documented in CLAUDE.md (manual-install carve-out). `broadcast` added to pyproject packages/isort/mypy-strict.
+- [x] Tests (`tests/test_broadcast_feeds.py`, 15): registry integrity (enums, `(hub,path)` unique, publish⇒send, standby=cloud-only), **no-secret-literals guard** (no hex-run in the module; doesn't embed the secrets either), render interpolation + derived SRT/RTMP single-URLs.
 
 ### Phase 1 — Config reference view (MVP grab-and-go) · race-day
 - [ ] `api/routes/broadcast.py`: `GET /api/broadcast/feeds` (reads env server-side).

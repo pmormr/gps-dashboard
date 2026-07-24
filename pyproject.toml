@@ -24,7 +24,7 @@ build-backend = "hatchling.build"
 # every package on sys.path — so scripts run as `uv run tools/foo.py` can import
 # `common`, `api`, `processor`, … with no sys.path bootstrap.
 [tool.hatch.build.targets.wheel]
-packages = ["api", "common", "logger", "mqttbus", "processor", "radio", "sensors", "tools", "updater"]
+packages = ["api", "broadcast", "common", "logger", "mqttbus", "processor", "radio", "sensors", "tools", "updater"]
 
 [dependency-groups]
 dev = [
@@ -51,7 +51,7 @@ line-length = 100
 select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "common", "logger", "mqttbus", "processor", "radio", "sensors", "tools", "updater"]
+known-first-party = ["api", "broadcast", "common", "logger", "mqttbus", "processor", "radio", "sensors", "tools", "updater"]
 
 [tool.ruff.format]
 # Codebase is overwhelmingly single-quoted; keep it that way.
@@ -62,7 +62,7 @@ quote-style = "single"
 # but don't force annotations — untyped function bodies stay unchecked until a
 # module opts into the strict profile below. Strict surface ratchets outward.
 python_version = "3.11"
-files = ["api", "common", "logger", "mqttbus", "processor", "radio", "sensors", "tools", "updater", "tests"]
+files = ["api", "broadcast", "common", "logger", "mqttbus", "processor", "radio", "sensors", "tools", "updater", "tests"]
 warn_redundant_casts = true
 warn_unused_configs = true
 pretty = true
@@ -76,7 +76,7 @@ ignore_missing_imports = true
 # left for later: disallow_untyped_calls, disallow_untyped_decorators, and
 # widening this module list to api.routes.*/tools.*/sensors.*/mqttbus.*.
 [[tool.mypy.overrides]]
-module = ["processor.*", "common.*", "logger.*", "radio.*", "updater.*", "api.db", "api.params"]
+module = ["processor.*", "common.*", "logger.*", "radio.*", "updater.*", "broadcast.*", "api.db", "api.params"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_any_generics = true

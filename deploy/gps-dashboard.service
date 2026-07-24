@@ -17,6 +17,13 @@ Environment=GPS_NETWORK_DOCS_GIT_DIR=/mnt/nvme/paul-network-docs.git
 # shared Dahua password (digest); leading `-` keeps it optional (the endpoint
 # just 502s without it). Same root-600 secret the dahua_reader + mediamtx use.
 EnvironmentFile=-/etc/default/gps-dahua
+# Broadcast-tier stream secrets (GPS_BROADCAST_*): the cloud hub's SRT passphrase
+# + phone/drone/OBS creds the /api/broadcast/feeds route interpolates into
+# copy-ready config on the trusted LAN. Never committed (public repo — B3); lives
+# root-600 on the Pi. Leading `-` keeps it optional (van feeds need no secrets, so
+# the config reference still works with the file absent — the cloud fields just
+# render with the ${…} placeholders visible as an unresolved-secret signal).
+EnvironmentFile=-/etc/default/gps-broadcast
 ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python api/app.py
 Restart=always
 RestartSec=5
