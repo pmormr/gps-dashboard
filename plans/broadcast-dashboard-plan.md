@@ -242,14 +242,20 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - [x] Tab wiring in `routes.ts` (B1 — 12th tab, 📡, not in `PHONE_PRIMARY_TABS` → folds into phone "More"). UI: grouped by `slot_group`; each feed a card with copy-buttons for the single-URL + fielded host/port/streamid/passphrase + OBS read, hub/standby/on-demand badges, expected pins, notes/gotchas.
 - [x] Built `static/dist/`; verified locally via playwright (render + working copy feedback + 0 console errors). On-device deploy verify next.
 
-### Phase 2 — Van live status (two-sides) + snapshots + logs · race-day
-- [ ] `common/mediamtx.py`: shared control-API client; refactor `status_mediamtx.py` onto it (B5).
-- [ ] `GET /api/broadcast/status` (van section): two-sides state merged onto the registry — ingest (`source.type` + `bytesReceived` delta, live-vs-STANDBY), egress (`readers` + `bytesSent` delta), codec badge (`tracks` vs `expected_tracks`) (B6).
-- [ ] Van snapshotter: ffmpeg localhost RTSP → tmpfs JPEG (idle-TTL); serve endpoint (B9).
-- [ ] Van live-log endpoint: `sudo -n journalctl -u mediamtx` recent lines (B11).
-- [ ] View: monitor-wall tiles (two-sides dots + throughput + codec badge + snapshot), click-to-expand → WHEP live (van), raw log panel.
-- [ ] **Verify against the live van hub** — the live-publisher-vs-STANDBY distinction and STANDBY `tracks` behavior (B6, the empirical must-verify).
-- [ ] Tests: status-merge/two-sides pure logic; `/api/broadcast/status` via Flask client (mocked control API).
+### Phase 2 — Van live status (two-sides) + snapshots + logs · race-day ✅
+- [x] `common/mediamtx.py`: shared control-API client (`PathState` + `fetch_paths`, preserving `source.id`/`available`/`online`); `status_mediamtx.py` refactored onto it (B5).
+- [x] `GET /api/broadcast/status` (van section): two-sides merged onto the registry (B6). Ingest live/standby/idle; egress readers/pulling; codec badge; `danger` flag; cumulative bytes for client throughput deltas.
+- [x] Van snapshotter (`broadcast/snapshots.py`): one ffmpeg/viewed-feed, localhost RTSP → downscaled rolling tmpfs JPEG (`/dev/shm`), idle-TTL reaped + respawn-backoff; `/api/broadcast/snapshot/<name>` gated to snapshottable van paths (B9).
+- [x] Van live-log endpoint `/api/broadcast/logs` (B11) — `journalctl -u mediamtx` (**no sudo needed**; the service user is in `adm`).
+- [x] View: `BroadcastWall` tiles (two-sides dots, codec badge, snapshot, two-sided throughput, danger banner) + Wall/Config toggle; WHEP 720p click-to-expand for H.264/Opus van feeds; raw log panel.
+- [x] **Verified against the live van hub** — see findings below.
+- [x] Tests: two-sides pure logic, snapshot manager state machine, `/api/broadcast/status|snapshot|logs` via Flask client.
+
+**Live-hub findings (v1.19.2, the B6 empirical must-verify):**
+- **The live discriminator is `source.id`, not `source.type`.** An idle on-demand path reports its *configured* `source.type` (`rtspSource`) with an **empty `source.id`**; a real publisher has a connection-type `source.type` (`srtConn`/`rtspSession`/…) **and** a non-empty id. Confirmed: cam1 (live SRT) → `ingest=live` / `codec=match`; radio → `live`/Opus; unpublished + on-demand-idle → `idle`.
+- **The wall's own snapshotter counts as an egress reader** (it pulls over RTSP) — it inflated `readers` and would have **false-positived the STANDBY `danger` flag**. Fixed: the status route discounts the hub's active snapshot workers (`SnapshotManager.active_paths()`). Applies per-hub, so the cloud section (P3) does the same locally.
+- **radio is audio-only → not snapshottable** (both sides gate it; the tile shows an `audio ♪` placeholder).
+- **STANDBY still not observed live** — the van has **no** `alwaysAvailable` paths, so `ingest=standby` never arises here. The derivation handles it (unit-tested) but the live STANDBY control-API signature (does the standby source carry a `source.id`?) is confirmable only on the **cloud** hub → carry into P3. If it turns out a STANDBY source reports a non-empty `source.id`, `source_connected` would wrongly read `live` and `ingest_state` needs a STANDBY-source-type guard.
 
 ### Phase 3 — WG control tunnel + cloud status/snapshots/logs · race-day stretch (off-repo OVH + van net)
 - [ ] Stand up the **direct van↔cloud WireGuard peer**: cloud = fixed endpoint on a high UDP port, van dials out (CGNAT); allowed-IPs scoped to the control plane only.
@@ -280,8 +286,10 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - The home↔OVH WireGuard config in `paul-network-docs` (`rex-edge.md` / `vps202051.md`) — the WG precedent B7 adds a van peer alongside.
 
 ## Open items
-- **Live-publisher-vs-STANDBY** control-API distinction — the one hard empirical unknown;
-  verify against the live van hub before finalizing the ingest dot (B6, Phase 2).
+- **Live-publisher detection** — RESOLVED in P2: `source.id` non-empty is the signal (see
+  the P2 findings). **STANDBY-source signature still open** — unobservable on the van (no
+  `alwaysAvailable` there); confirm on the cloud hub in P3 whether a STANDBY source carries a
+  `source.id` (if so, add a STANDBY-source-type guard to `ingest_state`).
 - **SSH lockdown to the house** — the WG tunnel (B7) is the enabler; sequence the OVH
   SSH-firewall change *after* cloud status is verified over the tunnel. Track in `vps202051.md`.
 - **Naming** — file renamed `events-dashboard-plan.md` → `broadcast-dashboard-plan.md`; flag
