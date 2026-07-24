@@ -62,7 +62,16 @@
     return !!st?.present && !!st?.ready && (st.ingest === 'live' || st.ingest === 'standby')
   }
   function snapEligible(f: Feed, st: FeedStatus | undefined): boolean {
-    return f.hub === 'van' && serving(st)
+    // Mirror the server gate: van + serving + carries video (radio is audio-only).
+    return f.hub === 'van' && f.slot_group !== 'radio' && serving(st)
+  }
+  /** Placeholder text for a tile with no live snapshot. */
+  function placeholder(f: Feed, st: FeedStatus | undefined): string {
+    if (f.hub === 'cloud') return 'cloud · P3'
+    if (!st?.reachable) return '—'
+    if (st.present === false) return 'no path'
+    if (serving(st)) return 'audio ♪' // serving but audio-only (radio)
+    return 'idle'
   }
   /** Browser-decodable (H.264/Opus) van feed → WHEP live on expand; else snapshot. */
   function playable(f: Feed, st: FeedStatus | undefined): boolean {
@@ -224,9 +233,7 @@
               />
               {#if snapOffline[f.path]}<div class="ph">no image</div>{/if}
             {:else}
-              <div class="ph">
-                {#if f.hub === 'cloud'}cloud · P3{:else if !st?.reachable}—{:else if st?.present === false}no path{:else}idle{/if}
-              </div>
+              <div class="ph">{placeholder(f, st)}</div>
             {/if}
             <span class="tlabel">{f.label}</span>
             <span class="thub badge hub-{f.hub}">{f.hub}</span>

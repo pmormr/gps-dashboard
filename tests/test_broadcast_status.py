@@ -112,3 +112,20 @@ def test_status_no_danger_when_standby_but_no_readers() -> None:
     st = feed_status(_feed(standby=True), s)
     assert st['ingest'] == 'standby'
     assert st['danger'] is False
+
+
+def test_snapshotter_reader_is_discounted() -> None:
+    """The wall's own RTSP snapshot pull must not read as a consumer or as danger."""
+    s = _state(ready=True, source_id=None, readers=1)  # the only reader is our snapshotter
+    st = feed_status(_feed(standby=True), s, self_readers=1)
+    assert st['readers'] == 0
+    assert st['pulling'] is False
+    assert st['danger'] is False
+
+
+def test_real_reader_survives_snapshotter_discount() -> None:
+    """A real OBS reader alongside the snapshotter still counts (and is dangerous)."""
+    s = _state(ready=True, source_id=None, readers=2)  # snapshotter + one real consumer
+    st = feed_status(_feed(standby=True), s, self_readers=1)
+    assert st['readers'] == 1
+    assert st['danger'] is True

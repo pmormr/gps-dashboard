@@ -112,6 +112,22 @@ def test_shutdown_terminates_all(tmp_path: Path) -> None:
     assert not m._workers
 
 
+def test_active_paths_reflects_live_workers(tmp_path: Path) -> None:
+    handles: list[FakeHandle] = []
+
+    def spawn(_p: str, _o: Path) -> FakeHandle:
+        h = FakeHandle()
+        handles.append(h)
+        return h
+
+    m = _mgr(tmp_path, spawn)
+    m._ensure_worker('cam1', 0.0)
+    m._ensure_worker('drone1', 0.0)
+    assert m.active_paths() == {'cam1', 'drone1'}
+    handles[0].alive = False  # cam1's ffmpeg died
+    assert m.active_paths() == {'drone1'}
+
+
 def test_ffmpeg_cmd_is_localhost_scoped_and_downscaled() -> None:
     cmd = ffmpeg_cmd('cam-front-main', Path('/dev/shm/x.jpg'))
     assert 'rtsp://127.0.0.1:8554/cam-front-main' in cmd

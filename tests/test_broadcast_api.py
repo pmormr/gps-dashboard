@@ -96,6 +96,23 @@ def test_status_merges_live_van_paths(client, monkeypatch: pytest.MonkeyPatch) -
     assert by_key['cloud/phone1']['reachable'] is False
 
 
+def test_status_discounts_snapshotter_reader(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A feed being previewed (snapshot worker active) must not read as a consumer."""
+
+    def fake_fetch(*_a, **_k):
+        return [PathState('cam1', True, True, True, 'srtConn', 'u', ('H264',), 1, 0, 0)]
+
+    class FakeMgr:
+        def active_paths(self):
+            return {'cam1'}
+
+    monkeypatch.setattr(broadcast_route, 'fetch_paths', fake_fetch)
+    monkeypatch.setattr(broadcast_route, 'get_manager', lambda: FakeMgr())
+    body = client.get('/api/broadcast/status').get_json()
+    cam1 = next(f for f in body['feeds'] if f['hub'] == 'van' and f['path'] == 'cam1')
+    assert cam1['readers'] == 0 and cam1['pulling'] is False
+
+
 # --- /api/broadcast/snapshot/<name> ---
 
 

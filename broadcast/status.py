@@ -52,7 +52,7 @@ def codec_badge(expected: tuple[str, ...], actual: tuple[str, ...]) -> str:
     return 'match' if set(actual) == set(expected) else 'mismatch'
 
 
-def feed_status(feed: Feed, state: PathState | None) -> dict[str, Any]:
+def feed_status(feed: Feed, state: PathState | None, self_readers: int = 0) -> dict[str, Any]:
     """The two-sides live status for one feed on a *reachable* hub.
 
     Args:
@@ -60,6 +60,10 @@ def feed_status(feed: Feed, state: PathState | None) -> dict[str, Any]:
             interpretation).
         state: The matching control-API path, or None when the hub is reachable
             but the path is absent (not configured on the hub).
+        self_readers: The hub's own readers to discount — the monitor-wall
+            snapshotter pulls over RTSP and the hub counts it as a reader, so
+            subtract it (per path) to keep ``readers``/``pulling``/``danger``
+            reflecting *real* consumers (OBS), not the wall previewing itself.
 
     Returns:
         A JSON dict. ``present: false`` when the path is absent; otherwise the
@@ -69,6 +73,7 @@ def feed_status(feed: Feed, state: PathState | None) -> dict[str, Any]:
     if state is None:
         return {'reachable': True, 'present': False}
     ing = ingest_state(feed, state)
+    readers = max(0, state.readers - self_readers)
     return {
         'reachable': True,
         'present': True,
@@ -77,9 +82,9 @@ def feed_status(feed: Feed, state: PathState | None) -> dict[str, Any]:
         'source_type': state.source_type,
         'tracks': list(state.tracks),
         'codec': codec_badge(feed.expected_tracks, state.tracks),
-        'readers': state.readers,
-        'pulling': state.readers > 0,
+        'readers': readers,
+        'pulling': readers > 0,
         'bytes_received': state.bytes_received,
         'bytes_sent': state.bytes_sent,
-        'danger': ing == 'standby' and state.readers > 0,
+        'danger': ing == 'standby' and readers > 0,
     }

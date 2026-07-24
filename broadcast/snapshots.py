@@ -133,6 +133,17 @@ class SnapshotManager:
         """The rolling JPEG path for a feed path."""
         return self._out_dir / f'{path}.jpg'
 
+    def active_paths(self) -> set[str]:
+        """Paths with a live snapshot worker right now.
+
+        The status route subtracts these from each path's egress reader count: the
+        snapshotter pulls over RTSP, which the hub counts as a reader, so without
+        this the wall would inflate ``readers`` (and false-positive the STANDBY
+        ``danger`` flag) for every feed it is previewing.
+        """
+        with self._lock:
+            return {p for p, w in self._workers.items() if w.handle.poll() is None}
+
     def request(self, path: str) -> Path | None:
         """Mark a feed viewed, (re)start its worker as needed, and return its JPEG.
 

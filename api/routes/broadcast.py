@@ -52,13 +52,17 @@ def broadcast_status() -> Response:
     van_reachable = van_states is not None
     by_name = {s.name: s for s in van_states} if van_states else {}
     cloud_configured = bool(os.environ.get('GPS_BROADCAST_CLOUD_URL'))
+    # The wall's own snapshotter pulls over RTSP and counts as a reader; discount it.
+    snap_paths = get_manager().active_paths()
 
     feeds = []
     for feed in FEEDS:
         if feed.hub == 'van':
-            status = (
-                feed_status(feed, by_name.get(feed.path)) if van_reachable else {'reachable': False}
-            )
+            if van_reachable:
+                self_readers = 1 if feed.path in snap_paths else 0
+                status = feed_status(feed, by_name.get(feed.path), self_readers)
+            else:
+                status = {'reachable': False}
         else:  # cloud — reached over the WG tunnel in P3
             status = {'reachable': False}
         feeds.append({'hub': feed.hub, 'path': feed.path, **status})
