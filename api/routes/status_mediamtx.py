@@ -16,15 +16,12 @@ from __future__ import annotations
 
 import re
 
-import requests
 from flask import Blueprint, Response, jsonify
 
 from common import proc
+from common.mediamtx import PathState, fetch_paths
 
 status_mediamtx_bp = Blueprint('status_mediamtx', __name__)
-
-#: The hub's localhost control API (enabled in deploy/mediamtx.yml).
-_API = 'http://127.0.0.1:9997/v3/paths/list'
 
 
 def _listening() -> tuple[bool, bool]:
@@ -38,47 +35,17 @@ def _listening() -> tuple[bool, bool]:
     return bool(re.search(r':8554\s', tcp)), bool(re.search(r':8889\s', tcp))
 
 
-def _normalize_paths(items: list[dict]) -> list[dict]:
-    """Reduce the control API's path items to the fields the status page shows.
-
-    Args:
-        items: The ``items`` array from ``/v3/paths/list``.
-
-    Returns:
-        One dict per path: ``name``, ``ready``, ``source`` (type string or None),
-        ``tracks``, ``readers`` (viewer count), and inbound/outbound bytes.
-    """
-    out = []
-    for it in items:
-        src = it.get('source') or {}
-        out.append(
-            {
-                'name': it.get('name'),
-                'ready': bool(it.get('ready')),
-                'source': src.get('type'),
-                'tracks': it.get('tracks') or [],
-                'readers': len(it.get('readers') or []),
-                'bytes_received': it.get('bytesReceived') or 0,
-                'bytes_sent': it.get('bytesSent') or 0,
-            }
-        )
-    return out
-
-
-def _paths() -> list[dict] | None:
-    """Fetch + normalize the hub's path list, or None when the API is unreachable.
-
-    Returns:
-        The :func:`_normalize_paths` list, or None when the control API can't be
-        reached or returns unparseable data (hub down, API disabled).
-    """
-    try:
-        resp = requests.get(_API, timeout=4)
-        resp.raise_for_status()
-        items = resp.json().get('items', [])
-    except (requests.RequestException, ValueError):
-        return None
-    return _normalize_paths(items)
+def _path_dict(state: PathState) -> dict:
+    """Map a shared :class:`PathState` to the /api/mediamtx per-path shape."""
+    return {
+        'name': state.name,
+        'ready': state.ready,
+        'source': state.source_type,
+        'tracks': list(state.tracks),
+        'readers': state.readers,
+        'bytes_received': state.bytes_received,
+        'bytes_sent': state.bytes_sent,
+    }
 
 
 def _collect() -> dict:
@@ -89,8 +56,9 @@ def _collect() -> dict:
     """
     service_state = proc.service_state('mediamtx')
     rtsp, webrtc = _listening()
-    paths = _paths()
-    api_ok = paths is not None
+    states = fetch_paths()
+    api_ok = states is not None
+    paths = [_path_dict(s) for s in states] if states else []
 
     checks = [
         {'name': 'mediamtx service', 'ok': service_state == 'active'},

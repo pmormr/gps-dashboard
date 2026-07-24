@@ -43,6 +43,64 @@ export interface BroadcastFeeds {
   missing_secrets: string[]
 }
 
+/** One feed's two-sides live status (`/api/broadcast/status`; B6). */
+export interface FeedStatus {
+  hub: string
+  path: string
+  /** False when the whole hub is unreachable (off-grid / tunnel down). */
+  reachable: boolean
+  /** False when the hub is reachable but the path isn't configured on it. */
+  present?: boolean
+  ready?: boolean
+  /** Ingest half: real publisher connected / serving STANDBY loop / not serving. */
+  ingest?: 'live' | 'standby' | 'idle'
+  source_type?: string | null
+  tracks?: string[]
+  codec?: 'match' | 'mismatch' | 'unknown'
+  readers?: number
+  pulling?: boolean
+  bytes_received?: number
+  bytes_sent?: number
+  /** The dangerous state: egress pulling a STANDBY placeholder while ingest is dead. */
+  danger?: boolean
+}
+
+/** The `/api/broadcast/status` payload. */
+export interface BroadcastStatus {
+  generated_at: string
+  hubs: {
+    van: { reachable: boolean }
+    cloud: { reachable: boolean; configured: boolean }
+  }
+  feeds: FeedStatus[]
+}
+
+/** The `/api/broadcast/logs` payload (the raw journal escape hatch; B11). */
+export interface BroadcastLogs {
+  hub: string
+  reachable: boolean
+  lines: string[]
+}
+
+/** `(hub, path)` join key shared by the config feeds and their live status. */
+export function feedKey(hub: string, path: string): string {
+  return `${hub}/${path}`
+}
+
+/** The monitor-wall snapshot URL for a van feed path, cache-busted per poll. */
+export function snapshotUrl(path: string, bust: number): string {
+  return `/api/broadcast/snapshot/${encodeURIComponent(path)}?t=${bust}`
+}
+
+/** Human bit-rate from a byte delta over a time delta (for the throughput readout). */
+export function formatRate(bytes: number, seconds: number): string {
+  if (seconds <= 0 || bytes <= 0) return ''
+  const bits = (bytes * 8) / seconds
+  if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mb/s`
+  if (bits >= 1e3) return `${(bits / 1e3).toFixed(0)} kb/s`
+  return `${bits.toFixed(0)} b/s`
+}
+
 /** Slot-group display order + labels (registry order, grouped for the UI). */
 export const SLOT_GROUPS: { key: string; label: string }[] = [
   { key: 'cameras', label: 'PtP Cameras' },

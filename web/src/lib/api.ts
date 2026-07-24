@@ -1,7 +1,7 @@
 // Typed client for the Van OS JSON API. One function per endpoint; shapes mirror
 // the Flask routes (api/routes/*). Same-origin in production; proxied to Flask in dev.
 
-import type { BroadcastFeeds } from './broadcast'
+import type { BroadcastFeeds, BroadcastLogs, BroadcastStatus } from './broadcast'
 import type { DocsTree } from './docs'
 import type { TrackPoint } from './geo'
 import type { DroneFlight } from './map'
@@ -1143,6 +1143,16 @@ export function getDataStatus(): Promise<DataStatus> {
 /** Fetch every feed's copy-ready config (secrets interpolated server-side). */
 export function getBroadcastFeeds(): Promise<BroadcastFeeds> {
   return getJSON<BroadcastFeeds>('/api/broadcast/feeds')
+}
+
+/** Fetch two-sides live status for every feed (van hub live; cloud is P3). */
+export function getBroadcastStatus(): Promise<BroadcastStatus> {
+  return getJSON<BroadcastStatus>('/api/broadcast/status')
+}
+
+/** Fetch recent MediaMTX journal lines for a hub (the raw diagnostic panel). */
+export function getBroadcastLogs(hub = 'van', lines = 200): Promise<BroadcastLogs> {
+  return getJSON<BroadcastLogs>(`/api/broadcast/logs?hub=${hub}&lines=${lines}`)
 }
 
 // ── Cameras (the van's Dahua cams via the MediaMTX hub) ──

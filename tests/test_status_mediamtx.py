@@ -1,57 +1,10 @@
-"""Tests for the MediaMTX path normalizer behind /api/mediamtx."""
+"""Tests for the /api/mediamtx status route (Diagnostics → Media drill-in).
+
+The path-normalize logic now lives in ``common.mediamtx`` (see
+``test_mediamtx_common.py``); this covers the route's document shape.
+"""
 
 from __future__ import annotations
-
-from api.routes.status_mediamtx import _normalize_paths
-
-# Two representative control-API items: an idle on-demand camera (ready false, no
-# tracks/readers) and the live radio path (ready, an Opus track, a viewer).
-_ITEMS = [
-    {
-        'name': 'cam-front',
-        'ready': False,
-        'source': {'type': 'rtspSource', 'id': ''},
-        'tracks': [],
-        'readers': [],
-        'bytesReceived': 0,
-        'bytesSent': 0,
-    },
-    {
-        'name': 'radio',
-        'ready': True,
-        'source': {'type': 'rtspSession', 'id': 'abc'},
-        'tracks': ['Opus'],
-        'readers': [{'type': 'webRTCSession', 'id': 'x'}],
-        'bytesReceived': 4096,
-        'bytesSent': 2048,
-    },
-]
-
-
-def test_normalize_paths_maps_ready_tracks_and_reader_count():
-    idle, live = _normalize_paths(_ITEMS)
-    assert idle == {
-        'name': 'cam-front',
-        'ready': False,
-        'source': 'rtspSource',
-        'tracks': [],
-        'readers': 0,
-        'bytes_received': 0,
-        'bytes_sent': 0,
-    }
-    assert live['ready'] is True
-    assert live['source'] == 'rtspSession'
-    assert live['tracks'] == ['Opus']
-    assert live['readers'] == 1
-    assert live['bytes_received'] == 4096
-
-
-def test_normalize_paths_tolerates_missing_source_and_fields():
-    (path,) = _normalize_paths([{'name': 'radio'}])
-    assert path['source'] is None
-    assert path['ready'] is False
-    assert path['tracks'] == []
-    assert path['readers'] == 0
 
 
 def test_mediamtx_endpoint_shape(client):
