@@ -1,6 +1,7 @@
 import type { Component } from 'svelte'
 
 import Places from '../views/Places.svelte'
+import Broadcast from '../views/Broadcast.svelte'
 import Cameras from '../views/Cameras.svelte'
 import Data from '../views/Data.svelte'
 import Diagnostics from '../views/Diagnostics.svelte'
@@ -55,6 +56,7 @@ export const routes: RouteDef[] = [
   { path: '/fridge', component: Fridge, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
   { path: '/cameras', component: Cameras, tab: '/cameras' },
+  { path: '/broadcast', component: Broadcast, tab: '/broadcast' },
 ]
 
 /** Fallback view for an unmatched client path. */
@@ -79,11 +81,12 @@ export const NAV: NavItem[] = [
   { label: 'Sky', icon: '🛰️', to: '/sky' },
   { label: 'Radio', icon: '📻', to: '/radio' },
   { label: 'Cameras', icon: '📷', to: '/cameras' },
+  { label: 'Broadcast', icon: '📡', to: '/broadcast' },
 ]
 
 /**
  * Tabs kept on the phone bottom bar; everything else in NAV folds into a "More"
- * sheet (the desktop sidebar always shows all of NAV). Eleven tabs crush a phone
+ * sheet (the desktop sidebar always shows all of NAV). Twelve tabs crush a phone
  * bar — five + More keeps the primary destinations one tap away.
  */
 export const PHONE_PRIMARY_TABS: string[] = ['/', '/map', '/drive', '/places', '/radio']

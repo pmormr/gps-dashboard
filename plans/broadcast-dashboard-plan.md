@@ -236,11 +236,11 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - [x] `/etc/default/gps-broadcast` (Pi, root-600) + `deploy/gps-dashboard.service` `EnvironmentFile=-/etc/default/gps-broadcast` (leading `-` optional — van feeds need no secrets). Documented in CLAUDE.md (manual-install carve-out). `broadcast` added to pyproject packages/isort/mypy-strict.
 - [x] Tests (`tests/test_broadcast_feeds.py`, 15): registry integrity (enums, `(hub,path)` unique, publish⇒send, standby=cloud-only), **no-secret-literals guard** (no hex-run in the module; doesn't embed the secrets either), render interpolation + derived SRT/RTMP single-URLs.
 
-### Phase 1 — Config reference view (MVP grab-and-go) · race-day
-- [ ] `api/routes/broadcast.py`: `GET /api/broadcast/feeds` (reads env server-side).
-- [ ] `web/src/views/Broadcast.svelte` + `web/src/lib/broadcast.ts` (types, copy-to-clipboard, grouping) + `web/src/lib/api.ts` client.
-- [ ] Tab wiring in `routes.ts` (B1). UI: grouped by `slot_group` (PtP Cameras · Phones · Drones · Radio · Security B-roll); each feed a card with copy-buttons for the single-URL send string + fielded host/port/streamid/passphrase + OBS read URL, plus expected pins and the notes/gotchas.
-- [ ] Build `static/dist/`, deploy, on-device verify (the panic-scenario walk).
+### Phase 1 — Config reference view (MVP grab-and-go) · race-day ✅
+- [x] `api/routes/broadcast.py`: `GET /api/broadcast/feeds` (reads env server-side); registered in `api/app.py`. Tests in `tests/test_broadcast_api.py` (3).
+- [x] `web/src/views/Broadcast.svelte` + `web/src/lib/broadcast.ts` (types, grouping, `copyText` with an **insecure-context `execCommand` fallback** — the app is plain-HTTP LAN, so `navigator.clipboard` is unavailable there) + `web/src/lib/api.ts` client.
+- [x] Tab wiring in `routes.ts` (B1 — 12th tab, 📡, not in `PHONE_PRIMARY_TABS` → folds into phone "More"). UI: grouped by `slot_group`; each feed a card with copy-buttons for the single-URL + fielded host/port/streamid/passphrase + OBS read, hub/standby/on-demand badges, expected pins, notes/gotchas.
+- [x] Built `static/dist/`; verified locally via playwright (render + working copy feedback + 0 console errors). On-device deploy verify next.
 
 ### Phase 2 — Van live status (two-sides) + snapshots + logs · race-day
 - [ ] `common/mediamtx.py`: shared control-API client; refactor `status_mediamtx.py` onto it (B5).
