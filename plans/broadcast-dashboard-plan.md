@@ -4,13 +4,19 @@
 > `events-dashboard-plan.md`; **renamed** to avoid colliding with the places-tier
 > `place_events` sense of "events"). An interactive **Broadcast** tab in this app
 > that centralizes **config + secrets + live status** for every MediaMTX feed on
-> both hubs — the grab-and-go replacement for the static field quick-ref.
+> both hubs — the grab-and-go replacement for the static field quick-ref, plus a
+> broadcaster-style monitor wall.
+>
+> **Driving deadline: the Mount Equinox Hill Climb (Vermont), weekend of Aug 8,
+> 2026** — ~2 weeks out at shaping. The race day drives the cut: Phases 0–2 are the
+> committed must-have; Phase 3 (cloud) is high-value stretch; Phases 4–5 are post-race.
 >
 > Related: `streaming-platform-plan.md` (van PtP-camera ingest/OBS side),
-> `cameras-plan.md` (the van Dahua fleet, whose hub paths this also surfaces),
-> `.claude/modules/radio.md` R10 (the shared MediaMTX hub), and `paul-network-docs`
-> → `events/2026-hillclimb-quickref.md` (the markdown this replaces),
-> `events/2026-hillclimb.md`, `cloud/devices/vps202051.md` (cloud hub + Caddy).
+> `cameras-plan.md` (the van Dahua fleet, whose hub paths this also surfaces, and
+> the snapshot-thumbnail pattern B9 generalizes), `.claude/modules/radio.md` R10
+> (the shared MediaMTX hub), and `paul-network-docs` →
+> `events/2026-hillclimb-quickref.md` (the markdown this replaces),
+> `events/2026-hillclimb.md`, `cloud/devices/vps202051.md` (cloud hub + Caddy + WG).
 
 ## Why
 
@@ -18,21 +24,46 @@ Event-day feed config lives in a **static markdown quick reference** — every p
 send-side settings, OBS pull URL, and secret, maintained by hand. On race day it's
 cumbersome (hunt for a URL/passphrase mid-panic) and it can't show **live status**.
 The goal is one interactive view that answers, fast: *"phone1 lost its config — what
-do I paste into the app?"*, *"is it up?"*, *"why is the audio erroring?"*
+do I paste into the app?"*, *"is it up?"*, *"is OBS actually getting real video or a
+placeholder?"*, and — glance-level — *"what's on every feed right now?"*
+
+### The always-available design (why every feed has two halves)
+
+Last year the pain was that **OBS's own reconnect/direct-ingest was unreliable** — a
+camera hiccup would drop OBS's source and it wouldn't cleanly recover mid-broadcast.
+The always-available (STANDBY) path fixes that by making **MediaMTX the stable
+intermediary**: OBS pulls one path that is *always* serving at the pinned codec, so
+OBS never sees the underlying camera drop — MediaMTX serves a STANDBY loop until the
+real publisher returns. That decouples OBS from the flaky camera/phone links.
+
+The cost of that decoupling is the exact thing this dashboard must surface: **each
+feed is now two independent halves**, and the healthy-looking one can mask a dead one.
+
+- **Ingest** (publisher → hub): is the real source connected and sending?
+- **Egress** (hub → OBS): is OBS pulling, and is video flowing to it?
+
+The dangerous state: camera drops → ingest is dead → the path keeps serving STANDBY →
+**egress looks perfectly healthy and OBS never errors** → you're broadcasting a
+placeholder loop unaware. That "looked fine, wasn't" case is last year's failure mode,
+and making it visible is the point of the status feature (B6).
 
 ## The two hubs (the fact that shapes everything)
 
 The dashboard runs on the **van** Pi `pmpi1` (`192.168.42.178`), frequently off-grid.
+The cloud hub **mirrors** the van hub (same paths, same STANDBY/pin design) — the only
+deltas are that the cloud hub **requires auth** (public internet; the van LAN is
+trusted) and is reachable only over the control tunnel (B7). So the registry (B2)
+describes **both** from one source of truth; don't read too much into either hub's
+*current* transitional config.
 
-| Hub | Where | Control API | WebRTC | From the dashboard |
+| Hub | Where | Control / logs / snapshots | Video (ingest/egress) | Previews |
 |---|---|---|---|---|
-| **Van** — MediaMTX on `pmpi1` | van LAN | `127.0.0.1:9997` **on** | **on** (`:8889`) | live status **and** WHEP thumbnails already reachable (`/api/mediamtx`, `whep.ts`) |
-| **Cloud** — MediaMTX on `vps202051` / `ovh.pmormr.com` | public internet | **off**, `:9997` not exposed | **off** | needs new plumbing — see B7 |
+| **Van** — `pmpi1` | van LAN | localhost control API (`127.0.0.1:9997`) + local `journalctl` | LAN, **no auth** | JPEG snapshot (local) + WHEP live on expand |
+| **Cloud** — `vps202051` / `ovh.pmormr.com` | public internet | over the **WG control tunnel** (B7) — control API + log + snapshot bound to the WG iface | **public**, authed | JPEG snapshot over the tunnel (no browser WebRTC) |
 
-The seed framed cloud reachability around the home→OVH WireGuard tunnel (Graylog-scoped);
-that's a red herring for *this* app. The van reaches `ovh.pmormr.com` over the **public
-internet** when online — the real gap is that the cloud control API is `api: false` and
-only `8890`/`1935`/`8554` are open, so there's nothing to read yet.
+**Video stays public and untunneled** on both hubs (deliberate: keeps the public test
+target people can rendezvous against, and avoids tunneling multi-Mbps video). Only the
+*control plane* — status polling, log tails, snapshot fetches — rides the tunnel.
 
 ## Decisions
 
@@ -51,8 +82,9 @@ only `8890`/`1935`/`8554` are open, so there's nothing to read yet.
   (publish/proxy/internal), send config (host, port, streamid template, latency,
   encryption, expected video+audio codec), `secret_ref` env keys, `obs_read` template,
   `browser_url` (van only), `standby` (`alwaysAvailable`) flag, `expected_tracks` (the
-  codec pin), and `notes` (the gotchas: streamid `&` truncation, RTMP query-string auth,
-  mute-drone-audio).
+  codec pin, drives B6's codec badge), and `notes` (the gotchas: streamid `&` truncation,
+  RTMP query-string auth, mute-drone-audio). Because the hubs mirror, most fields are
+  shared; `hub` + the auth/reachability deltas are the per-hub variation.
 
 - **B3 — Secrets: Pi env file, never committed (public-repo constraint).**
   `gps-dashboard` is a **public GitHub repo**, so the SRT passphrase and the
@@ -69,65 +101,111 @@ only `8890`/`1935`/`8554` are open, so there's nothing to read yet.
 - **B4 — The config reference is fully local/offline (robustness invariant).** It's
   served by the local Flask app from local data (registry + env), so a feed's config is
   present **even off-grid, with either hub down** — which is exactly when you need it.
-  Only the *live* status dots depend on a hub being reachable. Grab-and-go never depends
-  on network health.
+  Only the *live* status/snapshots/logs depend on a hub being reachable. Grab-and-go never
+  depends on network health.
 
-- **B5 — Van live status reuses the existing control API.** Refactor
-  `api/routes/status_mediamtx.py`'s `_paths`/`_normalize_paths` (the `127.0.0.1:9997`
-  fetch+normalize) into a shared **`common/mediamtx.py`** client used by both
-  `/api/mediamtx` (Diagnostics) and `/api/broadcast/status`. No second hub query path.
+- **B5 — One shared control-API client, both hubs.** Refactor
+  `api/routes/status_mediamtx.py`'s `_paths`/`_normalize_paths` (the control-API
+  fetch+normalize) into a shared **`common/mediamtx.py`** used by `/api/mediamtx`
+  (Diagnostics), the van section of `/api/broadcast/status`, **and** the cloud section
+  (same client, pointed at the cloud control API over the WG tunnel — B7). No second hub
+  query path.
 
-- **B6 — Codec-mismatch signal comes from the journal, not just `tracks`.** Under
-  `alwaysAvailable`, a mismatched publisher is **rejected** but the path keeps serving the
-  STANDBY loop **at the pinned codec** — so the control API's `tracks` shows the pin, not
-  the reject. The authoritative "audio error" signal is the mediamtx journal line
-  `wants [X] but stream expects [Y]`. **Van:** tail local `journalctl -u mediamtx` (via
-  `sudo -n`, the pattern `status_syslog.py` already uses) for recent publish/reject events,
-  surfaced inline per feed. **Cloud:** the small OVH status responder (B7) reads *that* box's
-  own `journalctl -u mediamtx` locally and folds the recent publish/reject events into the
-  JSON Caddy serves — so the van gets cloud reject reasons over HTTP, **no SSH**. **Verify empirically**
-  against the live van hub how the control API distinguishes a *live publisher* from the
-  STANDBY source (`source.type` vs the static source, `bytesReceived` deltas) — the
-  "is it actually up" dot depends on this.
+- **B6 — Status model: the two sides of every feed, read from the control API.** The whole
+  status surface derives from `/v3/paths/list` (`common/mediamtx.py`) — **no journal
+  parsing** for status:
+  - **Ingest half:** `source` (its `type` + `id`) + `bytesReceived` deltas. The critical
+    lever is distinguishing a *real publisher* (`srtConn`/`rtmpConn`/`webRTCSession`…) from
+    the *STANDBY source* — a `ready:true` path whose `source.type` is the static standby,
+    not a live connection. That surfaces the "ingest dead, still serving placeholder" trap.
+  - **Egress half:** `readers[]` (is OBS/anyone pulling) + `bytesSent` deltas (is video
+    actually flowing to them).
+  - **Codec badge (free):** live `tracks` vs the registry's `expected_tracks` → a simple
+    match/mismatch flag. Cheap, no journal.
+  - **MUST verify empirically against the live van hub:** exactly how the control API
+    reports live-publisher vs STANDBY (`source.type` string, `bytesReceived` behavior) and
+    how the pinned `tracks` read under STANDBY — the ingest dot depends on it. The van hub
+    is the cheap test rig (localhost control API); the mismatch/STANDBY reasoning applies to
+    both hubs once they mirror.
+  Reject *reasons* (why a mismatched publisher was refused) are **not** parsed into
+  structured signals — that lives in the raw log panel (B11) instead.
 
-- **B7 — Cloud status via a lightweight authed HTTP status API (not SSH).** Chosen
-  deliberately over any SSH-based pull: OVH gets **constant SSH brute-force attempts**, and
-  the goal is to lock SSH to the **house only** — so the van's *runtime* cloud-status path
-  must be HTTP, independent of SSH (SSH stays a house-only admin/provisioning path). On OVH:
-  turn the control API **on but localhost-only** (`api: yes`, `apiAddress: 127.0.0.1:9997` —
-  no new public control surface). A **small localhost status responder** (stdlib, ~30 lines,
-  bound to `127.0.0.1`) merges the control-API path list **+ a recent `mediamtx` journal
-  tail** into one compact JSON — so the van gets cloud reject/mismatch *reasons* over HTTP
-  too (this is what removes B6's off-box limitation). **Caddy** (already installed for the
-  box's planned reverse-proxy role — this becomes its first site + opens UFW 443/ACME) fronts
-  that responder read-only with **token/basic auth** over HTTPS. Van env adds
-  `GPS_BROADCAST_CLOUD_URL` + `GPS_BROADCAST_CLOUD_TOKEN`; `/api/broadcast/status` fetches it
-  **timeout-guarded**, and off-grid/unreachable degrades to `cloud: {reachable: false}` — the
-  normal resting state, **not** a failure (same posture as the on-demand-idle handling in
-  `status_mediamtx.py`). Fits the box's minimal-exposure, previously-compromised stance
-  (read-only, authed, control API **and** responder both bound to localhost; Caddy is the
-  only public surface and it can't reach SSH). Minimal fallback if we defer the journal part:
-  Caddy proxies the raw `/v3/paths/list` (status without reject reasons). Documented in
-  `vps202051.md`.
+- **B7 — Cloud control plane over a direct van↔cloud WireGuard tunnel (video stays
+  public).** Chosen over the seed's public authed-HTTP-status-API idea, and over reusing
+  the home↔OVH tunnel:
+  - **Video is NOT tunneled** — cloud MediaMTX ingest/egress stay on their public ports
+    (keeps the public test target; avoids tunneling multi-Mbps video). Only control/log/
+    snapshot traffic (a trickle) rides the tunnel.
+  - **Direct van↔cloud WG peer.** The van is behind Starlink CGNAT (no public inbound), so
+    the **van dials out** to the cloud's fixed WG endpoint on a **high UDP port**.
+    WireGuard is **scan-invisible** (silent to any packet without a valid key), so it
+    satisfies the security-through-obscurity goal *better* than a high-port HTTPS endpoint —
+    and there is **no public status surface at all** (no Caddy site, no ACME, no 443/TLS
+    decision; all of that machinery is eliminated).
+  - **Cloud services bind to the WG interface**, not the public internet: MediaMTX control
+    API (`api: yes`, WG-iface address), the snapshotter (B9), and the log endpoint (B11).
+    Reached from the van at their WG addresses. A token is optional defense-in-depth — the
+    tunnel is the real trust boundary.
+  - **Direct, not two-hop** (rejected van→home→cloud over the existing home↔OVH tunnel):
+    one hop, doesn't depend on home being up or the van reaching home.
+  - **Degrade posture unchanged:** tunnel down (van driving on flaky Starlink, or off-grid)
+    → `cloud.reachable: false`, the normal resting state, **not** a failure — same as the
+    on-demand-idle handling in `status_mediamtx.py`. Van env adds `GPS_BROADCAST_CLOUD_URL`
+    (the WG-side base); `/api/broadcast/status` fetches it **timeout-guarded**. Event
+    connectivity is good (fixed Starlink with sky view / summit visitor-center uplink), so
+    the tunnel is solid when it matters.
+  - **Enables the SSH lockdown** (an open item): with control on the tunnel, public SSH to
+    OVH can be firewalled to **tunnel + house only**, killing the constant brute-force
+    surface. Sequence that firewall change *after* the tunnel + status are verified, so
+    cloud status never depends on the change landing. Documented in `vps202051.md`.
 
-- **B8 — The registry generates the van paths block.** `tools/gen_mediamtx_paths.py`
+- **B8 — The registry generates the van paths block (post-race).** `tools/gen_mediamtx_paths.py`
   renders the van broadcast paths (`radio`, `drone1/2`, `cam1`–`cam4`) from the registry
   into `deploy/mediamtx.yml` between sentinel markers, **preserving** the hand-written
   header and the Dahua `${GPS_DAHUA_PASSWORD_URLENC}` proxy block (cameras-owned, left
   as-is). A test asserts the committed block equals the registry render (drift guard). This
   kills the seed's "three drifting copies" for the van side. The **cloud** `mediamtx.yml`
   stays hand-maintained on OVH (different box/repo) — the registry *documents* it and drives
-  the mismatch check's expected pins, but doesn't write it (Phase 5 could generate the
-  private quick-ref from the registry to close the last copy).
+  the codec badge's expected pins, but doesn't write it (Phase 5 could generate the private
+  quick-ref from the registry to close the last copy). Low urgency — deferred past race day.
 
-- **B9 — Live thumbnails: van feeds only.** Van WebRTC is on → reuse `whep.ts` + the
-  `Cameras.svelte` thumbnail pattern. Cloud `webrtc: false` → cloud feeds show **status
-  only**, no thumbnail. Enabling cloud WebRTC for thumbnails is a separate exposure call —
-  deferred (Phase 5).
+- **B9 — Unified JPEG-snapshot previews for both hubs (a monitor wall).** The aspiration is
+  a broadcaster's TV wall — every feed tiled with both-sides health + a glance preview — so
+  you decide what to route into OBS's production feed. Mechanism: **decode where the video
+  already lives, ship only pixels-as-JPEG.** Cloud feeds are **H.265** (phones), which
+  browsers **cannot** decode over WHEP — so public WebRTC previews were a dead end for the
+  phones regardless of exposure. Snapshots sidestep that entirely and generalize the
+  Cameras-plan snapshot pattern:
+  - On each hub, a lightweight **ffmpeg per active feed** pulls from **localhost** RTSP
+    (`rtsp://127.0.0.1:8554/<path>`), downscales, writes a latest-frame JPEG (~0.5 fps) to
+    tmpfs. Started when the wall opens, stopped after an idle TTL (bounds ffmpeg processes to
+    active feeds, not polls — the Cameras "self-schedule + cache" lesson).
+  - A tiny endpoint serves that JPEG: van locally; cloud bound to the WG interface (B7).
+    Tiles poll it, **self-scheduled per tile** (a shared timer starves slow tiles).
+  - **Impact (analyzed):** ~320×180 JPEG ≈ 20 KB; ~6 cloud tiles @ 2 s ≈ **0.5 Mbps
+    aggregate**, on-demand (only while the Broadcast view is foregrounded) — ~5–10× lighter
+    than continuous WebRTC video and no transcode-to-stream. Cloud CPU: one H.265 frame per
+    feed per ~2 s is negligible; throttle fps/tile-count if the VPS strains.
+  - **The wall uses snapshots uniformly for both hubs** (consistent, one mechanism); the
+    van's built **WHEP** live tiles (`whep.ts`, H.264 sub-streams) are used on
+    **click-to-expand** for live motion. Cloud expand stays snapshot (faster refresh) until/
+    unless cloud WebRTC is enabled (Phase 5 exposure call).
+  - **Bonus:** when a source drops, the snapshot shows the **STANDBY card / frozen frame** —
+    visually confirming the B6 "ingest dead, egress still serving placeholder" state. Preview
+    and status reinforce each other on exactly last year's failure mode.
 
 - **B10 — Van hub stays cloud-phone-free.** Phones are on cellular and can't reach the van
   LAN; a van-LAN phone path would defeat the cellular-rendezvous purpose of the cloud hub.
   Leave phones cloud-only (answers the seed's open question).
+
+- **B11 — Live raw log panel per hub (the diagnostic escape hatch).** We do **not** try to
+  fully classify what's wrong — just make the hub's `journalctl -u mediamtx` **visible live**
+  so a human can eyeball it (publish/reject events, connection churn, codec refusals). Van:
+  read locally via `sudo -n` (the `status_syslog.py` pattern). Cloud: a tiny recent-lines
+  endpoint bound to the WG interface (B7), fetched over the tunnel. First cut = "last N
+  lines, poll-refreshed" (a live-*ish* tail); true SSE streaming is a Phase-5 polish. This
+  replaces the seed's fragile journal-parsing — raw logs cover the "why" without pretending
+  to structure it.
 
 ## Data model sketch (`broadcast/feeds.py`)
 
@@ -141,62 +219,70 @@ Feed(
                   latency_ms=2000, encryption='AES-128'),
     expected_tracks=['H265', 'AAC 44100/2'], standby=True,
     obs_read='rtsp://obs:${GPS_BROADCAST_OBS_READ}@ovh.pmormr.com:8554/phone1',
-    browser_url=None,   # cloud webrtc off
+    browser_url=None,   # cloud webrtc off — preview is a snapshot over the tunnel (B9)
     notes=['Field apps: streamid is ONLY publish:...:<key> — a stray & truncates it'],
 )
 ```
 
 `GET /api/broadcast/feeds` renders this with env values interpolated → the config-reference
-payload. `GET /api/broadcast/status` merges live control-API state + journal events onto it.
+payload. `GET /api/broadcast/status` merges live control-API two-sides state (B6) onto it.
+Snapshots (B9) and logs (B11) are separate endpoints per hub.
 
 ## Phases
 
-### Phase 0 — Feed registry + secret plumbing (backbone)
+### Phase 0 — Feed registry + secret plumbing (backbone) · race-day
 - [ ] `broadcast/feeds.py`: `Feed`/`SendSpec` dataclasses + `FEEDS` covering both hubs.
 - [ ] `render_feeds(env)` — interpolate `${ENV_KEY}` placeholders → finished payload (pure, env dict in).
 - [ ] `/etc/default/gps-broadcast` (Pi, root-600, gitignored) + `deploy/gps-dashboard.service` gains `EnvironmentFile=-/etc/default/gps-broadcast`. Document the file in CLAUDE.md (Deployment) + the manual-install carve-out.
 - [ ] Tests: registry integrity (required fields, `expected_tracks` parse, **no secret literals** in the module), render interpolation.
 
-### Phase 1 — Config reference view (MVP grab-and-go)
+### Phase 1 — Config reference view (MVP grab-and-go) · race-day
 - [ ] `api/routes/broadcast.py`: `GET /api/broadcast/feeds` (reads env server-side).
 - [ ] `web/src/views/Broadcast.svelte` + `web/src/lib/broadcast.ts` (types, copy-to-clipboard, grouping) + `web/src/lib/api.ts` client.
 - [ ] Tab wiring in `routes.ts` (B1). UI: grouped by `slot_group` (PtP Cameras · Phones · Drones · Radio · Security B-roll); each feed a card with copy-buttons for the single-URL send string + fielded host/port/streamid/passphrase + OBS read URL, plus expected pins and the notes/gotchas.
 - [ ] Build `static/dist/`, deploy, on-device verify (the panic-scenario walk).
 
-### Phase 2 — Van live status + codec-mismatch
+### Phase 2 — Van live status (two-sides) + snapshots + logs · race-day
 - [ ] `common/mediamtx.py`: shared control-API client; refactor `status_mediamtx.py` onto it (B5).
-- [ ] `GET /api/broadcast/status` (van section): live path state merged onto the registry; expected-vs-live tracks + mismatch flag; recent `mediamtx` journal publish/reject events via `sudo -n` (B6).
-- [ ] View: status dots (live/standby/idle/offline), viewers/bytes, mismatch badge + inline reject line; van-feed WHEP thumbnails (reuse `whep.ts`).
-- [ ] Verify against the live van hub, incl. the live-publisher-vs-STANDBY distinction (B6).
-- [ ] Tests: status-merge/mismatch pure logic; `/api/broadcast/status` via Flask client (mocked control API).
+- [ ] `GET /api/broadcast/status` (van section): two-sides state merged onto the registry — ingest (`source.type` + `bytesReceived` delta, live-vs-STANDBY), egress (`readers` + `bytesSent` delta), codec badge (`tracks` vs `expected_tracks`) (B6).
+- [ ] Van snapshotter: ffmpeg localhost RTSP → tmpfs JPEG (idle-TTL); serve endpoint (B9).
+- [ ] Van live-log endpoint: `sudo -n journalctl -u mediamtx` recent lines (B11).
+- [ ] View: monitor-wall tiles (two-sides dots + throughput + codec badge + snapshot), click-to-expand → WHEP live (van), raw log panel.
+- [ ] **Verify against the live van hub** — the live-publisher-vs-STANDBY distinction and STANDBY `tracks` behavior (B6, the empirical must-verify).
+- [ ] Tests: status-merge/two-sides pure logic; `/api/broadcast/status` via Flask client (mocked control API).
 
-### Phase 3 — Cloud live status (lightweight HTTP status API) — off-repo OVH work
-- [ ] OVH `mediamtx.yml`: `api: yes`, `apiAddress: 127.0.0.1:9997` (localhost only).
-- [ ] Small localhost status responder on OVH: control-API path list **+** recent `mediamtx` journal events → one JSON (stdlib; bound to `127.0.0.1`; systemd unit).
-- [ ] Caddy: read-only, token/basic-authed HTTPS route → the responder (first Caddy site; UFW 443; ACME for `ovh.pmormr.com`). Document in `vps202051.md` + `reverse-proxy-setup.md`.
-- [ ] Van env: `GPS_BROADCAST_CLOUD_URL`, `GPS_BROADCAST_CLOUD_TOKEN`.
-- [ ] `/api/broadcast/status`: cloud section, timeout-guarded; unreachable → `cloud.reachable=false` (not a failure). View shows cloud dots + tracks/viewers + reject reasons (no thumbnail).
-- [ ] Update the network-docs event pages.
+### Phase 3 — WG control tunnel + cloud status/snapshots/logs · race-day stretch (off-repo OVH + van net)
+- [ ] Stand up the **direct van↔cloud WireGuard peer**: cloud = fixed endpoint on a high UDP port, van dials out (CGNAT); allowed-IPs scoped to the control plane only.
+- [ ] OVH `mediamtx.yml`: `api: yes`, control API bound to the **WG interface** (not public).
+- [ ] OVH: cloud snapshotter (B9) + log endpoint (B11), both bound to the WG interface (systemd units; stdlib/ffmpeg).
+- [ ] Van env: `GPS_BROADCAST_CLOUD_URL` (WG base; optional token). `/api/broadcast/status` cloud section, timeout-guarded; unreachable → `cloud.reachable=false` (not a failure). Wall shows cloud tiles (snapshots + two-sides + logs); no browser WebRTC.
+- [ ] Verify cloud status/snapshots/logs over the tunnel end-to-end.
+- [ ] **Then** sequence the public-SSH → tunnel+house firewall lockdown (after status verified). Update `vps202051.md` + the network-docs event pages.
 
-### Phase 4 — Registry-driven van config generation
+### Phase 4 — Registry-driven van config generation · post-race
 - [ ] `tools/gen_mediamtx_paths.py`: registry → van `deploy/mediamtx.yml` broadcast paths (sentinel markers; preserve header + Dahua block) (B8).
 - [ ] Drift-guard test: committed block == registry render.
 
 ### Phase 5 — Deferred
+- [ ] True SSE/streaming log tail (vs poll-refreshed lines).
+- [ ] Enable cloud WebRTC → cloud live-on-expand (exposure decision; H.264 feeds only).
 - [ ] Generate the `paul-network-docs` quick-ref from the registry (+ a local secrets file) — kills the last drifting copy.
-- [ ] Enable cloud WebRTC → cloud thumbnails (exposure decision).
 - [ ] Optional in-app secret editor, if SSH env-file maintenance proves annoying.
 - [ ] Surface the day-of YouTube stream key (an env slot vs. leave it in OBS/password-manager).
 
 ## Reusable building blocks (already in-repo)
-- `api/routes/status_mediamtx.py` → the control-API fetch/normalize to lift into `common/mediamtx.py`.
-- `web/src/lib/whep.ts` + `web/src/views/Cameras.svelte` — WHEP live thumbnails (van feeds).
+- `api/routes/status_mediamtx.py` → the control-API fetch/normalize to lift into `common/mediamtx.py` (B5).
+- `web/src/lib/whep.ts` + `web/src/views/Cameras.svelte` — WHEP live tiles (van click-to-expand) + the per-tile self-scheduled refresh + server-side snapshot-downscale pattern B9 generalizes.
 - `routes.ts` `NAV`/`routes`/`PHONE_PRIMARY_TABS` — top-level tab wiring.
 - `updater/chunks.py` — the declarative-registry precedent for `broadcast/feeds.py`.
 - `/etc/default/gps-dahua` + `sensor-dahua.service` `EnvironmentFile` — the env-secret pattern.
-- `api/routes/status_syslog.py` — the `sudo -n` journal-read pattern for B6.
+- `api/routes/status_syslog.py` — the `sudo -n` journal-read pattern for B11.
+- The home↔OVH WireGuard config in `paul-network-docs` (`rex-edge.md` / `vps202051.md`) — the WG precedent B7 adds a van peer alongside.
 
 ## Open items
-- **SSH lockdown to the house** — the HTTP status API (B7) is the enabler; sequence the OVH SSH-firewall change *after* the status endpoint is verified, so cloud status never depends on SSH. Track in `vps202051.md`.
-- **Live-publisher-vs-STANDBY** control-API distinction — verify against the live hub (B6).
-- **Naming** — file renamed `events-dashboard-plan.md` → `broadcast-dashboard-plan.md`; flag if "Broadcast" as the tab label should differ.
+- **Live-publisher-vs-STANDBY** control-API distinction — the one hard empirical unknown;
+  verify against the live van hub before finalizing the ingest dot (B6, Phase 2).
+- **SSH lockdown to the house** — the WG tunnel (B7) is the enabler; sequence the OVH
+  SSH-firewall change *after* cloud status is verified over the tunnel. Track in `vps202051.md`.
+- **Naming** — file renamed `events-dashboard-plan.md` → `broadcast-dashboard-plan.md`; flag
+  if "Broadcast" as the tab label should differ.
