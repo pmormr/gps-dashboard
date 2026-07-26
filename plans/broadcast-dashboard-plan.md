@@ -146,8 +146,15 @@ target people can rendezvous against, and avoids tunneling multi-Mbps video). On
     API (`api: yes`, WG-iface address), the snapshotter (B9), and the log endpoint (B11).
     Reached from the van at their WG addresses. A token is optional defense-in-depth — the
     tunnel is the real trust boundary.
-  - **Direct, not two-hop** (rejected van→home→cloud over the existing home↔OVH tunnel):
-    one hop, doesn't depend on home being up or the van reaching home.
+  - **Direct, not two-hop.** Re-confirmed 2026-07-26 after a van↔rex site-to-site tunnel
+    landed (`paul-network-docs` `topology.md`), which briefly made a van→rex→cloud hairpin
+    tempting: still **direct**, because (a) it keeps this control tunnel **single-purpose** —
+    the cloud's Graylog-backhaul peer AllowedIPs stays pristine at `10.1.100.224/32` rather
+    than being widened to carry van traffic; (b) one hop, **independent of home being up**;
+    and (c) video is **never** tunneled in *either* design (control + JPEG snapshots only,
+    B9), so the two-hop's only real draw — tunnel reuse — didn't outweigh the containment
+    cost. The van↔rex tunnel stands on its own for general van↔home connectivity, unrelated
+    to this.
   - **Degrade posture unchanged:** tunnel down (van driving on flaky Starlink, or off-grid)
     → `cloud.reachable: false`, the normal resting state, **not** a failure — same as the
     on-demand-idle handling in `status_mediamtx.py`. Van env adds `GPS_BROADCAST_CLOUD_URL`
