@@ -292,7 +292,8 @@ gps-dashboard/
 │   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
 │   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
 │   ├── tle_validate.py         # backtest derived orbits vs CelesTrak TLEs+SGP4 (absolute, dev-time)
-│   └── fetch_satcat.py         # fetch/cache CelesTrak SATCAT satellite metadata
+│   ├── fetch_satcat.py         # fetch/cache CelesTrak SATCAT satellite metadata
+│   └── gen_mediamtx_paths.py   # render van publisher paths in deploy/mediamtx.yml from broadcast/feeds.py (B8; --check drift-guards, test-enforced)
 ├── deploy/
 │   ├── gps-dashboard.service
 │   ├── gps-logger.service

@@ -277,9 +277,9 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - **Codec string bug fixed.** MediaMTX reports the AAC track as **`'MPEG-4 Audio'`** (hyphen + space), not `'MPEG4Audio'` — the phone pin was wrong and always mismatched. Also, the codec badge is now **gated to a live source**: a STANDBY loop serves its own tracks (the drone loop even has an audio track the video-only pin lacks), so comparing the placeholder to the real-source pin false-flagged every idling STANDBY feed.
 - **Cloud RTSP read needs the `obs` cred** (unlike the open van LAN) — the agent's authed `rtsp_base` handles it; the wall snapshotter counts as an egress reader on the cloud too, discounted via `/active` (mirrors the van).
 
-### Phase 4 — Registry-driven van config generation · post-race
-- [ ] `tools/gen_mediamtx_paths.py`: registry → van `deploy/mediamtx.yml` broadcast paths (sentinel markers; preserve header + Dahua block) (B8).
-- [ ] Drift-guard test: committed block == registry render.
+### Phase 4 — Registry-driven van config generation · post-race ✅
+- [x] `tools/gen_mediamtx_paths.py`: registry → van `deploy/mediamtx.yml` broadcast paths (B8). Renders the van `source: publisher` feeds (role `publish`/`internal` — cam1–4, radio, drone1/2, in registry order) between sentinel markers; everything outside — the header **and** the hand-maintained Dahua `${GPS_DAHUA_PASSWORD_URLENC}` on-demand proxy block — is left verbatim. Pure `render_block`/`splice` core (testable) + a thin argparse shell; `--check` prints a unified diff and exits 1 on drift, else rewrites in place. Per-path comment (`# cam1 — PtP cam 1 (SRT publish :8890)`) is derived from the feed, so the old inline prose (already duplicated in the preserved header + the registry `notes`) is not a second copy to drift.
+- [x] Drift-guard test (`tests/test_gen_mediamtx_paths.py`, 5): committed block == `render_block()`, the van-publisher selection + registry order, no secret/rtsp leak into the block, splice idempotence + Dahua-block preservation, missing-marker error. `--check`-detects-drift verified manually (exit 1 on a hand-edit, 0 restored).
 
 ### Phase 5 — Deferred
 - [ ] True SSE/streaming log tail (vs poll-refreshed lines).

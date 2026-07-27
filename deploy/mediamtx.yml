@@ -49,30 +49,38 @@ srtAddress: :8890
 rtmpAddress: :1935
 
 paths:
-  # Live radio audio (Digirig SP1 A+B mix), published by radio-stream.service.
+  # >>> BEGIN generated van paths — tools/gen_mediamtx_paths.py (do not edit) <<<
+  # Van publisher paths, generated from broadcast/feeds.py (B8). The Dahua
+  # on-demand proxy block below is hand-maintained (cameras-owned).
+
+  # cam1 — PtP cam 1 (SRT publish :8890)
+  cam1:
+    source: publisher
+
+  # cam2 — PtP cam 2 (SRT publish :8890)
+  cam2:
+    source: publisher
+
+  # cam3 — PtP cam 3 (SRT publish :8890)
+  cam3:
+    source: publisher
+
+  # cam4 — PtP cam 4 (SRT publish :8890)
+  cam4:
+    source: publisher
+
+  # radio — Radio audio (in-hub publisher)
   radio:
     source: publisher
 
-  # DJI drone live video, RTMP-published by the DJI app's Custom RTMP feature to
-  # rtmp://<pi>:1935/drone1 (or /drone2 — two slots for two drones / a spare).
-  # H.264/AAC, so it plays in the browser WebRTC page (unlike the H.265 cam-*-main
-  # feeds). Nothing pulls it until a viewer attaches.
+  # drone1 — Drone 1 · van WiFi (spare) (RTMP publish :1935)
   drone1:
     source: publisher
+
+  # drone2 — Drone 2 · van WiFi (event) (RTMP publish :1935)
   drone2:
     source: publisher
-
-  # Hill-climb live stream: each course-position Pi runs ffmpeg and SRT-publishes
-  # here with streamid `publish:camN`. See plans/streaming-platform-plan.md and
-  # paul-network-docs events/2026-hillclimb.md.
-  cam1:
-    source: publisher
-  cam2:
-    source: publisher
-  cam3:
-    source: publisher
-  cam4:
-    source: publisher
+  # >>> END generated van paths <<<
 
   # The van's four Dahua IP cams (plans/cameras-plan.md), pulled direct from each
   # camera (C2 — not via the NVR, so recording load is untouched). Two paths per
