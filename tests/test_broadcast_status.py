@@ -111,6 +111,16 @@ def test_codec_mismatch() -> None:
     assert codec_badge(('H264',), ('H265',)) == 'mismatch'
 
 
+def test_codec_match_tolerates_extra_live_tracks() -> None:
+    # On-demand Dahua -main proxy: the camera's audio track rides alongside the
+    # H265 video the video-only pin enumerates — not a mismatch.
+    assert codec_badge(('H265',), ('H265', 'G711')) == 'match'
+
+
+def test_codec_mismatch_when_expected_track_missing() -> None:
+    assert codec_badge(('H265', 'MPEG-4 Audio'), ('H265',)) == 'mismatch'
+
+
 def test_codec_unknown_when_no_live_tracks() -> None:
     assert codec_badge(('H264',), ()) == 'unknown'
 

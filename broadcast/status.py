@@ -45,13 +45,17 @@ def ingest_state(feed: Feed, state: PathState) -> str:
 def codec_badge(expected: tuple[str, ...], actual: tuple[str, ...]) -> str:
     """Compare live vs expected codec-name sets → ``match`` | ``mismatch`` | ``unknown``.
 
-    ``unknown`` when there are no live tracks yet (idle path — nothing to compare).
-    Codec names must match MediaMTX's control-API strings exactly (e.g. the AAC
-    track is ``'MPEG-4 Audio'``, hyphen + space — verified live on the cloud hub).
+    ``match`` when every expected track is present live; **extra live tracks are
+    tolerated** — an on-demand Dahua ``-main`` proxy carries the camera's PCM/G.711
+    audio track that the video-only ``('H265',)`` pin does not enumerate, and that
+    must not read as a mismatch. ``mismatch`` when an expected codec is missing or
+    wrong. ``unknown`` when there are no live tracks yet (idle path — nothing to
+    compare). Codec names must match MediaMTX's control-API strings exactly (e.g. the
+    AAC track is ``'MPEG-4 Audio'``, hyphen + space — verified live on the cloud hub).
     """
     if not actual:
         return 'unknown'
-    return 'match' if set(actual) == set(expected) else 'mismatch'
+    return 'match' if set(expected) <= set(actual) else 'mismatch'
 
 
 def feed_status(feed: Feed, state: PathState | None, self_readers: int = 0) -> dict[str, Any]:
