@@ -15,8 +15,9 @@
 # SRT (:8890) is enabled for camera ingest — the hill-climb Pi encoders publish
 # over SRT for its retransmit + latency buffer on the lossy long-distance link.
 # RTMP (:1935) is enabled for the DJI drone's built-in "Custom RTMP" live stream:
-# the DJI app publishes to rtmp://<pi>:1935/drone1 (or /drone2) (H.264/AAC),
-# consumed like any other path (WebRTC http://<pi>:8889/drone1, or RTSP
+# the DJI app publishes to rtmp://<pi>:1935/drone1 (or /drone2) as H.264 video-only
+# (mute the DJI audio, matching the cloud hub's single-track pin), consumed like any
+# other path (WebRTC http://<pi>:8889/drone1, or RTSP
 # rtsp://<pi>:8554/drone1 in OBS/VLC). The phone running the DJI app must be on the
 # van LAN to reach the hub. No auth — trusted LAN, matching the rest of the hub.
 # (The public cloud hub on vps202051 runs the same two paths but WITH auth — see

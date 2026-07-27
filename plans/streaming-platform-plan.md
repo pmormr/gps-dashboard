@@ -21,7 +21,7 @@ hub — OBS attaches to MediaMTX for all feeds *and* `/radio`, never to the publ
 
 - **S1 — One hub, reuse the radio's MediaMTX.** Add camera `paths:` to the existing
   `mediamtx` service; do **not** stand up a second server. OBS pulls `cam1`–`cam4`
-  + `radio` from the one hub on [`pmpi1`](https://github.com/pmormr/gps-dashboard).
+  + `radio` from the one hub on `pmpi1`.
   This is exactly the "hub later proxies the cams for OBS" future named in R10 / 2f-e.
 - **S2 — Encode at the edge, transport SRT.** Each Pi runs one ffmpeg job: USB cam
   (V4L2) → H.264 → **SRT publish** to MediaMTX (streamid `publish:camN`). SRT over
