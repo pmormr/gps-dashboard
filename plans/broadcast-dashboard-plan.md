@@ -269,8 +269,8 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - [x] **Phase B-1** — OVH `mediamtx.yml`: `api: yes` + `apiAddress: 10.9.9.1:9997` (WG-iface only; localhost/public refuse). The anon `action: api` user's `ips` gains `10.9.9.2` (the van), and UFW `allow in on wg1 from 10.9.9.2` opens the control plane on the tunnel. Ordering drop-in `After=wg-quick@wg1`.
 - [x] **Phase B-2** — cloud agent (snapshotter B9 + log endpoint B11) unified into **`broadcast/cloud_agent.py`** (stdlib `ThreadingHTTPServer`, reuses the tested `SnapshotManager`): `/snapshot/<path>` · `/logs` · `/active` · `/health`, bound `10.9.9.1:9998`. In-repo + unit-tested; deployed off-repo to the vps (`/opt/broadcast-agent`, `bcagent` user in `systemd-journal`, unit `broadcast/cloud_agent.service` → `broadcast-agent.service`, secret RTSP base in `/etc/default/broadcast-agent`). The cloud hub 401s an anonymous RTSP read, so the agent pulls with the `obs` cred baked into `rtsp_base` (`snapshots.py` now takes a configurable base) — auth stays strict, no anon-read reachable over the tunnel.
 - [x] **Phase C** — van env `GPS_BROADCAST_CLOUD_URL`/`GPS_BROADCAST_CLOUD_AGENT_URL`; `/api/broadcast/status` cloud section (timeout-guarded `fetch_paths`, per-hub reader discount via the agent's `/active`); `snapshot`/`logs` **proxied** through Flask (`?hub=cloud`) since LAN browsers can't reach `10.9.9.1`; wall renders cloud tiles (snapshot + two-sides + cloud log panel; no browser WebRTC). STANDBY-source check resolved — no guard needed (see findings).
-- [x] Verified the agent + control API end-to-end over the tunnel (health/active/logs + real H.264 **and H.265** snapshots decoded to JPEG). Browser wall verify: after the deploy push.
-- [ ] **Then** sequence the public-SSH → tunnel+house firewall lockdown (after status verified). Update `vps202051.md` + the network-docs event pages.
+- [x] Verified the agent + control API end-to-end over the tunnel (health/active/logs + real H.264 **and H.265** snapshots decoded to JPEG) + the live wall (playwright over HaLow: cloud tiles STANDBY, drone2 danger-flag firing, 0 console errors).
+- [x] **SSH lockdown DONE 2026-07-27.** To give the vps a robust non-public SSH path first, the vps `wg0` (rex Graylog tunnel) `AllowedIPs` was widened `10.1.100.224/32 → 10.1.100.0/24, 10.1.240.0/24, 10.1.250.0/24` so **any rex host** can SSH the vps over the tunnel (`rex-edge` needed no change — inbound SSH falls through its default-accept `forward`; its containment only limits vps-*initiated* traffic to Graylog `:514`). Then the public `:22` UFW rule was removed — SSH is now tunnel-only: rex `wg0` (`ssh vps202051` → `10.1.250.12`), van jump-host (`ssh -J pmpi1 ubuntu@10.9.9.1`), OVH KVM backstop; all three verified. `vps202051.md` + `rex-edge.md` updated + synced.
 
 **Live-cloud-hub findings (P3, the carried-over B6 must-verify):**
 - **STANDBY source = `source: null`.** An `alwaysAvailable` path with no live publisher reports `source: null` (not a standby-source object with an id) → `source_connected` is False → `ingest_state` returns `standby`. **The carried-over "does a STANDBY source carry a `source.id`?" question is answered NO — no guard needed;** the existing derivation was already correct. Captured as a test fixture (`test_broadcast_status.py`).
@@ -302,8 +302,9 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
   **STANDBY-source signature — RESOLVED in P3:** a STANDBY source reports `source: null`, so
   `source_connected` is False and `ingest_state` returns `standby` with **no guard needed**
   (see the P3 findings). Open question closed.
-- **SSH lockdown to the house** — the WG tunnel (B7) is the enabler; sequence the OVH
-  SSH-firewall change *after* cloud status is verified over the tunnel. Still pending (the one
-  remaining P3 step). Track in `vps202051.md`.
+- **SSH lockdown to the house — DONE 2026-07-27.** Public OVH `:22` removed; SSH tunnel-only
+  (rex `wg0` widened to the rex subnets so any rex host reaches it, van `wg1` jump-host, KVM
+  backstop). `rex-edge` needed no change (asymmetric containment). Documented in `vps202051.md`
+  + `rex-edge.md`. **Phase 3 is now complete.**
 - **Naming** — file renamed `events-dashboard-plan.md` → `broadcast-dashboard-plan.md`; flag
   if "Broadcast" as the tab label should differ.
