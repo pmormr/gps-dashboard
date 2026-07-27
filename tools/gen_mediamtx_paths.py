@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the van hub's publisher paths in ``deploy/mediamtx.yml`` from the registry.
 
-B8 (``plans/broadcast-dashboard-plan.md``): ``broadcast/feeds.py`` is the single
+B8 (``.claude/modules/broadcast.md``): ``broadcast/feeds.py`` is the single
 source of truth for every MediaMTX path. The van hub's simple ``source: publisher``
 paths — the hill-climb SRT cams, the DJI-RTMP drone slots, and the in-hub radio
 audio — are mechanical to derive from it, so this tool writes them into the hub

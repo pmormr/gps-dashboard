@@ -1138,7 +1138,7 @@ export function getDataStatus(): Promise<DataStatus> {
   return getJSON<DataStatus>('/api/data/status')
 }
 
-// ── Broadcast (event-day feed config reference; plans/broadcast-dashboard-plan.md) ──
+// ── Broadcast (event-day feed config reference; .claude/modules/broadcast.md) ──
 
 /** Fetch every feed's copy-ready config (secrets interpolated server-side). */
 export function getBroadcastFeeds(): Promise<BroadcastFeeds> {

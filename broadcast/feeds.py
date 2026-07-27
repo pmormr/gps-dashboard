@@ -17,7 +17,7 @@ The single-URL send forms and the set of referenced env keys are **derived**
 (:func:`render_feeds` / :func:`env_keys`) rather than stored, so the fielded and
 single-URL views can never drift and there is no hand-kept secret-ref list.
 
-See ``plans/broadcast-dashboard-plan.md`` (B2/B3) and the mirror docs:
+See ``.claude/modules/broadcast.md`` (B2/B3) and the mirror docs:
 ``paul-network-docs`` ``events/2026-hillclimb-quickref.md`` + the two device pages.
 """
 
