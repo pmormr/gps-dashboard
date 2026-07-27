@@ -46,6 +46,8 @@ def codec_badge(expected: tuple[str, ...], actual: tuple[str, ...]) -> str:
     """Compare live vs expected codec-name sets → ``match`` | ``mismatch`` | ``unknown``.
 
     ``unknown`` when there are no live tracks yet (idle path — nothing to compare).
+    Codec names must match MediaMTX's control-API strings exactly (e.g. the AAC
+    track is ``'MPEG-4 Audio'``, hyphen + space — verified live on the cloud hub).
     """
     if not actual:
         return 'unknown'
@@ -74,6 +76,11 @@ def feed_status(feed: Feed, state: PathState | None, self_readers: int = 0) -> d
         return {'reachable': True, 'present': False}
     ing = ingest_state(feed, state)
     readers = max(0, state.readers - self_readers)
+    # The codec badge is meaningful only against a *live* source: a STANDBY loop
+    # carries its own tracks (verified on the cloud hub — the drone loop even has
+    # an audio track the video-only pin lacks), so comparing the placeholder to
+    # the real-source pin would false-flag every idling STANDBY feed.
+    codec = codec_badge(feed.expected_tracks, state.tracks) if ing == 'live' else 'unknown'
     return {
         'reachable': True,
         'present': True,
@@ -81,7 +88,7 @@ def feed_status(feed: Feed, state: PathState | None, self_readers: int = 0) -> d
         'ingest': ing,
         'source_type': state.source_type,
         'tracks': list(state.tracks),
-        'codec': codec_badge(feed.expected_tracks, state.tracks),
+        'codec': codec,
         'readers': readers,
         'pulling': readers > 0,
         'bytes_received': state.bytes_received,

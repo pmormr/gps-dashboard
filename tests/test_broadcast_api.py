@@ -8,6 +8,7 @@ server-side (present → interpolated; absent → reported, never leaked as a cr
 from __future__ import annotations
 
 import pytest
+import requests
 
 import api.routes.broadcast as broadcast_route
 from broadcast.feeds import FEEDS
@@ -162,6 +163,86 @@ def test_logs_journal_unreadable_is_not_fatal(client, monkeypatch: pytest.Monkey
     assert body['reachable'] is False and body['lines'] == []
 
 
-def test_logs_cloud_unreachable_until_p3(client) -> None:
+def test_logs_cloud_unreachable_no_agent(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('GPS_BROADCAST_CLOUD_AGENT_URL', raising=False)
     body = client.get('/api/broadcast/logs?hub=cloud').get_json()
     assert body['hub'] == 'cloud' and body['reachable'] is False
+
+
+# --- cloud hub over the WG tunnel (P3) ---
+
+
+def test_status_cloud_reachable_over_tunnel(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the cloud URL configured, the cloud section fills from the control API."""
+
+    def fake_fetch(base='http://127.0.0.1:9997', timeout=4.0):
+        if '10.9.9.1' in base:  # the cloud control API over the tunnel
+            tracks = ('H265', 'MPEG-4 Audio')
+            return [PathState('phone1', True, True, False, None, None, tracks, 0, 9, 0)]
+        return []  # van reachable, nothing published
+
+    monkeypatch.setenv('GPS_BROADCAST_CLOUD_URL', 'http://10.9.9.1:9997')
+    monkeypatch.delenv('GPS_BROADCAST_CLOUD_AGENT_URL', raising=False)  # no /active call
+    monkeypatch.setattr(broadcast_route, 'fetch_paths', fake_fetch)
+    body = client.get('/api/broadcast/status').get_json()
+    assert body['hubs']['cloud'] == {'reachable': True, 'configured': True}
+    p1 = next(f for f in body['feeds'] if f['hub'] == 'cloud' and f['path'] == 'phone1')
+    # alwaysAvailable + no publisher (source null) → the STANDBY half, no danger.
+    assert p1['present'] is True and p1['ingest'] == 'standby' and p1['danger'] is False
+
+
+def test_snapshot_cloud_proxies_agent(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResp:
+        status_code = 200
+        content = b'\xff\xd8cloudjpeg'
+
+    monkeypatch.setenv('GPS_BROADCAST_CLOUD_AGENT_URL', 'http://10.9.9.1:9998')
+    monkeypatch.setattr(broadcast_route.requests, 'get', lambda *a, **k: FakeResp())
+    res = client.get('/api/broadcast/snapshot/phone1?hub=cloud')
+    assert res.status_code == 200 and res.mimetype == 'image/jpeg'
+    assert res.data == b'\xff\xd8cloudjpeg'
+
+
+def test_snapshot_cloud_unknown_path_404(client) -> None:
+    # cam1 is a van path — not a cloud-snappable feed.
+    assert client.get('/api/broadcast/snapshot/cam1?hub=cloud').status_code == 404
+
+
+def test_snapshot_cloud_agent_unconfigured_502(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('GPS_BROADCAST_CLOUD_AGENT_URL', raising=False)
+    assert client.get('/api/broadcast/snapshot/phone1?hub=cloud').status_code == 502
+
+
+def test_snapshot_cloud_agent_unreachable_502(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('GPS_BROADCAST_CLOUD_AGENT_URL', 'http://10.9.9.1:9998')
+
+    def boom(*_a, **_k):
+        raise requests.ConnectionError('tunnel down')
+
+    monkeypatch.setattr(broadcast_route.requests, 'get', boom)
+    assert client.get('/api/broadcast/snapshot/phone1?hub=cloud').status_code == 502
+
+
+def test_logs_cloud_proxies_agent(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResp:
+        def raise_for_status(self) -> None: ...
+
+        def json(self):
+            return {'lines': ['cloudA', 'cloudB']}
+
+    monkeypatch.setenv('GPS_BROADCAST_CLOUD_AGENT_URL', 'http://10.9.9.1:9998')
+    monkeypatch.setattr(broadcast_route.requests, 'get', lambda *a, **k: FakeResp())
+    body = client.get('/api/broadcast/logs?hub=cloud').get_json()
+    assert body['hub'] == 'cloud' and body['reachable'] is True
+    assert body['lines'] == ['cloudA', 'cloudB']
+
+
+def test_logs_cloud_agent_unreachable_not_fatal(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('GPS_BROADCAST_CLOUD_AGENT_URL', 'http://10.9.9.1:9998')
+
+    def boom(*_a, **_k):
+        raise requests.Timeout('slow tunnel')
+
+    monkeypatch.setattr(broadcast_route.requests, 'get', boom)
+    body = client.get('/api/broadcast/logs?hub=cloud').get_json()
+    assert body['reachable'] is False and body['lines'] == []

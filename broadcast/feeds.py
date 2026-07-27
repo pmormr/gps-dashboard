@@ -214,7 +214,9 @@ def _cloud_phones() -> list[Feed]:
                 obs_read=f'rtsp://obs:{_OBS_READ}@{_CLOUD}:8554/phone{n}',
                 browser_url=None,  # cloud WebRTC off; preview is a snapshot (B9)
                 standby=True,
-                expected_tracks=('H265', 'MPEG4Audio'),
+                # MediaMTX reports the AAC track as 'MPEG-4 Audio' (hyphen+space),
+                # verified live on the cloud hub — must match for the codec badge.
+                expected_tracks=('H265', 'MPEG-4 Audio'),
                 notes=(
                     'App: IRL Pro (Android) / Moblin (iOS) → custom SRT (NOT SRTLA), '
                     'mode Caller. H.264/H.265 720p–1080p 30 fps ~2.5–4 Mbps.',

@@ -87,9 +87,15 @@ export function feedKey(hub: string, path: string): string {
   return `${hub}/${path}`
 }
 
-/** The monitor-wall snapshot URL for a van feed path, cache-busted per poll. */
-export function snapshotUrl(path: string, bust: number): string {
-  return `/api/broadcast/snapshot/${encodeURIComponent(path)}?t=${bust}`
+/**
+ * The monitor-wall snapshot URL for a feed, cache-busted per poll.
+ *
+ * The van hub serves it locally; the cloud hub (`hub === 'cloud'`) is proxied
+ * through Flask over the WG tunnel, since LAN browsers can't reach the WG address.
+ */
+export function snapshotUrl(path: string, bust: number, hub = 'van'): string {
+  const h = hub === 'cloud' ? '&hub=cloud' : ''
+  return `/api/broadcast/snapshot/${encodeURIComponent(path)}?t=${bust}${h}`
 }
 
 /** Human bit-rate from a byte delta over a time delta (for the throughput readout). */

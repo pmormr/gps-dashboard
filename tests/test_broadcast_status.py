@@ -7,9 +7,41 @@ whole reason the status wall exists (B6).
 
 from __future__ import annotations
 
-from broadcast.feeds import Feed
+from broadcast.feeds import FEEDS, Feed
 from broadcast.status import codec_badge, feed_status, ingest_state
-from common.mediamtx import PathState
+from common.mediamtx import PathState, normalize_path
+
+# Trimmed from the live cloud hub (vps202051, MediaMTX v1.19.2) captured over the
+# WG tunnel in P3 — the empirical answer to the carried-over STANDBY-source
+# question: an alwaysAvailable path with no live publisher reports source:null.
+_CLOUD_CAPTURE = [
+    {
+        'name': 'phone1',
+        'ready': True,
+        'available': True,
+        'online': False,
+        'source': None,
+        'tracks': ['H265', 'MPEG-4 Audio'],
+        'readers': [],
+        'bytesReceived': 2088454,
+        'bytesSent': 0,
+    },
+    {
+        'name': 'drone2',
+        'ready': True,
+        'available': True,
+        'online': False,
+        'source': None,
+        'tracks': ['H264', 'MPEG-4 Audio'],
+        'readers': [{'type': 'rtspSession', 'id': 'b494'}],
+        'bytesReceived': 2508291,
+        'bytesSent': 2292893,
+    },
+]
+
+
+def _cloud_feed(path: str) -> Feed:
+    return next(f for f in FEEDS if f.hub == 'cloud' and f.path == path)
 
 
 def _state(**kw) -> PathState:
@@ -72,7 +104,7 @@ def test_non_standby_ready_but_disconnected_is_idle_not_standby() -> None:
 
 
 def test_codec_match_is_order_independent() -> None:
-    assert codec_badge(('H265', 'MPEG4Audio'), ('MPEG4Audio', 'H265')) == 'match'
+    assert codec_badge(('H265', 'MPEG-4 Audio'), ('MPEG-4 Audio', 'H265')) == 'match'
 
 
 def test_codec_mismatch() -> None:
@@ -127,5 +159,46 @@ def test_real_reader_survives_snapshotter_discount() -> None:
     """A real OBS reader alongside the snapshotter still counts (and is dangerous)."""
     s = _state(ready=True, source_id=None, readers=2)  # snapshotter + one real consumer
     st = feed_status(_feed(standby=True), s, self_readers=1)
+    assert st['readers'] == 1
+    assert st['danger'] is True
+
+
+# --- codec badge is gated to a live source (standby loops carry their own tracks) ---
+
+
+def test_codec_unknown_on_standby_even_with_tracks() -> None:
+    """A STANDBY loop serves tracks, but they aren't the pinned real source."""
+    s = _state(ready=True, source_id=None, tracks=('H265', 'MPEG-4 Audio'))
+    st = feed_status(_feed(standby=True, expected=('H265', 'MPEG-4 Audio')), s)
+    assert st['ingest'] == 'standby'
+    assert st['codec'] == 'unknown'
+
+
+def test_codec_match_on_live_phone_with_corrected_aac_string() -> None:
+    """The live badge matches only with MediaMTX's real 'MPEG-4 Audio' string."""
+    s = _state(ready=True, source_type='srtConn', source_id='u', tracks=('H265', 'MPEG-4 Audio'))
+    st = feed_status(_feed(standby=True, expected=('H265', 'MPEG-4 Audio')), s)
+    assert st['ingest'] == 'live'
+    assert st['codec'] == 'match'
+
+
+# --- live cloud-hub capture (the P3 STANDBY-source finding) ---
+
+
+def test_live_capture_standby_source_is_null_not_a_publisher() -> None:
+    """alwaysAvailable + no publisher → source:null → 'standby', not a false 'live'."""
+    state = normalize_path(_CLOUD_CAPTURE[0])
+    assert state.source_connected is False
+    st = feed_status(_cloud_feed('phone1'), state)
+    assert st['ingest'] == 'standby'
+    assert st['codec'] == 'unknown'
+    assert st['danger'] is False
+
+
+def test_live_capture_standby_with_reader_is_danger() -> None:
+    """The masked failure the wall exists to show: a reader pulling the STANDBY loop."""
+    state = normalize_path(_CLOUD_CAPTURE[1])
+    st = feed_status(_cloud_feed('drone2'), state)
+    assert st['ingest'] == 'standby'
     assert st['readers'] == 1
     assert st['danger'] is True

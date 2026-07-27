@@ -40,6 +40,11 @@ REAP_INTERVAL_S = 5.0
 #: Downscale width (px); height auto (even). ~320 wide ≈ 20 kB — HaLow-friendly.
 THUMB_WIDTH = 320
 
+#: RTSP base the snapshotter pulls from. The van hub is open (trusted LAN); the
+#: cloud hub requires the ``obs`` read credential, so the cloud agent overrides
+#: this with ``rtsp://obs:<pass>@127.0.0.1:8554`` (see ``broadcast/cloud_agent.py``).
+DEFAULT_RTSP_BASE = 'rtsp://127.0.0.1:8554'
+
 
 class Handle:
     """Minimal process handle protocol the manager needs (``subprocess.Popen`` fits)."""
@@ -60,12 +65,13 @@ class _Worker:
     last_spawn: float
 
 
-def ffmpeg_cmd(path: str, out: Path) -> list[str]:
+def ffmpeg_cmd(path: str, out: Path, rtsp_base: str = DEFAULT_RTSP_BASE) -> list[str]:
     """The ffmpeg argv for a rolling downscaled JPEG off a localhost RTSP path.
 
     ``-update 1 -y`` overwrites the single output file each frame; ``-r 0.5`` caps
     it to a frame every 2 s; ``-an`` drops audio; TCP transport avoids UDP loss on
-    the local pull.
+    the local pull. ``rtsp_base`` defaults to the open van hub; the cloud agent
+    passes an ``obs``-authed base (the cloud hub 401s an anonymous read).
     """
     return [
         'ffmpeg',
@@ -75,7 +81,7 @@ def ffmpeg_cmd(path: str, out: Path) -> list[str]:
         '-rtsp_transport',
         'tcp',
         '-i',
-        f'rtsp://127.0.0.1:8554/{path}',
+        f'{rtsp_base}/{path}',
         '-an',
         '-r',
         '0.5',
@@ -90,10 +96,10 @@ def ffmpeg_cmd(path: str, out: Path) -> list[str]:
     ]
 
 
-def _spawn_ffmpeg(path: str, out: Path) -> Handle:
+def _spawn_ffmpeg(path: str, out: Path, rtsp_base: str = DEFAULT_RTSP_BASE) -> Handle:
     """Start a detached ffmpeg writing the rolling JPEG (stdio → /dev/null)."""
     return subprocess.Popen(  # type: ignore[return-value]
-        ffmpeg_cmd(path, out),
+        ffmpeg_cmd(path, out, rtsp_base),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -106,7 +112,9 @@ class SnapshotManager:
     Args:
         out_dir: Directory for the rolling JPEGs (created if absent).
         spawn: ``(path, out_path) -> Handle`` — injected for tests; defaults to
-            the real ffmpeg spawn.
+            the real ffmpeg spawn against ``rtsp_base``.
+        rtsp_base: RTSP base to pull from (default the open van hub; the cloud
+            agent passes an ``obs``-authed base). Ignored when ``spawn`` is given.
         clock: Monotonic clock source — injected for tests.
         ttl_s: Idle TTL before a worker is reaped.
         backoff_s: Minimum interval between respawns of a dead worker.
@@ -115,19 +123,25 @@ class SnapshotManager:
     def __init__(
         self,
         out_dir: Path = DEFAULT_SNAPSHOT_DIR,
-        spawn: Callable[[str, Path], Handle] = _spawn_ffmpeg,
+        spawn: Callable[[str, Path], Handle] | None = None,
+        rtsp_base: str = DEFAULT_RTSP_BASE,
         clock: Callable[[], float] = time.monotonic,
         ttl_s: float = IDLE_TTL_S,
         backoff_s: float = RESPAWN_BACKOFF_S,
     ) -> None:
         self._out_dir = out_dir
-        self._spawn = spawn
+        self._rtsp_base = rtsp_base
+        self._spawn = spawn if spawn is not None else self._default_spawn
         self._clock = clock
         self._ttl_s = ttl_s
         self._backoff_s = backoff_s
         self._workers: dict[str, _Worker] = {}
         self._lock = threading.Lock()
         self._reaper_started = False
+
+    def _default_spawn(self, path: str, out: Path) -> Handle:
+        """The real ffmpeg spawn, bound to this manager's ``rtsp_base``."""
+        return _spawn_ffmpeg(path, out, self._rtsp_base)
 
     def jpeg_path(self, path: str) -> Path:
         """The rolling JPEG path for a feed path."""

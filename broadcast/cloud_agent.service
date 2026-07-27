@@ -1,0 +1,33 @@
+# Broadcast cloud-hub snapshot + log agent (B9/B11) — runs on the CLOUD vps
+# (vps202051), NOT the Pi. Deliberately kept OUT of deploy/ so the Pi's
+# post-receive hook (which globs deploy/*.service) never installs it on the Pi.
+#
+# Off-repo deploy (see CLAUDE.md manual-install carve-out):
+#   rsync broadcast/{__init__,feeds,snapshots,cloud_agent}.py -> vps:/opt/broadcast-agent/broadcast/
+#   install this file  -> /etc/systemd/system/broadcast-agent.service
+#   /etc/default/broadcast-agent (root 600): BROADCAST_AGENT_RTSP_BASE=rtsp://obs:<pass>@127.0.0.1:8554
+#   useradd --system --no-create-home --shell /usr/sbin/nologin bcagent
+#   usermod -aG systemd-journal bcagent   # journalctl -u mediamtx without sudo
+
+[Unit]
+Description=Broadcast cloud-hub snapshot + log agent (WG-bound; B9/B11)
+After=network-online.target wg-quick@wg1.service mediamtx.service
+Wants=network-online.target wg-quick@wg1.service
+
+[Service]
+Type=simple
+User=bcagent
+Group=bcagent
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/broadcast-agent
+EnvironmentFile=/etc/default/broadcast-agent
+ExecStart=/usr/bin/python3 -m broadcast.cloud_agent
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/dev/shm
+
+[Install]
+WantedBy=multi-user.target

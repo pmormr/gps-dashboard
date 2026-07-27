@@ -265,12 +265,17 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - **STANDBY still not observed live** — the van has **no** `alwaysAvailable` paths, so `ingest=standby` never arises here. The derivation handles it (unit-tested) but the live STANDBY control-API signature (does the standby source carry a `source.id`?) is confirmable only on the **cloud** hub → carry into P3. If it turns out a STANDBY source reports a non-empty `source.id`, `source_connected` would wrongly read `live` and `ingest_state` needs a STANDBY-source-type guard.
 
 ### Phase 3 — WG control tunnel + cloud status/snapshots/logs · race-day stretch (off-repo OVH + van net)
-- [ ] Stand up the **direct van↔cloud WireGuard peer**: cloud = fixed endpoint on a high UDP port, van dials out (CGNAT); allowed-IPs scoped to the control plane only.
-- [ ] OVH `mediamtx.yml`: `api: yes`, control API bound to the **WG interface** (not public).
-- [ ] OVH: cloud snapshotter (B9) + log endpoint (B11), both bound to the WG interface (systemd units; stdlib/ffmpeg).
-- [ ] Van env: `GPS_BROADCAST_CLOUD_URL` (WG base; optional token). `/api/broadcast/status` cloud section, timeout-guarded; unreachable → `cloud.reachable=false` (not a failure). Wall shows cloud tiles (snapshots + two-sides + logs); no browser WebRTC.
-- [ ] Verify cloud status/snapshots/logs over the tunnel end-to-end.
+- [x] **Phase A** — direct van↔cloud WG peer up (prior session): `pmpi1 wg-cloud 10.9.9.2` dials the vps `wg1 10.9.9.1:48291`; bidir ~48 ms, allowed-IPs scoped to `10.9.9.2/32`.
+- [x] **Phase B-1** — OVH `mediamtx.yml`: `api: yes` + `apiAddress: 10.9.9.1:9997` (WG-iface only; localhost/public refuse). The anon `action: api` user's `ips` gains `10.9.9.2` (the van), and UFW `allow in on wg1 from 10.9.9.2` opens the control plane on the tunnel. Ordering drop-in `After=wg-quick@wg1`.
+- [x] **Phase B-2** — cloud agent (snapshotter B9 + log endpoint B11) unified into **`broadcast/cloud_agent.py`** (stdlib `ThreadingHTTPServer`, reuses the tested `SnapshotManager`): `/snapshot/<path>` · `/logs` · `/active` · `/health`, bound `10.9.9.1:9998`. In-repo + unit-tested; deployed off-repo to the vps (`/opt/broadcast-agent`, `bcagent` user in `systemd-journal`, unit `broadcast/cloud_agent.service` → `broadcast-agent.service`, secret RTSP base in `/etc/default/broadcast-agent`). The cloud hub 401s an anonymous RTSP read, so the agent pulls with the `obs` cred baked into `rtsp_base` (`snapshots.py` now takes a configurable base) — auth stays strict, no anon-read reachable over the tunnel.
+- [x] **Phase C** — van env `GPS_BROADCAST_CLOUD_URL`/`GPS_BROADCAST_CLOUD_AGENT_URL`; `/api/broadcast/status` cloud section (timeout-guarded `fetch_paths`, per-hub reader discount via the agent's `/active`); `snapshot`/`logs` **proxied** through Flask (`?hub=cloud`) since LAN browsers can't reach `10.9.9.1`; wall renders cloud tiles (snapshot + two-sides + cloud log panel; no browser WebRTC). STANDBY-source check resolved — no guard needed (see findings).
+- [x] Verified the agent + control API end-to-end over the tunnel (health/active/logs + real H.264 **and H.265** snapshots decoded to JPEG). Browser wall verify: after the deploy push.
 - [ ] **Then** sequence the public-SSH → tunnel+house firewall lockdown (after status verified). Update `vps202051.md` + the network-docs event pages.
+
+**Live-cloud-hub findings (P3, the carried-over B6 must-verify):**
+- **STANDBY source = `source: null`.** An `alwaysAvailable` path with no live publisher reports `source: null` (not a standby-source object with an id) → `source_connected` is False → `ingest_state` returns `standby`. **The carried-over "does a STANDBY source carry a `source.id`?" question is answered NO — no guard needed;** the existing derivation was already correct. Captured as a test fixture (`test_broadcast_status.py`).
+- **Codec string bug fixed.** MediaMTX reports the AAC track as **`'MPEG-4 Audio'`** (hyphen + space), not `'MPEG4Audio'` — the phone pin was wrong and always mismatched. Also, the codec badge is now **gated to a live source**: a STANDBY loop serves its own tracks (the drone loop even has an audio track the video-only pin lacks), so comparing the placeholder to the real-source pin false-flagged every idling STANDBY feed.
+- **Cloud RTSP read needs the `obs` cred** (unlike the open van LAN) — the agent's authed `rtsp_base` handles it; the wall snapshotter counts as an egress reader on the cloud too, discounted via `/active` (mirrors the van).
 
 ### Phase 4 — Registry-driven van config generation · post-race
 - [ ] `tools/gen_mediamtx_paths.py`: registry → van `deploy/mediamtx.yml` broadcast paths (sentinel markers; preserve header + Dahua block) (B8).
@@ -293,11 +298,12 @@ Snapshots (B9) and logs (B11) are separate endpoints per hub.
 - The home↔OVH WireGuard config in `paul-network-docs` (`rex-edge.md` / `vps202051.md`) — the WG precedent B7 adds a van peer alongside.
 
 ## Open items
-- **Live-publisher detection** — RESOLVED in P2: `source.id` non-empty is the signal (see
-  the P2 findings). **STANDBY-source signature still open** — unobservable on the van (no
-  `alwaysAvailable` there); confirm on the cloud hub in P3 whether a STANDBY source carries a
-  `source.id` (if so, add a STANDBY-source-type guard to `ingest_state`).
+- **Live-publisher detection** — RESOLVED in P2: `source.id` non-empty is the signal.
+  **STANDBY-source signature — RESOLVED in P3:** a STANDBY source reports `source: null`, so
+  `source_connected` is False and `ingest_state` returns `standby` with **no guard needed**
+  (see the P3 findings). Open question closed.
 - **SSH lockdown to the house** — the WG tunnel (B7) is the enabler; sequence the OVH
-  SSH-firewall change *after* cloud status is verified over the tunnel. Track in `vps202051.md`.
+  SSH-firewall change *after* cloud status is verified over the tunnel. Still pending (the one
+  remaining P3 step). Track in `vps202051.md`.
 - **Naming** — file renamed `events-dashboard-plan.md` → `broadcast-dashboard-plan.md`; flag
   if "Broadcast" as the tab label should differ.

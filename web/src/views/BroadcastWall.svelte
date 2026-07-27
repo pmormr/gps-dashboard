@@ -62,13 +62,13 @@
     return !!st?.present && !!st?.ready && (st.ingest === 'live' || st.ingest === 'standby')
   }
   function snapEligible(f: Feed, st: FeedStatus | undefined): boolean {
-    // Mirror the server gate: van + serving + carries video (radio is audio-only).
-    return f.hub === 'van' && f.slot_group !== 'radio' && serving(st)
+    // Mirror the server gate: serving + carries video (radio is audio-only). Both
+    // hubs snapshot — the cloud tile is proxied through Flask over the WG tunnel.
+    return f.slot_group !== 'radio' && serving(st)
   }
   /** Placeholder text for a tile with no live snapshot. */
   function placeholder(f: Feed, st: FeedStatus | undefined): string {
-    if (f.hub === 'cloud') return 'cloud · P3'
-    if (!st?.reachable) return '—'
+    if (!st?.reachable) return f.hub === 'cloud' ? 'cloud offline' : '—'
     if (st.present === false) return 'no path'
     if (serving(st)) return 'audio ♪' // serving but audio-only (radio)
     return 'idle'
@@ -92,28 +92,30 @@
   }
 
   // Per-tile snapshot cache-bust, self-scheduled (a slow tile refreshes less
-  // often instead of being cancelled) — the Cameras grid pattern.
+  // often instead of being cancelled) — the Cameras grid pattern. Keyed by
+  // feedKey, not path: drone1/drone2 exist on both hubs, so a path-only key would
+  // make the van and cloud tiles fight over one timer.
   const SNAP_MS = 2000
   let bust = $state<Record<string, number>>({})
   let snapOffline = $state<Record<string, boolean>>({})
   const timers: Record<string, number> = {}
 
-  function kick(path: string): void {
-    bust = { ...bust, [path]: (bust[path] ?? 0) + 1 }
+  function kick(key: string): void {
+    bust = { ...bust, [key]: (bust[key] ?? 0) + 1 }
   }
-  function scheduleSnap(path: string): void {
-    clearTimeout(timers[path])
-    timers[path] = window.setTimeout(() => {
-      if (!expanded && !document.hidden) kick(path)
+  function scheduleSnap(key: string): void {
+    clearTimeout(timers[key])
+    timers[key] = window.setTimeout(() => {
+      if (!expanded && !document.hidden) kick(key)
     }, SNAP_MS)
   }
-  function onSnapLoad(path: string): void {
-    if (snapOffline[path]) snapOffline = { ...snapOffline, [path]: false }
-    scheduleSnap(path)
+  function onSnapLoad(key: string): void {
+    if (snapOffline[key]) snapOffline = { ...snapOffline, [key]: false }
+    scheduleSnap(key)
   }
-  function onSnapError(path: string): void {
-    if (!snapOffline[path]) snapOffline = { ...snapOffline, [path]: true }
-    scheduleSnap(path)
+  function onSnapError(key: string): void {
+    if (!snapOffline[key]) snapOffline = { ...snapOffline, [key]: true }
+    scheduleSnap(key)
   }
 
   // Expand overlay: WHEP video/audio for playable van feeds, else a large snapshot.
@@ -165,33 +167,41 @@
     releaseWakeLock()
   }
 
-  // Log panel (B11): the raw journal escape hatch, poll-refreshed while open.
-  let logsOpen = $state(false)
+  // Log panel (B11): the raw journal escape hatch, poll-refreshed while open. One
+  // panel per hub (van local · cloud proxied over the tunnel); only one open at a
+  // time. Cloud is configured server-side (GPS_BROADCAST_CLOUD_URL) — hide its
+  // toggle until then.
+  type LogHub = 'van' | 'cloud'
+  let openLog = $state<LogHub | null>(null)
   let logs = $state<BroadcastLogs | null>(null)
   let logTimer: number | undefined
   let logBox = $state<HTMLDivElement>()
+  let cloudConfigured = $derived(sf.data?.hubs.cloud.configured ?? false)
 
-  async function refreshLogs(): Promise<void> {
+  async function refreshLogs(hub: LogHub): Promise<void> {
     try {
-      logs = await getBroadcastLogs('van', 200)
+      logs = await getBroadcastLogs(hub, 200)
       queueMicrotask(() => logBox?.scrollTo(0, logBox.scrollHeight))
     } catch {
       /* leave the last lines visible */
     }
   }
-  function toggleLogs(): void {
-    logsOpen = !logsOpen
+  function toggleLog(hub: LogHub): void {
     clearTimeout(logTimer)
-    if (logsOpen) {
-      refreshLogs()
-      const loop = (): void => {
-        logTimer = window.setTimeout(async () => {
-          await refreshLogs()
-          if (logsOpen) loop()
-        }, 4000)
-      }
-      loop()
+    if (openLog === hub) {
+      openLog = null
+      return
     }
+    openLog = hub
+    logs = null
+    refreshLogs(hub)
+    const loop = (): void => {
+      logTimer = window.setTimeout(async () => {
+        await refreshLogs(hub)
+        if (openLog === hub) loop()
+      }, 4000)
+    }
+    loop()
   }
 
   onMount(() => () => {})
@@ -226,12 +236,12 @@
           <div class="thumb">
             {#if snapEligible(f, st)}
               <img
-                src={snapshotUrl(f.path, bust[f.path] ?? 0)}
+                src={snapshotUrl(f.path, bust[key] ?? 0, f.hub)}
                 alt={f.label}
-                onload={() => onSnapLoad(f.path)}
-                onerror={() => onSnapError(f.path)}
+                onload={() => onSnapLoad(key)}
+                onerror={() => onSnapError(key)}
               />
-              {#if snapOffline[f.path]}<div class="ph">no image</div>{/if}
+              {#if snapOffline[key]}<div class="ph">no image</div>{/if}
             {:else}
               <div class="ph">{placeholder(f, st)}</div>
             {/if}
@@ -260,13 +270,22 @@
   </section>
 {/each}
 
-<button class="log-toggle" onclick={toggleLogs}>
-  {logsOpen ? '▾' : '▸'} Van hub log (mediamtx)
-</button>
-{#if logsOpen}
+<div class="log-toggles">
+  <button class="log-toggle" onclick={() => toggleLog('van')}>
+    {openLog === 'van' ? '▾' : '▸'} Van hub log (mediamtx)
+  </button>
+  {#if cloudConfigured}
+    <button class="log-toggle" onclick={() => toggleLog('cloud')}>
+      {openLog === 'cloud' ? '▾' : '▸'} Cloud hub log (mediamtx)
+    </button>
+  {/if}
+</div>
+{#if openLog}
   <div class="logbox" bind:this={logBox}>
     {#if logs && !logs.reachable}
-      <div class="logline dim">journal unreadable</div>
+      <div class="logline dim">
+        {openLog === 'cloud' ? 'cloud hub unreachable (tunnel down?)' : 'journal unreadable'}
+      </div>
     {:else if logs}
       {#each logs.lines as line, i (i)}<div class="logline">{line}</div>{/each}
     {:else}
@@ -276,18 +295,21 @@
 {/if}
 
 {#if expanded}
+  {@const ek = feedKey(expanded.hub, expanded.path)}
   <div class="live" role="dialog" aria-label={`${expanded.label} live`}>
     {#if expandKind === 'whep'}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video bind:this={mediaEl} autoplay playsinline muted></video>
     {:else}
-      <img class="live-img" src={snapshotUrl(expanded.path, bust[expanded.path] ?? 0)} alt={expanded.label} onload={() => onSnapLoad(expanded!.path)} />
+      <img class="live-img" src={snapshotUrl(expanded.path, bust[ek] ?? 0, expanded.hub)} alt={expanded.label} onload={() => onSnapLoad(ek)} />
     {/if}
     <div class="live-bar">
       <span class="live-title">{expanded.label}</span>
       {#if expandKind === 'whep' && liveState === 'connecting'}<span class="live-note">Connecting…</span>{/if}
       {#if expandKind === 'whep' && liveState === 'error'}<span class="live-note err">{liveErr}</span>{/if}
-      {#if expandKind === 'snapshot'}<span class="live-note">Snapshot (H.265 — no browser live)</span>{/if}
+      {#if expandKind === 'snapshot'}<span class="live-note"
+          >{expanded.hub === 'cloud' ? 'Snapshot (cloud hub — via tunnel)' : 'Snapshot (H.265 — no browser live)'}</span
+        >{/if}
       <button class="live-close" onclick={closeExpand}>Close</button>
     </div>
   </div>
@@ -454,12 +476,17 @@
     font-size: 11px;
   }
 
+  .log-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+  }
   .log-toggle {
     display: block;
     width: 100%;
     text-align: left;
     padding: 8px 10px;
-    margin-top: 4px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--surface);
