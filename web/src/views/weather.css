@@ -137,3 +137,20 @@
   width: 84px;
   accent-color: var(--accent);
 }
+
+/* Warning-polygon click popup (a MapLibre popup, styled globally). */
+.wx-alert-popup {
+  font-size: 0.8rem;
+  color: #0f172a;
+}
+.wx-alert-event {
+  font-weight: 700;
+}
+.wx-alert-headline {
+  margin-top: 3px;
+}
+.wx-alert-area {
+  margin-top: 3px;
+  color: #475569;
+  font-size: 0.72rem;
+}

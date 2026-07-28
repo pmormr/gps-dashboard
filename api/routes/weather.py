@@ -10,13 +10,14 @@ lives in the ``/data`` chunk registry, not a bespoke status endpoint here.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file
 
-from common.timefmt import now_canonical
+from common.timefmt import format_canonical, now_canonical
 from weather import archive, registry
-from weather.registry import RASTER_LAYERS
+from weather.registry import RASTER_LAYERS, VECTOR_LAYERS
 
 weather_bp = Blueprint('weather', __name__)
 
@@ -78,3 +79,29 @@ def weather_frames(layer: str) -> Response:
             'frames': frames,
         }
     )
+
+
+@weather_bp.get('/api/weather/<layer>/geojson')
+def weather_geojson(layer: str) -> Response:
+    """Serve a vector layer's stored GeoJSON snapshot, MapLibre-loadable.
+
+    Returns the stored FeatureCollection with ``fetched_at`` (the snapshot's
+    file mtime, canonical ms-UTC) injected as an extra member — valid GeoJSON,
+    ignored by MapLibre, read by the view for the age label. An empty
+    FeatureCollection (never fetched) keeps a MapLibre source and the frontend
+    happy. The frontend drops features past their own ``expires``.
+
+    Args:
+        layer: The vector layer id (e.g. ``warnings``).
+
+    Returns:
+        The FeatureCollection plus ``fetched_at`` (null when never fetched).
+    """
+    if layer not in VECTOR_LAYERS:
+        abort(404)
+    path = registry.vector_path(layer)
+    if not path.exists():
+        return jsonify({'type': 'FeatureCollection', 'features': [], 'fetched_at': None})
+    fc = json.loads(path.read_text())
+    fc['fetched_at'] = format_canonical(datetime.fromtimestamp(path.stat().st_mtime, tz=UTC))
+    return jsonify(fc)

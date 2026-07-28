@@ -5,10 +5,12 @@
   import type { MapView as MapViewType } from '../lib/map'
   import {
     clearRadar,
+    clearWarnings,
     frameAgeLabel,
     frameDateLabel,
     frameTimeLabel,
     loadRadar,
+    loadWarnings,
     WINDOW_PRESETS,
   } from '../lib/weather'
   import './map.css'
@@ -35,6 +37,8 @@
   let loading = $state(true)
   let error = $state('')
   let nowMs = $state(Date.now())
+  let warningsOn = $state(true)
+  let warningsCount = $state(0)
 
   const current = $derived(frames.length ? frames[index] : null)
   const newest = $derived(frames.length ? frames[frames.length - 1] : null)
@@ -74,6 +78,25 @@
     index = Number((e.currentTarget as HTMLInputElement).value)
   }
 
+  async function refreshWarnings(): Promise<void> {
+    if (!view) return
+    if (!warningsOn) {
+      clearWarnings(view)
+      warningsCount = 0
+      return
+    }
+    try {
+      warningsCount = (await loadWarnings(view, Date.now())).count
+    } catch {
+      warningsCount = 0
+    }
+  }
+
+  function toggleWarnings(): void {
+    warningsOn = !warningsOn
+    void refreshWarnings()
+  }
+
   async function centerOnVan(): Promise<void> {
     try {
       const fix = await getGpsdLive()
@@ -92,12 +115,16 @@
       host.showMap()
       hide = host.hideMap
       void loadWindow(windowHours)
+      void refreshWarnings()
     })
     const nowTimer = setInterval(() => (nowMs = Date.now()), 30_000)
     return () => {
       cancelled = true
       clearInterval(nowTimer)
-      if (view) clearRadar(view)
+      if (view) {
+        clearRadar(view)
+        clearWarnings(view)
+      }
       hide?.()
     }
   })
@@ -194,6 +221,16 @@
           <span aria-hidden="true">◐</span>
           <input type="range" min="0.2" max="1" step="0.05" bind:value={opacity} aria-label="Radar opacity" />
         </label>
+
+        <button
+          type="button"
+          class="wx-chip"
+          class:wx-chip--on={warningsOn}
+          onclick={toggleWarnings}
+          aria-label="Toggle watches & warnings"
+        >
+          ⚠{warningsCount ? ` ${warningsCount}` : ''}
+        </button>
 
         <button type="button" class="wx-chip" onclick={centerOnVan}>⌖ Van</button>
       </div>

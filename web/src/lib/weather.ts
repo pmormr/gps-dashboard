@@ -10,7 +10,9 @@
  * pulling the map engine into the main bundle.
  */
 
-import { getWeatherFrames } from './api'
+import type { FeatureCollection } from 'geojson'
+
+import { getWeatherFrames, getWeatherGeojson } from './api'
 import type { MapView as MapViewType } from './map'
 
 type View = typeof MapViewType
@@ -39,6 +41,39 @@ export async function loadRadar(view: View, windowHours: number): Promise<number
 /** Tear down the radar overlay (view-leave). */
 export function clearRadar(view: View): void {
   view.clearRadar()
+}
+
+/** The result of a warnings load: the rendered set + its snapshot age. */
+export interface WarningsResult {
+  count: number
+  fetchedAt: string | null
+}
+
+/**
+ * Fetch the warnings snapshot, drop expired features, and render the rest.
+ *
+ * NWS zone-only alerts carry null geometry (they don't render) — the count is
+ * of features that survive the expiry filter, geometry or not.
+ *
+ * @param view The MapView façade.
+ * @param nowMs Current time (injected for testability) — features whose
+ *   `expires` is at or before this are dropped.
+ * @returns The rendered feature count and the snapshot's fetch time.
+ */
+export async function loadWarnings(view: View, nowMs: number): Promise<WarningsResult> {
+  const data = await getWeatherGeojson('warnings')
+  const features = (data.features ?? []).filter((f) => {
+    const expires = f.properties?.expires
+    return !expires || Date.parse(String(expires)) > nowMs
+  })
+  const fc: FeatureCollection = { type: 'FeatureCollection', features }
+  view.setWarnings(fc)
+  return { count: features.length, fetchedAt: data.fetched_at }
+}
+
+/** Clear the warnings overlay. */
+export function clearWarnings(view: View): void {
+  view.clearWarnings()
 }
 
 /** Format a frame instant (epoch-ms) as a local HH:MM label (the playhead clock). */

@@ -20,10 +20,12 @@ from __future__ import annotations
 import argparse
 from datetime import UTC, datetime
 
+import httpx
+
 from common.cli import run_cli
-from weather import archive, mosaic
+from weather import archive, mosaic, vector
 from weather.mosaic import MasterGrid, StripSpec
-from weather.registry import RASTER_LAYERS, RasterLayer
+from weather.registry import RASTER_LAYERS, VECTOR_LAYERS, RasterLayer, VectorLayer
 from weather.source import ImageServerClient, SourceError
 
 
@@ -89,25 +91,52 @@ def fetch_layer(layer: RasterLayer, *, limit: int | None = None) -> int:
         return captured
 
 
+def fetch_vector(layer: VectorLayer) -> int:
+    """Fetch + store one vector layer's latest GeoJSON snapshot.
+
+    A network failure is an off-grid no-op (like the raster preflight): the last
+    stored snapshot stays and the run moves on.
+
+    Args:
+        layer: The vector layer to capture.
+
+    Returns:
+        The feature count stored, or 0 on an offline/failed fetch.
+    """
+    try:
+        n = vector.fetch_and_store(layer)
+    except (httpx.HTTPError, OSError) as exc:
+        print(f'[{layer.id}] fetch failed (off-grid?): {exc}')
+        return 0
+    print(f'[{layer.id}] stored {n} features')
+    return n
+
+
 def main() -> int:
-    """CLI entrypoint for the weather-fetch oneshot."""
+    """CLI entrypoint for the weather-fetch oneshot (all layers, or one by id)."""
+    all_ids = sorted({*RASTER_LAYERS, *VECTOR_LAYERS})
     parser = argparse.ArgumentParser(
-        description='Capture weather raster frames into the rolling archive.'
+        description='Capture weather layers into the local archive (all layers by default).'
     )
     parser.add_argument(
         '--layer',
-        default='radar',
-        choices=sorted(RASTER_LAYERS),
-        help='Which raster layer to capture (default: radar).',
+        default=None,
+        choices=all_ids,
+        help='Capture only this layer (default: every registered layer).',
     )
     parser.add_argument(
         '--limit',
         type=int,
         default=None,
-        help='Max frames to capture this run, newest first (default: all missing).',
+        help='Max raster frames to capture this run, newest first (default: all missing).',
     )
     args = parser.parse_args()
-    fetch_layer(RASTER_LAYERS[args.layer], limit=args.limit)
+    targets = [args.layer] if args.layer else all_ids
+    for layer_id in targets:
+        if layer_id in RASTER_LAYERS:
+            fetch_layer(RASTER_LAYERS[layer_id], limit=args.limit)
+        else:
+            fetch_vector(VECTOR_LAYERS[layer_id])
     return 0
 
 

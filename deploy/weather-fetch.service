@@ -8,8 +8,9 @@ Type=oneshot
 User=pmorgan
 WorkingDirectory=/mnt/nvme/gps-dashboard
 Environment=GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather
-# Capture-while-online, play-offline: grabs the frames published in the upstream
-# ~2 h moving window we don't already have, prunes past 14 days. A clean no-op
-# when off-grid — the tool preflights the service and exits 0 either way. The
-# archive is rebuild-worthless, deliberately outside the DB backup path.
-ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.fetch_weather --layer radar
+# Capture-while-online, play-offline: every registered layer — the radar rolling
+# archive (grab the new frames in the upstream ~2 h window, prune past 14 days)
+# plus the keep-latest vector layers (warnings). A clean no-op per layer when
+# off-grid — the tool preflights each source and exits 0. The archive is
+# rebuild-worthless, deliberately outside the DB backup path.
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.fetch_weather

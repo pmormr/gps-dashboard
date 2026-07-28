@@ -1,6 +1,8 @@
 // Typed client for the Van OS JSON API. One function per endpoint; shapes mirror
 // the Flask routes (api/routes/*). Same-origin in production; proxied to Flask in dev.
 
+import type { FeatureCollection } from 'geojson'
+
 import type { BroadcastFeeds, BroadcastLogs, BroadcastStatus } from './broadcast'
 import type { DocsTree } from './docs'
 import type { TrackPoint } from './geo'
@@ -357,6 +359,14 @@ export interface WeatherFrames {
 export function getWeatherFrames(layer: string, windowHours?: number): Promise<WeatherFrames> {
   const query = qs({ window: windowHours })
   return getJSON<WeatherFrames>(`/api/weather/${layer}/frames${query ? `?${query}` : ''}`)
+}
+
+/** A vector weather layer's stored GeoJSON snapshot (mirrors /api/weather/<layer>/geojson). */
+export type WeatherGeojson = FeatureCollection & { fetched_at: string | null }
+
+/** Fetch a vector weather layer's latest GeoJSON snapshot (warnings). */
+export function getWeatherGeojson(layer: string): Promise<WeatherGeojson> {
+  return getJSON<WeatherGeojson>(`/api/weather/${layer}/geojson`)
 }
 
 /** Per-metric presentation metadata, mirrored from api/sensor_schema.py METRIC_META. */

@@ -178,6 +178,21 @@ function buildRasterStyle(layer: string, refresh: boolean): maplibregl.StyleSpec
 const TRACK_COLOR = '#ef4444'
 const RANGE_COLOR = '#22d3ee'
 
+// NWS alert polygons colored by `properties.severity`; unknown → slate.
+const WARNING_SEVERITY_COLOR: maplibregl.ExpressionSpecification = [
+  'match',
+  ['get', 'severity'],
+  'Extreme',
+  '#b91c1c',
+  'Severe',
+  '#ef4444',
+  'Moderate',
+  '#f97316',
+  'Minor',
+  '#eab308',
+  '#64748b',
+]
+
 // Per-model drone-track colors, keyed by the FC#### model_code. Keep in sync with
 // the legend swatches in the Layers panel.
 const DRONE_COLORS: Record<string, string> = {
@@ -342,6 +357,12 @@ export const MapView = (() => {
   let radarFrames: number[] = []
   let radarVisibleFrame: number | null = null
   let radarOpacity = 0.8
+
+  // Warnings overlay (vector): active NWS alert polygons, colored by severity.
+  // Always-present source (empty until the Weather view pushes data), the
+  // phone/places pattern. Above radar, below the labels.
+  let warningsData: FeatureCollection = emptyFC()
+  let warningsPopup: Popup | null = null
 
   let installing = false // re-entrancy guard for reinstallOverlays
   let rangePopup: Popup | null = null
@@ -642,6 +663,34 @@ export const MapView = (() => {
       // swap; visibility + opacity come from the retained radar state.
       for (const f of radarFrames) addRadarLayer(m, f)
 
+      // Warnings polygons above the radar (both below labels): a faint
+      // severity-colored fill under a solid outline.
+      if (!m.getSource('wx-warnings')) {
+        m.addSource('wx-warnings', { type: 'geojson', data: warningsData })
+      }
+      if (!m.getLayer('wx-warnings-fill')) {
+        m.addLayer(
+          {
+            id: 'wx-warnings-fill',
+            type: 'fill',
+            source: 'wx-warnings',
+            paint: { 'fill-color': WARNING_SEVERITY_COLOR, 'fill-opacity': 0.18 },
+          },
+          firstSymbolLayerId(m),
+        )
+      }
+      if (!m.getLayer('wx-warnings-line')) {
+        m.addLayer(
+          {
+            id: 'wx-warnings-line',
+            type: 'line',
+            source: 'wx-warnings',
+            paint: { 'line-color': WARNING_SEVERITY_COLOR, 'line-width': 1.5, 'line-opacity': 0.9 },
+          },
+          firstSymbolLayerId(m),
+        )
+      }
+
       // Drone tracks float at abs_alt as a three.js elevated-track layer (Overlay3D),
       // re-added here since setStyle drops it; onAdd rebuilds its scene from retained
       // data. Null until overlay3d.ts is wired in.
@@ -656,6 +705,7 @@ export const MapView = (() => {
       setGeoJSON('phone-visits', phoneVisitData)
       setGeoJSON('places', placeData)
       setGeoJSON('search-results', searchData)
+      setGeoJSON('wx-warnings', warningsData)
 
       // Pitched-view tile cover: allow more distinct zoom levels on screen and a
       // larger high-pitch tile budget so the far field loads without a camera
@@ -839,6 +889,30 @@ export const MapView = (() => {
     }
   }
 
+  // Click a warning polygon → its event, headline, and area. Layer-scoped and
+  // registered once; a no-op until data lands, like the other overlay popups.
+  function wireWarningsPopup(m: MlMap): void {
+    warningsPopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '320px' })
+    m.on('mouseenter', 'wx-warnings-fill', () => {
+      m.getCanvas().style.cursor = 'pointer'
+    })
+    m.on('mouseleave', 'wx-warnings-fill', () => {
+      m.getCanvas().style.cursor = ''
+    })
+    m.on('click', 'wx-warnings-fill', (e) => {
+      const f = e.features && e.features[0]
+      if (!f) return
+      const p = f.properties || {}
+      const event = escapeHtml(String(p.event ?? 'Alert'))
+      const headline = p.headline ? `<div class="wx-alert-headline">${escapeHtml(String(p.headline))}</div>` : ''
+      const area = p.areaDesc ? `<div class="wx-alert-area">${escapeHtml(String(p.areaDesc))}</div>` : ''
+      warningsPopup!
+        .setLngLat(e.lngLat)
+        .setHTML(`<div class="wx-alert-popup"><div class="wx-alert-event">${event}</div>${headline}${area}</div>`)
+        .addTo(m)
+    })
+  }
+
   function setRotationEnabled(on: boolean): void {
     if (!map) return
     const fns = on ? 'enable' : 'disable'
@@ -928,6 +1002,19 @@ export const MapView = (() => {
     radarVisibleFrame = null
   }
 
+  /** Replace the warnings overlay with prebuilt GeoJSON (expiry-filtered upstream). */
+  function setWarnings(fc: FeatureCollection): void {
+    warningsData = fc
+    setGeoJSON('wx-warnings', warningsData)
+  }
+
+  /** Clear the warnings overlay. */
+  function clearWarnings(): void {
+    warningsData = emptyFC()
+    setGeoJSON('wx-warnings', warningsData)
+    warningsPopup?.remove()
+  }
+
   // ── Public API ──
 
   function init(container: HTMLElement | string): void {
@@ -955,6 +1042,7 @@ export const MapView = (() => {
     wirePhonePopup(map)
     wirePlaceInteraction(map)
     wirePoisInteraction(map)
+    wireWarningsPopup(map)
     // Dispatch on a microtask: MapLibre fires moveend *synchronously* for
     // no-op camera moves (e.g. re-fitting an unchanged bounds), which would
     // run subscribers inside whatever $effect triggered the move — a
@@ -1472,6 +1560,8 @@ export const MapView = (() => {
     showRadarFrame,
     setRadarOpacity,
     clearRadar,
+    setWarnings,
+    clearWarnings,
     fitToCoords,
     onPlaceClick,
     onBasemapPoiClick,

@@ -59,6 +59,28 @@ class RasterLayer:
     attribution: str
 
 
+@dataclass(frozen=True)
+class VectorLayer:
+    """A keep-latest vector weather layer (warnings and its kin).
+
+    The lightweight half of the registry: fetch a GeoJSON FeatureCollection,
+    store the latest snapshot (overwrite — no rolling archive), render as a
+    MapLibre fill/line. Off-grid it shows the last snapshot; the frontend drops
+    features past their own ``expires``.
+
+    Attributes:
+        id: Stable identifier — archive subdirectory + API path segment.
+        label: Human name for the UI.
+        source_url: The GeoJSON endpoint (api.weather.gov emits ``application/geo+json``).
+        attribution: Credit string.
+    """
+
+    id: str
+    label: str
+    source_url: str
+    attribution: str
+
+
 #: Layer one. The CONUS bbox is the plan estimate; the fetcher snaps it outward
 #: to the z8 tile lattice (P0: → master 11008×5888, 2 vertical exports).
 RADAR = RasterLayer(
@@ -77,6 +99,19 @@ RADAR = RasterLayer(
 
 #: Registry of raster layers, keyed by id. Grows per plans/weather-plan.md.
 RASTER_LAYERS: dict[str, RasterLayer] = {RADAR.id: RADAR}
+
+#: Watches/warnings/advisories — the vector-pipeline proof (P4). The nationwide
+#: active-alerts feed; storm-based alerts carry polygons (zone-only alerts have
+#: null geometry and don't render — a documented limitation, not a fault).
+WARNINGS = VectorLayer(
+    id='warnings',
+    label='Watches & warnings',
+    source_url='https://api.weather.gov/alerts/active',
+    attribution='NOAA/NWS',
+)
+
+#: Registry of vector layers, keyed by id.
+VECTOR_LAYERS: dict[str, VectorLayer] = {WARNINGS.id: WARNINGS}
 
 
 def archive_root() -> Path:
@@ -105,3 +140,8 @@ def layer_dir(layer_id: str) -> Path:
 def frame_path(layer_id: str, frame_ms: int) -> Path:
     """Path to one frame's PMTiles archive (named by its epoch-ms frame key)."""
     return layer_dir(layer_id) / f'{frame_ms}.pmtiles'
+
+
+def vector_path(layer_id: str) -> Path:
+    """Path to a vector layer's keep-latest GeoJSON snapshot."""
+    return layer_dir(layer_id) / 'latest.geojson'

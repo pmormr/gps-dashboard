@@ -97,6 +97,35 @@ def test_pmtiles_served_with_range_support(wclient):
     assert ranged.data == b'PMTiles'
 
 
+def test_geojson_empty_when_never_fetched(wclient):
+    body = wclient.get('/api/weather/warnings/geojson').get_json()
+    assert body == {'type': 'FeatureCollection', 'features': [], 'fetched_at': None}
+
+
+def test_geojson_serves_snapshot_with_fetched_at(wclient, tmp_path):
+    import httpx
+
+    from weather import registry, vector
+    from weather.registry import WARNINGS
+
+    fc = {
+        'type': 'FeatureCollection',
+        'features': [{'type': 'Feature', 'geometry': None, 'properties': {}}],
+    }
+    client = httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(200, json=fc)))
+    vector.fetch_and_store(WARNINGS, client=client)
+    assert registry.vector_path('warnings').exists()
+
+    body = wclient.get('/api/weather/warnings/geojson').get_json()
+    assert body['type'] == 'FeatureCollection'
+    assert len(body['features']) == 1
+    assert body['fetched_at'] is not None  # file mtime, canonical ms-UTC
+
+
+def test_geojson_unknown_layer_404(wclient):
+    assert wclient.get('/api/weather/radar/geojson').status_code == 404
+
+
 def test_data_status_includes_radar_chunk(wclient):
     _stage_frame(1000)
     _stage_frame(2000)
