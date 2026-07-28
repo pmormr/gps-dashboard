@@ -206,20 +206,63 @@ And two time models:
 - **Forecast** — issued-at → valid-at (future); keep only the latest issuance,
   its own time handling. Don't force it into the past-archive model.
 
-### Candidate layers (phased; endpoints confirmed at build time)
+### Candidate layers (survey-grounded + live-verified 2026-07-28)
 
-Ranked by van usefulness × pipeline fit:
+Two free hosts cover everything below, no keys: the
+`mapservices.weather.noaa.gov` ArcGIS instances (`raster`/`vector`/`tropical` —
+the same `exportImage`/`export` surface as radar, zero new plumbing) and
+**nowcoast** GeoServer WMS (`https://nowcoast.noaa.gov/geoserver/ows` — needs
+one `wms` GetMap fetch variant in the registry, the only new mechanism).
+
+Ranked build order after radar (van usefulness × pipeline fit):
 
 1. **Watches / Warnings / Advisories polygons** — *vector, observed.* Highest
    value-per-byte and safety-relevant (tornado / flash-flood / winter-storm boxes
-   over your position). Tiny GeoJSON. Strong candidate to build right after radar.
-2. **GOES satellite (IR / visible cloud)** — *raster, observed.* Same tile
-   pipeline as radar; the whole-cloud picture beyond precip. ~5–10 min updates.
-3. **SPC convective outlooks** — *vector, forecast.* Day 1–3 severe-weather risk
-   polygons. Trip-planning; tiny.
-4. **NDFD forecast grids** — *raster, forecast.* Wind/gust, temp, precip
-   probability. Directly useful for hillclimb/event days (wind on the mountain).
-   Forecast time-model → a later phase.
+   over your position). api.weather.gov GeoJSON (nowcoast
+   `alerts:watches_warnings_advisories` as the alt). Tiny. This is P4.
+2. **GOES satellite (cloud cover)** — *raster, observed,* nowcoast WMS:
+   `satellite:goes_visible_imagery` (0.5 km, 5-min, daytime) +
+   `satellite:goes_longwave_imagery` (2 km IR, 5-min, night clouds);
+   water-vapor / snow-ice bands optional extras.
+3. **Lightning strike density** — *raster, observed,* nowcoast WMS
+   `lightning_detection:ldn_lightning_strike_density`. Density is the free
+   form — raw NLDN strike points are licensed.
+4. **MRMS QPE precip accumulation** — *raster, observed.*
+   `raster/.../obs/mrms_qpe` ImageServer (same caps + ~573 m/px family as the
+   radar source; 1/3/6/12/24/48/72-hr totals, hourly). Not time-enabled
+   upstream — irrelevant to our capture-now archive model. Pairs with scrubbing
+   the radar archive ("how much actually fell").
+5. **Local storm reports** — *vector, observed.*
+   `vector/.../obs/nws_local_storm_reports` — hail/wind/tornado ground truth,
+   the scrub companion to the radar archive.
+6. **SPC convective + fire-weather outlooks** — *vector, forecast.*
+   `outlooks/SPC_wx_outlks` (FeatureServer → direct GeoJSON) +
+   `fire_weather/SPC_firewx`. Day 1–3 risk polygons; trip-planning.
+7. **Smoke / dust / air quality** — *raster, hourly.*
+   `raster/.../air_quality/ndgd_*` ImageServers (HRRR surface smoke especially).
+   Fire-season staple out west.
+8. **Fire detections / perimeters** — *vector, observed.* NIFC/WFIGS public
+   FeatureServers (different host, plain GeoJSON query) — where the smoke comes
+   from, road-closure awareness.
+9. **NOHRSC snow analysis** — *raster, observed daily.* `raster/.../snow/` —
+   snow depth/SWE for mountain passes in shoulder seasons.
+10. **Flash flood guidance** — *raster.* `raster/.../precip/rfc_gridded_ffg` —
+    with QPE, the desert-wash / canyon-camping guardrail.
+11. **Trip-planning outlook tier** — *vector/MapServer, forecast.* WPC fronts +
+    national forecast chart (`outlooks/natl_fcst_wx_chart`), WPC QPF +
+    winter-precip probabilities, CPC 6–10 / 8–14-day + drought outlooks.
+12. **Tropical cyclone track/cone** — *vector, seasonal.* The `tropical`
+    instance + nowcoast `tropical_cyclones:*`; matters on East-coast trips.
+13. **NDFD forecast grids** — *raster, forecast.* Wind/gust, temp, sky cover,
+    precip probability (hillclimb/event days — wind on the mountain). Needs the
+    issued-at → valid-at time model → its own later phase.
+
+**Eliminated: observed temperature-history raster** (user call 2026-07-28).
+Neither free hub serves RTMA (the observed temp analysis); `NDFD_temp` is
+forecast-only, and real RTMA means NOMADS GRIB2 — new format, new dependency,
+reprojection. Nearest cheap forms if ever wanted: archive
+`vector/.../obs/surface_obs` METAR station points, or NDFD forecast temp; the
+cabin BME680 already covers *local* temp history in Trends.
 
 ---
 
@@ -246,7 +289,10 @@ Ranked by van usefulness × pipeline fit:
   smooth on a phone — fall back to loose XYZ tiles +
   a `/tiles/weather/radar/<frame>/{z}/{x}/{y}.png` route if not.
 - **P4 — Warnings layer** (vector) — the first proof the registry generalizes.
-- **P5+ — GOES / SPC / NDFD** as separate phases.
+- **P5+ — grow the registry** in roughly the candidate order above
+  (GOES → lightning → QPE → the value-picks as wanted); the nowcoast layers
+  share one new `wms` fetch variant, the ArcGIS ones reuse the radar path
+  as-is. NDFD-class forecast rasters last (they need the forecast time model).
 
 Build + commit `static/dist/` before pushing (Pi never builds). Deploy hook:
 `weather-fetch` is a timer-driven oneshot — idempotent timer re-enable on push
