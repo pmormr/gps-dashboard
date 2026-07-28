@@ -80,9 +80,9 @@ scrape the site).
 GeoServer alternative (kept as a note, not the primary): `conus_bref_qcd` WMS at
 `https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows`.
 
-**New dependency:** `pmtiles` (PyPI, 3.7.0, pure-Python, zero deps) — reader
-*and writer*. Runtime dep (the Pi fetcher writes archives); the Flask serving
-path just streams bytes and doesn't need it. Pillow (mosaic/slice) and httpx
+**New dependency (user-approved 2026-07-28):** `pmtiles` (PyPI, 3.7.0,
+pure-Python, zero deps) — reader *and writer*. Runtime dep (the Pi fetcher
+writes archives); the Flask serving path just streams bytes and doesn't need it. Pillow (mosaic/slice) and httpx
 are already project deps.
 
 ---
