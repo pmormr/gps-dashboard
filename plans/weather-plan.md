@@ -1,10 +1,40 @@
 # Weather subsystem plan (radar first)
 
 **Status:** shaped 2026-07-28; refined + verified against the live service
-2026-07-28 (session two), not started. Radar is layer one; the subsystem is
+2026-07-28 (session two); **P0 source spike run 2026-07-28 (session three) —
+complete, findings below.** Radar is layer one; the subsystem is
 designed to grow other NWS/NOAA weather layers behind one registry — the
 package, units, and routes are named **`weather`** from day one so layer two
 is a registry entry, not a rename.
+
+## P0 results (2026-07-28) — spike complete, design locked
+
+Ran a throwaway spike against the live ImageServer. All open questions closed;
+two simplifications vs the shaped plan:
+
+- **The ~40 s "raster pairs" are regional subsets, not a CONUS split.** Catalog
+  rows carry `idp_subset` (`CONUS`, `CARIB`, …); a CONUS envelope intersects
+  both. **Enumerate `where=idp_subset='CONUS'` (order `idp_validtime DESC`) →
+  exactly one raster per cycle. Bucketing is dropped** — the frame key *is* the
+  CONUS raster's `idp_validtime` (epoch-ms), which is also the `exportImage`
+  `time`. (Kept a 120 s bucket only as a defensive safety net, not the mechanism.)
+- **Exact CONUS bbox = z8-tile-snapped.** Derive the master grid by snapping
+  `CONUS_LON=(-126.3,-66.9)`, `CONUS_LAT=(24.9,49.4)` outward to the z8 tile
+  range → x[38..80] y[87..109] → master **11008×5888 px**, merc-aligned bounds
+  lon[-126.5625..-66.0938] lat[24.5271..49.8380]. This makes tile slicing exact.
+- **2 vertical exports, abutting — no overlap margin.** H=5888 > the 4100 cap →
+  `ceil(H/4100)=2` strips of 2944, sharing the boundary merc-y exactly. Seam
+  check: 90% of straddling columns identical, the rest real echoes. ~9–13 s/strip.
+- **Pyramid z2–z8, intersection-and-paste render** (a tile can be larger than the
+  master at low zoom — clip tile∩master, resize, paste into a transparent 256²).
+  Skip fully-transparent tiles. `TileType.PNG`, `Compression.NONE` (PNG is already
+  compressed; raw==pmtiles bytes).
+- **Footprint: 11.07 MB/frame** at moderate weather (4.7% echo coverage, 503
+  tiles; z8=300 is the bulk) → **~32 GB / 14 days**. Well under 50 GB; keep z8.
+- **Palette on downscale is clean** (LANCZOS RGBA, no banding); the standard
+  reflectivity ramp renders correctly composited over the dark basemap.
+- Live upstream window measured at **2.0 h / 18 CONUS frames** — reconfirms the
+  off-grid-gaps-are-permanent framing.
 
 **Goal:** a **Weather** tab — a MapLibre map (same basemap/look as Map & Drive)
 showing an animated, scrubbable **national radar mosaic** you can zoom to your
