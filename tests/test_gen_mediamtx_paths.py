@@ -30,7 +30,15 @@ def test_committed_block_matches_registry_render() -> None:
 def test_generated_feeds_are_van_publishers_in_order() -> None:
     """Only van publisher/internal paths are generated, in registry order."""
     feeds = generated_feeds()
-    assert [f.path for f in feeds] == ['cam1', 'cam2', 'cam3', 'cam4', 'radio', 'drone1', 'drone2']
+    assert [f.path for f in feeds] == [
+        'cam1',
+        'cam2',
+        'saddle-1',
+        'saddle-2',
+        'radio',
+        'drone1',
+        'drone2',
+    ]
     assert all(f.hub == 'van' for f in feeds)
     assert all(f.role in ('publish', 'internal') for f in feeds)
     # The Dahua proxy block and every cloud path are excluded.

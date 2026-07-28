@@ -127,26 +127,46 @@ _OBS_READ = '${GPS_BROADCAST_OBS_READ}'  # cloud OBS RTSP read key (user `obs`)
 
 
 def _van_cameras() -> list[Feed]:
-    """The four PtP course cameras (van hub, SRT publish, no auth)."""
+    """The four PtP course-camera slots (van hub, SRT publish, no auth).
+
+    ``cam1``/``cam2`` keep the generic naming (``cam1`` is the van's own picam1);
+    the two saddle-position cameras take the other two slots, renamed
+    ``saddle-1``/``saddle-2`` so the MediaMTX path, the hillclimb-cam service
+    instance (``cam-stream@saddle-N``), and the monitor-wall label all read the
+    same. Both saddle cams run on one Pi (``saddle-cam``) off a shared USB2 bus,
+    so they publish MJPEG-in → HW-H.264 (YUYV would not fit two on the bus).
+    """
+    generic = (
+        'H.264 720p ~2.5 Mbps. cam1 = picam1, already running as the '
+        'cam-stream@cam1 service; values here are for a manual re-publish.',
+    )
+    saddle = (
+        'Saddle position — both cams on one Pi (saddle-cam), MJPEG 720p30 in → '
+        'HW H.264 ~4 Mbps out. MJPEG is load-bearing: both share one USB2 bus, so '
+        'YUYV would starve. hillclimb-cam service cam-stream@saddle-N.',
+    )
+    specs = [
+        ('cam1', 'PtP cam 1', generic),
+        ('cam2', 'PtP cam 2', generic),
+        ('saddle-1', 'Saddle 1', saddle),
+        ('saddle-2', 'Saddle 2', saddle),
+    ]
     return [
         Feed(
-            path=f'cam{n}',
-            label=f'PtP cam {n}',
+            path=path,
+            label=label,
             hub='van',
             slot_group='cameras',
             transport='srt',
             role='publish',
-            send=SendSpec(host=_VAN, port=8890, streamid=f'publish:cam{n}', latency_ms=200),
-            obs_read=f'rtsp://{_VAN}:8554/cam{n}',
-            browser_url=f'http://{_VAN}:8889/cam{n}',
+            send=SendSpec(host=_VAN, port=8890, streamid=f'publish:{path}', latency_ms=200),
+            obs_read=f'rtsp://{_VAN}:8554/{path}',
+            browser_url=f'http://{_VAN}:8889/{path}',
             standby=False,
             expected_tracks=('H264',),
-            notes=(
-                'H.264 720p ~2.5 Mbps. cam1 = picam1, already running as the '
-                'cam-stream@cam1 service; values here are for a manual re-publish.',
-            ),
+            notes=notes,
         )
-        for n in (1, 2, 3, 4)
+        for path, label, notes in specs
     ]
 
 

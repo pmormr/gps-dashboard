@@ -42,7 +42,7 @@ def test_feeds_present_and_grouped() -> None:
     """Every advertised path is in the registry, on the right hub."""
     van = {f.path for f in FEEDS if f.hub == 'van'}
     cloud = {f.path for f in FEEDS if f.hub == 'cloud'}
-    assert {'cam1', 'cam2', 'cam3', 'cam4', 'radio'} <= van
+    assert {'cam1', 'cam2', 'saddle-1', 'saddle-2', 'radio'} <= van
     assert {'cam-front-main', 'cam-rear-main'} <= van
     assert {'phone1', 'phone2', 'phone3', 'phone4', 'phone5'} <= cloud
     assert {'drone1', 'drone2'} <= van and {'drone1', 'drone2'} <= cloud

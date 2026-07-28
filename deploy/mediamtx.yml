@@ -62,12 +62,12 @@ paths:
   cam2:
     source: publisher
 
-  # cam3 — PtP cam 3 (SRT publish :8890)
-  cam3:
+  # saddle-1 — Saddle 1 (SRT publish :8890)
+  saddle-1:
     source: publisher
 
-  # cam4 — PtP cam 4 (SRT publish :8890)
-  cam4:
+  # saddle-2 — Saddle 2 (SRT publish :8890)
+  saddle-2:
     source: publisher
 
   # radio — Radio audio (in-hub publisher)
@@ -105,8 +105,8 @@ paths:
   # the wrapper — defensive, so a rotation to a genuinely URL-unsafe char stays
   # valid in the userinfo.
   # RTSP form: rtsp://admin:<pw>@<host>:554/cam/realmonitor?channel=1&subtype=N
-  # (subtype=1 sub, subtype=2 third). Do NOT reuse the cam1-cam4 names above —
-  # those are the hill-climb SRT publisher paths, a different mechanism.
+  # (subtype=1 sub, subtype=2 third). Do NOT reuse the cam1/cam2/saddle-1/saddle-2
+  # names above — those are the hill-climb SRT publisher paths, a different mechanism.
   cam-front:
     source: rtsp://admin:${GPS_DAHUA_PASSWORD_URLENC}@192.168.42.51:554/cam/realmonitor?channel=1&subtype=1
     sourceOnDemand: yes
