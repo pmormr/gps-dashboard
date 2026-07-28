@@ -24,6 +24,7 @@ from api.routes.status_mediamtx import status_mediamtx_bp
 from api.routes.status_ntp import status_ntp_bp
 from api.routes.status_syslog import status_syslog_bp
 from api.routes.tiles import tiles_bp
+from api.routes.weather import weather_bp
 
 
 def create_app():
@@ -49,6 +50,7 @@ def create_app():
     app.register_blueprint(places_bp)
     app.register_blueprint(radio_bp)
     app.register_blueprint(tiles_bp)
+    app.register_blueprint(weather_bp)
     app.register_blueprint(status_gpsd_bp)
     app.register_blueprint(status_mediamtx_bp)
     app.register_blueprint(status_ntp_bp)

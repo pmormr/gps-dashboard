@@ -148,6 +148,16 @@ CHUNKS: tuple[Chunk, ...] = (
         probe=probes.raster_cache,
     ),
     Chunk(
+        id='weather_radar',
+        label='Radar archive',
+        section='map',
+        action='readonly',
+        cadence='~5 min when online',
+        transfer=None,
+        stale_days=None,
+        probe=probes.weather_radar,
+    ),
+    Chunk(
         id='satcat',
         label='SATCAT metadata',
         section='sky',

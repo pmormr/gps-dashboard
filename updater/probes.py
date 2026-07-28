@@ -159,6 +159,43 @@ def raster_cache(_conn: sqlite3.Connection) -> Freshness:
     )
 
 
+def weather_radar(_conn: sqlite3.Connection) -> Freshness:
+    """Freshness of the rolling radar archive (a filesystem glob of frames).
+
+    Reads the per-frame PMTiles archive on disk (owned by the ``weather-fetch``
+    timer): the newest frame drives ``synced_at``, and the detail carries the
+    frame count, archive span, and the largest inter-frame gap — the "were we
+    dark?" signal (off-grid gaps are permanent by design, so this chunk never
+    reads as stale, only newer/older).
+
+    Args:
+        _conn: Unused; the archive is file-backed.
+
+    Returns:
+        The archive's freshness, or ``Freshness(None)`` when empty.
+    """
+    from weather import archive
+    from weather.registry import RADAR
+
+    frames = sorted(archive.existing_frames(RADAR.id))
+    if not frames:
+        return Freshness(None, {'frames': 0})
+    span_min = (frames[-1] - frames[0]) / 60_000
+    largest_gap_min = (
+        max(frames[i + 1] - frames[i] for i in range(len(frames) - 1)) / 60_000
+        if len(frames) > 1
+        else 0.0
+    )
+    return Freshness(
+        _mtime_canonical(frames[-1] / 1000),
+        {
+            'frames': len(frames),
+            'span_hours': round(span_min / 60, 1),
+            'largest_gap_min': round(largest_gap_min, 1),
+        },
+    )
+
+
 def docs_vault(_conn: sqlite3.Connection) -> Freshness:
     """Last push/auto-commit into the network-docs vault's bare repo.
 

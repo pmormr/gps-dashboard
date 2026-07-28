@@ -170,6 +170,7 @@ def hermetic_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tile_layers, 'TERRAIN_PMTILES_PATH', tmp_path / 'terrain.pmtiles')
     monkeypatch.setattr(tile_layers, 'TILE_CACHE_DIR', tmp_path / 'tiles')
     monkeypatch.setattr(satcat, 'DEFAULT_CACHE_PATH', tmp_path / 'satcat.json')
+    monkeypatch.setenv('GPS_WEATHER_ARCHIVE_DIR', str(tmp_path / 'weather'))
     monkeypatch.delenv('GPS_NETWORK_DOCS_GIT_DIR', raising=False)
 
 
@@ -221,6 +222,31 @@ def test_ordering_warnings_absent_when_ordered(
     _insert_places(conn, 'gnis', now_canonical())
     payload = chunks.status_payload(conn)
     assert _entry(payload, 'gnis')['warnings'] == []
+
+
+def test_weather_radar_probe_empty(conn: sqlite3.Connection, hermetic_files: None) -> None:
+    fresh = probes.weather_radar(conn)
+    assert fresh.synced_at is None
+    assert fresh.detail == {'frames': 0}
+
+
+def test_weather_radar_probe_reports_span_and_gap(
+    conn: sqlite3.Connection, hermetic_files: None
+) -> None:
+    from PIL import Image
+
+    from weather import archive
+    from weather.registry import RADAR
+
+    tile = Image.new('RGBA', (256, 256), (1, 2, 3, 255))
+    hour = 3_600_000
+    for ts in (1000 * hour, 1002 * hour, 1005 * hour):  # 2 h then 3 h apart
+        archive.pack_frame(RADAR, ts, [(8, 40, 90, tile)])
+    fresh = probes.weather_radar(conn)
+    assert fresh.synced_at is not None  # newest frame drives freshness
+    assert fresh.detail['frames'] == 3
+    assert fresh.detail['span_hours'] == 5.0
+    assert fresh.detail['largest_gap_min'] == 180.0
 
 
 def test_probe_error_degrades_one_chunk(
