@@ -12,6 +12,7 @@ dependencies = [
     "paho-mqtt>=2.1.0",
     "obd>=0.7.3",
     "pillow>=12.3.0",
+    "pmtiles>=3.7",
 ]
 
 [build-system]
@@ -69,14 +70,14 @@ pretty = true
 
 # Untyped third-party libraries (no stubs shipped).
 [[tool.mypy.overrides]]
-module = ["obd", "paho.mqtt.*", "sgp4.*"]
+module = ["obd", "paho.mqtt.*", "sgp4.*", "pmtiles.*"]
 ignore_missing_imports = true
 
 # Strict profile for the load-bearing, already-well-typed core. Ratchet items
 # left for later: disallow_untyped_calls, disallow_untyped_decorators, and
 # widening this module list to api.routes.*/tools.*/sensors.*/mqttbus.*.
 [[tool.mypy.overrides]]
-module = ["processor.*", "common.*", "logger.*", "radio.*", "updater.*", "broadcast.*", "api.db", "api.params"]
+module = ["processor.*", "common.*", "logger.*", "radio.*", "updater.*", "broadcast.*", "weather.*", "api.db", "api.params"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_any_generics = true

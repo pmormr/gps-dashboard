@@ -1,0 +1,14 @@
+[Unit]
+Description=Periodic weather radar capture
+
+[Timer]
+# Upstream publishes ~every 6-8 min; fire ~5 min so no frame in the ~2 h moving
+# window is missed. Dedup by frame key makes a tick that finds nothing new a
+# no-op. Persistent replays a missed run after an off-grid stretch (which just
+# captures whatever is currently in the window — gaps are permanent by design).
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

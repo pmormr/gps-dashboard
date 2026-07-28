@@ -1,0 +1,15 @@
+[Unit]
+Description=Weather radar frame capture into the rolling archive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather
+# Capture-while-online, play-offline: grabs the frames published in the upstream
+# ~2 h moving window we don't already have, prunes past 14 days. A clean no-op
+# when off-grid — the tool preflights the service and exits 0 either way. The
+# archive is rebuild-worthless, deliberately outside the DB backup path.
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.fetch_weather --layer radar
