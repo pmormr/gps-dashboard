@@ -22,6 +22,7 @@ import Sky from '../views/Sky.svelte'
 import Syslog from '../views/Syslog.svelte'
 import Systems from '../views/Systems.svelte'
 import Trends from '../views/Trends.svelte'
+import Weather from '../views/Weather.svelte'
 
 /** A client-side route: a path, the view it renders, and the NAV tab it lives under. */
 export interface RouteDef {
@@ -55,6 +56,7 @@ export const routes: RouteDef[] = [
   { path: '/trends', component: Trends, tab: '/trends' },
   { path: '/fridge', component: Fridge, tab: '/systems' },
   { path: '/radio', component: Radio, tab: '/radio' },
+  { path: '/weather', component: Weather, tab: '/weather' },
   { path: '/cameras', component: Cameras, tab: '/cameras' },
   { path: '/broadcast', component: Broadcast, tab: '/broadcast' },
 ]
@@ -80,6 +82,7 @@ export const NAV: NavItem[] = [
   { label: 'Docs', icon: '📓', to: '/docs' },
   { label: 'Sky', icon: '🛰️', to: '/sky' },
   { label: 'Radio', icon: '📻', to: '/radio' },
+  { label: 'Weather', icon: '🌦️', to: '/weather' },
   { label: 'Cameras', icon: '📷', to: '/cameras' },
   { label: 'Broadcast', icon: '📡', to: '/broadcast' },
 ]

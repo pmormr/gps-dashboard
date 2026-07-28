@@ -1,0 +1,139 @@
+/*
+ * Weather view chrome — a radar status chip (top-left) and a playback panel
+ * (bottom-center) floating over the shared map (.map-region is pointer-events
+ * transparent, so each control re-enables pointer events).
+ */
+
+.wx-status {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+}
+.wx-status-line {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.wx-status-line--bad {
+  color: #f87171;
+}
+.wx-status-sub {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.wx-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 6;
+  pointer-events: auto;
+  width: min(560px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.wx-scrubline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wx-play {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.wx-play:hover {
+  border-color: var(--accent);
+}
+.wx-scrub {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.wx-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wx-time {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.wx-date {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  flex: 1;
+}
+.wx-frameno {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wx-group {
+  display: flex;
+  gap: 4px;
+}
+.wx-chip {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.wx-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.wx-chip--on {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.wx-opacity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+.wx-opacity input {
+  width: 84px;
+  accent-color: var(--accent);
+}

@@ -341,6 +341,24 @@ export function getPointsRecent(minutes: number, limit: number): Promise<RecentP
   return getJSON<RecentPointsResponse>(`/api/points/recent?minutes=${minutes}&limit=${limit}`)
 }
 
+/** The weather-radar frame index (mirrors /api/weather/<layer>/frames). */
+export interface WeatherFrames {
+  layer: string
+  generated_at: string
+  count: number
+  /** Newest/oldest frame instant (epoch-ms), or null when the archive is empty. */
+  newest: number | null
+  oldest: number | null
+  /** Available frame instants (epoch-ms), newest first. */
+  frames: number[]
+}
+
+/** Fetch the available radar frame instants, optionally trimmed to a trailing window (hours). */
+export function getWeatherFrames(layer: string, windowHours?: number): Promise<WeatherFrames> {
+  const query = qs({ window: windowHours })
+  return getJSON<WeatherFrames>(`/api/weather/${layer}/frames${query ? `?${query}` : ''}`)
+}
+
 /** Per-metric presentation metadata, mirrored from api/sensor_schema.py METRIC_META. */
 export interface MetricMeta {
   label: string

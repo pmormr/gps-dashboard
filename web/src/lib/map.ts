@@ -333,6 +333,16 @@ export const MapView = (() => {
   const endpointMarkers: Marker[] = []
   const pinMarkers: Marker[] = []
 
+  // ── Weather radar animation overlay ──
+  // One raster source+layer per loaded frame (each a per-frame PMTiles read over
+  // the registered pmtiles:// protocol, like the terrain DEM). Only the current
+  // frame's layer is visible; the Weather controller toggles it frame-to-frame to
+  // animate. Inserted below the first symbol layer so basemap labels stay legible
+  // under the radar. Re-added on every style swap by reinstallOverlays.
+  let radarFrames: number[] = []
+  let radarVisibleFrame: number | null = null
+  let radarOpacity = 0.8
+
   let installing = false // re-entrancy guard for reinstallOverlays
   let rangePopup: Popup | null = null
   let dronePopup: Popup | null = null
@@ -628,6 +638,10 @@ export const MapView = (() => {
         })
       }
 
+      // Weather radar frames (raster, below the labels). Re-added after a style
+      // swap; visibility + opacity come from the retained radar state.
+      for (const f of radarFrames) addRadarLayer(m, f)
+
       // Drone tracks float at abs_alt as a three.js elevated-track layer (Overlay3D),
       // re-added here since setStyle drops it; onAdd rebuilds its scene from retained
       // data. Null until overlay3d.ts is wired in.
@@ -832,6 +846,86 @@ export const MapView = (() => {
     map.touchPitch[fns]()
     if (on) map.touchZoomRotate.enableRotation()
     else map.touchZoomRotate.disableRotation()
+  }
+
+  // ── Weather radar overlay ──
+
+  function radarLayerId(frame: number): string {
+    return `wx-radar-${frame}`
+  }
+
+  function radarSourceSpec(frame: number): maplibregl.RasterSourceSpecification {
+    return {
+      type: 'raster',
+      url: `pmtiles://${location.origin}/tiles/weather/radar/${frame}.pmtiles`,
+      tileSize: 256,
+    }
+  }
+
+  // raster-fade-duration:0 so a visibility toggle snaps to the next frame instead
+  // of cross-fading (a fade double-exposes two frames mid-loop). beforeId keeps
+  // radar under the basemap labels.
+  function addRadarLayer(m: MlMap, frame: number): void {
+    const id = radarLayerId(frame)
+    if (!m.getSource(id)) m.addSource(id, radarSourceSpec(frame))
+    if (!m.getLayer(id)) {
+      m.addLayer(
+        {
+          id,
+          type: 'raster',
+          source: id,
+          layout: { visibility: frame === radarVisibleFrame ? 'visible' : 'none' },
+          paint: { 'raster-opacity': radarOpacity, 'raster-fade-duration': 0 },
+        },
+        firstSymbolLayerId(m),
+      )
+    }
+  }
+
+  function removeRadarLayer(m: MlMap, frame: number): void {
+    const id = radarLayerId(frame)
+    if (m.getLayer(id)) m.removeLayer(id)
+    if (m.getSource(id)) m.removeSource(id)
+  }
+
+  /** Load a set of frame keys as raster sources (diffs against the current set). */
+  function setRadarFrames(frames: number[]): void {
+    const next = new Set(frames)
+    const prev = radarFrames
+    radarFrames = frames.slice()
+    if (radarVisibleFrame != null && !next.has(radarVisibleFrame)) radarVisibleFrame = null
+    if (!map) return
+    for (const f of prev) if (!next.has(f)) removeRadarLayer(map, f)
+    for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
+  }
+
+  /** Show exactly one loaded frame (null hides all) — the animation step. */
+  function showRadarFrame(frame: number | null): void {
+    radarVisibleFrame = frame
+    if (!map) return
+    for (const f of radarFrames) {
+      const id = radarLayerId(f)
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', f === frame ? 'visible' : 'none')
+      }
+    }
+  }
+
+  /** Set the radar layers' opacity (0..1). */
+  function setRadarOpacity(opacity: number): void {
+    radarOpacity = opacity
+    if (!map) return
+    for (const f of radarFrames) {
+      const id = radarLayerId(f)
+      if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', opacity)
+    }
+  }
+
+  /** Remove all radar sources/layers and reset state (the view-leave teardown). */
+  function clearRadar(): void {
+    if (map) for (const f of radarFrames) removeRadarLayer(map, f)
+    radarFrames = []
+    radarVisibleFrame = null
   }
 
   // ── Public API ──
@@ -1374,6 +1468,10 @@ export const MapView = (() => {
     setPhoneData,
     setPlacesData,
     setSearchResultsData,
+    setRadarFrames,
+    showRadarFrame,
+    setRadarOpacity,
+    clearRadar,
     fitToCoords,
     onPlaceClick,
     onBasemapPoiClick,
