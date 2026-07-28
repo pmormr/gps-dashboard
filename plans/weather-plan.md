@@ -1,8 +1,10 @@
 # Weather subsystem plan (radar first)
 
 **Status:** shaped 2026-07-28; refined + verified against the live service; then
-**P0–P4 built + live-verified 2026-07-28 (session three).** Radar (raster) +
-warnings (vector) ship; **P5+ (grow the registry) is the remaining roadmap.**
+**P0–P4 built + live-verified 2026-07-28 (session three), then deployed +
+validated on the Pi 2026-07-28 (session four).** Radar (raster) +
+warnings (vector) ship and are **capturing live on the Pi**; **P5+ (grow the
+registry) is the remaining roadmap.**
 Radar is layer one; the subsystem grows other NWS/NOAA weather layers behind one
 registry — the package, units, and routes are named **`weather`** from day one so
 layer two is a registry entry, not a rename.
@@ -16,16 +18,29 @@ layer two is a registry entry, not a rename.
   the shared map). **P4 — warnings** ✅ (the vector-pipeline proof:
   `/api/weather/<layer>/geojson` + a severity-colored ⚠ toggle layer). All
   live-verified against the real service; full test + typecheck suites green.
-- **Deploy (still to do on the Pi):** it's **enabled-gated** — nothing runs until
-  the operator turns it on. Steps: (1) `systemctl enable --now
-  weather-fetch.timer` once, and add its timer-enable block to the post-receive
-  hook (per CLAUDE.md, timer-oneshots need a Pi-side hook block). (2) The archive
-  dir env `GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather` rides in **both**
-  `weather-fetch.service` (writer) and `gps-dashboard.service` (reader) — deploys
-  on push, no manual step. (3) No new apt/system deps (`pmtiles` is in `uv.lock`;
-  the fetch/serve path needs no poppler/ffmpeg/etc.).
-- **Real footprint to watch:** ~11–13 MB/frame at moderate weather → ~32 GB/14 d.
-  Confirm on the NVMe after a few days of capture; tune retention/zoom if needed.
+- **Deploy — DONE + validated on the Pi (2026-07-28, session four).** The
+  `weather-fetch.timer` is `enabled` + `active` and capturing on its ~5 min tick
+  (steady state: 1 new radar frame/tick, ~24 s CPU, ~550 tiles/frame; warnings
+  refreshed each run). Reader (`gps-dashboard`) + writer both carry
+  `GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather`. The idempotent re-enable
+  block was added to the Pi post-receive hook (sensor-reader `is-enabled` gate,
+  not the unconditional drone/backup enable — keeps the enabled-gating; a future
+  push now prints "Weather fetch timer enabled"). Delivery verified: frame index,
+  PMTiles range reads (206), warnings geojson, `/data` `weather_radar` chunk
+  (state ok). `/weather` renders end-to-end on the device (radar mosaic +
+  warnings, 0 console errors).
+- **Real footprint — measured on the Pi:** ~12.3 MB/frame avg (min 11.7, max
+  12.6) during active weather (400+ warning polygons) → **~35 GB / 14 d**
+  extrapolated. Matches the plan's ~32 GB estimate; under 50 GB, z8 stays. Recheck
+  after calmer weather (sparser frames should run smaller).
+- **Animation warm-up fix (session four):** the loop selected the shown frame by
+  toggling layer visibility, so MapLibre only fetched a frame's tiles the first
+  time the loop reached it (several passes to fully populate). Now every windowed
+  frame layer stays `visibility:visible` and selection is by `raster-opacity`
+  (shown = opacity, rest = 0) — a visible layer preloads its tiles regardless of
+  opacity, and `draw_raster` skips opacity-0 layers so hidden frames cost nothing
+  to render. All frames preload up front (verified: opening `/weather` fetches all
+  24 windowed frames' tiles immediately, all 206).
 - **Deferred within P3/P4:** full-14-day lazy scrubbing (v1 loads a 1/3/6-h window
   of frames as sources; scrubbing beyond that is a documented follow-up); NWS
   zone-only alerts (null geometry) don't render — storm-based polygons do.
