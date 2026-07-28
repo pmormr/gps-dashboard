@@ -1,11 +1,34 @@
 # Weather subsystem plan (radar first)
 
-**Status:** shaped 2026-07-28; refined + verified against the live service
-2026-07-28 (session two); **P0 source spike run 2026-07-28 (session three) —
-complete, findings below.** Radar is layer one; the subsystem is
-designed to grow other NWS/NOAA weather layers behind one registry — the
-package, units, and routes are named **`weather`** from day one so layer two
-is a registry entry, not a rename.
+**Status:** shaped 2026-07-28; refined + verified against the live service; then
+**P0–P4 built + live-verified 2026-07-28 (session three).** Radar (raster) +
+warnings (vector) ship; **P5+ (grow the registry) is the remaining roadmap.**
+Radar is layer one; the subsystem grows other NWS/NOAA weather layers behind one
+registry — the package, units, and routes are named **`weather`** from day one so
+layer two is a registry entry, not a rename.
+
+## Build status (2026-07-28, session three)
+
+- **P0 — spike** ✅ (findings below). **P1 — fetcher + archive** ✅ (`weather/`
+  package + `tools/fetch_weather.py` + `weather-fetch` units). **P2 — delivery**
+  ✅ (`/tiles/weather/<layer>/<ts>.pmtiles`, `/api/weather/<layer>/frames`, the
+  `/data` chunk). **P3 — /weather view** ✅ (animated scrubbable radar loop over
+  the shared map). **P4 — warnings** ✅ (the vector-pipeline proof:
+  `/api/weather/<layer>/geojson` + a severity-colored ⚠ toggle layer). All
+  live-verified against the real service; full test + typecheck suites green.
+- **Deploy (still to do on the Pi):** it's **enabled-gated** — nothing runs until
+  the operator turns it on. Steps: (1) `systemctl enable --now
+  weather-fetch.timer` once, and add its timer-enable block to the post-receive
+  hook (per CLAUDE.md, timer-oneshots need a Pi-side hook block). (2) The archive
+  dir env `GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather` rides in **both**
+  `weather-fetch.service` (writer) and `gps-dashboard.service` (reader) — deploys
+  on push, no manual step. (3) No new apt/system deps (`pmtiles` is in `uv.lock`;
+  the fetch/serve path needs no poppler/ffmpeg/etc.).
+- **Real footprint to watch:** ~11–13 MB/frame at moderate weather → ~32 GB/14 d.
+  Confirm on the NVMe after a few days of capture; tune retention/zoom if needed.
+- **Deferred within P3/P4:** full-14-day lazy scrubbing (v1 loads a 1/3/6-h window
+  of frames as sources; scrubbing beyond that is a documented follow-up); NWS
+  zone-only alerts (null geometry) don't render — storm-based polygons do.
 
 ## P0 results (2026-07-28) — spike complete, design locked
 

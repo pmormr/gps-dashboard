@@ -11,6 +11,9 @@ Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
 Environment=GPS_TILE_CACHE_DIR=/mnt/nvme/cache/tiles
 Environment=GPS_PMTILES_PATH=/mnt/nvme/tiles/northamerica.pmtiles
 Environment=GPS_TERRAIN_PMTILES_PATH=/mnt/nvme/tiles/northamerica-terrain.pmtiles
+# The weather-radar archive. Must match weather-fetch.service (the writer) — the
+# app is the reader, serving frames/geojson from the same dir.
+Environment=GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather
 Environment=GPS_NETWORK_DOCS_PATH=/mnt/nvme/paul-network-docs
 Environment=GPS_NETWORK_DOCS_GIT_DIR=/mnt/nvme/paul-network-docs.git
 # The /api/cameras/<node>/snapshot proxy authenticates to the cameras with the
