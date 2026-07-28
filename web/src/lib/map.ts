@@ -660,7 +660,7 @@ export const MapView = (() => {
       }
 
       // Weather radar frames (raster, below the labels). Re-added after a style
-      // swap; visibility + opacity come from the retained radar state.
+      // swap; the shown frame + opacity come from the retained radar state.
       for (const f of radarFrames) addRadarLayer(m, f)
 
       // Warnings polygons above the radar (both below labels): a faint
@@ -936,9 +936,14 @@ export const MapView = (() => {
     }
   }
 
-  // raster-fade-duration:0 so a visibility toggle snaps to the next frame instead
-  // of cross-fading (a fade double-exposes two frames mid-loop). beforeId keeps
-  // radar under the basemap labels.
+  // Every windowed frame layer stays visibility:visible so MapLibre loads all
+  // frames' viewport tiles up front — a visible layer requests its tiles
+  // regardless of paint opacity. (Selecting the frame by visibility instead made
+  // a frame's tiles fetch only the first time the loop reached it, so the loop
+  // took several passes to fully populate.) Frame selection is by raster-opacity:
+  // the shown frame at radarOpacity, the rest at 0. raster-opacity-transition:0
+  // (like raster-fade-duration:0) snaps the switch instead of cross-fading two
+  // frames mid-loop. beforeId keeps radar under the basemap labels.
   function addRadarLayer(m: MlMap, frame: number): void {
     const id = radarLayerId(frame)
     if (!m.getSource(id)) m.addSource(id, radarSourceSpec(frame))
@@ -948,8 +953,12 @@ export const MapView = (() => {
           id,
           type: 'raster',
           source: id,
-          layout: { visibility: frame === radarVisibleFrame ? 'visible' : 'none' },
-          paint: { 'raster-opacity': radarOpacity, 'raster-fade-duration': 0 },
+          layout: { visibility: 'visible' },
+          paint: {
+            'raster-opacity': frame === radarVisibleFrame ? radarOpacity : 0,
+            'raster-opacity-transition': { duration: 0, delay: 0 },
+            'raster-fade-duration': 0,
+          },
         },
         firstSymbolLayerId(m),
       )
@@ -973,6 +982,9 @@ export const MapView = (() => {
     for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
   }
 
+  // Select the shown frame by opacity (all frame layers stay visible so their
+  // tiles stay loaded — see addRadarLayer): the shown frame at radarOpacity, the
+  // rest at 0.
   /** Show exactly one loaded frame (null hides all) — the animation step. */
   function showRadarFrame(frame: number | null): void {
     radarVisibleFrame = frame
@@ -980,18 +992,20 @@ export const MapView = (() => {
     for (const f of radarFrames) {
       const id = radarLayerId(f)
       if (map.getLayer(id)) {
-        map.setLayoutProperty(id, 'visibility', f === frame ? 'visible' : 'none')
+        map.setPaintProperty(id, 'raster-opacity', f === frame ? radarOpacity : 0)
       }
     }
   }
 
-  /** Set the radar layers' opacity (0..1). */
+  /** Set the radar opacity (0..1) — applies to the shown frame; the rest stay 0. */
   function setRadarOpacity(opacity: number): void {
     radarOpacity = opacity
     if (!map) return
     for (const f of radarFrames) {
       const id = radarLayerId(f)
-      if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', opacity)
+      if (map.getLayer(id)) {
+        map.setPaintProperty(id, 'raster-opacity', f === radarVisibleFrame ? opacity : 0)
+      }
     }
   }
 
