@@ -8,6 +8,11 @@
 # /etc/asound.conf installed (manual, like the udev rules). Opus ~48 kbps keeps
 # the stream light enough to listen from home over the HaLow bridge. This unit
 # opens only the ALSA codec — never /dev/digirig (RTS hardware-keys PTT).
+#
+# aresample=async=1 re-clocks the audio to a continuous timeline: the dsnoop
+# shared capture reports sub-ms non-monotonic sample timestamps, which otherwise
+# spam ffmpeg "Non-monotonous DTS" warnings (~1/2s) into the syslog relay and let
+# capture-clock drift accumulate over a multi-hour stream.
 [Unit]
 Description=Radio audio stream publisher (Digirig -> MediaMTX)
 After=sound.target mediamtx.service
@@ -18,6 +23,7 @@ Type=simple
 User=pmorgan
 ExecStart=/usr/bin/ffmpeg -hide_banner -loglevel warning -nostdin \
     -f alsa -sample_rate 48000 -channels 1 -i digirig_shared \
+    -af aresample=async=1 \
     -c:a libopus -b:a 48k -application voip \
     -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/radio
 Restart=always
