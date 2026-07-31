@@ -170,6 +170,38 @@ def _van_cameras() -> list[Feed]:
     ]
 
 
+def _van_finish_cameras() -> list[Feed]:
+    """The two top/finish course cameras (van hub, SRT publish, no auth).
+
+    Run on ``pmpi3`` — a Compute Module 5 driving two CSI ``OV5647`` ribbon
+    cameras. The CM5 has no hardware H.264 encoder, so both software-encode with
+    libx264; CSI capture is via ``rpicam-vid`` (hillclimb-cam ``CAM_SOURCE=csi``).
+    Path = service = wall label, as with the saddle cams: ``cam-stream@finish-N``.
+    """
+    notes = (
+        'Top/finish position — pmpi3 (CM5), two CSI OV5647 cams, software libx264 '
+        '720p ~2.5 Mbps (the CM5 has no HW H.264 encoder). CSI capture via '
+        'rpicam-vid. hillclimb-cam service cam-stream@finish-N.',
+    )
+    return [
+        Feed(
+            path=path,
+            label=label,
+            hub='van',
+            slot_group='cameras',
+            transport='srt',
+            role='publish',
+            send=SendSpec(host=_VAN, port=8890, streamid=f'publish:{path}', latency_ms=200),
+            obs_read=f'rtsp://{_VAN}:8554/{path}',
+            browser_url=f'http://{_VAN}:8889/{path}',
+            standby=False,
+            expected_tracks=('H264',),
+            notes=notes,
+        )
+        for path, label in (('finish-1', 'Finish 1'), ('finish-2', 'Finish 2'))
+    ]
+
+
 def _van_dahua_broll() -> list[Feed]:
     """The four van Dahua cams as OBS-pullable B-roll (van hub, on-demand proxy).
 
@@ -323,7 +355,12 @@ def _radio() -> list[Feed]:
 
 #: Every feed on both hubs, in display order (grouped by slot_group downstream).
 FEEDS: tuple[Feed, ...] = tuple(
-    _van_cameras() + _radio() + _cloud_phones() + _drones() + _van_dahua_broll()
+    _van_cameras()
+    + _van_finish_cameras()
+    + _radio()
+    + _cloud_phones()
+    + _drones()
+    + _van_dahua_broll()
 )
 
 
