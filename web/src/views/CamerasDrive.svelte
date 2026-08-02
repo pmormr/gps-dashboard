@@ -5,6 +5,7 @@
   import { getCameras, type Camera } from '../lib/api'
   import {
     type CamAlign,
+    clearAlign,
     defaultAlign,
     drivingCameras,
     mergedAlign,
@@ -16,13 +17,14 @@
   // Driving mode: the blind-spot + rear feeds butt edge-to-edge into one seamless
   // 180° strip. Each tile pre-warms its own WHEP session on mount (C4 — pay the
   // on-demand connect cost up front, not mid-drive) and auto-reconnects on a drop.
-  // Feeds default to the light D1 sub stream (three simultaneous decodes is heavy
-  // on a phone); the HD toggle bumps them to 720p. Align mode reveals per-camera
-  // crop/pan/zoom/width controls tuned live against the feeds (the geometry is
-  // fixed by mounting, so parked tuning carries to the road) and persisted.
+  // The strip is locked to the 720p `-hd` stream: the D1 sub is a different aspect
+  // ratio (704×480 vs 1280×720), so under object-fit:cover the same alignment frames
+  // the two differently — one stream keeps the crop stable (and matches the 16:9
+  // stills the defaults were fitted to). Align mode reveals per-camera crop/pan/zoom/
+  // width controls tuned live against the feeds (the geometry is fixed by mounting,
+  // so parked tuning carries to the road) and persisted per-device.
   let cams = $state<Camera[]>([])
   let loadError = $state('')
-  let hd = $state(false)
   let aligning = $state(false)
   let sel = $state('') // node currently being tuned
   let align = $state<Record<string, CamAlign>>({})
@@ -48,7 +50,7 @@
   }
   function resetAlign(): void {
     align = Object.fromEntries(cams.map((c) => [c.node, { ...defaultAlign(c.node) }]))
-    persist()
+    clearAlign() // drop the stored override so a reload is pristine too
   }
   async function copyValues(): Promise<void> {
     try {
@@ -67,9 +69,6 @@
     <button class="btn" class:on={aligning} onclick={() => (aligning = !aligning)} aria-pressed={aligning}>
       Align
     </button>
-    <button class="btn" onclick={() => (hd = !hd)} aria-pressed={hd}>
-      {hd ? 'HD 720p' : 'SD D1'}
-    </button>
   </div>
 
   {#if loadError}
@@ -77,13 +76,11 @@
   {:else if cams.length === 0}
     <p class="empty">No driving cameras configured.</p>
   {:else}
-    {#key hd}
-      <div class="wall" class:aligning>
-        {#each cams as cam (cam.node)}
-          <CamTile {cam} {hd} align={align[cam.node]} />
-        {/each}
-      </div>
-    {/key}
+    <div class="wall" class:aligning>
+      {#each cams as cam (cam.node)}
+        <CamTile {cam} hd={true} align={align[cam.node]} />
+      {/each}
+    </div>
   {/if}
 
   {#if aligning && cur}

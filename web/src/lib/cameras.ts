@@ -117,10 +117,10 @@ export function alignTransform(a: CamAlign): string {
   return `translate(${round(a.panX * 100, 2)}%, ${round(a.panY * 100, 2)}%) scale(${sx}, ${sy})`
 }
 
-/** localStorage key for the tuned per-device alignment. Versioned: bumped to v2
- *  when the fitted defaults changed, so devices start from the new seed rather than
- *  a stale experimental value. */
-const ALIGN_KEY = 'gps.cam.align.v2'
+/** localStorage key for the tuned per-device alignment. Versioned: bumped whenever
+ *  the fitted defaults change, so devices start from the new seed rather than a stale
+ *  experimental value. (v3: strip locked to the 720p stream; defaults are 16:9-fitted.) */
+const ALIGN_KEY = 'gps.cam.align.v3'
 
 /** Load the stored alignment map (node → align), `{}` when unset/unavailable. */
 export function loadAlign(): Record<string, Partial<CamAlign>> {
@@ -138,6 +138,15 @@ export function saveAlign(map: Record<string, CamAlign>): void {
     localStorage.setItem(ALIGN_KEY, JSON.stringify(map))
   } catch {
     // storage unavailable — alignment just won't persist across reloads
+  }
+}
+
+/** Drop the stored override so alignment falls back to the fitted defaults (Reset). */
+export function clearAlign(): void {
+  try {
+    localStorage.removeItem(ALIGN_KEY)
+  } catch {
+    // storage unavailable — nothing to clear
   }
 }
 
