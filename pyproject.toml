@@ -13,6 +13,7 @@ dependencies = [
     "obd>=0.7.3",
     "pillow>=12.3.0",
     "pmtiles>=3.7",
+    "waitress>=3.0",
 ]
 
 [build-system]
@@ -70,7 +71,7 @@ pretty = true
 
 # Untyped third-party libraries (no stubs shipped).
 [[tool.mypy.overrides]]
-module = ["obd", "paho.mqtt.*", "sgp4.*", "pmtiles.*"]
+module = ["obd", "paho.mqtt.*", "sgp4.*", "pmtiles.*", "waitress.*"]
 ignore_missing_imports = true
 
 # Strict profile for the load-bearing, already-well-typed core. Ratchet items

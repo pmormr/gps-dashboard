@@ -32,7 +32,7 @@ Examples::
     uv run tools/import_drone.py --ssh rex-nas --remote-dir /volume2/misc/Drone
 
     # Laptop manual path: scan an attached card, POST flights to the Pi over the LAN
-    uv run tools/import_drone.py --source /Volumes/DJI_SD --api http://192.168.42.178:5000
+    uv run tools/import_drone.py --source /Volumes/DJI_SD --api http://192.168.42.178
 
     uv run tools/import_drone.py --ssh rex-nas --remote-dir /volume2/misc/Drone \\
         --limit 2 --dry-run        # discover + extract, no write
@@ -602,7 +602,7 @@ class ApiLoader(Loader):
         """Initialize the sink.
 
         Args:
-            base_url: The dashboard base URL, e.g. ``http://192.168.42.178:5000``.
+            base_url: The dashboard base URL, e.g. ``http://192.168.42.178``.
         """
         self._url = base_url.rstrip('/') + '/api/drone/flights'
 

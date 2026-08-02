@@ -20,8 +20,8 @@ below that — measure via CDP, don't trust narrow screenshots.)
 - **Source:** `web/` (`web/src`, `web/vite.config.ts`, `web/package.json`).
   `node_modules` gitignored; **build output `static/dist/` is committed**.
 - **Dev:** `cd web && npm run dev` (Vite + HMR) with `/api`+`/tiles` proxied to a local
-  Flask (`uv run python -m api.app`, on a non-5000 port — `VITE_API_TARGET`). `npm run
-  check` runs svelte-check + tsc.
+  Flask (`uv run python -m api.app`, which binds `127.0.0.1:8000` by default — override
+  the proxy target with `VITE_API_TARGET`). `npm run check` runs svelte-check + tsc.
 - **Prod:** `npm run build` → `static/dist/` → Flask `send_file`s `dist/index.html` for
   `/` and every non-`api`/`tiles`/`static` path (`api/app.py` catch-all), so client-side
   deep links resolve. **New discipline: rebuild + commit `static/dist/` before `git push

@@ -80,4 +80,22 @@ def create_app():
 
 
 if __name__ == '__main__':
-    create_app().run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    # Production: bind localhost only, behind the nginx front door (:80 → 127.0.0.1:8000).
+    # nginx owns the access log and direct-serves /static + the PMTiles archives; see
+    # deploy/gps-dashboard.nginx.conf. GPS_DEV swaps in the Werkzeug reloader/debugger
+    # for local iteration only — never in production.
+    app = create_app()
+    host = os.environ.get('GPS_BIND_HOST', '127.0.0.1')
+    port = int(os.environ.get('GPS_BIND_PORT', '8000'))
+    if os.environ.get('GPS_DEV'):
+        app.run(host=host, port=port, debug=True, use_reloader=True)
+    else:
+        from waitress import serve
+
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=int(os.environ.get('GPS_THREADS', '8')),
+            ident='gps-dashboard',
+        )

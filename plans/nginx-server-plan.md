@@ -1,6 +1,9 @@
 # Plan: Production web serving — nginx front + waitress app
 
-**Status:** shaped, not started. Execute in a fresh session.
+**Status:** code phases (1 waitress · 2 nginx.conf · 5 port/URL cleanup) done + locally
+verified (waitress serves `127.0.0.1:8000`, `Server: gps-dashboard`; 1031 tests + ruff + mypy
+clean). **Remaining: Phase 3 Pi bring-up + Phase 4 hook branch (run once on the Pi, before the
+deploy push) + Phase 6 on-device verify.** Fold into a module + drop this file once landed.
 **Motivation:** get off the Werkzeug **development** server (`api/app.py:81`, `app.run()`),
 which (a) prints "do not use in production", (b) colorizes its request log with ANSI
 escapes that land as garbage in Graylog (`[35m`/`[1m`/`[0m` — the original trigger), and
