@@ -1191,6 +1191,8 @@ export interface Camera {
   node: string
   label: string
   path: string
+  /** Belongs on the driving multiview wall (blind-spot + rear feeds). */
+  driving: boolean
 }
 
 /** Fetch the viewable camera list for the grid. */

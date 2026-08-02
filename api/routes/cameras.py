@@ -59,15 +59,18 @@ class Camera:
     label: str
     #: The sub/glance WHEP path in mediamtx.yml; ``f'{path}-hd'`` is the 720p expand.
     path: str
+    #: Belongs on the driving multiview wall — the blind-spot + rear feeds. The
+    #: front is excluded (the windshield is the front view), so it stays False.
+    driving: bool = False
 
 
 #: The four viewable cams in grid order (front, blind pair, rear). ``node`` keys
 #: back to :data:`FLEET` for the host; ``path`` matches ``deploy/mediamtx.yml``.
 CAMERAS: tuple[Camera, ...] = (
     Camera('van-cam-front', 'Front', 'cam-front'),
-    Camera('van-cam-blind-left', 'Blind L', 'cam-blind-left'),
-    Camera('van-cam-blind-right', 'Blind R', 'cam-blind-right'),
-    Camera('van-cam-rear', 'Rear', 'cam-rear'),
+    Camera('van-cam-blind-left', 'Blind L', 'cam-blind-left', driving=True),
+    Camera('van-cam-blind-right', 'Blind R', 'cam-blind-right', driving=True),
+    Camera('van-cam-rear', 'Rear', 'cam-rear', driving=True),
 )
 
 _HOST_BY_NODE = {d.node: d.host for d in FLEET}
@@ -75,10 +78,13 @@ _CAMERA_BY_NODE = {c.node: c for c in CAMERAS}
 
 
 @cameras_bp.get('/api/cameras')
-def list_cameras() -> dict[str, list[dict[str, str]]]:
-    """List the viewable cameras for the grid — node, label, and hub path."""
+def list_cameras() -> dict[str, list[dict[str, str | bool]]]:
+    """List the viewable cameras for the grid — node, label, hub path, driving flag."""
     return {
-        'cameras': [{'node': c.node, 'label': c.label, 'path': c.path} for c in CAMERAS],
+        'cameras': [
+            {'node': c.node, 'label': c.label, 'path': c.path, 'driving': c.driving}
+            for c in CAMERAS
+        ],
     }
 
 

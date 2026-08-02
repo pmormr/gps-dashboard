@@ -172,12 +172,35 @@ glance-first intent (accepts the narrow-phone label crowding — nav notes).
 the NVR main stream); the retry recovers it, but a short server-side last-good cache would
 smooth the grid. Driving-mode multiview + glass-to-glass latency vs the NVR HDMI still open.
 
-## Phase 4 — Expand + driving mode
+## Phase 4 — Driving mode (multiview) — CODE DONE (2026-08-02), on-device validation pending
 
-- [ ] Tap a tile → expand to the 720p third stream (`subtype=2`).
-- [ ] **Driving mode:** pre-warmed multiview (blind-left + blind-right + rear, maybe front),
-      short-GOP 720p, latency-first. Decide placement — its own Cameras sub-view vs adjacent
-      to the Drive view. Validate glass-to-glass latency vs the NVR HDMI feed.
+- [x] **Expand to 720p** — already delivered in Phase 3: tapping a grid tile opens the
+      `-hd` 720p feed (`livePath(cam, true)`), so this bullet needed no new work.
+- [x] **Placement — Cameras sub-view (chosen).** A `SECTIONS['/cameras']` strip (Grid |
+      Driving) over the shared `SectionNav`; `/cameras/drive` renders `CamerasDrive.svelte`
+      (tab `/cameras`). Kept the driving wall out of the delicate Drive follow-loop; a
+      one-tap Drive→multiview button is an easy follow-on if mid-drive reach matters
+      (Drive is a phone-primary tab, this is not — More → Cameras → Driving today).
+- [x] **Pre-warmed multiview.** `CamerasDrive` filters the fleet to the server's new
+      `driving` flag (blind-left + blind-right + rear; **front excluded** — the windshield
+      is the front view) and renders one `lib/CamTile.svelte` per feed. Each tile opens its
+      own WHEP session on mount (the C4 pre-warm — the on-demand connect cost is paid up
+      front, not mid-drive) and **auto-reconnects** on a drop (`CAM_RETRY_MS`, 3 s) so a
+      safety feed heals a blip instead of staying dark. Wake-lock held the whole time the
+      wall is open. Layout is orientation-aware (portrait → stacked rows, landscape → a
+      row), each tile an equal viewport slice so all are visible without scrolling.
+- [x] **Resolution — D1 default + an HD toggle.** The wall defaults to the D1 sub feed
+      (three simultaneous 720p@30 H.264 decodes is real load on a phone); an in-view toggle
+      bumps all tiles to `-hd` 720p (`{#key hd}` remounts the wall to switch cleanly). This
+      turns the plan's 720p-for-driving assumption into an on-device choice rather than a
+      guess — see validation below.
+- [x] `driving` flag added server-side (`api/routes/cameras.py` `Camera` dataclass +
+      `/api/cameras` payload) so the fleet definition owns the selection; the client just
+      filters (`drivingCameras` in `cameras.ts`). Tests updated (route payload + the pure
+      filter). Typecheck + 1031 pytest + 164 vitest + build all green.
+- [ ] **On-device:** validate glass-to-glass latency vs the NVR HDMI feed, and decide
+      whether the phone comfortably runs the 3-up wall at 720p (HD toggle) or should stay D1.
+      Confirm the pre-warm actually hides the on-demand connect latency in the field.
 
 ## Streams available through the hub (reference)
 

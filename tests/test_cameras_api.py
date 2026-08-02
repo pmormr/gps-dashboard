@@ -36,7 +36,15 @@ def test_list_cameras(client):
     assert resp.status_code == 200
     data = resp.get_json()['cameras']
     assert [c['node'] for c in data] == [c.node for c in cameras.CAMERAS]
-    assert data[0] == {'node': 'van-cam-front', 'label': 'Front', 'path': 'cam-front'}
+    assert data[0] == {
+        'node': 'van-cam-front',
+        'label': 'Front',
+        'path': 'cam-front',
+        'driving': False,
+    }
+    # The blind-spot + rear feeds carry the driving-wall flag; the front does not.
+    driving = {c['node'] for c in data if c['driving']}
+    assert driving == {'van-cam-blind-left', 'van-cam-blind-right', 'van-cam-rear'}
 
 
 def test_snapshot_downscales_main_still(client, monkeypatch):

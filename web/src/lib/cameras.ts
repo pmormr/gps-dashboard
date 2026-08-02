@@ -12,6 +12,21 @@ import type { Camera } from './api'
  *  small, but four of them add up, so poll slowly. */
 export const SNAPSHOT_REFRESH_MS = 5000
 
+/** Driving-wall tile reconnect delay (ms) after a live feed drops. Short: this
+ *  is a safety view, so a blip should heal quickly rather than stay dark. */
+export const CAM_RETRY_MS = 3000
+
+/**
+ * The driving-mode subset of a camera list — the blind-spot + rear feeds, in
+ * registry order. The server owns the flag (the front is excluded: the
+ * windshield is the front view); this is just the pure filter.
+ *
+ * @param cameras The full viewable fleet from `/api/cameras`.
+ */
+export function drivingCameras(cameras: Camera[]): Camera[] {
+  return cameras.filter((c) => c.driving)
+}
+
 /**
  * The snapshot proxy URL for a camera node, cache-busted so each poll refetches.
  *

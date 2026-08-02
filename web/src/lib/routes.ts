@@ -3,6 +3,7 @@ import type { Component } from 'svelte'
 import Places from '../views/Places.svelte'
 import Broadcast from '../views/Broadcast.svelte'
 import Cameras from '../views/Cameras.svelte'
+import CamerasDrive from '../views/CamerasDrive.svelte'
 import Data from '../views/Data.svelte'
 import Diagnostics from '../views/Diagnostics.svelte'
 import Docs from '../views/Docs.svelte'
@@ -58,6 +59,7 @@ export const routes: RouteDef[] = [
   { path: '/radio', component: Radio, tab: '/radio' },
   { path: '/weather', component: Weather, tab: '/weather' },
   { path: '/cameras', component: Cameras, tab: '/cameras' },
+  { path: '/cameras/drive', component: CamerasDrive, tab: '/cameras' },
   { path: '/broadcast', component: Broadcast, tab: '/broadcast' },
 ]
 
@@ -107,6 +109,10 @@ export interface SectionLink {
  * treatment that replaced the ad-hoc Systems button list + Sky `.views` strip.
  */
 export const SECTIONS: Record<string, SectionLink[]> = {
+  '/cameras': [
+    { label: 'Grid', to: '/cameras' },
+    { label: 'Driving', to: '/cameras/drive' },
+  ],
   '/systems': [
     { label: 'Overview', to: '/systems' },
     { label: 'Sensors', to: '/sensors' },
