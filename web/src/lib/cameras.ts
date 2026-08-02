@@ -16,15 +16,30 @@ export const SNAPSHOT_REFRESH_MS = 5000
  *  is a safety view, so a blip should heal quickly rather than stay dark. */
 export const CAM_RETRY_MS = 3000
 
+/** Left-to-right arrangement of the driving wall: mirror-left · rear · mirror-
+ *  right — the driver's own spatial layout. Cams flagged `driving` but absent
+ *  here fall to the end, so a newly-flagged feed degrades gracefully rather
+ *  than vanishing. */
+export const DRIVING_ORDER: string[] = [
+  'van-cam-blind-left',
+  'van-cam-rear',
+  'van-cam-blind-right',
+]
+
 /**
  * The driving-mode subset of a camera list — the blind-spot + rear feeds, in
- * registry order. The server owns the flag (the front is excluded: the
- * windshield is the front view); this is just the pure filter.
+ * {@link DRIVING_ORDER} (the mirror layout). The server owns *which* cams via the
+ * `driving` flag (the front is excluded: the windshield is the front view); the
+ * order is the wall's spatial arrangement, so it lives here beside the layout.
  *
  * @param cameras The full viewable fleet from `/api/cameras`.
  */
 export function drivingCameras(cameras: Camera[]): Camera[] {
-  return cameras.filter((c) => c.driving)
+  const rank = (node: string): number => {
+    const i = DRIVING_ORDER.indexOf(node)
+    return i === -1 ? DRIVING_ORDER.length : i
+  }
+  return cameras.filter((c) => c.driving).sort((a, b) => rank(a.node) - rank(b.node))
 }
 
 /**
