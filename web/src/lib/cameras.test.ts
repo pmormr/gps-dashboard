@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Camera } from './api'
-import { drivingCameras, livePath, snapshotUrl } from './cameras'
+import {
+  alignTransform,
+  defaultAlign,
+  drivingCameras,
+  IDENTITY_ALIGN,
+  livePath,
+  snapshotUrl,
+} from './cameras'
 
 describe('snapshotUrl', () => {
   it('targets the proxy route with a cache-busting stamp', () => {
@@ -37,5 +44,26 @@ describe('drivingCameras', () => {
       'van-cam-rear',
       'van-cam-blind-right',
     ])
+  })
+})
+
+describe('alignTransform', () => {
+  it('is a no-op for the identity window', () => {
+    expect(alignTransform(IDENTITY_ALIGN)).toBe('translate(0%, 0%) scale(1, 1)')
+  })
+
+  it('mirrors via a negative x-scale and pans by percent (no FP noise)', () => {
+    const t = alignTransform({ weight: 1, scale: 1.25, panX: -0.12, panY: 0, flip: true })
+    expect(t).toBe('translate(-12%, 0%) scale(-1.25, 1.25)')
+  })
+})
+
+describe('defaultAlign', () => {
+  it('returns the per-node seed for a known driving cam', () => {
+    expect(defaultAlign('van-cam-rear').weight).toBe(1.4)
+  })
+
+  it('falls back to identity for an unknown cam', () => {
+    expect(defaultAlign('van-cam-nope')).toEqual(IDENTITY_ALIGN)
   })
 })

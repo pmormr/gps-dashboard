@@ -62,3 +62,87 @@ export function snapshotUrl(node: string, bust: number): string {
 export function livePath(camera: Camera, hd: boolean): string {
   return hd ? `${camera.path}-hd` : camera.path
 }
+
+// ── Driving 180° wall alignment ──
+//
+// The three driving feeds butt edge-to-edge into one continuous strip. Each is a
+// CSS-transform window into its feed (zoom to crop the fisheye/overlap edges, pan
+// the visible sector, mirror if needed) plus a share of the strip width. CSS can't
+// un-warp fisheye radial distortion, so this is a best-effort visual alignment, not
+// a true stitch. The transform is geometric (fixed by camera mounting, not scene
+// content), so values tuned once — via the /cameras/drive Align mode — carry over
+// to the road; they persist per-device and get baked back into DEFAULT_ALIGN.
+
+/** One camera's window + width in the 180° strip. */
+export interface CamAlign {
+  /** Relative width in the strip (flex-grow). */
+  weight: number
+  /** Zoom (≥1) — crops the fisheye/overlap edges. */
+  scale: number
+  /** Horizontal pan as a fraction of the tile (−1..1); shifts the visible window. */
+  panX: number
+  /** Vertical pan as a fraction of the tile (−1..1). */
+  panY: number
+  /** Mirror horizontally (none of the van cams are mirrored by default). */
+  flip: boolean
+}
+
+/** No-op window: full feed, equal width, no mirror. */
+export const IDENTITY_ALIGN: CamAlign = { weight: 1, scale: 1, panX: 0, panY: 0, flip: false }
+
+/** Starting points read off the captured stills: the blind cams are fisheye with
+ *  the van body on their *inner* edge, so zoom in a touch and pan away from the van;
+ *  the rear is rectilinear and takes the widest slice. All refined by the tuner. */
+export const DEFAULT_ALIGN: Record<string, CamAlign> = {
+  'van-cam-blind-left': { weight: 1, scale: 1.25, panX: -0.12, panY: 0, flip: false },
+  'van-cam-rear': { weight: 1.4, scale: 1, panX: 0, panY: 0, flip: false },
+  'van-cam-blind-right': { weight: 1, scale: 1.25, panX: 0.12, panY: 0, flip: false },
+}
+
+/** The seed alignment for a node — its default, or identity for an unknown cam. */
+export function defaultAlign(node: string): CamAlign {
+  return DEFAULT_ALIGN[node] ?? IDENTITY_ALIGN
+}
+
+/** Round to `d` decimals, stripping FP noise (unary + drops trailing zeros). */
+function round(v: number, d: number): number {
+  return +v.toFixed(d)
+}
+
+/** The CSS `transform` for a tile's video: flip, zoom, pan, about the center. */
+export function alignTransform(a: CamAlign): string {
+  const sx = round(a.scale * (a.flip ? -1 : 1), 3)
+  const sy = round(a.scale, 3)
+  return `translate(${round(a.panX * 100, 2)}%, ${round(a.panY * 100, 2)}%) scale(${sx}, ${sy})`
+}
+
+/** localStorage key for the tuned per-device alignment (versioned for schema drift). */
+const ALIGN_KEY = 'gps.cam.align.v1'
+
+/** Load the stored alignment map (node → align), `{}` when unset/unavailable. */
+export function loadAlign(): Record<string, Partial<CamAlign>> {
+  try {
+    const raw = localStorage.getItem(ALIGN_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, Partial<CamAlign>>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Persist the alignment map; a no-op if storage is unavailable (private mode/quota). */
+export function saveAlign(map: Record<string, CamAlign>): void {
+  try {
+    localStorage.setItem(ALIGN_KEY, JSON.stringify(map))
+  } catch {
+    // storage unavailable — alignment just won't persist across reloads
+  }
+}
+
+/** Seed alignment for the given nodes: stored values over the per-node defaults,
+ *  merged field-by-field so a partial/old stored entry still fills its gaps. */
+export function mergedAlign(nodes: string[]): Record<string, CamAlign> {
+  const stored = loadAlign()
+  const map: Record<string, CamAlign> = {}
+  for (const node of nodes) map[node] = { ...defaultAlign(node), ...stored[node] }
+  return map
+}

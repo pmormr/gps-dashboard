@@ -3,32 +3,71 @@
 
   import CamTile from '../lib/CamTile.svelte'
   import { getCameras, type Camera } from '../lib/api'
-  import { drivingCameras } from '../lib/cameras'
+  import {
+    type CamAlign,
+    defaultAlign,
+    drivingCameras,
+    mergedAlign,
+    saveAlign,
+  } from '../lib/cameras'
   import { errMsg } from '../lib/errors'
   import { acquireWakeLock, releaseWakeLock } from '../lib/wakelock'
 
-  // Driving mode: a pre-warmed wall of the blind-spot + rear feeds, all live at
-  // once (each CamTile opens its own WHEP session on mount — the C4 pre-warm, so
-  // the on-demand connect latency is paid up front, not mid-drive). Tiles default
-  // to the D1 sub feed to keep three simultaneous decodes light on a phone; the
-  // HD toggle bumps them to 720p (`{#key hd}` remounts the wall to switch cleanly).
+  // Driving mode: the blind-spot + rear feeds butt edge-to-edge into one seamless
+  // 180° strip. Each tile pre-warms its own WHEP session on mount (C4 — pay the
+  // on-demand connect cost up front, not mid-drive) and auto-reconnects on a drop.
+  // Feeds default to the light D1 sub stream (three simultaneous decodes is heavy
+  // on a phone); the HD toggle bumps them to 720p. Align mode reveals per-camera
+  // crop/pan/zoom/width controls tuned live against the feeds (the geometry is
+  // fixed by mounting, so parked tuning carries to the road) and persisted.
   let cams = $state<Camera[]>([])
   let loadError = $state('')
   let hd = $state(false)
+  let aligning = $state(false)
+  let sel = $state('') // node currently being tuned
+  let align = $state<Record<string, CamAlign>>({})
+  let copied = $state(false)
 
   onMount(() => {
     getCameras()
-      .then((r) => (cams = drivingCameras(r.cameras)))
+      .then((r) => {
+        cams = drivingCameras(r.cameras)
+        const nodes = cams.map((c) => c.node)
+        align = mergedAlign(nodes)
+        sel = nodes.find((n) => n === 'van-cam-rear') ?? nodes[0] ?? ''
+      })
       .catch((e) => (loadError = errMsg(e)))
     void acquireWakeLock() // held the whole time the wall is open, not just per-feed
   })
   onDestroy(() => releaseWakeLock())
+
+  const cur = $derived(align[sel])
+
+  function persist(): void {
+    saveAlign(align)
+  }
+  function resetAlign(): void {
+    align = Object.fromEntries(cams.map((c) => [c.node, { ...defaultAlign(c.node) }]))
+    persist()
+  }
+  async function copyValues(): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(JSON.stringify($state.snapshot(align), null, 2))
+      copied = true
+      setTimeout(() => (copied = false), 1500)
+    } catch {
+      // clipboard blocked — the values are still live on-screen
+    }
+  }
 </script>
 
 <div class="drive-cam">
   <div class="bar">
     <span class="title">Driving view</span>
-    <button class="quality" onclick={() => (hd = !hd)} aria-pressed={hd}>
+    <button class="btn" class:on={aligning} onclick={() => (aligning = !aligning)} aria-pressed={aligning}>
+      Align
+    </button>
+    <button class="btn" onclick={() => (hd = !hd)} aria-pressed={hd}>
       {hd ? 'HD 720p' : 'SD D1'}
     </button>
   </div>
@@ -39,12 +78,50 @@
     <p class="empty">No driving cameras configured.</p>
   {:else}
     {#key hd}
-      <div class="wall" style={`--cols:${cams.length}`}>
+      <div class="wall" class:aligning>
         {#each cams as cam (cam.node)}
-          <CamTile {cam} {hd} />
+          <CamTile {cam} {hd} align={align[cam.node]} />
         {/each}
       </div>
     {/key}
+  {/if}
+
+  {#if aligning && cur}
+    <div class="align">
+      <div class="picker">
+        {#each cams as c (c.node)}
+          <button class="chip" class:active={c.node === sel} onclick={() => (sel = c.node)}>
+            {c.label}
+          </button>
+        {/each}
+      </div>
+      <div class="sliders">
+        <label>
+          <span>Zoom</span>
+          <input type="range" min="1" max="2.5" step="0.01" bind:value={cur.scale} oninput={persist} />
+        </label>
+        <label>
+          <span>Pan X</span>
+          <input type="range" min="-0.6" max="0.6" step="0.005" bind:value={cur.panX} oninput={persist} />
+        </label>
+        <label>
+          <span>Pan Y</span>
+          <input type="range" min="-0.6" max="0.6" step="0.005" bind:value={cur.panY} oninput={persist} />
+        </label>
+        <label>
+          <span>Width</span>
+          <input type="range" min="0.5" max="2.5" step="0.05" bind:value={cur.weight} oninput={persist} />
+        </label>
+        <label class="flip">
+          <input type="checkbox" bind:checked={cur.flip} onchange={persist} />
+          <span>Flip</span>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn" onclick={resetAlign}>Reset</button>
+        <button class="btn" onclick={copyValues}>{copied ? 'Copied ✓' : 'Copy values'}</button>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -60,15 +137,15 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     padding: 0.4rem 0.25rem 0;
   }
   .title {
     font-weight: 700;
     color: var(--text);
+    margin-right: auto;
   }
-  .quality {
-    margin-left: auto;
+  .btn {
     padding: 0.35rem 0.8rem;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -77,25 +154,83 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .quality[aria-pressed='true'] {
+  .btn.on,
+  .btn[aria-pressed='true'] {
     border-color: var(--accent, var(--text));
     color: var(--accent, var(--text));
   }
 
-  /* Portrait (phone on a mount): stack the feeds, each filling an equal slice of
-     the height so all are visible without scrolling. Landscape: a row instead. */
+  /* The 180° strip: feeds butt edge-to-edge (no gap, no rounding) into one band.
+     A panorama is inherently horizontal, so it's always a row; each feed's width
+     is its `weight`. In Align mode a hairline marks each seam. */
   .wall {
     flex: 1;
     min-height: 0;
-    display: grid;
-    grid-template-rows: repeat(var(--cols), 1fr);
-    gap: 0.5rem;
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
   }
-  @media (orientation: landscape) {
-    .wall {
-      grid-template-rows: none;
-      grid-template-columns: repeat(var(--cols), 1fr);
-    }
+  .wall.aligning :global(.cell + .cell) {
+    box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.5);
+  }
+
+  .align {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .picker {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .chip {
+    flex: 1;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .chip.active {
+    border-color: var(--accent, var(--text));
+    color: var(--accent, var(--text));
+  }
+  .sliders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.5rem 0.9rem;
+  }
+  .sliders label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .sliders label span {
+    width: 3.2rem;
+    flex: none;
+  }
+  .sliders input[type='range'] {
+    flex: 1;
+    min-width: 0;
+  }
+  .sliders label.flip {
+    gap: 0.4rem;
+  }
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
   }
 
   .load-error {

@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
 
   import type { Camera } from './api'
-  import { CAM_RETRY_MS, livePath } from './cameras'
+  import { alignTransform, CAM_RETRY_MS, type CamAlign, livePath } from './cameras'
   import { errMsg } from './errors'
   import { startWhep, whepEndpoint, type WhepSession } from './whep'
 
@@ -15,8 +15,11 @@
     /** Use the 720p `-hd` feed; the parent decides (D1 default keeps a 3-up
      *  wall's simultaneous decode light). */
     hd: boolean
+    /** Alignment window for the seamless 180° strip; when set, the tile drops its
+     *  rounding/gap and applies the crop transform. Omit for a standalone tile. */
+    align?: CamAlign
   }
-  let { cam, hd }: Props = $props()
+  let { cam, hd, align }: Props = $props()
 
   let phase = $state<'connecting' | 'live' | 'error'>('connecting')
   let note = $state('')
@@ -77,9 +80,20 @@
   })
 </script>
 
-<div class="cell" class:offline={phase === 'error'}>
+<div
+  class="cell"
+  class:offline={phase === 'error'}
+  class:pano={!!align}
+  style={align ? `flex-grow:${align.weight}` : undefined}
+>
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={videoEl} autoplay playsinline muted></video>
+  <video
+    bind:this={videoEl}
+    autoplay
+    playsinline
+    muted
+    style={align ? `transform:${alignTransform(align)}` : undefined}
+  ></video>
   <span class="label">{cam.label}</span>
   {#if phase !== 'live'}
     <div class="status">{phase === 'connecting' ? 'Connecting…' : note}</div>
@@ -99,12 +113,18 @@
     outline: 2px solid var(--err);
     outline-offset: -2px;
   }
+  /* Seamless strip member: no rounding, weight-proportioned width. */
+  .cell.pano {
+    border-radius: 0;
+    flex-basis: 0;
+  }
   video {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
     background: #000;
+    transform-origin: center;
   }
   .label {
     position: absolute;
