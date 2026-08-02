@@ -128,7 +128,11 @@ laptop or NAS) and ship via rsync; never build on the Pi.
 ## Archive build notes
 
 Both archives are built **off-Pi** (dev laptop or the `rex-nas` NAS) and atomic-replaced
-on the Pi (rsync → `.tmp`, `ssh mv` → final).
+on the Pi (rsync → `.tmp`, `ssh mv` → final). **In production nginx direct-serves these two
+`.pmtiles` archives** (`location = /tiles/osm.pmtiles` / `terrain.pmtiles` →
+`deploy/gps-dashboard.nginx.conf`) rather than waitress, so the replaced file **must be
+world-readable** (`chmod o+r`; the nginx workers run as `www-data` — a `600` archive 403s).
+Local dev without nginx still serves them through Flask, so this only bites on the Pi.
 
 **Vector OSM** — a Protomaps **extract** of a dated planet build (not planetiler),
 z0–15, NA bbox `-168,7,-52,72`. Identical-tile RLE gives real free compression here.
