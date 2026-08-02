@@ -90,13 +90,14 @@ export interface CamAlign {
 /** No-op window: full feed, equal width, no mirror. */
 export const IDENTITY_ALIGN: CamAlign = { weight: 1, scale: 1, panX: 0, panY: 0, flip: false }
 
-/** Starting points read off the captured stills: the blind cams are fisheye with
- *  the van body on their *inner* edge, so zoom in a touch and pan away from the van;
- *  the rear is rectilinear and takes the widest slice. All refined by the tuner. */
+/** Seeds fitted against a pulled-forward capture composited through this exact
+ *  transform model (blind cams zoomed to trim fisheye + the inner van wedge, rear
+ *  anchored near 1× and widest). A best-effort visual match — the tuner refines the
+ *  magnitudes (they depend on the device's cell aspect); the signs are correct. */
 export const DEFAULT_ALIGN: Record<string, CamAlign> = {
-  'van-cam-blind-left': { weight: 1, scale: 1.25, panX: -0.12, panY: 0, flip: false },
-  'van-cam-rear': { weight: 1.4, scale: 1, panX: 0, panY: 0, flip: false },
-  'van-cam-blind-right': { weight: 1, scale: 1.25, panX: 0.12, panY: 0, flip: false },
+  'van-cam-blind-left': { weight: 1, scale: 1.15, panX: 0.1, panY: 0.05, flip: false },
+  'van-cam-rear': { weight: 1.5, scale: 1.06, panX: 0, panY: -0.02, flip: false },
+  'van-cam-blind-right': { weight: 1, scale: 1.25, panX: 0.1, panY: 0.05, flip: false },
 }
 
 /** The seed alignment for a node — its default, or identity for an unknown cam. */
@@ -116,8 +117,10 @@ export function alignTransform(a: CamAlign): string {
   return `translate(${round(a.panX * 100, 2)}%, ${round(a.panY * 100, 2)}%) scale(${sx}, ${sy})`
 }
 
-/** localStorage key for the tuned per-device alignment (versioned for schema drift). */
-const ALIGN_KEY = 'gps.cam.align.v1'
+/** localStorage key for the tuned per-device alignment. Versioned: bumped to v2
+ *  when the fitted defaults changed, so devices start from the new seed rather than
+ *  a stale experimental value. */
+const ALIGN_KEY = 'gps.cam.align.v2'
 
 /** Load the stored alignment map (node → align), `{}` when unset/unavailable. */
 export function loadAlign(): Record<string, Partial<CamAlign>> {
