@@ -56,11 +56,17 @@ describe('alignTransform', () => {
     const t = alignTransform({ weight: 1, scale: 1.25, panX: -0.12, panY: 0, flip: true })
     expect(t).toBe('translate(-12%, 0%) scale(-1.25, 1.25)')
   })
+
+  it('floors the zoom so a large pan cannot expose black', () => {
+    // panX 0.3 needs scale >= 1 + 2*0.3 = 1.6 to keep the video covering the cell.
+    const t = alignTransform({ weight: 1, scale: 1, panX: 0.3, panY: 0, flip: false })
+    expect(t).toBe('translate(30%, 0%) scale(1.6, 1.6)')
+  })
 })
 
 describe('defaultAlign', () => {
   it('returns the per-node seed for a known driving cam', () => {
-    expect(defaultAlign('van-cam-rear').weight).toBe(1.25)
+    expect(defaultAlign('van-cam-rear').weight).toBe(1.5)
   })
 
   it('falls back to identity for an unknown cam', () => {

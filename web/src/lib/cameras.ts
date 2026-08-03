@@ -92,18 +92,19 @@ export const IDENTITY_ALIGN: CamAlign = { weight: 1, scale: 1, panX: 0, panY: 0,
 
 /** A unit-weight cell's aspect ratio. The wall is pinned to `Σweight × this` so
  *  cells stay landscape (full horizontal FOV, no tall-portrait side-crop) and the
- *  crop is device-independent. 16:9 = a unit cell shows a camera's whole frame.
+ *  crop is device-independent. Lower = a taller on-screen band but more side-crop;
+ *  1.15 keeps the rear (widest) full and trims only the blind cams' outer edges.
  *  Must match `pano.py`'s UNIT_ASPECT (the defaults were fitted against it). */
-export const WALL_UNIT_ASPECT = 16 / 9
+export const WALL_UNIT_ASPECT = 1.15
 
 /** Seeds fitted against a pulled-forward capture composited through this exact
- *  transform + landscape-cell geometry (blind cams zoomed to trim fisheye + the
- *  inner van wedge, rear anchored at 1× and a touch wider). A best-effort visual
- *  match — the tuner refines from here; the geometry makes it device-independent. */
+ *  transform + landscape-cell geometry (rear full at 1× and widest; blind cams
+ *  lightly zoomed to trim the inner van wedge). A best-effort visual match — the
+ *  tuner refines from here; the geometry makes it device-independent. */
 export const DEFAULT_ALIGN: Record<string, CamAlign> = {
-  'van-cam-blind-left': { weight: 1, scale: 1.2, panX: 0.03, panY: 0.06, flip: false },
-  'van-cam-rear': { weight: 1.25, scale: 1, panX: 0, panY: 0, flip: false },
-  'van-cam-blind-right': { weight: 1, scale: 1.42, panX: 0.18, panY: 0.05, flip: false },
+  'van-cam-blind-left': { weight: 1, scale: 1.1, panX: 0, panY: 0.05, flip: false },
+  'van-cam-rear': { weight: 1.5, scale: 1, panX: 0, panY: 0, flip: false },
+  'van-cam-blind-right': { weight: 1, scale: 1.2, panX: 0.1, panY: 0.05, flip: false },
 }
 
 /** The seed alignment for a node — its default, or identity for an unknown cam. */
@@ -116,17 +117,24 @@ function round(v: number, d: number): number {
   return +v.toFixed(d)
 }
 
-/** The CSS `transform` for a tile's video: flip, zoom, pan, about the center. */
+/** The CSS `transform` for a tile's video: flip, zoom, pan, about the center.
+ *
+ * Zoom must cover any pan, or translating the `object-fit:cover` video slides it
+ * off the cell and reveals the black behind it — so the effective scale floors at
+ * `1 + 2·max|pan|`. This makes black impossible regardless of how far the tuner
+ * pans (panning just implies a little zoom).
+ */
 export function alignTransform(a: CamAlign): string {
-  const sx = round(a.scale * (a.flip ? -1 : 1), 3)
-  const sy = round(a.scale, 3)
+  const scale = Math.max(a.scale, 1 + 2 * Math.max(Math.abs(a.panX), Math.abs(a.panY)))
+  const sx = round(scale * (a.flip ? -1 : 1), 3)
+  const sy = round(scale, 3)
   return `translate(${round(a.panX * 100, 2)}%, ${round(a.panY * 100, 2)}%) scale(${sx}, ${sy})`
 }
 
 /** localStorage key for the tuned per-device alignment. Versioned: bumped whenever
  *  the fitted defaults change, so devices start from the new seed rather than a stale
- *  experimental value. (v4: landscape-band geometry; defaults re-fitted to it.) */
-const ALIGN_KEY = 'gps.cam.align.v4'
+ *  experimental value. (v5: taller band + black-guard; defaults re-fitted to it.) */
+const ALIGN_KEY = 'gps.cam.align.v5'
 
 /** Load the stored alignment map (node → align), `{}` when unset/unavailable. */
 export function loadAlign(): Record<string, Partial<CamAlign>> {
