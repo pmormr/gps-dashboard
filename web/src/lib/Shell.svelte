@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte'
 
   import { router } from './router.svelte'
-  import { NAV, PHONE_PRIMARY_TABS } from './routes'
+  import { NAV, PHONE_PRIMARY_TABS, SECTIONS } from './routes'
   import SectionNav from './SectionNav.svelte'
 
   let { children }: { children: Snippet } = $props()
@@ -24,6 +24,7 @@
     <div class="brand">Van OS</div>
     <ul>
       {#each NAV as item (item.label)}
+        {@const subs = SECTIONS[item.to]}
         <li class:nav-overflow={!PHONE_PRIMARY_TABS.includes(item.to)}>
           <button
             class="navitem"
@@ -33,6 +34,23 @@
             <span class="icon">{item.icon}</span>
             <span class="label">{item.label}</span>
           </button>
+          <!-- Desktop: the section's sub-destinations expand under the active tab
+               (CSS hides this on phones, where SectionNav's pill strip stands in). -->
+          {#if subs && router.current.tab === item.to}
+            <ul class="subnav">
+              {#each subs as sub (sub.to)}
+                <li>
+                  <button
+                    class="subitem"
+                    class:active={router.path === sub.to}
+                    onclick={() => go(sub.to)}
+                  >
+                    {sub.label}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         </li>
       {/each}
       <li class="nav-more">
@@ -133,6 +151,15 @@
 
   .navitem.active {
     color: var(--accent);
+  }
+
+  /* Sub-destinations nested under a tab — desktop sidebar only (the bottom bar
+     can't nest; SectionNav's top pills cover phones). Revealed at the breakpoint. */
+  .subnav {
+    display: none;
+    list-style: none;
+    margin: 0;
+    padding: 0;
   }
 
   /* Phone: the overflow tabs live in the More sheet, not the bar. */
@@ -239,6 +266,30 @@
 
     .navitem.active {
       background: var(--accent-dim);
+    }
+
+    .subnav {
+      display: block;
+      padding: 2px 0 6px;
+    }
+    .subitem {
+      width: 100%;
+      display: block;
+      text-align: left;
+      /* Indent under the parent's icon+gap so it reads as a child. */
+      padding: 8px 20px 8px 50px;
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .subitem:hover {
+      color: var(--text);
+    }
+    .subitem.active {
+      color: var(--accent);
     }
 
     .content {

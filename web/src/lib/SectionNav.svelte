@@ -35,6 +35,13 @@
     padding: 4px 0;
     background: var(--bg);
   }
+  /* Desktop shows the sub-destinations nested in the sidebar instead (Shell), so
+     the top pill strip is phone-only. */
+  @media (min-width: 768px) {
+    .section-nav {
+      display: none;
+    }
+  }
   .section-nav::-webkit-scrollbar {
     display: none;
   }
