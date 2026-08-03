@@ -86,7 +86,15 @@
     <div class="stage">
       <div class="wall" class:aligning style={`aspect-ratio:${wallAspect}`}>
         {#each cams as cam (cam.node)}
-          <CamTile {cam} hd={true} align={align[cam.node]} />
+          <CamTile
+            {cam}
+            hd={true}
+            align={align[cam.node]}
+            editing={aligning}
+            selected={cam.node === sel}
+            onGrab={() => (sel = cam.node)}
+            onChange={persist}
+          />
         {/each}
       </div>
     </div>
@@ -94,27 +102,16 @@
 
   {#if aligning && cur}
     <div class="align">
-      <div class="picker">
-        {#each cams as c (c.node)}
-          <button class="chip" class:active={c.node === sel} onclick={() => (sel = c.node)}>
-            {c.label}
-          </button>
-        {/each}
-      </div>
-      <div class="sliders">
-        <label>
-          <span>Zoom</span>
-          <input type="range" min="1" max="2.5" step="0.01" bind:value={cur.scale} oninput={persist} />
-        </label>
-        <label>
-          <span>Pan X</span>
-          <input type="range" min="-0.6" max="0.6" step="0.005" bind:value={cur.panX} oninput={persist} />
-        </label>
-        <label>
-          <span>Pan Y</span>
-          <input type="range" min="-0.6" max="0.6" step="0.005" bind:value={cur.panY} oninput={persist} />
-        </label>
-        <label>
+      <p class="hint">Drag a feed to move it · scroll or pinch to zoom. Width picks its share of the strip.</p>
+      <div class="row">
+        <div class="picker">
+          {#each cams as c (c.node)}
+            <button class="chip" class:active={c.node === sel} onclick={() => (sel = c.node)}>
+              {c.label}
+            </button>
+          {/each}
+        </div>
+        <label class="width">
           <span>Width</span>
           <input type="range" min="0.5" max="2.5" step="0.05" bind:value={cur.weight} oninput={persist} />
         </label>
@@ -122,8 +119,6 @@
           <input type="checkbox" bind:checked={cur.flip} onchange={persist} />
           <span>Flip</span>
         </label>
-      </div>
-      <div class="actions">
         <button class="btn" onclick={resetAlign}>Reset</button>
         <button class="btn" onclick={copyValues}>{copied ? 'Copied ✓' : 'Copy values'}</button>
       </div>
@@ -203,13 +198,23 @@
     border-radius: 8px;
     background: var(--surface);
   }
+  .hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
   .picker {
     display: flex;
     gap: 0.4rem;
   }
   .chip {
-    flex: 1;
-    padding: 0.35rem 0.5rem;
+    padding: 0.35rem 0.7rem;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg);
@@ -221,33 +226,25 @@
     border-color: var(--accent, var(--text));
     color: var(--accent, var(--text));
   }
-  .sliders {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 0.5rem 0.9rem;
-  }
-  .sliders label {
+  .width {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex: 1;
+    min-width: 160px;
     font-size: 0.85rem;
     color: var(--text-dim);
   }
-  .sliders label span {
-    width: 3.2rem;
-    flex: none;
-  }
-  .sliders input[type='range'] {
+  .width input[type='range'] {
     flex: 1;
     min-width: 0;
   }
-  .sliders label.flip {
-    gap: 0.4rem;
-  }
-  .actions {
+  .flip {
     display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
   }
 
   .load-error {
