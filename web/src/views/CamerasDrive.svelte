@@ -10,6 +10,7 @@
     drivingCameras,
     mergedAlign,
     saveAlign,
+    WALL_UNIT_ASPECT,
   } from '../lib/cameras'
   import { errMsg } from '../lib/errors'
   import { acquireWakeLock, releaseWakeLock } from '../lib/wakelock'
@@ -44,6 +45,12 @@
   onDestroy(() => releaseWakeLock())
 
   const cur = $derived(align[sel])
+  // The wall is pinned to this aspect so cells stay landscape (full FOV) and the
+  // crop is device-independent; each cell's width is its weight, so the total
+  // aspect is Σweight × the unit-cell aspect. Reacts as weights are tuned.
+  const wallAspect = $derived(
+    cams.reduce((sum, c) => sum + (align[c.node]?.weight ?? 1), 0) * WALL_UNIT_ASPECT,
+  )
 
   function persist(): void {
     saveAlign(align)
@@ -76,10 +83,12 @@
   {:else if cams.length === 0}
     <p class="empty">No driving cameras configured.</p>
   {:else}
-    <div class="wall" class:aligning>
-      {#each cams as cam (cam.node)}
-        <CamTile {cam} hd={true} align={align[cam.node]} />
-      {/each}
+    <div class="stage">
+      <div class="wall" class:aligning style={`aspect-ratio:${wallAspect}`}>
+        {#each cams as cam (cam.node)}
+          <CamTile {cam} hd={true} align={align[cam.node]} />
+        {/each}
+      </div>
     </div>
   {/if}
 
@@ -157,12 +166,23 @@
     color: var(--accent, var(--text));
   }
 
-  /* The 180° strip: feeds butt edge-to-edge (no gap, no rounding) into one band.
-     A panorama is inherently horizontal, so it's always a row; each feed's width
-     is its `weight`. In Align mode a hairline marks each seam. */
-  .wall {
+  /* Centers the fixed-aspect band in whatever space is left below the bar. */
+  .stage {
     flex: 1;
     min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* The 180° strip: feeds butt edge-to-edge (no gap, no rounding) into one band.
+     Pinned to a landscape aspect (set inline from the weights) so cells show the
+     full horizontal FOV instead of a tall centre-slice, and fitted into the stage
+     via max-width/height. Each feed's width is its `weight`; in Align mode a
+     hairline marks each seam. */
+  .wall {
+    max-width: 100%;
+    max-height: 100%;
     display: flex;
     flex-direction: row;
     gap: 0;

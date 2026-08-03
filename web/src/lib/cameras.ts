@@ -90,14 +90,20 @@ export interface CamAlign {
 /** No-op window: full feed, equal width, no mirror. */
 export const IDENTITY_ALIGN: CamAlign = { weight: 1, scale: 1, panX: 0, panY: 0, flip: false }
 
+/** A unit-weight cell's aspect ratio. The wall is pinned to `Σweight × this` so
+ *  cells stay landscape (full horizontal FOV, no tall-portrait side-crop) and the
+ *  crop is device-independent. 16:9 = a unit cell shows a camera's whole frame.
+ *  Must match `pano.py`'s UNIT_ASPECT (the defaults were fitted against it). */
+export const WALL_UNIT_ASPECT = 16 / 9
+
 /** Seeds fitted against a pulled-forward capture composited through this exact
- *  transform model (blind cams zoomed to trim fisheye + the inner van wedge, rear
- *  anchored near 1× and widest). A best-effort visual match — the tuner refines the
- *  magnitudes (they depend on the device's cell aspect); the signs are correct. */
+ *  transform + landscape-cell geometry (blind cams zoomed to trim fisheye + the
+ *  inner van wedge, rear anchored at 1× and a touch wider). A best-effort visual
+ *  match — the tuner refines from here; the geometry makes it device-independent. */
 export const DEFAULT_ALIGN: Record<string, CamAlign> = {
-  'van-cam-blind-left': { weight: 1, scale: 1.15, panX: 0.1, panY: 0.05, flip: false },
-  'van-cam-rear': { weight: 1.5, scale: 1.06, panX: 0, panY: -0.02, flip: false },
-  'van-cam-blind-right': { weight: 1, scale: 1.25, panX: 0.1, panY: 0.05, flip: false },
+  'van-cam-blind-left': { weight: 1, scale: 1.2, panX: 0.03, panY: 0.06, flip: false },
+  'van-cam-rear': { weight: 1.25, scale: 1, panX: 0, panY: 0, flip: false },
+  'van-cam-blind-right': { weight: 1, scale: 1.42, panX: 0.18, panY: 0.05, flip: false },
 }
 
 /** The seed alignment for a node — its default, or identity for an unknown cam. */
@@ -119,8 +125,8 @@ export function alignTransform(a: CamAlign): string {
 
 /** localStorage key for the tuned per-device alignment. Versioned: bumped whenever
  *  the fitted defaults change, so devices start from the new seed rather than a stale
- *  experimental value. (v3: strip locked to the 720p stream; defaults are 16:9-fitted.) */
-const ALIGN_KEY = 'gps.cam.align.v3'
+ *  experimental value. (v4: landscape-band geometry; defaults re-fitted to it.) */
+const ALIGN_KEY = 'gps.cam.align.v4'
 
 /** Load the stored alignment map (node → align), `{}` when unset/unavailable. */
 export function loadAlign(): Record<string, Partial<CamAlign>> {

@@ -60,7 +60,7 @@ describe('alignTransform', () => {
 
 describe('defaultAlign', () => {
   it('returns the per-node seed for a known driving cam', () => {
-    expect(defaultAlign('van-cam-rear').weight).toBe(1.5)
+    expect(defaultAlign('van-cam-rear').weight).toBe(1.25)
   })
 
   it('falls back to identity for an unknown cam', () => {
