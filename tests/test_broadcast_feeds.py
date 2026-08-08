@@ -80,9 +80,21 @@ def test_cloud_feeds_are_authed_van_feeds_are_not() -> None:
 
 
 def test_standby_matches_current_hub_reality() -> None:
-    """STANDBY (alwaysAvailable) is cloud-only today; van paths are direct."""
+    """``standby`` mirrors each hub's actual alwaysAvailable config.
+
+    Not simply "cloud is standby": the cloud hub is mixed. The phone and drone
+    slots are alwaysAvailable so a reconnecting phone does not yank OBS's source;
+    the start-line cameras deliberately are not. alwaysAvailable makes a path
+    answer a reader but generates no filler video, so a dead camera behind one
+    reads to the operator as a silent black source rather than an error — worth
+    it for a flapping cellular uplink, not for a fixed camera.
+    """
     assert all(not f.standby for f in FEEDS if f.hub == 'van')
-    assert all(f.standby for f in FEEDS if f.hub == 'cloud')
+    for f in FEEDS:
+        if f.hub != 'cloud':
+            continue
+        expected = f.slot_group in ('phones', 'drones')
+        assert f.standby is expected, f'cloud feed {f.path} standby={f.standby}'
 
 
 # --- Public-repo secret guard (B3) ---

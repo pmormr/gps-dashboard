@@ -350,12 +350,13 @@ def _cloud_start_cameras() -> list[Feed]:
     saddle-cam profile. Path = service = wall label: ``cam-stream@start-N``.
     """
     notes = (
-        'Start line — start-cam (Pi 4), two Logitech C920s, MJPEG 720p in → HW '
-        'H.264 out. Publishes to the CLOUD hub (public wifi at the bottom of the '
-        'hill, no van LAN). hillclimb-cam service cam-stream@start-N.',
-        'VIDEO ONLY — no audio track, unlike the phone and drone slots. The hub '
-        'matches the track list exactly on publish.',
+        'Start line — start-cam (Pi 4), two Logitech C920s, MJPEG 720p30 in → HW '
+        'H.264 ~2.5 Mbps out. Publishes to the CLOUD hub (public wifi at the '
+        'bottom of the hill, no van LAN). hillclimb-cam service cam-stream@start-N.',
+        'VIDEO ONLY — no audio track, unlike the phone and drone slots.',
         'Scoped cred: camuser may publish to start-1/start-2 and nothing else.',
+        'MJPEG is load-bearing: both cams share one USB2 bus. Neither C920 here '
+        'exposes UVC H.264 (YUYV/MJPEG only), so the Pi 4 hardware-encodes.',
     )
     return [
         Feed(
@@ -375,7 +376,12 @@ def _cloud_start_cameras() -> list[Feed]:
             ),
             obs_read=f'rtsp://obs:{_OBS_READ}@{_CLOUD}:8554/{path}',
             browser_url=None,  # cloud WebRTC off; preview is a snapshot (B9)
-            standby=True,
+            # Plain publisher slots like the van cameras, NOT alwaysAvailable like
+            # the phone/drone paths on this same hub. alwaysAvailable only makes a
+            # path answer a reader — it generates no filler video — so OBS
+            # connected to a dead path and sat on a silent black source. A path
+            # that simply goes away gives the operator a real error instead.
+            standby=False,
             expected_tracks=('H264',),
             notes=notes,
         )
