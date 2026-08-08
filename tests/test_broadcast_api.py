@@ -11,8 +11,12 @@ import pytest
 import requests
 
 import api.routes.broadcast as broadcast_route
-from broadcast.feeds import FEEDS
+from broadcast.feeds import FEEDS, env_keys
 from common.mediamtx import PathState
+
+#: Every secret the registry references, derived rather than listed — adding a
+#: cloud feed must not mean editing a hardcoded set here.
+CLOUD_SECRETS = {key for feed in FEEDS for key in env_keys(feed)}
 
 
 def test_feeds_endpoint_shape(client) -> None:
@@ -27,10 +31,8 @@ def test_feeds_endpoint_shape(client) -> None:
 
 
 def test_secrets_interpolated_from_environment(client, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('GPS_BROADCAST_PHONE_PUB', 'PHONEPUB')
-    monkeypatch.setenv('GPS_BROADCAST_SRT_PASSPHRASE', 'SRTPASS')
-    monkeypatch.setenv('GPS_BROADCAST_DRONE_PUB', 'DRONEPUB')
-    monkeypatch.setenv('GPS_BROADCAST_OBS_READ', 'OBSREAD')
+    for key in CLOUD_SECRETS:
+        monkeypatch.setenv(key, key.removeprefix('GPS_BROADCAST_').replace('_', ''))
     body = client.get('/api/broadcast/feeds').get_json()
     assert body['missing_secrets'] == []
     phone1 = next(f for f in body['feeds'] if f['path'] == 'phone1')
@@ -39,22 +41,12 @@ def test_secrets_interpolated_from_environment(client, monkeypatch: pytest.Monke
 
 
 def test_missing_secrets_reported_not_fatal(client, monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in (
-        'GPS_BROADCAST_PHONE_PUB',
-        'GPS_BROADCAST_SRT_PASSPHRASE',
-        'GPS_BROADCAST_DRONE_PUB',
-        'GPS_BROADCAST_OBS_READ',
-    ):
+    for key in CLOUD_SECRETS:
         monkeypatch.delenv(key, raising=False)
     res = client.get('/api/broadcast/feeds')
     assert res.status_code == 200
     body = res.get_json()
-    assert set(body['missing_secrets']) == {
-        'GPS_BROADCAST_PHONE_PUB',
-        'GPS_BROADCAST_SRT_PASSPHRASE',
-        'GPS_BROADCAST_DRONE_PUB',
-        'GPS_BROADCAST_OBS_READ',
-    }
+    assert set(body['missing_secrets']) == CLOUD_SECRETS
     # Van feeds still fully resolve — the config reference works with no env file.
     cam1 = next(f for f in body['feeds'] if f['path'] == 'cam1' and f['hub'] == 'van')
     assert cam1['missing_secrets'] == []

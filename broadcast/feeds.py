@@ -124,6 +124,7 @@ _PHONE_PUB = '${GPS_BROADCAST_PHONE_PUB}'  # cloud phone SRT publish key (user `
 _SRT_PASS = '${GPS_BROADCAST_SRT_PASSPHRASE}'  # cloud phone SRT passphrase
 _DRONE_PUB = '${GPS_BROADCAST_DRONE_PUB}'  # cloud drone RTMP publish key (user `droneuser`)
 _OBS_READ = '${GPS_BROADCAST_OBS_READ}'  # cloud OBS RTSP read key (user `obs`)
+_CAM_PUB = '${GPS_BROADCAST_CAM_PUB}'  # cloud start-cam SRT publish key (user `camuser`)
 
 
 def _van_cameras() -> list[Feed]:
@@ -333,6 +334,55 @@ def _drones() -> list[Feed]:
     return feeds
 
 
+def _cloud_start_cameras() -> list[Feed]:
+    """The two start-line course cameras (cloud hub, SRT publish, authed + AES-128).
+
+    The odd one out among the course cameras: ``start-cam`` sits at the bottom of
+    the hill on borrowed public wifi with no path to the van's LAN, so it
+    publishes to the **cloud** hub instead of the van's. That makes it the only
+    camera position needing a credential, and it gets its own ``camuser`` — scoped
+    on the hub to just these two paths — rather than the unrestricted phone
+    ``publisher`` cred, since the key is readable from ffmpeg's argv by anyone
+    with a shell on a Pi that is not ours.
+
+    Two Logitech C920s on one Pi 4. Neither exposes UVC H.264 (only YUYV/MJPEG),
+    so both capture MJPEG and hardware-encode with ``h264_v4l2m2m`` — the
+    saddle-cam profile. Path = service = wall label: ``cam-stream@start-N``.
+    """
+    notes = (
+        'Start line — start-cam (Pi 4), two Logitech C920s, MJPEG 720p in → HW '
+        'H.264 out. Publishes to the CLOUD hub (public wifi at the bottom of the '
+        'hill, no van LAN). hillclimb-cam service cam-stream@start-N.',
+        'VIDEO ONLY — no audio track, unlike the phone and drone slots. The hub '
+        'matches the track list exactly on publish.',
+        'Scoped cred: camuser may publish to start-1/start-2 and nothing else.',
+    )
+    return [
+        Feed(
+            path=path,
+            label=label,
+            hub='cloud',
+            slot_group='cameras',
+            transport='srt',
+            role='publish',
+            send=SendSpec(
+                host=_CLOUD,
+                port=8890,
+                streamid=f'publish:{path}:camuser:{_CAM_PUB}',
+                passphrase=_SRT_PASS,
+                latency_ms=200,
+                encryption='AES-128',
+            ),
+            obs_read=f'rtsp://obs:{_OBS_READ}@{_CLOUD}:8554/{path}',
+            browser_url=None,  # cloud WebRTC off; preview is a snapshot (B9)
+            standby=True,
+            expected_tracks=('H264',),
+            notes=notes,
+        )
+        for path, label in (('start-1', 'Start 1'), ('start-2', 'Start 2'))
+    ]
+
+
 def _radio() -> list[Feed]:
     """The van radio audio path (published in-hub by radio-stream; nothing to send)."""
     return [
@@ -357,6 +407,7 @@ def _radio() -> list[Feed]:
 FEEDS: tuple[Feed, ...] = tuple(
     _van_cameras()
     + _van_finish_cameras()
+    + _cloud_start_cameras()
     + _radio()
     + _cloud_phones()
     + _drones()

@@ -23,11 +23,12 @@ from broadcast.feeds import (
 )
 
 #: A fake env resolving every referenced key to a recognisable, non-secret token.
+#: Derived from the registry rather than listed, so adding a cloud feed does not
+#: mean hand-editing this set (and cannot silently leave a new key untested).
 FAKE_ENV = {
-    'GPS_BROADCAST_PHONE_PUB': 'PHONEPUB',
-    'GPS_BROADCAST_SRT_PASSPHRASE': 'SRTPASS',
-    'GPS_BROADCAST_DRONE_PUB': 'DRONEPUB',
-    'GPS_BROADCAST_OBS_READ': 'OBSREAD',
+    key: key.removeprefix('GPS_BROADCAST_').replace('_', '')
+    for feed in FEEDS
+    for key in env_keys(feed)
 }
 
 
@@ -144,10 +145,31 @@ def test_srt_single_url_cloud_phone_carries_passphrase() -> None:
     url = p1['send']['single_url']
     assert url == (
         'srt://ovh.pmormr.com:8890?'
-        'streamid=publish:phone1:publisher:PHONEPUB&latency=2000&passphrase=SRTPASS'
+        'streamid=publish:phone1:publisher:PHONEPUB&latency=2000&passphrase=SRTPASSPHRASE'
     )
     assert p1['send']['streamid'] == 'publish:phone1:publisher:PHONEPUB'
     assert p1['send']['encryption'] == 'AES-128'
+
+
+def test_start_cameras_are_authed_cloud_video_only() -> None:
+    """Start-line cams: the one camera position on the authed cloud hub.
+
+    Unlike every other course camera (van hub, open publish) these carry a
+    path-scoped credential, and unlike every other cloud feed they are
+    video-only — the hub matches the track list exactly on publish.
+    """
+    payload = render_feeds(FAKE_ENV)
+    for path in ('start-1', 'start-2'):
+        feed = next(f for f in payload['feeds'] if f['path'] == path)
+        assert feed['hub'] == 'cloud'
+        assert feed['slot_group'] == 'cameras'
+        assert feed['expected_tracks'] == ['H264']
+        assert feed['send']['single_url'] == (
+            f'srt://ovh.pmormr.com:8890?streamid=publish:{path}:camuser:CAMPUB'
+            '&latency=200&passphrase=SRTPASSPHRASE'
+        )
+        # Cloud WebRTC is off, so the wall previews these by snapshot (B9).
+        assert feed['browser_url'] is None
 
 
 def test_rtmp_single_url_van_is_authless() -> None:
