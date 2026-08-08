@@ -482,6 +482,37 @@ def _single_url(
     return None
 
 
+#: Track names that mean a feed carries picture; anything else is audio-only.
+_VIDEO_CODECS = frozenset({'H264', 'H265', 'AV1', 'VP8', 'VP9'})
+
+
+def _obs_browser_url(feed: Feed) -> str | None:
+    """Derive the copy-ready OBS Browser Source URL from the feed's WebRTC page.
+
+    Derived from ``browser_url`` rather than hand-written so the preview link and
+    the OBS string can never drift, the same reason :func:`_single_url` is derived.
+
+    Two query params are load-bearing, because the hub's player defaults every flag
+    to ``true``: ``controls=false`` keeps the player chrome out of the captured
+    frame, and an audio-only feed additionally needs ``muted=false`` or OBS renders
+    a working stream with its only track silenced. The trailing slash avoids the
+    hub's 302 to the canonical path.
+
+    Args:
+        feed: The registry entry.
+
+    Returns:
+        The URL, or None where the hub serves no WebRTC for this feed (cloud hub,
+        H.265 mains) and OBS must fall back to ``obs_read``.
+    """
+    if feed.browser_url is None:
+        return None
+    params = ['controls=false']
+    if not any(track in _VIDEO_CODECS for track in feed.expected_tracks):
+        params.append('muted=false')
+    return f'{feed.browser_url.rstrip("/")}/?' + '&'.join(params)
+
+
 def render_feed(feed: Feed, env: Mapping[str, str]) -> dict[str, Any]:
     """Render one feed to its copy-ready config payload (pure; env dict in).
 
@@ -491,9 +522,10 @@ def render_feed(feed: Feed, env: Mapping[str, str]) -> dict[str, Any]:
 
     Returns:
         A JSON-serialisable dict: identity + grouping, the interpolated ``obs_read``
-        and per-field/single-URL ``send`` block, the codec pins, notes, and a
-        ``missing_secrets`` list naming any ``${ENV_KEY}`` this feed needs but ``env``
-        lacks (empty = fully resolved / a no-secret van feed).
+        and derived ``obs_browser_url`` (the preferred OBS path where the hub serves
+        WebRTC), the per-field/single-URL ``send`` block, the codec pins, notes, and
+        a ``missing_secrets`` list naming any ``${ENV_KEY}`` this feed needs but
+        ``env`` lacks (empty = fully resolved / a no-secret van feed).
     """
     missing: set[str] = set()
     out: dict[str, Any] = {
@@ -507,6 +539,7 @@ def render_feed(feed: Feed, env: Mapping[str, str]) -> dict[str, Any]:
         'expected_tracks': list(feed.expected_tracks),
         'obs_read': _interp(feed.obs_read, env, missing),
         'browser_url': feed.browser_url,
+        'obs_browser_url': _obs_browser_url(feed),
         'notes': list(feed.notes),
         'send': None,
     }

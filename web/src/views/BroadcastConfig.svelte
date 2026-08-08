@@ -85,8 +85,35 @@
           {/if}
         {/if}
 
+        {#if f.obs_browser_url}
+          {@render copyRow(`${id}:obsweb`, 'OBS read — Browser Source', f.obs_browser_url)}
+          <p class="note howto">
+            Browser Source, 1280×720.{#if f.expected_tracks.includes('Opus')}
+              Tick <b>Control audio via OBS</b>, or it plays out the system output instead
+              of the mixer. The <code>muted=false</code> above is required — the hub's
+              player mutes by default, which would silence this feed's only track.
+            {:else}
+              Leave <b>Shutdown source when not visible</b> unchecked so it keeps running
+              off-scene.
+            {/if}
+          </p>
+        {/if}
+
         {#if f.obs_read}
-          {@render copyRow(`${id}:obs`, 'OBS read (RTSP +tcp)', f.obs_read)}
+          {@render copyRow(
+            `${id}:obs`,
+            f.obs_browser_url ? 'RTSP fallback (+tcp)' : 'OBS read (RTSP +tcp)',
+            f.obs_read,
+          )}
+          {#if !f.obs_browser_url}
+            <p class="note howto">
+              No WebRTC for this feed{f.hub === 'cloud'
+                ? ' — the cloud hub serves none'
+                : ' — the browser cannot decode H.265'}, so RTSP is the only path. Set
+              <code>rtsp_transport=tcp</code> in the source's ffmpeg options; RTSP over UDP
+              gets closed by the hub with an <code>i/o timeout</code>.
+            </p>
+          {/if}
         {/if}
 
         <div class="tail">
@@ -268,6 +295,19 @@
     color: var(--text-dim);
     margin: 6px 0 0;
     line-height: 1.4;
+  }
+
+  .howto {
+    margin: 4px 0 2px;
+    padding-left: 8px;
+    border-left: 2px solid var(--border, #3a3a3a);
+  }
+
+  .howto code {
+    font-size: 11px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--surface-2, rgba(127, 127, 127, 0.18));
   }
 
   @media (min-width: 900px) {

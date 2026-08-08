@@ -30,6 +30,8 @@ export interface Feed {
   expected_tracks: string[]
   obs_read: string | null
   browser_url: string | null
+  /** Copy-ready OBS Browser Source URL (WebRTC), or null where the hub serves none. */
+  obs_browser_url: string | null
   notes: string[]
   send: SendConfig | null
   /** Env keys this feed needs but the server env lacked (unresolved `${…}`). */

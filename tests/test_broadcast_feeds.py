@@ -206,6 +206,39 @@ def test_obs_read_interpolated_for_cloud() -> None:
     assert p1['obs_read'] == 'rtsp://obs:OBSREAD@ovh.pmormr.com:8554/phone1'
 
 
+def test_obs_browser_url_derived_with_trailing_slash_and_no_controls() -> None:
+    """Video feeds get the chrome-free player; the slash avoids the hub's 302."""
+    payload = render_feeds(FAKE_ENV)
+    s1 = next(f for f in payload['feeds'] if f['path'] == 'saddle-1')
+    assert s1['obs_browser_url'] == 'http://192.168.42.178:8889/saddle-1/?controls=false'
+
+
+def test_obs_browser_url_unmutes_audio_only_feeds() -> None:
+    """The player mutes by default, which would silence an audio-only feed."""
+    payload = render_feeds(FAKE_ENV)
+    radio = next(f for f in payload['feeds'] if f['path'] == 'radio')
+    assert radio['obs_browser_url'] == (
+        'http://192.168.42.178:8889/radio/?controls=false&muted=false'
+    )
+
+
+def test_obs_browser_url_none_where_hub_serves_no_webrtc() -> None:
+    """Cloud feeds and H.265 mains have no WebRTC; OBS must fall back to RTSP."""
+    payload = render_feeds(FAKE_ENV)
+    for f in payload['feeds']:
+        if f['browser_url'] is None:
+            assert f['obs_browser_url'] is None
+            assert f['obs_read'], f'{f["hub"]}/{f["path"]} has no read path at all'
+
+
+def test_obs_browser_url_never_drifts_from_browser_url() -> None:
+    """Derived, not hand-written — every one must extend its own browser_url."""
+    payload = render_feeds(FAKE_ENV)
+    for f in payload['feeds']:
+        if f['obs_browser_url'] is not None:
+            assert f['obs_browser_url'].startswith(f['browser_url'])
+
+
 def test_sendspec_and_feed_are_frozen() -> None:
     """Registry entries are immutable (frozen dataclasses)."""
     import dataclasses
