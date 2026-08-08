@@ -203,6 +203,47 @@ def _van_finish_cameras() -> list[Feed]:
     ]
 
 
+def _van_top_cameras() -> list[Feed]:
+    """The top-position spare camera (van hub, SRT publish, no auth).
+
+    Runs on ``top-camera-3b1`` — a Pi 3B, backhauled over the ``pmahbridge1`` ↔
+    van-edge bridge pair rather than one of the TP-Link Pharos point-to-point links
+    the other positions use.
+
+    The link is the thing to watch, not the camera. Measured at van-edge it
+    associates as **VHT 160 MHz at about -60 dBm with ~19 Mbps expected
+    throughput** — comfortable for one ~2.5 Mbps H.264 feed but well below what a
+    Pharos position carries, and it is the *only* camera path sharing a radio with
+    the van's general traffic. Re-read ``iw dev wlan0.staN station dump``
+    (``expected throughput``, not the last-frame ``rx bitrate``, which reads low
+    while idle) before raising this feed's bitrate. Path = service = wall label, as
+    with the saddle/finish/start cams: ``cam-stream@top-1``.
+    """
+    notes = (
+        'Top spare position — top-camera-3b1 (Pi 3B) behind the pmahbridge1 bridge '
+        'pair, not a Pharos 5 GHz PtP link like the other positions.',
+        'Lowest-headroom backhaul of the fleet (~19 Mbps expected throughput, '
+        'shared with general van traffic): keep the bitrate modest and re-check '
+        'the link before raising it. hillclimb-cam service cam-stream@top-1.',
+    )
+    return [
+        Feed(
+            path='top-1',
+            label='Top 1',
+            hub='van',
+            slot_group='cameras',
+            transport='srt',
+            role='publish',
+            send=SendSpec(host=_VAN, port=8890, streamid='publish:top-1', latency_ms=200),
+            obs_read=f'rtsp://{_VAN}:8554/top-1',
+            browser_url=f'http://{_VAN}:8889/top-1',
+            standby=False,
+            expected_tracks=('H264',),
+            notes=notes,
+        )
+    ]
+
+
 def _van_dahua_broll() -> list[Feed]:
     """The four van Dahua cams as OBS-pullable B-roll (van hub, on-demand proxy).
 
@@ -413,6 +454,7 @@ def _radio() -> list[Feed]:
 FEEDS: tuple[Feed, ...] = tuple(
     _van_cameras()
     + _van_finish_cameras()
+    + _van_top_cameras()
     + _cloud_start_cameras()
     + _radio()
     + _cloud_phones()

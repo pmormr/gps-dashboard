@@ -78,6 +78,10 @@ paths:
   finish-2:
     source: publisher
 
+  # top-1 — Top 1 (SRT publish :8890)
+  top-1:
+    source: publisher
+
   # radio — Radio audio (in-hub publisher)
   radio:
     source: publisher
