@@ -3,9 +3,11 @@
 # the van session happens, so a host without OBD never crash-loops. The reader is
 # engine-gated, so it idles cheaply (connection closed) while parked.
 #
-# GPS_OBD_PORT pins the adapter device. /dev/ttyUSB0 is the only USB serial device
-# today; udev-pinning a stable path (like the GPS dongle) is a deferred hardening
-# step. The OBD CAN protocol
+# GPS_OBD_PORT pins the adapter device to the udev symlink from
+# deploy/99-obdlink.rules (install it manually — the hook copies only units).
+# Never point this at a raw /dev/ttyUSB* path: the Digirig shares that namespace
+# and RTS on its port hardware-keys the radio, so a re-enumeration turns this
+# reader into a transmitter (2026-08-08). The OBD CAN protocol
 # auto-detects (the van is ISO 15765-4 CAN 29/500); set GPS_OBD_PROTOCOL=7 to skip
 # the scan if reconnect latency ever matters.
 [Unit]
@@ -20,7 +22,7 @@ WorkingDirectory=/mnt/nvme/gps-dashboard
 Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
 Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
 Environment=GPS_SENSOR_NODE=van
-Environment=GPS_OBD_PORT=/dev/ttyUSB0
+Environment=GPS_OBD_PORT=/dev/obdlink
 ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python sensors/obd_reader.py
 Restart=always
 RestartSec=5

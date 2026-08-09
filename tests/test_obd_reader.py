@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 import obd
 import pytest
@@ -23,6 +24,7 @@ from sensors.obd_reader import (
     LinkState,
     ObdReader,
     _ProbeNoiseFilter,
+    assert_not_ptt_port,
     numeric,
     poll_loop,
 )
@@ -204,3 +206,36 @@ def test_poll_loop_publishes_full_snapshot() -> None:
     assert set(payload) == {'ts', *reader_columns}
     assert 'fuel_rate_lph' not in payload  # derived later → ingest stores NULL
     assert all(isinstance(payload[col], int | float) for col in reader_columns)
+
+
+def test_ptt_guard_allows_the_obd_adapter(tmp_path: Path) -> None:
+    """A port that is not the PTT device passes, and an absent PTT device is a no-op."""
+    ptt = tmp_path / 'digirig'
+    adapter = tmp_path / 'obdlink'
+    ptt.write_text('')
+    adapter.write_text('')
+
+    assert_not_ptt_port(str(adapter), str(ptt))
+    assert_not_ptt_port(None, str(tmp_path / 'absent'))
+
+
+def test_ptt_guard_refuses_a_port_resolving_to_the_radio(tmp_path: Path) -> None:
+    """The Digirig is refused through a symlink — the ttyUSB-renumber failure mode."""
+    tty = tmp_path / 'ttyUSB0'
+    tty.write_text('')
+    ptt = tmp_path / 'digirig'
+    ptt.symlink_to(tty)
+
+    with pytest.raises(obd_reader.PttPortRefused):
+        assert_not_ptt_port(str(tty), str(ptt))
+    with pytest.raises(obd_reader.PttPortRefused):
+        assert_not_ptt_port(str(ptt), str(ptt))
+
+
+def test_ptt_guard_refuses_auto_scan_when_the_radio_is_present(tmp_path: Path) -> None:
+    """python-OBD's auto-scan opens every /dev/ttyUSB*, so it may not run near the rig."""
+    ptt = tmp_path / 'digirig'
+    ptt.write_text('')
+
+    with pytest.raises(obd_reader.PttPortRefused):
+        assert_not_ptt_port(None, str(ptt))

@@ -1,0 +1,13 @@
+# Pin the OBDLink EX (FTDI FT-X) to a stable /dev/obdlink symlink so the OBD
+# reader's port never depends on ttyUSB enumeration order. Mirrors
+# 99-icom-civ.rules / 99-gps-dongle.rules.
+#
+# This is a safety rule, not a convenience one: the van's other ttyUSB device is
+# the Digirig, whose RTS line hardware-keys the radio's PTT. A hub re-enumeration
+# on 2026-08-08 swapped the two (OBDLink ttyUSB0 -> ttyUSB1), and the reader's
+# hard-pinned /dev/ttyUSB0 kerchunked the rig every ~10 s until it was caught.
+# The reader also refuses the Digirig by realpath (sensors/obd_reader.py).
+#
+# Manual install (the deploy hook copies only *.service/*.timer):
+#   sudo cp deploy/99-obdlink.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", ATTRS{product}=="OBDLink EX", SYMLINK+="obdlink", GROUP="dialout", MODE="0664"

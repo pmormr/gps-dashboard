@@ -263,9 +263,16 @@ the mode itself.
   open `/dev/digirig` casually.** The guard stack is load-bearing: ModemManager masked,
   gpsd `USBAUTO=false`, `deploy/99-digirig.rules` (MM-ignore + `/dev/digirig` symlink + ALSA
   card id), and the `digirig-rts-clear` udev oneshot (`tools/digirig_clear_rts.py`, fires
-  ~1 s after enumeration → RTS/DTR clear). The tty open itself blips RTS ~ms — kernel
-  behavior, accepted; the reboot test confirmed it doesn't meaningfully key TX. The only
-  intentional RTS assert is the `keyed_tx_rts` transmit path.
+  ~1 s after enumeration → RTS/DTR clear). A bare enumeration open blips RTS ~ms — kernel
+  behavior, accepted; the reboot test confirmed it doesn't meaningfully key TX. But an
+  open that *stays* open keys for its whole duration: the 2026-08-08 kerchunk incident was
+  `sensor-obd`, pinned to a bare `/dev/ttyUSB0` that a hub re-enumeration handed to the
+  Digirig, running python-OBD's multi-second ELM327 baud negotiation against it every ~10 s
+  — an unattended transmitter for a day. Fixes: `deploy/99-obdlink.rules` pins the adapter
+  to `/dev/obdlink`, and `sensors/obd_reader.py` refuses by realpath any port that resolves
+  to `/dev/digirig` (and refuses python-OBD auto-scan, which opens every `/dev/ttyUSB*`).
+  **No non-radio service may name a bare `/dev/ttyUSB*`** — pin every serial consumer to a
+  udev symlink. The only intentional RTS assert is the `keyed_tx_rts` transmit path.
 - **Baud/power cycle:** power-cycling the rig reverts SQL to ~0.165 and resets TX power; the
   CI-V power-on preamble is baud-specific (25× `FE` at 19200).
 - **Deploy DDL-first:** the transmission-log query selects added columns, so a

@@ -1,6 +1,6 @@
 """Pi-side OBD-II reader: ELM327 serial → MQTT publisher (the van as a sensor).
 
-Reads the van's ECUs over an ELM327 adapter (the OBDLink EX on ``/dev/ttyUSB0``,
+Reads the van's ECUs over an ELM327 adapter (the OBDLink EX on ``/dev/obdlink``,
 reached through the 12+8 Security-Gateway bypass harness) and publishes a full
 current-values snapshot to ``sensors/van/obd``, registering a retained LWT on
 ``.../status`` so the broker flips the stream to ``offline`` if this process dies.
@@ -41,7 +41,7 @@ and ``import obd`` would find this file instead of the package.
 Run::
 
     uv run sensors/obd_reader.py --fake --node van   # synthetic, no hardware/broker car
-    uv run sensors/obd_reader.py --port /dev/ttyUSB0  # real adapter (engine running)
+    uv run sensors/obd_reader.py --port /dev/obdlink  # real adapter (engine running)
 """
 
 import argparse
@@ -152,6 +152,49 @@ def default_port() -> str | None:
 def default_protocol() -> str | None:
     """Return the forced protocol id from ``GPS_OBD_PROTOCOL`` (default None → scan)."""
     return os.environ.get('GPS_OBD_PROTOCOL') or None
+
+
+#: Serial device whose RTS line hardware-keys the transceiver's PTT. Opening it at
+#: all — even to fail — transmits.
+PTT_PORT = '/dev/digirig'
+
+
+class PttPortRefused(RuntimeError):
+    """Raised when the configured port would key the radio instead of reading OBD."""
+
+
+def assert_not_ptt_port(port: str | None, ptt_port: str = PTT_PORT) -> None:
+    """Refuse to open the radio's PTT-keying serial device.
+
+    RTS asserts on open, so every connect attempt against the Digirig's serial port
+    is an unattended transmission. A USB re-enumeration silently swapped the OBD
+    adapter and the Digirig between ``ttyUSB0``/``ttyUSB1`` once, leaving this
+    reader kerchunking the rig every ~10 s on its parked reconnect wake — hence the
+    check here and not only in the unit's ``GPS_OBD_PORT``. Auto-scan is refused
+    outright while the device exists, because python-OBD's scan opens every
+    ``/dev/ttyUSB*`` in turn.
+
+    Args:
+        port: The configured serial device, or None for python-OBD's auto-scan.
+        ptt_port: The PTT-keying device to refuse.
+
+    Raises:
+        PttPortRefused: If ``port`` resolves to ``ptt_port``, or if an auto-scan was
+            requested while ``ptt_port`` exists.
+    """
+    if not os.path.exists(ptt_port):
+        return
+    if port is None:
+        raise PttPortRefused(
+            f'refusing to auto-scan serial ports while {ptt_port} exists — the scan opens '
+            f'every /dev/ttyUSB* and RTS on that port keys the radio. Set GPS_OBD_PORT.'
+        )
+    if os.path.realpath(port) == os.path.realpath(ptt_port):
+        raise PttPortRefused(
+            f'refusing to open {port}: it resolves to {os.path.realpath(ptt_port)}, the '
+            f'radio PTT port ({ptt_port}) — opening it asserts RTS and transmits. '
+            f'Point GPS_OBD_PORT at the OBD adapter (/dev/obdlink).'
+        )
 
 
 def numeric(response: object) -> float | None:
@@ -429,7 +472,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         '--port',
         default=default_port(),
-        help='Serial port. Default $GPS_OBD_PORT, else auto-scan (e.g. /dev/ttyUSB0).',
+        help='Serial port (default $GPS_OBD_PORT; the unit pins the udev symlink '
+        '/dev/obdlink). Auto-scan is refused while /dev/digirig exists — the scan opens '
+        'every /dev/ttyUSB* and would key the radio.',
     )
     parser.add_argument('--baud', type=int, default=None, help='Baud rate (default: auto).')
     parser.add_argument(
@@ -494,6 +539,12 @@ def main() -> int:
     """
     args = parse_args()
     _quiet_obd_probe_logging()
+    if not args.fake:
+        try:
+            assert_not_ptt_port(args.port)
+        except PttPortRefused as exc:
+            print(f'OBD reader refusing to start: {exc}', file=sys.stderr, flush=True)
+            return 2
     reader: ObdReader | FakeReader = (
         FakeReader() if args.fake else ObdReader(args.port, args.baud, args.protocol, args.fast)
     )

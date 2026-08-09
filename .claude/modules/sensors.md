@@ -50,7 +50,7 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   I2C path and its unit were removed; the real BME680 is the node above). Logger ethos:
   paho auto-reconnect, heartbeat, graceful shutdown.
 - **OBD reader** (`sensors/obd_reader.py`) — the van as a sensor: a Pi-side python-OBD
-  publisher on the OBDLink EX (USB `/dev/ttyUSB0`), **single serial owner**,
+  publisher on the OBDLink EX (udev-pinned `/dev/obdlink`), **single serial owner**,
   **engine-gated**. It wakes on chassis voltage >13.2 V (alternator charging, debounced)
   and **closes the connection when parked** so the bus sleeps and volume is bounded to
   drive-time. Polls a mutable per-PID rate table (all currently 1 Hz), publishing a
@@ -72,8 +72,7 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   offline reader — so a **12+8 SGW-bypass harness** (fitted 2026-06-22) bridges the
   diagnostic CAN around the gateway. The bus is ISO 15765-4 CAN **29-bit**/500k
   (auto-detected; `GPS_OBD_PROTOCOL=7` skips the scan), ~22 queries/s. The captured
-  supported-PID reference is `reference/obd-supported-pids.md`. **OBD deferred:**
-  udev-pin the EX to a stable device path (it's on bare `/dev/ttyUSB0`); an optional
+  supported-PID reference is `reference/obd-supported-pids.md`. **OBD deferred:** an optional
   ignition-switched dongle feed for zero parked drain (the software gate covers it
   today); DTC storage + a check-engine surface; the on-demand rate-table demand overlay
   (an MQTT control topic with TTL-decayed demands, so a live gauge can raise a PID's
@@ -326,7 +325,7 @@ sensor-pi`.)
 
 One-time Pi setup is installing mosquitto and enabling the units.
 `mosquitto` + `mqtt-ingest` run on the Pi and ingest whatever publishes.
-`sensor-obd` **is enabled** (node `van`, `/dev/ttyUSB0`): it owns the OBDLink EX and
+`sensor-obd` **is enabled** (node `van`, `/dev/obdlink`): it owns the OBDLink EX and
 self-gates on engine state, so it idles cleanly when the van is parked. `sensor-victron`
 **is enabled** (node `house`): it bridges the always-on Venus GX and runs continuously
 (not engine-gated), reading the GX MQTT password from `/etc/default/gps-victron`
