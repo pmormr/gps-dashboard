@@ -70,6 +70,10 @@ paths:
   saddle-2:
     source: publisher
 
+  # saddle-3 — Saddle 1 (tracked) (SRT publish :8890)
+  saddle-3:
+    source: publisher
+
   # finish-1 — Finish 1 (SRT publish :8890)
   finish-1:
     source: publisher

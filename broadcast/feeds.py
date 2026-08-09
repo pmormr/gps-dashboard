@@ -128,14 +128,18 @@ _CAM_PUB = '${GPS_BROADCAST_CAM_PUB}'  # cloud start-cam SRT publish key (user `
 
 
 def _van_cameras() -> list[Feed]:
-    """The four PtP course-camera slots (van hub, SRT publish, no auth).
+    """The PtP course-camera slots (van hub, SRT publish, no auth).
 
     ``cam1``/``cam2`` keep the generic naming (``cam1`` is the van's own picam1);
-    the two saddle-position cameras take the other two slots, renamed
-    ``saddle-1``/``saddle-2`` so the MediaMTX path, the hillclimb-cam service
-    instance (``cam-stream@saddle-N``), and the monitor-wall label all read the
+    the saddle-position cameras are renamed ``saddle-N`` so the MediaMTX path,
+    the hillclimb-cam service instance, and the monitor-wall label all read the
     same. Both saddle cams run on one Pi (``saddle-cam``) off a shared USB2 bus,
     so they publish MJPEG-in → HW-H.264 (YUYV would not fit two on the bus).
+
+    ``saddle-3`` is not a third camera: it is a second feed off the ``saddle-1``
+    camera, cropped to follow the action. One ``cam-track@saddle-1`` service
+    publishes both it and the wide ``saddle-1``, so the wide shot stays available
+    to cut to when the tracker gets the shot wrong.
     """
     generic = (
         'H.264 720p ~2.5 Mbps. cam1 = picam1, already running as the '
@@ -146,11 +150,19 @@ def _van_cameras() -> list[Feed]:
         'HW H.264 ~4 Mbps out. MJPEG is load-bearing: both share one USB2 bus, so '
         'YUYV would starve. hillclimb-cam service cam-stream@saddle-N.',
     )
+    tracked = (
+        'Tracked crop of the saddle-1 camera, not a third camera — 1080p capture '
+        'cropped to a following 720p window before the scaler, so it keeps real '
+        'sensor detail. Published by cam-track@saddle-1, which also publishes the '
+        'wide saddle-1 and replaces cam-stream@saddle-1 (the units Conflict). '
+        'Frame it live with cam-track-ctl.sh saddle-1.',
+    )
     specs = [
         ('cam1', 'PtP cam 1', generic),
         ('cam2', 'PtP cam 2', generic),
         ('saddle-1', 'Saddle 1', saddle),
         ('saddle-2', 'Saddle 2', saddle),
+        ('saddle-3', 'Saddle 1 (tracked)', tracked),
     ]
     return [
         Feed(

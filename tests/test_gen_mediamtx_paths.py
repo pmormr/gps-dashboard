@@ -35,6 +35,7 @@ def test_generated_feeds_are_van_publishers_in_order() -> None:
         'cam2',
         'saddle-1',
         'saddle-2',
+        'saddle-3',
         'finish-1',
         'finish-2',
         'top-1',
