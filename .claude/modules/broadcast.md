@@ -257,8 +257,7 @@ live); `obs_browser_url` derived from `browser_url`.
 ## Related
 
 `radio.md` (R10 — the shared MediaMTX hub), `cameras-plan.md` (the van Dahua fleet whose hub
-paths this surfaces + the snapshot pattern B9 generalizes), `streaming-platform-plan.md` (the
-van PtP-camera ingest side). Mirror docs: `paul-network-docs` → `events/2026-hillclimb.md`,
+paths this surfaces + the snapshot pattern B9 generalizes). Mirror docs: `paul-network-docs` → `events/2026-hillclimb.md`,
 `events/2026-hillclimb-quickref.md`, `cloud/devices/vps202051.md`, `van/devices/pmpi1.md`.
 
 Sibling repos, both public and neither vendored here: **`hillclimb-cam`** (the Pi edge

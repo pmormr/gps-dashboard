@@ -4,9 +4,9 @@
 > the Van OS SPA for **glancing** (primary) and a low-latency **driving mode**
 > (fast-follow). Reuses the radio's **MediaMTX** hub (R10, `.claude/modules/radio.md`)
 > as the single aggregation point — the "hub later proxies the Dahua cams" future
-> named there. Distinct from `plans/streaming-platform-plan.md` (that is the
-> hill-climb *event* cams, edge Pis pushing SRT; this is the van's own IP cams,
-> pulled from). Both share the one hub.
+> named there. Distinct from the hill-climb *event* cams (edge Pis pushing SRT —
+> `.claude/modules/broadcast.md`); this is the van's own IP cams, pulled from.
+> Both share the one hub.
 
 ## Context
 
@@ -224,5 +224,6 @@ blind-right, rear}:
 - Audio: only front (PCM, not WebRTC-friendly) and rear (G.711 a-law, WebRTC-compatible)
   have mics, and only on the main (H.265) stream. Skipped for now; revisit if a driving/
   rear feed wants sound (would need audio enabled on a sub/third stream).
-- The `cam1`–`cam4` paths already in `mediamtx.yml` are the hill-climb SRT *publisher*
-  paths (`plans/streaming-platform-plan.md`) — different mechanism; don't reuse those names.
+- The course-camera paths already in `mediamtx.yml` (`top-*`/`finish-*`/`saddle-*`) are the
+  hill-climb SRT *publisher* paths (`.claude/modules/broadcast.md`, B12) — different
+  mechanism; don't reuse those names.

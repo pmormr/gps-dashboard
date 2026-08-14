@@ -156,7 +156,7 @@ install like the udev rules): the hw codec is single-open; dsnoop lets recorder 
 capture independently, so listening works while `radio-recorder` is stopped or being
 reconfigured (the tuning scenario). Anything else that captures the Digirig **must** go
 through `digirig_shared` too. The hub is also the intended aggregation point for Dahua
-camera proxying later (see `plans/cameras-plan.md`, `plans/streaming-platform-plan.md`).
+camera proxying later (see `plans/cameras-plan.md`, `.claude/modules/broadcast.md`).
 
 ## Transmit plane — operator-clicked console (R11)
 
@@ -302,8 +302,7 @@ the mode itself.
 - **Quantitative deviation check** (optional) — TX levels are fine by ear; a scope/deviation
   meter is the only way to verify absolute deviation. RF-ingress watch-item is closed (no
   Digirig USB crash even at HIGH power — the 2a −71 was the replug, not transmitting).
-- **Dahua camera `paths:` proxy** — owned by `plans/cameras-plan.md` /
-  `plans/streaming-platform-plan.md`; blocked on a secrets story (RTSP creds can't live in
+- **Dahua camera `paths:` proxy** — owned by `plans/cameras-plan.md`; blocked on a secrets story (RTSP creds can't live in
   the committed `mediamtx.yml`; MediaMTX does no env-substitution → needs a runtime-
   templating step).
 - **CI-V-via-Digirig-serial consolidation** (flagged, discuss first) — the Digirig serial
