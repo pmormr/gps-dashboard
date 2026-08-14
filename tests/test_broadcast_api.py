@@ -48,7 +48,7 @@ def test_missing_secrets_reported_not_fatal(client, monkeypatch: pytest.MonkeyPa
     body = res.get_json()
     assert set(body['missing_secrets']) == CLOUD_SECRETS
     # Van feeds still fully resolve — the config reference works with no env file.
-    cam1 = next(f for f in body['feeds'] if f['path'] == 'cam1' and f['hub'] == 'van')
+    cam1 = next(f for f in body['feeds'] if f['path'] == 'top-1' and f['hub'] == 'van')
     assert cam1['missing_secrets'] == []
 
 
@@ -71,7 +71,7 @@ def test_status_merges_live_van_paths(client, monkeypatch: pytest.MonkeyPatch) -
 
     def fake_fetch(*_a, **_k):
         return [
-            PathState('cam1', True, True, True, 'srtConn', 'uuid', ('H264',), 0, 4096, 0),
+            PathState('top-1', True, True, True, 'srtConn', 'uuid', ('H264',), 0, 4096, 0),
             PathState('radio', True, True, True, 'rtspSession', 'rid', ('Opus',), 1, 8, 4),
         ]
 
@@ -79,12 +79,12 @@ def test_status_merges_live_van_paths(client, monkeypatch: pytest.MonkeyPatch) -
     body = client.get('/api/broadcast/status').get_json()
     assert body['hubs']['van']['reachable'] is True
     by_key = {f'{f["hub"]}/{f["path"]}': f for f in body['feeds']}
-    cam1 = by_key['van/cam1']
+    cam1 = by_key['van/top-1']
     assert cam1['ingest'] == 'live' and cam1['codec'] == 'match' and cam1['present'] is True
     radio = by_key['van/radio']
     assert radio['ingest'] == 'live' and radio['readers'] == 1
     # A van path not reported by the hub is present:false, not a crash.
-    assert by_key['van/cam2']['present'] is False
+    assert by_key['van/finish-1']['present'] is False
     # Cloud feeds remain unreachable until P3.
     assert by_key['cloud/phone1']['reachable'] is False
 
@@ -93,16 +93,16 @@ def test_status_discounts_snapshotter_reader(client, monkeypatch: pytest.MonkeyP
     """A feed being previewed (snapshot worker active) must not read as a consumer."""
 
     def fake_fetch(*_a, **_k):
-        return [PathState('cam1', True, True, True, 'srtConn', 'u', ('H264',), 1, 0, 0)]
+        return [PathState('top-1', True, True, True, 'srtConn', 'u', ('H264',), 1, 0, 0)]
 
     class FakeMgr:
         def active_paths(self):
-            return {'cam1'}
+            return {'top-1'}
 
     monkeypatch.setattr(broadcast_route, 'fetch_paths', fake_fetch)
     monkeypatch.setattr(broadcast_route, 'get_manager', lambda: FakeMgr())
     body = client.get('/api/broadcast/status').get_json()
-    cam1 = next(f for f in body['feeds'] if f['hub'] == 'van' and f['path'] == 'cam1')
+    cam1 = next(f for f in body['feeds'] if f['hub'] == 'van' and f['path'] == 'top-1')
     assert cam1['readers'] == 0 and cam1['pulling'] is False
 
 
@@ -121,11 +121,11 @@ def test_snapshot_warming_up_returns_202(client, monkeypatch: pytest.MonkeyPatch
             return None
 
     monkeypatch.setattr(broadcast_route, 'get_manager', lambda: FakeMgr())
-    assert client.get('/api/broadcast/snapshot/cam1').status_code == 202
+    assert client.get('/api/broadcast/snapshot/top-1').status_code == 202
 
 
 def test_snapshot_serves_jpeg(client, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    jpeg = tmp_path / 'cam1.jpg'
+    jpeg = tmp_path / 'top-1.jpg'
     jpeg.write_bytes(b'\xff\xd8jpegbytes')
 
     class FakeMgr:
@@ -133,7 +133,7 @@ def test_snapshot_serves_jpeg(client, monkeypatch: pytest.MonkeyPatch, tmp_path)
             return jpeg
 
     monkeypatch.setattr(broadcast_route, 'get_manager', lambda: FakeMgr())
-    res = client.get('/api/broadcast/snapshot/cam1')
+    res = client.get('/api/broadcast/snapshot/top-1')
     assert res.status_code == 200
     assert res.mimetype == 'image/jpeg'
     assert res.data == b'\xff\xd8jpegbytes'
@@ -197,7 +197,7 @@ def test_snapshot_cloud_proxies_agent(client, monkeypatch: pytest.MonkeyPatch) -
 
 def test_snapshot_cloud_unknown_path_404(client) -> None:
     # cam1 is a van path — not a cloud-snappable feed.
-    assert client.get('/api/broadcast/snapshot/cam1?hub=cloud').status_code == 404
+    assert client.get('/api/broadcast/snapshot/top-1?hub=cloud').status_code == 404
 
 
 def test_snapshot_cloud_agent_unconfigured_502(client, monkeypatch: pytest.MonkeyPatch) -> None:

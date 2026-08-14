@@ -31,14 +31,12 @@ def test_generated_feeds_are_van_publishers_in_order() -> None:
     """Only van publisher/internal paths are generated, in registry order."""
     feeds = generated_feeds()
     assert [f.path for f in feeds] == [
-        'cam1',
-        'cam2',
+        'top-1',
+        'top-2',
+        'finish-1',
         'saddle-1',
         'saddle-2',
         'saddle-3',
-        'finish-1',
-        'finish-2',
-        'top-1',
         'radio',
         'drone1',
         'drone2',

@@ -127,24 +127,115 @@ _OBS_READ = '${GPS_BROADCAST_OBS_READ}'  # cloud OBS RTSP read key (user `obs`)
 _CAM_PUB = '${GPS_BROADCAST_CAM_PUB}'  # cloud start-cam SRT publish key (user `camuser`)
 
 
-def _van_cameras() -> list[Feed]:
-    """The PtP course-camera slots (van hub, SRT publish, no auth).
+def _van_cam(path: str, label: str, notes: tuple[str, ...]) -> Feed:
+    """One van-hub course camera — the transport shape every position shares.
 
-    ``cam1``/``cam2`` keep the generic naming (``cam1`` is the van's own picam1);
-    the saddle-position cameras are renamed ``saddle-N`` so the MediaMTX path,
-    the hillclimb-cam service instance, and the monitor-wall label all read the
-    same. Both saddle cams run on one Pi (``saddle-cam``) off a shared USB2 bus,
-    so they publish MJPEG-in → HW-H.264 (YUYV would not fit two on the bus).
+    Each course camera on the van LAN publishes identically: SRT to the hub's
+    ``:8890`` with a bare ``publish:<path>`` streamid (no auth on the trusted
+    LAN), read back by OBS over WebRTC. Only the notes differ per position, so
+    the shape lives here once instead of in each position's builder.
+
+    Path = hillclimb-cam service instance = monitor-wall label, fleet-wide:
+    ``<path>`` is always ``cam-stream@<path>`` on its node (``cam-track@`` for the
+    tracked crop). Renaming a feed therefore means renaming the node's unit and
+    env file too — see ``.claude/modules/broadcast.md``.
+
+    Args:
+        path: MediaMTX path name, which is also the service instance name.
+        label: Human label for the monitor-wall tile.
+        notes: Field gotchas surfaced verbatim on the config card.
+
+    Returns:
+        The configured :class:`Feed`.
+    """
+    return Feed(
+        path=path,
+        label=label,
+        hub='van',
+        slot_group='cameras',
+        transport='srt',
+        role='publish',
+        send=SendSpec(host=_VAN, port=8890, streamid=f'publish:{path}', latency_ms=200),
+        obs_read=f'rtsp://{_VAN}:8554/{path}',
+        browser_url=f'http://{_VAN}:8889/{path}',
+        standby=False,
+        expected_tracks=('H264',),
+        notes=notes,
+    )
+
+
+def _van_top_cameras() -> list[Feed]:
+    """The two top-position cameras, at the van (van hub, SRT publish, no auth).
+
+    ``top-1`` is ``picam1`` — a Pi 4B on ``vannet`` WiFi with a USB cam, the only
+    course camera with no bridge between it and the hub. ``top-2`` is a Pi 3B+
+    with an ``OV5647`` ribbon (CSI) camera, backhauled over the ``pmahbridge1``
+    HaLow pair.
+
+    On ``top-2`` the link is the thing to watch, not the camera: measured at
+    van-edge it carries **~19 Mbps expected throughput at about -60 dBm** —
+    comfortable for one ~2.5 Mbps H.264 feed, but the lowest-headroom backhaul of
+    the fleet and the only camera path sharing a radio with general van traffic.
+    Re-read ``iw dev wlan0.staN station dump`` (``expected throughput``, not the
+    last-frame ``rx bitrate``, which reads low while idle) before raising the
+    bitrate. That dump reports the sub-GHz link in VHT terms, so read the width as
+    the driver's mapping of a HaLow channel, not as a 5 GHz one.
+    """
+    picam = (
+        'Top position at the van — picam1 (Pi 4B), one USB cam, H.264 720p '
+        '~2.6 Mbps. The only course camera on vannet WiFi directly, with no '
+        'bridge in the path. hillclimb-cam service cam-stream@top-1.',
+    )
+    ribbon = (
+        'Top position — a Pi 3B+ with an OV5647 ribbon (CSI) camera, behind the '
+        'pmahbridge1 HaLow pair rather than a Pharos 5 GHz PtP link.',
+        'Lowest-headroom backhaul of the fleet (~19 Mbps expected throughput, '
+        'shared with general van traffic): keep the bitrate modest and re-check '
+        'the link before raising it. hillclimb-cam service cam-stream@top-2.',
+    )
+    return [
+        _van_cam('top-1', 'Top 1', picam),
+        _van_cam('top-2', 'Top 2', ribbon),
+    ]
+
+
+def _van_finish_camera() -> list[Feed]:
+    """The finish-line camera (van hub, SRT publish, no auth).
+
+    A Pi 3B with a single Logitech **C920**, backhauled over the ``pmahbridge2``
+    HaLow pair. It is the one node in the fleet that does **no encoding**: this
+    C920 exposes native UVC H.264, so hillclimb-cam auto-selects
+    ``CAM_ENCODER=copy`` and ffmpeg remuxes the camera's own stream straight to
+    SRT — ~15 % of one core on the weakest Pi in the fleet.
+
+    The trade is that ``CAM_BITRATE`` is **inert** here: with no encoder in the
+    path the wire rate is whatever the camera chooses (measured ~3.2 Mbps at
+    720p30) and it varies with scene complexity. A hard ceiling would mean
+    MJPEG-in → ``h264_v4l2m2m``, costing real CPU and a transcode generation.
+    """
+    notes = (
+        'Finish position — a Pi 3B with one Logitech C920, behind the pmahbridge2 '
+        'HaLow pair. hillclimb-cam service cam-stream@finish-1.',
+        'NO ENCODE: the C920 emits native H.264, so CAM_ENCODER=copy remuxes it '
+        'as-is (~3.2 Mbps measured, 30 fps, ~15% of one core). CAM_BITRATE is '
+        "inert with copy — the rate is the camera's choice, not ours.",
+    )
+    return [_van_cam('finish-1', 'Finish 1', notes)]
+
+
+def _van_saddle_cameras() -> list[Feed]:
+    """The saddle-position cameras (van hub, SRT publish, no auth).
+
+    Both cams run on one Pi (``saddle-cam``) off a shared USB2 bus, so they
+    publish MJPEG-in → HW-H.264 (YUYV would not fit two on the bus). The Pi is
+    wired into the far side of a transparent L2 WiFi bridge from the top, so it
+    leases from van-edge and sits on the flat van LAN.
 
     ``saddle-3`` is not a third camera: it is a second feed off the ``saddle-1``
     camera, cropped to follow the action. One ``cam-track@saddle-1`` service
     publishes both it and the wide ``saddle-1``, so the wide shot stays available
     to cut to when the tracker gets the shot wrong.
     """
-    generic = (
-        'H.264 720p ~2.5 Mbps. cam1 = picam1, already running as the '
-        'cam-stream@cam1 service; values here are for a manual re-publish.',
-    )
     saddle = (
         'Saddle position — both cams on one Pi (saddle-cam), MJPEG 720p30 in → '
         'HW H.264 ~4 Mbps out. MJPEG is load-bearing: both share one USB2 bus, so '
@@ -157,102 +248,10 @@ def _van_cameras() -> list[Feed]:
         'wide saddle-1 and replaces cam-stream@saddle-1 (the units Conflict). '
         'Frame it live with cam-track-ctl.sh saddle-1.',
     )
-    specs = [
-        ('cam1', 'PtP cam 1', generic),
-        ('cam2', 'PtP cam 2', generic),
-        ('saddle-1', 'Saddle 1', saddle),
-        ('saddle-2', 'Saddle 2', saddle),
-        ('saddle-3', 'Saddle 1 (tracked)', tracked),
-    ]
     return [
-        Feed(
-            path=path,
-            label=label,
-            hub='van',
-            slot_group='cameras',
-            transport='srt',
-            role='publish',
-            send=SendSpec(host=_VAN, port=8890, streamid=f'publish:{path}', latency_ms=200),
-            obs_read=f'rtsp://{_VAN}:8554/{path}',
-            browser_url=f'http://{_VAN}:8889/{path}',
-            standby=False,
-            expected_tracks=('H264',),
-            notes=notes,
-        )
-        for path, label, notes in specs
-    ]
-
-
-def _van_finish_cameras() -> list[Feed]:
-    """The two top/finish course cameras (van hub, SRT publish, no auth).
-
-    Run on ``pmpi3`` — a Compute Module 5 driving two CSI ``OV5647`` ribbon
-    cameras. The CM5 has no hardware H.264 encoder, so both software-encode with
-    libx264; CSI capture is via ``rpicam-vid`` (hillclimb-cam ``CAM_SOURCE=csi``).
-    Path = service = wall label, as with the saddle cams: ``cam-stream@finish-N``.
-    """
-    notes = (
-        'Top/finish position — pmpi3 (CM5), two CSI OV5647 cams, software libx264 '
-        '720p ~2.5 Mbps (the CM5 has no HW H.264 encoder). CSI capture via '
-        'rpicam-vid. hillclimb-cam service cam-stream@finish-N.',
-    )
-    return [
-        Feed(
-            path=path,
-            label=label,
-            hub='van',
-            slot_group='cameras',
-            transport='srt',
-            role='publish',
-            send=SendSpec(host=_VAN, port=8890, streamid=f'publish:{path}', latency_ms=200),
-            obs_read=f'rtsp://{_VAN}:8554/{path}',
-            browser_url=f'http://{_VAN}:8889/{path}',
-            standby=False,
-            expected_tracks=('H264',),
-            notes=notes,
-        )
-        for path, label in (('finish-1', 'Finish 1'), ('finish-2', 'Finish 2'))
-    ]
-
-
-def _van_top_cameras() -> list[Feed]:
-    """The top-position spare camera (van hub, SRT publish, no auth).
-
-    Runs on ``top-camera-3b1`` — a Pi 3B, backhauled over the ``pmahbridge1`` ↔
-    van-edge bridge pair rather than one of the TP-Link Pharos point-to-point links
-    the other positions use.
-
-    The link is the thing to watch, not the camera. Measured at van-edge it
-    associates as **VHT 160 MHz at about -60 dBm with ~19 Mbps expected
-    throughput** — comfortable for one ~2.5 Mbps H.264 feed but well below what a
-    Pharos position carries, and it is the *only* camera path sharing a radio with
-    the van's general traffic. Re-read ``iw dev wlan0.staN station dump``
-    (``expected throughput``, not the last-frame ``rx bitrate``, which reads low
-    while idle) before raising this feed's bitrate. Path = service = wall label, as
-    with the saddle/finish/start cams: ``cam-stream@top-1``.
-    """
-    notes = (
-        'Top spare position — top-camera-3b1 (Pi 3B) behind the pmahbridge1 bridge '
-        'pair, not a Pharos 5 GHz PtP link like the other positions.',
-        'Lowest-headroom backhaul of the fleet (~19 Mbps expected throughput, '
-        'shared with general van traffic): keep the bitrate modest and re-check '
-        'the link before raising it. hillclimb-cam service cam-stream@top-1.',
-    )
-    return [
-        Feed(
-            path='top-1',
-            label='Top 1',
-            hub='van',
-            slot_group='cameras',
-            transport='srt',
-            role='publish',
-            send=SendSpec(host=_VAN, port=8890, streamid='publish:top-1', latency_ms=200),
-            obs_read=f'rtsp://{_VAN}:8554/top-1',
-            browser_url=f'http://{_VAN}:8889/top-1',
-            standby=False,
-            expected_tracks=('H264',),
-            notes=notes,
-        )
+        _van_cam('saddle-1', 'Saddle 1', saddle),
+        _van_cam('saddle-2', 'Saddle 2', saddle),
+        _van_cam('saddle-3', 'Saddle 1 (tracked)', tracked),
     ]
 
 
@@ -463,10 +462,11 @@ def _radio() -> list[Feed]:
 
 
 #: Every feed on both hubs, in display order (grouped by slot_group downstream).
+#: Course cameras run downhill — top (at the van) → finish → saddle → start.
 FEEDS: tuple[Feed, ...] = tuple(
-    _van_cameras()
-    + _van_finish_cameras()
-    + _van_top_cameras()
+    _van_top_cameras()
+    + _van_finish_camera()
+    + _van_saddle_cameras()
     + _cloud_start_cameras()
     + _radio()
     + _cloud_phones()

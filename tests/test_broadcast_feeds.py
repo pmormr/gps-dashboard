@@ -43,7 +43,7 @@ def test_feeds_present_and_grouped() -> None:
     """Every advertised path is in the registry, on the right hub."""
     van = {f.path for f in FEEDS if f.hub == 'van'}
     cloud = {f.path for f in FEEDS if f.hub == 'cloud'}
-    assert {'cam1', 'cam2', 'saddle-1', 'saddle-2', 'radio'} <= van
+    assert {'top-1', 'finish-1', 'saddle-1', 'saddle-2', 'radio'} <= van
     assert {'cam-front-main', 'cam-rear-main'} <= van
     assert {'phone1', 'phone2', 'phone3', 'phone4', 'phone5'} <= cloud
     assert {'drone1', 'drone2'} <= van and {'drone1', 'drone2'} <= cloud
@@ -136,16 +136,16 @@ def test_render_reports_missing_secrets_when_env_empty() -> None:
     payload = render_feeds({})
     # All four cloud creds surface as missing; van feeds contribute none.
     assert set(payload['missing_secrets']) == set(FAKE_ENV)
-    van_cam = next(f for f in payload['feeds'] if f['path'] == 'cam1')
+    van_cam = next(f for f in payload['feeds'] if f['path'] == 'top-1')
     assert van_cam['missing_secrets'] == []
 
 
 def test_srt_single_url_van_camera() -> None:
     """Van SRT: streamid + latency, no passphrase (unencrypted LAN)."""
     payload = render_feeds(FAKE_ENV)
-    cam1 = next(f for f in payload['feeds'] if f['path'] == 'cam1' and f['hub'] == 'van')
+    cam1 = next(f for f in payload['feeds'] if f['path'] == 'top-1' and f['hub'] == 'van')
     assert cam1['send']['single_url'] == (
-        'srt://192.168.42.178:8890?streamid=publish:cam1&latency=200'
+        'srt://192.168.42.178:8890?streamid=publish:top-1&latency=200'
     )
     assert cam1['send']['passphrase'] is None
 

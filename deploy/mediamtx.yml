@@ -54,12 +54,16 @@ paths:
   # Van publisher paths, generated from broadcast/feeds.py (B8). The Dahua
   # on-demand proxy block below is hand-maintained (cameras-owned).
 
-  # cam1 — PtP cam 1 (SRT publish :8890)
-  cam1:
+  # top-1 — Top 1 (SRT publish :8890)
+  top-1:
     source: publisher
 
-  # cam2 — PtP cam 2 (SRT publish :8890)
-  cam2:
+  # top-2 — Top 2 (SRT publish :8890)
+  top-2:
+    source: publisher
+
+  # finish-1 — Finish 1 (SRT publish :8890)
+  finish-1:
     source: publisher
 
   # saddle-1 — Saddle 1 (SRT publish :8890)
@@ -72,18 +76,6 @@ paths:
 
   # saddle-3 — Saddle 1 (tracked) (SRT publish :8890)
   saddle-3:
-    source: publisher
-
-  # finish-1 — Finish 1 (SRT publish :8890)
-  finish-1:
-    source: publisher
-
-  # finish-2 — Finish 2 (SRT publish :8890)
-  finish-2:
-    source: publisher
-
-  # top-1 — Top 1 (SRT publish :8890)
-  top-1:
     source: publisher
 
   # radio — Radio audio (in-hub publisher)
