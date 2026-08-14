@@ -180,13 +180,19 @@ def _van_top_cameras() -> list[Feed]:
     last-frame ``rx bitrate``, which reads low while idle) before raising the
     bitrate.
 
-    **The ``pmah`` name may be a misnomer, unresolved.** 802.11ah HaLow uses
-    1/2/4/8/16 MHz channels, but both bridges associate as **VHT-MCS at 160 MHz**
-    (``pmahbridge2`` at 585 Mbit/s), which is 802.11ac 5 GHz. Either these radios
-    are dual-mode and came up on 5 GHz, or the name is simply wrong. It matters
-    because it decides whether a second camera fits on one bridge — do not plan
-    against the event doc's "single-digit Mbps aggregate" HaLow budget until
-    someone reads the radios' own config.
+    **Read HaLow link rates ÷20.** These are Heltec HT-HD01 bridges (902–928 MHz,
+    1/2/4/8 MHz channels, 32.5 Mbps at 8 MHz) — the same Morse Micro family as the
+    house link's radio. That driver reports S1G links in **VHT** terms at 20× the
+    real channel width, so ``iw`` showing "VHT-MCS 6, 160 MHz, 585 Mbit/s" means an
+    **8 MHz** channel at ~29 Mbps, which is the vendor ceiling, not a 5 GHz link.
+    Divide the reported bitrate by 20 before believing it. (Whether ``expected
+    throughput`` carries the same scaling is unverified — treat 32.5 Mbps as the
+    honest per-radio ceiling.)
+
+    **All HaLow clients share one channel.** Both camera bridges associate to
+    van-edge's single 908 MHz radio, so they contend with each other — and, parked
+    at home, with the house link as well. Unlike the Pharos 5 GHz PtP positions,
+    these are not independent pipes.
     """
     picam = (
         'Top position at the van — picam1 (Pi 4B), one USB cam, H.264 720p '
@@ -195,7 +201,7 @@ def _van_top_cameras() -> list[Feed]:
     )
     ribbon = (
         'Top position — a Pi 3B+ with an OV5647 ribbon (CSI) camera, behind the '
-        'pmahbridge1 bridge pair rather than a Pharos 5 GHz PtP link.',
+        'pmahbridge1 HaLow pair rather than a Pharos 5 GHz PtP link.',
         'Lowest-headroom backhaul of the fleet (~19 Mbps expected throughput, '
         'shared with general van traffic): keep the bitrate modest and re-check '
         'the link before raising it. hillclimb-cam service cam-stream@top-2.',
@@ -210,9 +216,9 @@ def _van_finish_camera() -> list[Feed]:
     """The finish-line camera (van hub, SRT publish, no auth).
 
     A Pi 3B with a single Logitech **C920**, backhauled over the ``pmahbridge2``
-    pair — the better of the two bridge links by a wide margin (it associates at
-    585 Mbit/s against ``pmahbridge1``'s ~19 Mbps; see :func:`_van_top_cameras`
-    for the unresolved question of what band these actually run on).
+    HaLow pair — the stronger of the two bridge links, associating at the 8 MHz
+    channel's ceiling (~29 Mbps real; see :func:`_van_top_cameras` for why the
+    reported 585 Mbit/s must be read ÷20, and for the shared-channel caveat).
 
     It is the one node in the fleet that does **no encoding**: this
     C920 exposes native UVC H.264, so hillclimb-cam auto-selects
