@@ -264,6 +264,10 @@ def _van_saddle_cameras() -> list[Feed]:
         'sensor detail. Published by cam-track@saddle-1, which also publishes the '
         'wide saddle-1 and replaces cam-stream@saddle-1 (the units Conflict). '
         'Frame it live with cam-track-ctl.sh saddle-1.',
+        'NOT ENABLED AT BOOT, on purpose: the pair of feeds caps at ~12-15 fps '
+        '(software JPEG decode) on a node already thermally throttled at 83 C. '
+        'The saddle node needs a fan before this runs for real — until then a '
+        'reboot correctly falls back to the plain wide cam-stream@saddle-1.',
     )
     return [
         _van_cam('saddle-1', 'Saddle 1', saddle),
