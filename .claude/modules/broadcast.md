@@ -7,14 +7,25 @@ broadcaster-style **monitor wall**. Built for live-streaming events (first use: 
 Mount Equinox Hill Climb, Aug 2026 — multi-camera + phone + drone feeds cut in OBS),
 but the tab is permanent, not event-scoped.
 
-**Why two halves per feed (the whole point).** Each feed is decoupled: OBS pulls a
-MediaMTX path that is *always* serving at a pinned codec (`alwaysAvailable` = a STANDBY
-loop when no real publisher is attached), so OBS never sees the underlying camera/phone
-drop — MediaMTX is the stable intermediary (fixes last year's OBS-loses-its-source pain).
-The cost is the exact state the wall must surface: **ingest** (is a real source sending?)
-and **egress** (is OBS pulling, is data flowing?) are independent, and the healthy one
-masks the dead one. The failure mode the wall exists to catch: camera dies → path serves
-STANDBY → **egress looks perfectly healthy, OBS broadcasts a placeholder unaware.**
+**Why two halves per feed (the whole point).** Each feed is decoupled: OBS attaches to a
+MediaMTX path rather than to the camera/phone itself, so a publisher dropping doesn't yank
+OBS's source mid-cut — MediaMTX is the stable intermediary (fixes last year's
+OBS-loses-its-source pain). The cost is the exact state the wall must surface: **ingest**
+(is a real source sending?) and **egress** (is OBS pulling, is data flowing?) are
+independent, and the healthy one masks the dead one. The failure mode the wall exists to
+catch: source dies → the path keeps answering readers → **egress looks perfectly healthy
+while nothing real is going out.**
+
+> **`alwaysAvailable` does NOT generate filler video** — corrected on event day 2026-08-08,
+> against the assumption this design was originally written on. It only makes a path *answer*
+> a reader and declare its track list; it produces **no frames**. Verified: 8 s of decode
+> against an idle `start-1` returned zero. So OBS connects, receives nothing, and tears down
+> after ~1 s — which reads to an operator as "the URL is broken", with nothing in the log to
+> say otherwise. Consequence: it is only worth having where a *reconnecting* publisher would
+> otherwise drop OBS's source (the phone and drone slots). **Fixed cameras are plain
+> publisher slots** (`standby=False`) so a dead path gives a real error instead of silence.
+> The hub is therefore legitimately mixed, and `standby` tracks each path's actual config
+> rather than any hub-wide rule.
 
 ## The two hubs
 
@@ -29,6 +40,15 @@ deltas are auth + reachability. One registry (`broadcast/feeds.py`) describes bo
 **Video stays public and untunneled on both hubs** (deliberate — keeps the public
 rendezvous target, avoids tunneling multi-Mbps video). Only the *control plane* — status
 polling, log tails, JPEG snapshots (a trickle) — rides the tunnel.
+
+**The cloud hub is torn down between events** (done 2026-08-14): `mediamtx` disabled and its
+three public ports closed, reverting the vps to an SSH-only baseline. An open RTSP/RTMP port
+on a public VPS is found and probed continuously — the last 38 hours before teardown logged
+400 lines of nothing but IP-camera scanners walking a vendor-path list. The WG tunnel and the
+agent stay up, so **the Broadcast tab reporting the cloud hub `reachable: false` is the normal
+between-events state, not a fault** — each cloud feed correctly degrades to
+`{hub, path, reachable}` rather than a fabricated status. Standing it back up is
+`systemctl enable --now mediamtx` plus re-adding the UFW rules (`cloud/devices/vps202051.md`).
 
 ## Code map
 
@@ -137,8 +157,51 @@ that isn't regenerated fails the suite. **Regenerate + commit before pushing.** 
 `mediamtx.yml` lives on a different box and stays hand-maintained (the registry documents it
 + drives the codec pins but doesn't write it).
 
+## The course-camera fleet (B12)
+
+Every course camera is a Raspberry Pi running the standalone
+[`hillclimb-cam`](https://github.com/pmormr/hillclimb-cam) kit, SRT-publishing to a hub.
+The **naming invariant, no exceptions**:
+
+> **MediaMTX path = hillclimb-cam service instance = monitor-wall label = course position.**
+> `<path>` is always `cam-stream@<path>` on its node (`cam-track@` for the tracked crop).
+
+Renaming a feed therefore means renaming that node's systemd unit **and** its
+`/etc/default/cam-stream-<path>`, or it publishes to a path the hub no longer has and
+MediaMTX rejects it. The invariant exists because the 2026 event ran on generic `cam1`/`cam2`
+slots plus position names, and the two schemes drifted into meaning different hardware —
+`top-1` and `finish-1` each denoted two different Pis at once. Fixed 2026-08-14.
+
+As of 2026: `top-1`/`top-2` (at the van), `finish-1`, `saddle-1`/`saddle-2`/`saddle-3` on the
+van hub, and `start-1`/`start-2` on the cloud hub — the start line has no route to the van
+LAN. `saddle-3` is not a camera: it is a second, action-following crop published off the
+`saddle-1` camera by `cam-track@saddle-1`, which replaces `cam-stream@saddle-1` (the units
+`Conflict`). Per-node hardware, backhaul and traps live in the network vault
+(`events/2026-hillclimb.md` + its device pages), not here.
+
+## OBS reads van feeds over WebRTC, not RTSP (B13)
+
+The single most important operational finding of the 2026 event. **RTSP into OBS is not
+reliable**: OBS does not keep the RTSP control channel alive, so MediaMTX closes the session
+with an i/o timeout and the source goes black with no useful error. It failed on `saddle-1`
+and, an hour later, on the radio audio. WebRTC held all day.
+
+So `obs_browser_url` is **derived** from each feed's `browser_url` (same reason `_single_url`
+is derived — the preview link and the OBS string cannot drift). Two params are load-bearing
+because the hub's player defaults every flag to true: `controls=false` keeps the player
+chrome out of the captured frame, and an audio-only feed also needs `muted=false` or OBS
+renders a working stream silently. The trailing slash avoids a 302.
+
+Only the van's H.264/Opus feeds can use it — the cloud hub serves no WebRTC and the browser
+cannot decode the H.265 security mains. Those keep RTSP with `rtsp_transport=tcp` pinned, and
+the config card says which of the two reasons applies.
+
 ## Traps (durable, verified live)
 
+- **`alwaysAvailable` serves no frames** — see the correction above. It is not a filler source.
+- **Never point OBS (or a browser) at `/whep`.** That is the signalling endpoint a player's JS
+  POSTs an SDP offer to; a GET returns **405** with a JSON error page, which OBS faithfully
+  renders as a web page. The player page is the path itself.
 - **`source.id` (non-empty), not `source.type`, is the "real publisher connected" signal.**
   Idle on-demand/STANDBY paths report a configured `source.type` with an empty id.
 - **A STANDBY source reports `source: null`** (not a standby-source object with an id) →
@@ -171,7 +234,9 @@ local/offline · B5 one shared `common/mediamtx.py` client both hubs · B6 two-s
 from the control API (no journal parsing) · B7 cloud control plane over a direct van↔cloud
 WG tunnel (video stays public) · B8 registry generates the van `mediamtx.yml` paths · B9
 unified JPEG-snapshot previews both hubs · B10 phones stay cloud-only (van LAN unreachable
-from cellular) · B11 live raw log panel per hub.
+from cellular) · B11 live raw log panel per hub · B12 course-camera path = service instance
+= position, fleet-wide · B13 OBS pulls van feeds over WebRTC (RTSP into OBS proved unreliable
+live); `obs_browser_url` derived from `browser_url`.
 
 ## Deferred / rejected (Phase 5, all dropped 2026-07-27)
 
@@ -195,3 +260,8 @@ from cellular) · B11 live raw log panel per hub.
 paths this surfaces + the snapshot pattern B9 generalizes), `streaming-platform-plan.md` (the
 van PtP-camera ingest side). Mirror docs: `paul-network-docs` → `events/2026-hillclimb.md`,
 `events/2026-hillclimb-quickref.md`, `cloud/devices/vps202051.md`, `van/devices/pmpi1.md`.
+
+Sibling repos, both public and neither vendored here: **`hillclimb-cam`** (the Pi edge
+encoder every course camera runs — canonical home for provisioning a camera node) and
+**`hillclimb-timing-overlay`** (transparent OBS overlays off the event's live-timing JSON
+feed; stdlib-only, unrelated to this app but part of the same broadcast).
