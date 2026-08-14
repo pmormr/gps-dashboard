@@ -178,8 +178,15 @@ def _van_top_cameras() -> list[Feed]:
     the fleet and the only camera path sharing a radio with general van traffic.
     Re-read ``iw dev wlan0.staN station dump`` (``expected throughput``, not the
     last-frame ``rx bitrate``, which reads low while idle) before raising the
-    bitrate. That dump reports the sub-GHz link in VHT terms, so read the width as
-    the driver's mapping of a HaLow channel, not as a 5 GHz one.
+    bitrate.
+
+    **The ``pmah`` name may be a misnomer, unresolved.** 802.11ah HaLow uses
+    1/2/4/8/16 MHz channels, but both bridges associate as **VHT-MCS at 160 MHz**
+    (``pmahbridge2`` at 585 Mbit/s), which is 802.11ac 5 GHz. Either these radios
+    are dual-mode and came up on 5 GHz, or the name is simply wrong. It matters
+    because it decides whether a second camera fits on one bridge — do not plan
+    against the event doc's "single-digit Mbps aggregate" HaLow budget until
+    someone reads the radios' own config.
     """
     picam = (
         'Top position at the van — picam1 (Pi 4B), one USB cam, H.264 720p '
@@ -188,7 +195,7 @@ def _van_top_cameras() -> list[Feed]:
     )
     ribbon = (
         'Top position — a Pi 3B+ with an OV5647 ribbon (CSI) camera, behind the '
-        'pmahbridge1 HaLow pair rather than a Pharos 5 GHz PtP link.',
+        'pmahbridge1 bridge pair rather than a Pharos 5 GHz PtP link.',
         'Lowest-headroom backhaul of the fleet (~19 Mbps expected throughput, '
         'shared with general van traffic): keep the bitrate modest and re-check '
         'the link before raising it. hillclimb-cam service cam-stream@top-2.',
@@ -203,7 +210,11 @@ def _van_finish_camera() -> list[Feed]:
     """The finish-line camera (van hub, SRT publish, no auth).
 
     A Pi 3B with a single Logitech **C920**, backhauled over the ``pmahbridge2``
-    HaLow pair. It is the one node in the fleet that does **no encoding**: this
+    pair — the better of the two bridge links by a wide margin (it associates at
+    585 Mbit/s against ``pmahbridge1``'s ~19 Mbps; see :func:`_van_top_cameras`
+    for the unresolved question of what band these actually run on).
+
+    It is the one node in the fleet that does **no encoding**: this
     C920 exposes native UVC H.264, so hillclimb-cam auto-selects
     ``CAM_ENCODER=copy`` and ffmpeg remuxes the camera's own stream straight to
     SRT — ~15 % of one core on the weakest Pi in the fleet.
@@ -215,7 +226,7 @@ def _van_finish_camera() -> list[Feed]:
     """
     notes = (
         'Finish position — a Pi 3B with one Logitech C920, behind the pmahbridge2 '
-        'HaLow pair. hillclimb-cam service cam-stream@finish-1.',
+        'pair (the stronger of the two links). Service cam-stream@finish-1.',
         'NO ENCODE: the C920 emits native H.264, so CAM_ENCODER=copy remuxes it '
         'as-is (~3.2 Mbps measured, 30 fps, ~15% of one core). CAM_BITRATE is '
         "inert with copy — the rate is the camera's choice, not ours.",
