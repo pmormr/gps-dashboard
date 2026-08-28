@@ -628,6 +628,33 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_phone_activities_start_time
             ON phone_activities(start_time);
+
+        -- OwnTracks live-phone tier — continuous self-hosted phone positions,
+        -- appended by tools/sync_owntracks.py pulling the OwnTracks Recorder on
+        -- rex-nas (see plans/phone-tracking-plan.md). Fully rebuildable: the
+        -- Recorder's /store is the source of truth. Deliberately separate from
+        -- the Timeline phone_* tier above — different source, different
+        -- lifecycle (append-only vs. full-replace). velocity is km/h and
+        -- battery is % as OwnTracks reports them; timestamp is canonical
+        -- ms-UTC on the shared axis (OwnTracks tst is whole seconds → .000).
+        CREATE TABLE IF NOT EXISTS owntracks_points (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user      TEXT NOT NULL,
+            device    TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            lat       REAL NOT NULL,
+            lon       REAL NOT NULL,
+            accuracy  REAL,
+            altitude  REAL,
+            velocity  REAL,
+            battery   REAL,
+            synced_at TEXT NOT NULL
+        );
+        -- Idempotent sync key: windowed re-pulls INSERT OR IGNORE against this.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_owntracks_points_device_time
+            ON owntracks_points(device, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_owntracks_points_timestamp
+            ON owntracks_points(timestamp);
     """)
     conn.commit()
     # The places tier lives in the ATTACHed sidecar, so its schema only applies

@@ -1,9 +1,12 @@
-"""Phone location-history tier API — the map-overlay reads.
+"""Phone-tracking API — the map-overlay reads for both phone tiers.
 
-The phone tier's HTTP surface (see ``.claude/modules/phone.md``): two read-only
-overlays over the Google Timeline history imported by
-``tools/import_phone_timeline.py``. There is no ingest route — the import is a
-batch tool run on the Pi against the live DB, not a LAN POST (unlike drone).
+The phone theme's HTTP surface, read-only over two separate tiers (history:
+``.claude/modules/phone.md``; live: ``plans/phone-tracking-plan.md``). Neither
+has an ingest route — the history tier is loaded by a batch tool run on the Pi
+(``tools/import_phone_timeline.py``), the live tier by a timer-driven pull
+(``tools/sync_owntracks.py``).
+
+Timeline history (``phone_*``, Google Timeline import):
 
 * ``GET /api/phone/tracks`` — the breadcrumb. ``phone_paths`` whose interval
   overlaps the window, each with its thinned points embedded. Size-guarded like
@@ -14,8 +17,14 @@ batch tool run on the Pi against the live DB, not a LAN POST (unlike drone).
 * ``GET /api/phone/places`` — the semantic layer: ``phone_visits`` +
   ``phone_activities`` overlapping the window.
 
-All filters (``start``/``end``/``bbox``) are optional; overlap, not containment,
-so a segment partially in view still returns.
+OwnTracks live (``owntracks_points``, Recorder pull):
+
+* ``GET /api/phone/owntracks`` — points in the window, oldest first.
+* ``GET /api/phone/owntracks/latest`` — the most recent fix per device (the
+  live-marker read).
+
+All filters (``start``/``end``/``bbox``) are optional; interval rows match on
+overlap, not containment, so a segment partially in view still returns.
 """
 
 from flask import Blueprint, jsonify, request
@@ -40,6 +49,7 @@ _ACTIVITY_COLUMNS = (
     'id, start_time, end_time, start_lat, start_lon, end_lat, end_lon, '
     'distance_m, activity_type, probability'
 )
+_OWNTRACKS_COLUMNS = 'user, device, timestamp, lat, lon, accuracy, altitude, velocity, battery'
 
 
 @phone_bp.get('/api/phone/tracks')
@@ -158,6 +168,62 @@ def list_places():
             'truncated': truncated,
         }
     )
+
+
+@phone_bp.get('/api/phone/owntracks')
+def list_owntracks():
+    """Live-tier (OwnTracks) points in the window, oldest first.
+
+    Points filter on their single ``timestamp`` (``start``/``end``), plus
+    optional ``bbox`` and ``device``; capped at ``limit`` in time order, so a
+    hit cap (``truncated``) drops the newest points, never reorders.
+    """
+    conn = get_connection()
+
+    where, params, err = time_overlap_where(request.args, 'timestamp', 'timestamp')
+    if err:
+        return err
+
+    bbox, err = parse_bbox(request.args)
+    if err:
+        return err
+    if bbox is not None:
+        clauses, bbox_params = bbox_point_where(bbox)
+        where += clauses
+        params += bbox_params
+
+    device = request.args.get('device')
+    if device:
+        where.append('device = ?')
+        params.append(device)
+
+    limit, err = parse_limit(request.args, default=10000, maximum=50000)
+    if err:
+        return err
+
+    sql = f'SELECT {_OWNTRACKS_COLUMNS} FROM owntracks_points'
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY timestamp ASC LIMIT ?'
+    points = [dict(r) for r in conn.execute(sql, [*params, limit]).fetchall()]
+    return jsonify({'points': points, 'count': len(points), 'truncated': len(points) == limit})
+
+
+@phone_bp.get('/api/phone/owntracks/latest')
+def latest_owntracks():
+    """The most recent fix per device — the live-marker read.
+
+    One row per (user, device): with a lone ``MAX(timestamp)`` aggregate,
+    SQLite guarantees the other selected columns come from the max row.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        'SELECT user, device, MAX(timestamp) AS timestamp, lat, lon, accuracy, '
+        'altitude, velocity, battery, synced_at '
+        'FROM owntracks_points GROUP BY user, device ORDER BY user, device'
+    ).fetchall()
+    devices = [dict(r) for r in rows]
+    return jsonify({'devices': devices, 'count': len(devices)})
 
 
 def _select_places(conn, table: str, columns: str, where: list[str], params: list, limit: int):

@@ -1,0 +1,16 @@
+[Unit]
+Description=OwnTracks phone-position home sync (pull the Recorder on rex-nas)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pmorgan
+WorkingDirectory=/mnt/nvme/gps-dashboard
+Environment=PYTHONPATH=/mnt/nvme/gps-dashboard
+Environment=GPS_DB_PATH=/mnt/nvme/data/gps_history.db
+# Pulls the OwnTracks Recorder REST API on rex-nas over the van↔home link
+# (WireGuard away, HaLow when parked at home). A no-op when rex-nas is
+# unreachable (boondocking): the tool preflights with a short timeout, exits 0.
+ExecStart=/mnt/nvme/gps-dashboard/.venv/bin/python -m tools.sync_owntracks \
+    --base-url http://10.1.100.224:8083

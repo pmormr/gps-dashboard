@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic OwnTracks phone-position sync
+
+[Timer]
+# 5 min keeps the latest-phone-position marker near-live whenever the van can
+# reach home; an unreachable run is one short-timeout preflight, so the cadence
+# costs nothing off-grid.
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
