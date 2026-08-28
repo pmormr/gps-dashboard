@@ -64,75 +64,44 @@ App runs at `http://192.168.42.178/`. Production topology is **nginx (:80, LAN f
 
 ### Data Model
 
-SQLite (`gps_history.db`). Core GPS tables:
+SQLite (`gps_history.db`); all schemas live in `api/db.py`. Every `timestamp` is fixed-width ms UTC (`canonical_timestamp`) — one uniform time axis across all tiers. Core tables:
 
-- `gps_points(id, timestamp, lat, lon, speed, altitude, track, epx, epy, epv, eps, climb, mode)` — raw append-only stream; the per-fix accuracy/quality columns feed the denoise processor. `timestamp` is fixed-width ms UTC (`canonical_timestamp`), uniform across all tiers.
-- `annotations(id, name, start_time, end_time, notes)` — pure metadata; no foreign keys. `end_time` nullable: NULL = point-in-time bookmark; non-NULL = range, whose points come from `WHERE timestamp BETWEEN start_time AND end_time` against `gps_points`.
+- `gps_points` — raw append-only stream, written only by the logger; per-fix accuracy/quality columns feed the denoise processor.
+- `annotations` — user-curated bookmarks/ranges; pure metadata, no foreign keys (`end_time` NULL = point-in-time bookmark, non-NULL = time range against `gps_points`).
 
-Processed/denoise tier — derived from raw by `gps-processor`, fully rebuildable (see `.claude/modules/processor.md`):
+Every other tier is **derived and fully rebuildable** from raw data or an external source; each is documented in its module:
 
-- `track_points(...)` — the denoised/simplified points the frontend reads via `/api/points` (`kind` `track`|`stop`, `n_raw`, `importance`, `accuracy`, stop `dwell_*`/`radius`, `src_raw_id`). The processor collapses each parked dwell to one accuracy-weighted point and simplifies moving segments (Reumann–Witkam, `importance` = perpendicular deviation).
-- `track_events(...)` — processor-emitted events (stop start/end, mode transitions, …); distinct from the user-curated `annotations`.
-- `receiver_metadata(id, timestamp, hdop, vdop, pdop, nsat_used, nsat_seen)` — SKY-sourced DOP + sat counts, written by the logger on a ~5 s throttle; standalone telemetry, not joined into the position path.
-- `processing_state(key, value)` — the processor's `last_committed_raw_id` cursor.
-
-Drone telemetry tier — aerial GPS tracks batch-imported from DJI footage by `tools/import_drone.py`, fully rebuildable from the source media (see `.claude/modules/drone.md`):
-
-- `drone_flights(id, model, model_code, first_fix_utc, last_fix_utc, media_path, source_name, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per clip. Natural key `(model_code, first_fix_utc)` (no DJI model exposes a serial); `media_path` is the canonical rex-nas path, NULL on an SD-card import for the NAS scan to backfill.
-- `drone_track_points(id, flight_id, timestamp, lat, lon, abs_alt, importance)` — the thinned track (Reumann–Witkam, shared via `processor/simplify.py`); canonical ms-UTC puts drone points on the same time axis as `gps_points`. `abs_alt` is MSL metres.
-
-Phone location-history tier — the user's Google Timeline export batch-imported by `tools/import_phone_timeline.py` (full-replace on each run — exports are cumulative), fully rebuildable from the export (see `.claude/modules/phone.md`):
-
-- `phone_paths(id, start_time, end_time, n_points, min_lat/min_lon/max_lat/max_lon, imported_at)` — one row per contiguous `timelinePath` breadcrumb segment (thinning never crosses a time gap).
-- `phone_track_points(id, path_id, timestamp, lat, lon, importance, activity_type)` — the thinned breadcrumb (shared Reumann–Witkam); `importance=0` marks segment endpoints; `activity_type` is the covering activity's mode (what the map colors by).
-- `phone_visits(...)` / `phone_activities(...)` — the semantic layer (place visits, trip segments); its own tables, **not** `annotations` (which stays user-curated).
-
-Places tier — POIs + event schedules synced by `tools/import_places.py` from four sources (NPS API over WAN; the RIDB full CSV export via `--ridb-zip`; the ~10.7M-row OSM NA extract via `--osm-db`, a transfer DB built off-Pi by `tools/build_osm_pois.py`; the ~800k-row USGS GNIS names layer via `--gnis-zip`, deduped against OSM `gnis:feature_id` tags — full-replace per source), plus the `place_wiki` Wikipedia summary/thumbnail cache (`tools/fetch_wikipedia.py` off-Pi → `--wiki-db`; keyed by wiki id so source merges never orphan it), browsed offline; fully rebuildable. Lives in the **`places.db` sidecar** (ATTACHed as `places_db` by `get_connection()`, kept out of the backup path; no write transaction may span main + sidecar — see `.claude/modules/places.md`):
-
-- `places(id, source, source_kind, source_id, park_code, name, lat, lon, summary, details, synced_at, category, rank)` — one unified row per POI (NPS: `park`|`thingstodo`|`tour`|`visitorcenter`|`campground`|`site`; RIDB adds `recarea`|`facility`|`permit` for the other federal agencies' places; OSM kinds are the primary tag, e.g. `amenity=cafe`). `category` (unified taxonomy) + `rank` (pin-zoom tier, 1 major … 5 search-only) govern all sources through one gate — the decision table is `TAXONOMY` in `tools/build_osm_pois.py`, federal kinds map via `api.db.PLACES_KIND_RANKS`. Columns carry only what queries filter on; display-only structure (tour stops + transcripts, hours, amenities, fees, campsite aggregates; OSM full tags) rides in the `details` JSON. Natural key `(source, source_id)`; lat/lon nullable. RIDB `park_code` is the owning `RecAreaID` (numeric; the UI shows `details.recAreaName`). `places_fts` (FTS5) backs search with **token-prefix** semantics.
-- `place_events(...)` + `place_event_dates(id, event_id, date, time_start, time_end)` — scheduled programs with the source's pre-expanded occurrence list as indexed rows (park-local `YYYY-MM-DD` dates as published, **not** ms-UTC), so "what's on this week" is one range query.
-
-GNSS observatory tier — per-satellite az/el logged for 3D reconstruction + pass prediction; reconstructed/fit on-demand, no rollup (see `.claude/modules/observatory.md`):
-
-- `sat_observations(id, timestamp, gnssid, svid, az, el, snr, used, health)` — one row per positioned satellite per SKY sweep, on the logger's ~60s throttle; indexed `(gnssid, svid, timestamp)` + `timestamp`. The input the globe reconstructs and pass prediction fits orbits from; standalone telemetry, never joined into the position path.
-
-Radio tier — RX transmissions captured by the `radio-recorder` daemon (design = R8 in `.claude/modules/radio.md`):
-
-- `radio_transmissions(id, started_utc, ended_utc, duration_s, freq_hz, mode, dcd_main, peak_dbfs, rms_dbfs, audio_path, lat, lon, waveform, is_tx)` — one row per RX VOX-gate opening **or** operator transmission (`is_tx=1`, R11); the WAV lives under `/mnt/nvme/data/radio-audio/` (TX in its `tx/` subtree) and the retention pruner NULLs `audio_path` but keeps the row. `freq_hz`/`mode` are a rigctld snapshot of the **active main band** while RX audio is SP1's A+B mix — `dcd_main` marks that tag's confidence (NULL on TX); `lat`/`lon` snap from the latest raw fix (NULL when stale). `waveform` is a fixed-N JSON int array (0..255 bar heights, absolute dBFS window) derived at record time from the audio's sub-block peaks (`radio/waveform.py`) — drawn as the log/player waveform, and survives the audio prune.
-
-The same DB also holds the sensor-platform tables (`sensors`, `bme680_readings`, `obd_readings`, `victron_readings`, `system_readings`, `openwrt_readings`, `nvr_readings`, `camera_readings`, `fridge_readings`, `fridge_history`, `alarm_rules`, `alarm_events`) — see the Sensor Platform section below.
+- **Processed/denoise** (`track_points`, `track_events`, `receiver_metadata`, `processing_state`) — what the frontend reads, derived by `gps-processor` (processor.md).
+- **Drone** (`drone_flights`, `drone_track_points`) — DJI telemetry imported from footage (drone.md).
+- **Phone** (`phone_paths`, `phone_track_points`, `phone_visits`, `phone_activities`) — Google Timeline import, full-replace per run (phone.md).
+- **Places** (`places`, `places_fts`, `place_events`, `place_event_dates`, `place_wiki`) — POI/event tier in the **`places.db` sidecar** (ATTACHed by every `get_connection()`, outside the backup path; no write transaction may span main + sidecar). Event dates are park-local `YYYY-MM-DD`, **not** ms-UTC (places.md).
+- **GNSS observatory** (`sat_observations`) — per-satellite az/el telemetry; never joined into the position path (observatory.md).
+- **Radio** (`radio_transmissions`) — VOX-captured RX + operator-TX log; the retention pruner drops audio but keeps rows (radio.md).
+- **Sensor platform** (`sensors`, the `*_readings` tables, `fridge_history`, `alarm_rules`, `alarm_events`) — MQTT-ingested streams (sensors.md).
 
 ### API Endpoints
 
 Signatures + purpose only — full request/response behavior lives in the route files (`api/routes/`, docstrings) and the subsystem modules.
 
-- `GET /api/status` — Home glance aggregate (fix, house power, OBD + link state, cabin IAQ, GNSS health, service states)
-- `GET /api/points?start=&end=&limit=&bbox=` — trail/history from the processed tier (`track_points`), size-aware decimated: stops always kept, moving vertices fill the `limit` budget by `importance` (`truncated` ⇒ moving loss only)
-- `GET /api/points/latest` — most-recent **raw** fix (the live dot reads `gps_points`, not the processed tier)
-- `GET /api/points/recent?minutes=&limit=` — raw trailing window, stride-decimated (the Drive breadcrumb seed; the processed tier would lag the processor's cursor)
-- `GET/POST/PATCH/DELETE /api/annotations[/:id]` — user-curated bookmarks/ranges (`end_time` NULL = point bookmark)
-- `GET /tiles/osm.pmtiles` · `GET /tiles/terrain.pmtiles` — vector basemap + terrain DEM archives with HTTP range support (basemaps.md)
-- `GET /tiles/<layer>/{z}/{x}/{y}.png` — raster (USGS) tile proxy/cache; `?refresh=1` background-revalidates (basemaps.md)
-- `GET /tiles/weather/<layer>/<frame_ts>.pmtiles` · `GET /api/weather/<layer>/frames[?window=h]` · `GET /api/weather/<layer>/geojson` — the weather tier: per-frame radar PMTiles (range-served like `osm.pmtiles`; `<frame_ts>` digits-only), the frame index (newest-first), and a vector layer's keep-latest GeoJSON snapshot (warnings; `fetched_at` stamped). Archive health is a `weather_radar` `/data` chunk. Capture-while-online/play-offline (`plans/weather-plan.md`)
-- `GET /api/sensors` · `GET /api/sensors/:id/readings` · `GET /api/sensors/series` — sensor registry, reading history, and the bucketed multi-metric series backing Trends (sensors.md)
-- `GET /api/obd/economy?start=&end=` — per-window drive/fuel summary, derived at read time (`common/obd.py`); pass annotation bounds for per-trip MPG
-- `GET /api/fridge/status` · `GET /api/fridge/history?span=` · `POST /api/fridge/{setpoint,power}` — CFX3 control plane: DB snapshot + liveness + cached ranges, stored DC-history reads, and zone setpoint/power writes over DDMP with live read-back; 502 = fridge NAK, 503 = unreachable (sensors.md, `reference/cfx3-ddmp.md`)
-- `GET/POST /api/drone/flights` — drone-flight map-overlay read + idempotent LAN ingest (drone.md)
-- `GET /api/phone/tracks` · `GET /api/phone/places` — phone-history breadcrumb + semantic-layer reads (phone.md)
-- `GET /api/places[/:id]` · `GET /api/places/:id/photo` · `GET /api/places/lookup` · `GET /api/places/events[/:id]` — POI/event browse reads (`/photo` = cached Wikipedia thumbnail bytes, 404 when none); `q` is FTS token-prefix search ordered exact-name → match → rank → distance-to-`center`, `max_rank` is the pin-zoom gate (a caller obligation, not validated — a broad gate-less bbox'd read scans the whole latitude band instead of the partial indexes), `category`/`kind` filter, `center`+`radius` = near-me circle scope, `facets=1` = kind-refinement counts; list pages group cross-source twins (`twins` refs; places.md), `lookup` resolves a `(source, source_id)` natural key (the basemap tap-through bridge); event dates are park-local `YYYY-MM-DD`, **not** ms-UTC, and every payload carries `synced_at` — the UI wears data age (places.md)
-- `GET /api/gpsd/sky` · `GET /api/gpsd/status` · `GET /api/gpsd/live` — live gpsd constellation (feeds the skyplot) + device/fix snapshot (Systems drill-in) + the Drive view's 1 Hz TPV-only fix poll
-- `GET /api/constellation` · `GET /api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
-- `GET /api/radio/status` · `POST /api/radio/{freq,mode,tone,repeater,level,band,dualwatch,stage_crossband,power}` — ID-5100A readout/control via rigctld, **active main band only** (dualwatch on/off is rig-wide, raw CI-V `16 59`); `stage_crossband` is the 1.5e atomic two-band setup (pin+set A → pin+set B → dualwatch on → restore Main); `power` is raw CI-V `18` on/off (ON needs a 25× `FE` wakeup preamble; fire-and-forget — no readable power state); 502 = rig refusal, 503 = rigctld unreachable
-- `GET /api/radio/transmissions` · `GET /api/radio/transmissions/:id/audio` — recorded-transmission log (newest-first keyset paging; `min_s` = the blip filter; RX + `is_tx` operator transmissions unified) + Range-capable WAV playback; `has_audio` false = the retention pruner kept the row but dropped the file (the audio route 404s)
-- `GET /api/radio/soundboard` · `POST /api/radio/transmit` — transmit console (R11): staged soundboard clips + available TTS engines, and operator-clicked TX (`clip` | TTS `text`+`engine`+`rate`, `settle_ms`, `keyer` civ|rts); keys via `keyed_tx` (CI-V) or `keyed_tx_rts` (RTS hardware — the only path that transmits while the rig is in Repeater Mode, which NAKs all CI-V), logs an `is_tx` row from the clean source. 409 = a transmit already in flight; 502/503 = rig refusal/unreachable or unkeyable RTS device; 500 = render/playback failure
-- `GET /api/ntp` — chrony/NTP status (Systems drill-in)
-- `GET /api/syslog` — syslog-ng relay + Graylog forward/buffer health (Systems → `/syslog` drill-in); reads buffer counters via `sudo -n syslog-ng-ctl stats`, degrades to service/listener checks when unreadable. A rising `queued` off-grid is healthy — only `dropped>0` / service-down / not-listening fail
-- `GET /api/mediamtx` — MediaMTX media-hub health + per-path stream state (Systems → `/mediamtx` drill-in); reads the hub's localhost control API (`127.0.0.1:9997`, `api: yes` in `deploy/mediamtx.yml`) for ready/tracks/viewers. On-demand cam paths idle (`ready:false`) is healthy — only service-down / API-unreachable / not-listening fail
-- `GET /api/data/status` — offline-data chunk freshness, derived at read time from the `updater/` registry (Systems → `/data` drill-in; read-only until the plan's Phase 2 runner lands — `plans/data-update-plan.md`)
-- `GET /api/docs/tree` · `GET/PUT /api/docs/file?path=` — network-docs vault browse + edit-only saves; PUT requires `If-Match` and auto-commits Pi-side (pull before pushing from the laptop)
-- `GET /api/broadcast/feeds` · `GET /api/broadcast/status` · `GET /api/broadcast/snapshot/<name>` · `GET /api/broadcast/logs` — Broadcast tab: copy-ready feed config (secrets interpolated server-side from the Pi env file), two-sides live status per feed on both hubs (ingest vs egress; `?hub=cloud` reads the cloud hub over the WG tunnel), monitor-wall JPEG snapshots, and the raw MediaMTX journal tail (broadcast.md)
+- `GET /api/status` — Home glance aggregate (fix, power, OBD, IAQ, GNSS health, services)
+- `GET /api/points` · `/api/points/latest` · `/api/points/recent` — processed-tier trail (importance-decimated) · latest **raw** fix (the live dot reads `gps_points`, not the processed tier) · raw trailing window (the Drive breadcrumb seed)
+- `GET/POST/PATCH/DELETE /api/annotations[/:id]` — user-curated bookmarks/ranges
+- `GET /tiles/osm.pmtiles` · `/tiles/terrain.pmtiles` · `/tiles/<layer>/{z}/{x}/{y}.png` — Range-served vector/terrain archives + raster proxy/cache (basemaps.md)
+- `GET /tiles/weather/…` · `/api/weather/…` — per-frame radar PMTiles, frame index, warnings GeoJSON (`plans/weather-plan.md`)
+- `GET /api/sensors*` — sensor registry, reading history, bucketed Trends series (sensors.md)
+- `GET /api/obd/economy` — read-time drive/fuel summary (`common/obd.py`)
+- `GET/POST /api/fridge/*` — CFX3 status/history reads + setpoint/power writes (sensors.md)
+- `GET/POST /api/drone/flights` — flight map-overlay read + idempotent LAN ingest (drone.md)
+- `GET /api/phone/{tracks,places}` — phone-history breadcrumb + semantic-layer reads (phone.md)
+- `GET /api/places*` — POI/event browse, FTS search, Wikipedia photo bytes, natural-key lookup (places.md)
+- `GET /api/gpsd/{sky,status,live}` — live constellation (skyplot), device/fix snapshot, the Drive view's 1 Hz fix poll
+- `GET /api/constellation` · `/api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
+- `GET/POST /api/radio/*` — ID-5100A readout/control via rigctld, transmission log + WAV playback, TX console (radio.md)
+- `GET /api/ntp` · `/api/syslog` · `/api/mediamtx` · `/api/data/status` — Diagnostics drill-in reads (time, log relay, media hub, offline-data freshness)
+- `GET /api/docs/tree` · `GET/PUT /api/docs/file` — network-docs vault browse + auto-committing edit saves
+- `GET /api/broadcast/*` — feed config (secrets interpolated server-side), two-sides live status on both hubs, wall snapshots, hub logs (broadcast.md)
 
-**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side, *not* a server page: `/` (Home) · `/map` · `/drive` · `/places` · `/systems` (a dashboard hub; drill-ins `/sensors`, `/fridge`) · `/diagnostics` (a health hub; drill-ins `/gpsd`, `/ntp`, `/syslog`, `/mediamtx`, `/data`) · `/trends` (a top-level tab) · `/docs` (+ `/docs/<vault-path>` deep links) · `/sky` (+ `/globe`, `/skyplot`, `/passes`) · `/radio` · `/weather` · `/broadcast`. There are no server-rendered pages left — the app is SPA-only.
+**SPA routes** — every non-`api`/`tiles`/`static` path returns the Van OS shell (`dist/index.html`) and renders client-side; there are no server-rendered pages left. The route table lives in `web/src/lib/routes.ts` (tabs listed under Frontend below).
 
 ### Frontend
 
@@ -168,194 +137,17 @@ See **`.claude/modules/broadcast.md`** for both hubs, the two-sides status model
 
 ### Project Structure
 
-```
-gps-dashboard/
-├── api/
-│   ├── app.py
-│   ├── db.py
-│   ├── params.py               # shared request-param validation (bbox/time/limit)
-│   ├── sensor_schema.py        # reading spec: READING_TABLES (storage; ingest+read) + METRIC_META (presentation; served to viewer)
-│   ├── observatory.py          # shared anchor-fix + az/el→ECEF reconstruct (constellation + passes)
-│   ├── rigctld.py              # stdlib-socket Hamlib rigctld client (radio CI-V control)
-│   ├── tile_layers.py
-│   └── routes/
-│       ├── points.py
-│       ├── annotations.py
-│       ├── data.py             # /api/data/status (offline-data chunk freshness; /data is SPA-served)
-│       ├── places.py           # /api/places* (POI/tours/events/hours tier reads)
-│       ├── tiles.py
-│       ├── sensors.py          # /api/sensors[/<id>/readings] + /api/sensors/series
-│       ├── drone.py            # /api/drone/flights (ingest + map-overlay read)
-│       ├── fridge.py           # /api/fridge/* (CFX3 setpoint/power writes + status/history reads; /fridge is SPA-served)
-│       ├── phone.py            # /api/phone/{tracks,places} (phone-history map-overlay reads)
-│       ├── docs.py             # /api/docs/* (network-docs vault: tree + raw markdown + edit PUT w/ auto-commit)
-│       ├── globe.py            # /api/constellation (3D reconstruction; /globe is SPA-served)
-│       ├── passes.py           # /api/passes (pass prediction; /passes is SPA-served)
-│       ├── obd.py              # /api/obd* (OBD-II telemetry read)
-│       ├── radio.py            # /api/radio/* (Icom ID-5100A CI-V control via rigctld; /radio is SPA-served)
-│       ├── broadcast.py        # /api/broadcast/* (feed config + two-sides status + wall snapshots + logs; /broadcast is SPA-served)
-│       ├── status.py           # /api/status (Home glance aggregate read)
-│       ├── status_gpsd.py      # /api/gpsd/status + /api/gpsd/sky + /api/gpsd/live (gpsd drill-in + skyplot + Drive feed)
-│       ├── status_ntp.py       # /api/ntp (Systems → ntp drill-in)
-│       ├── status_syslog.py    # /api/syslog (syslog-ng relay + Graylog buffer health; Systems → syslog drill-in)
-│       ├── status_mediamtx.py  # /api/mediamtx (MediaMTX hub + per-path stream state; Systems → mediamtx drill-in)
-│       └── weather.py           # /api/weather/* + /tiles/weather/* (radar frames/pmtiles + warnings geojson; /weather is SPA-served)
-├── broadcast/                  # event-streaming tier (.claude/modules/broadcast.md)
-│   ├── feeds.py                # declarative feed registry both hubs (Feed/SendSpec + render_feeds; ${ENV} secrets, derived single-URLs)
-│   ├── status.py               # pure two-sides (ingest/egress) live-status derivation (B6)
-│   ├── snapshots.py            # on-demand localhost-RTSP → tmpfs JPEG snapshotter for the wall (B9)
-│   ├── cloud_agent.py          # off-repo vps agent: snapshot/log/active over the WG tunnel (B7/B9/B11)
-│   └── cloud_agent.service     # the agent's unit — kept OUT of deploy/ (off-repo vps install)
-├── common/                     # shared core library (imported across api/tools/processor)
-│   ├── gpsd.py                 # short-lived gpsd snapshot query + constellation/device helpers
-│   ├── satgeo.py               # az/el→ECEF reconstruction + GMST/ECI frame geometry + on-sky angular sep
-│   ├── orbits.py               # inertial-frame orbit fit + propagation + pass finder
-│   ├── satcat.py               # CelesTrak SATCAT metadata fetch/cache (NORAD-keyed) for sat identity
-│   ├── obd.py                  # speed-density fuel-rate derivation + drive integration (read-time, pure)
-│   ├── ddmp.py                 # Dometic CFX3 DDMP protocol core (framing/topics/codecs + DdmpClient session)
-│   ├── mediamtx.py             # shared MediaMTX control-API client (PathState + fetch_paths; /api/mediamtx + broadcast, B5)
-│   ├── humidity.py             # derived moisture channels (dew point, absolute humidity, heat index)
-│   ├── timefmt.py              # canonical_timestamp — fixed-width ms-UTC formatter shared across tiers
-│   ├── proc.py                 # subprocess + systemctl (is-active) helpers
-│   ├── checks.py               # PASS/FAIL check-runner for the validate tools
-│   └── cli.py                  # run_cli/run_click — tools' Ctrl+C → "Interrupted." exit 130
-├── logger/
-│   └── gps_logger.py
-├── processor/                  # processed-tier deriver (tails raw → track_points/track_events)
-│   ├── gps_processor.py
-│   └── simplify.py             # shared track geometry + Reumann–Witkam (processor + drone importer)
-├── radio/                      # radio-plane daemons (.claude/modules/radio.md)
-│   ├── vox.py                  # pure VOX gate math + state machine (clockless, table-tested)
-│   ├── levels.py               # squelch keeper: operator memory + deaf clamp + bounded guard raises (clockless)
-│   ├── waveform.py             # record-time 0..255 envelope from per-block peaks (log/player strip)
-│   ├── paths.py                # audio-root / soundboard / TX-sentinel path resolution (recorder + transmit + API)
-│   ├── recorder.py             # VOX-gated Digirig capture → WAV + radio_transmissions rows
-│   ├── transmit.py             # TX console: keyed_tx never-stuck-keyed guard + TTS/soundboard render/play/log
-│   └── ptt.py                  # RTS hardware-PTT keyer (keyed_tx_rts) — non-CI-V key path for Repeater Mode
-├── updater/                    # offline-data chunk manager (plans/data-update-plan.md)
-│   ├── chunks.py               # declarative CHUNKS registry + derived status/ordering warnings
-│   └── probes.py               # derived-freshness probes (DB slices, archives, caches) — never stored state
-├── weather/                    # weather tier: capture-while-online radar + warnings (plans/weather-plan.md)
-│   ├── registry.py             # layer registry (RasterLayer radar + VectorLayer warnings) + archive-path resolution
-│   ├── geo.py                  # Web-Mercator + slippy-tile geometry (pure)
-│   ├── source.py               # NWS ImageServer client: catalog enumerate (idp_subset='CONUS') + exportImage
-│   ├── mosaic.py               # z8-aligned master grid, abutting-strip split, intersection-and-paste pyramid
-│   ├── archive.py              # per-frame PMTiles pack (atomic, clustered) + 14-day retention prune
-│   └── vector.py               # keep-latest GeoJSON fetch+store (the vector pipeline)
-├── sensors/                    # Pi-side sensor readers (publish to the MQTT bus)
-│   ├── runner.py               # shared reader framework (run_simple_publisher/run_fleet_publisher, LWT status, heartbeat)
-│   ├── bme680.py               # synthetic pipeline test harness (the live BME680 is the ESP32 node)
-│   ├── obd_reader.py           # engine-gated OBD-II reader → sensors/van/obd (NOT obd.py — shadows the obd lib)
-│   ├── victron_reader.py       # Victron Venus GX → sensors/house/victron (two brokers; keepalive + staleness watchdog)
-│   ├── system_reader.py        # Pi host metrics (cpu/mem/disk/temp/throttle) → sensors/pi/system (stdlib /proc + vcgencmd)
-│   ├── openwrt_reader.py       # van-edge router SSH poll → sensors/van-edge/openwrt (one sh -s round-trip per poll)
-│   ├── dahua_reader.py         # Dahua NVR + cams CGI/RPC2 fleet poll → 5 node streams (types nvr + camera)
-│   ├── dahua_rpc.py            # minimal Dahua RPC2 JSON client (challenge login, object-style handles)
-│   └── fridge_reader.py        # Dometic CFX3 DDMP-over-WiFi poll → sensors/van/fridge
-├── mqttbus/                    # broker-side consumers + shared MQTT helpers
-│   ├── topics.py
-│   ├── client.py
-│   └── ingest.py
-├── firmware/                   # ESPHome configs for remote ESP32 sensor nodes
-│   ├── cabin-bme680.yaml       # XIAO ESP32-C6 + BME680 (BSEC2 IAQ)
-│   ├── README.md
-│   └── secrets.yaml.example    # copy to secrets.yaml before flashing
-├── web/                        # Van OS SPA source (Svelte 5 + Vite + TS) → builds to static/dist/
-│   ├── package.json, vite.config.ts, tsconfig*.json
-│   └── src/
-│       ├── App.svelte, main.ts, app.css
-│       ├── lib/
-│       │   ├── Shell.svelte, router.svelte.ts, routes.ts   # nav shell + client router
-│       │   ├── SectionNav.svelte, SectionHub.svelte        # shared tab-with-sub-destinations pattern (SECTIONS registry)
-│       │   ├── api.ts          # typed JSON API client
-│       │   ├── geo.ts          # pure geo/format helpers
-│       │   ├── map.ts          # MapView MapLibre façade (npm maplibre/pmtiles)
-│       │   ├── mapHost.ts      # persistent keep-alive map host (alive across routes)
-│       │   ├── prefetch.ts     # idle-time raster tile prefetcher (pure; engine wires it to the map's idle event)
-│       │   ├── timestrip.ts    # canvas timeline island (density + stops + drag-to-zoom)
-│       │   ├── icons.ts        # the one POI icon language (sprite maps + planetiler id codec)
-│       │   ├── labels.ts       # basemap pois-layer composer (categories × density × twin suppression)
-│       │   ├── drone.ts        # drone overlay controller (lazy-imports overlay3d)
-│       │   ├── phone.ts        # phone-history overlay: color-by-mode run-splitting + visit pins + sync
-│       │   ├── places.ts       # places overlay: per-kind pin builders + viewport-driven sync (z6 gate)
-│       │   ├── overlay3d.ts    # three.js elevated-line custom MapLibre layer (drone tracks)
-│       │   ├── globe.ts, skyplot.ts, sensors.ts, radio.ts, fridge.ts, broadcast.ts  # view renderers/helpers
-│       │   ├── live.ts, follow.ts, wakelock.ts  # Drive view: live-fix math · follow-camera policy · screen wake lock
-│       │   ├── charts/         # Trends chart components (LayerCake: Trend/Line/Band/axes) + Sparkline (cheap inline SVG, for Sensors cards)
-│       │   ├── docs.ts         # network-docs render: markdown-it + lazy mermaid + link resolution
-│       │   ├── docsEditor.ts   # Docs edit mode: CodeMirror 6 wrapper (lazy chunk, loaded on Edit)
-│       │   └── stores/         # selection (global time axis + zoom history) · track (shared window fetch) · annotations (named windows) · layers (map-local) · places (browse session) · live (1 Hz fix poll + interpolation) · trends (sparkline→Trends handoff)
-│       └── views/              # Home, Map (+TimeDock/TimePicker/DataLayers/MapStyle/Inspect/Annotations*/PlaceSheet), Drive, Places (+PlaceDetail/EventDetail shared with the sheet, +PoiIcon shared POI-glyph component), Systems (hub), Sensors, Trends, Fridge, Data, Docs, Sky, Globe, Skyplot, Ntp, Gpsd, Radio, Broadcast (+BroadcastWall/BroadcastConfig), NotFound
-├── static/
-│   ├── dist/                   # committed SPA build — Flask serves index.html + assets/
-│   ├── img/                    # tile-error.png + the globe's Earth textures
-│   └── vendor/
-│       ├── basemap/            # generated theme styles (web/scripts/generate-basemap-styles.mjs) + glyphs + sprites
-├── tools/
-│   ├── precache.py
-│   ├── fetch_terrain_tiles.py  # Mapzen Terrarium → MBTiles (asyncio+httpx)
-│   ├── regions.py              # shared Region dataclass + REGIONS table
-│   ├── gpsd_setup.py
-│   ├── gpsd_validate.py
-│   ├── ntp_setup.py
-│   ├── ntp_validate.py
-│   ├── obd_probe.py            # OBD-II connectivity/bring-up probe (kept as a bus diagnostic)
-│   ├── civ_probe.py            # Icom CI-V Phase-0 connectivity probe, stdlib-only (.claude/modules/radio.md)
-│   ├── digirig_clear_rts.py    # udev-oneshot RTS/DTR clearer — RTS hardware-keys PTT on this port
-│   ├── radio_vox_replay.py     # rescore stored captures by the VOX commit rule (--purge deletes)
-│   ├── radio_rts_ptt.py        # RTS-PTT bench tool — key over RTS + transmit a test phrase (Repeater-Mode TX)
-│   ├── cfx3_probe.py           # CFX3 DDMP survey probe, stdlib-only — history/range topics + --watch + --write-test (reference/cfx3-ddmp.md)
-│   ├── openwrt_probe.py        # OpenWrt telemetry-source survey over SSH (kept as a router diagnostic)
-│   ├── dahua_probe.py          # Dahua CGI endpoint survey, NVR + cams (kept as a fleet diagnostic)
-│   ├── backup_db.py            # DB snapshot + opportunistic rsync to rex-nas + retention (gps-db-backup.timer)
-│   ├── import_places.py        # NPS API + RIDB export → places tier (.claude/modules/places.md)
-│   ├── build_osm_pois.py       # Geofabrik PBF → OSM POI transfer DB (laptop/NAS only; .claude/modules/places.md)
-│   ├── build_poi_sprite.py     # unified POI sprite from the vendored Maki/Temaki SVGs (.claude/modules/places.md)
-│   ├── fetch_wikipedia.py      # Wikipedia summaries + thumbnails → place_wiki cache (off-Pi; --wiki-db)
-│   ├── import_drone.py         # DJI drone telemetry importer (.claude/modules/drone.md)
-│   ├── import_phone_timeline.py # Google Timeline → phone tier (.claude/modules/phone.md)
-│   ├── passes_validate.py      # backtest pass prediction vs held-out observations (self-consistency)
-│   ├── tle_validate.py         # backtest derived orbits vs CelesTrak TLEs+SGP4 (absolute, dev-time)
-│   ├── fetch_satcat.py         # fetch/cache CelesTrak SATCAT satellite metadata
-│   ├── fetch_weather.py        # weather-fetch oneshot: capture every registered layer (radar frames + warnings) → local archive
-│   └── gen_mediamtx_paths.py   # render van publisher paths in deploy/mediamtx.yml from broadcast/feeds.py (B8; --check drift-guards, test-enforced)
-├── deploy/
-│   ├── gps-dashboard.service
-│   ├── gps-dashboard.nginx.conf # nginx front door (:80 → waitress :8000); symlinked into conf.d, read from checkout
-│   ├── gps-logger.service
-│   ├── gps-processor.service
-│   ├── mosquitto.conf
-│   ├── mqtt-ingest.service
-│   ├── sensor-obd.service       # enabled-gated OBD reader unit (node van, /dev/obdlink)
-│   ├── sensor-victron.service   # enabled-gated Victron reader unit (node house; secret via /etc/default/gps-victron)
-│   ├── sensor-pi.service        # Pi host-metrics reader unit (node pi; enabled by default — no hardware/secret/gating)
-│   ├── sensor-openwrt.service   # enabled-gated OpenWrt reader unit (node van-edge; auth = Pi SSH key on the router)
-│   ├── sensor-dahua.service     # enabled-gated Dahua fleet reader unit (5 nodes; secret via /etc/default/gps-dahua)
-│   ├── sensor-fridge.service    # enabled-gated CFX3 fridge reader unit (node van; CFX_HOST pins the fridge IP)
-│   ├── gps-drone-sync.service   # timer-driven DJI footage import (Pi → NAS container)
-│   ├── gps-drone-sync.timer
-│   ├── gps-db-backup.service    # timer-driven DB backup (snapshot → rsync to rex-nas /volume1)
-│   ├── gps-db-backup.timer
-│   ├── weather-fetch.service    # enabled-gated weather capture oneshot (all layers; GPS_WEATHER_ARCHIVE_DIR — also set on gps-dashboard)
-│   ├── weather-fetch.timer      # ~5 min timer (upstream ~6-8 min cadence; dedup by frame key)
-│   ├── radio-control.service    # enabled-gated rigctld (Icom ID-5100A CI-V; /dev/icom-civ)
-│   ├── radio-recorder.service   # enabled-gated VOX transmission recorder (Digirig SP1 capture)
-│   ├── radio-stream.service     # enabled-gated live-listen publisher (dsnoop → Opus → MediaMTX)
-│   ├── mediamtx.service         # media hub (RTSP/WebRTC fan-out; binary is a manual NVMe install)
-│   ├── mediamtx.yml             # hub config, read from the deploy checkout (edits deploy on push)
-│   ├── asound.conf              # dsnoop shared capture for the Digirig (manual /etc install)
-│   ├── digirig-rts-clear.service # udev-triggered oneshot: deassert RTS/DTR on /dev/digirig (PTT guard)
-│   ├── exiftool.Dockerfile      # pinned ExifTool ≥13.x image, built on the NAS
-│   ├── chrony-gps-only.conf
-│   ├── chrony-gps-pps.conf
-│   ├── 99-gps-dongle.rules
-│   ├── 99-icom-civ.rules        # pins the CI-V cable (WCH CH343 1a86:55d3) → /dev/icom-civ
-│   ├── 99-obdlink.rules         # pins the OBDLink EX (FTDI 0403:6015) → /dev/obdlink (keeps the OBD reader off the Digirig)
-│   └── 99-digirig.rules         # Digirig guard: MM-ignore (RTS keys PTT!) + /dev/digirig + ALSA id
-├── plans/                      # active/in-flight plans (landed ones fold into .claude/modules/)
-├── reference/                  # vendored equipment manuals/datasheets (PDF + grep-able .txt) for off-grid lookup
-└── pyproject.toml
-```
+Top-level map only — `ls` and file docstrings are the source of truth (every package, script, and unit file opens with one), and subsystem detail lives in the modules:
+
+- `api/` — Flask app: `app.py` (SPA shell + catch-all), `db.py` (all schemas), `params.py`, `sensor_schema.py` (the reading spec), `observatory.py`, `rigctld.py`, `tile_layers.py`, and `routes/` (one file per API surface)
+- `common/` — shared core library (gpsd, geometry/orbits, OBD, DDMP, MediaMTX, timestamps, subprocess/CLI helpers), imported across api/tools/processor
+- `logger/` · `processor/` — the raw-tier writer · the processed-tier deriver (`simplify.py` = shared track geometry)
+- `sensors/` · `mqttbus/` · `firmware/` — Pi-side MQTT readers · broker-side ingest + shared MQTT helpers · ESPHome configs for the remote ESP32 nodes
+- `radio/` · `broadcast/` · `weather/` · `updater/` — subsystem packages (radio.md · broadcast.md · `plans/weather-plan.md` · `plans/data-update-plan.md`)
+- `web/` — Van OS SPA source (Svelte 5 + Vite + TS), builds to the **committed** `static/dist/`; basemap data assets live in `static/vendor/basemap/`
+- `tools/` — operational CLIs: tier importers, tile/terrain builds, hardware probes, validators, DB backup (each documents itself via docstring + `--help`)
+- `deploy/` — systemd units + nginx/mosquitto/mediamtx/asound/udev configs (what the hook installs vs. the manual one-time installs — see Deployment and Offline Constraint)
+- `plans/` · `reference/` — active plans · vendored equipment docs (see Documentation layout)
 
 ## Hardware Notes
 
@@ -368,9 +160,6 @@ All scripts in `tools/` must handle `KeyboardInterrupt` gracefully — print `"\
 ## Commands
 
 ```bash
-# Install dependencies
-uv sync
-
 # Run the web app locally (module form — api/app.py uses package imports)
 uv run python -m api.app
 
@@ -409,38 +198,19 @@ uv run tools/tle_validate.py --db ./gps_snap.db --hours 48 -v   # snapshot: ssh 
 # Sensor pipeline (MQTT — needs a broker; PYTHONPATH set so scripts find the packages)
 PYTHONPATH=. uv run mqttbus/ingest.py                       # ingest subscriber
 PYTHONPATH=. uv run sensors/bme680.py --node cabin          # fake publisher — pipeline test harness
-
-# Inspect the database
-sqlite3 "$GPS_DB_PATH" "SELECT * FROM gps_points ORDER BY id DESC LIMIT 10;"
-sqlite3 "$GPS_DB_PATH" "SELECT * FROM annotations;"
 ```
 
 ### Tests
 
-```bash
-uv run pytest                          # full suite
-uv run pytest tests/test_simplify.py   # one module
-```
-
-`pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers three surfaces: the load-bearing pure logic (geometry, timestamps, params, reader/protocol logic), the API read paths via a Flask client against a temp SQLite DB (`tests/conftest.py`), and the backtest tools' pure helpers. The directory is the inventory — keep new load-bearing logic and API reads covered.
+Run with `uv run pytest`. `pytest` is a dev dependency (`[dependency-groups].dev`), kept out of the runtime/offline install path. `tests/` covers three surfaces: the load-bearing pure logic (geometry, timestamps, params, reader/protocol logic), the API read paths via a Flask client against a temp SQLite DB (`tests/conftest.py`), and the backtest tools' pure helpers. The directory is the inventory — keep new load-bearing logic and API reads covered.
 
 ### Linting & formatting
 
-```bash
-uv run ruff check .            # lint
-uv run ruff check --fix .      # lint + autofix
-uv run ruff format .           # format
-```
-
-`ruff` is a dev dependency, same offline carve-out as pytest. Config lives in `[tool.ruff]` (pyproject.toml): `line-length = 100`, single-quote formatting (the codebase is ~80% single-quoted), and a lean lint set (`E`, `F`, `W`, `I`, `UP`, `B`) — real bugs + modern idioms, low noise. Grow the rule set there as needed.
+`uv run ruff check .` / `uv run ruff format .`. `ruff` is a dev dependency, same offline carve-out as pytest. Config lives in `[tool.ruff]` (pyproject.toml): `line-length = 100`, single-quote formatting (the codebase is ~80% single-quoted), and a lean lint set (`E`, `F`, `W`, `I`, `UP`, `B`) — real bugs + modern idioms, low noise. Grow the rule set there as needed.
 
 ### Type checking
 
-```bash
-uv run mypy .                  # type check (must be clean)
-```
-
-`mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`obd`, `paho.mqtt`, `sgp4`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
+`uv run mypy .` must be clean. `mypy` (+ `types-requests`) is a dev dependency, same offline carve-out as pytest/ruff. Config lives in `[tool.mypy]` (pyproject.toml) and runs **strict core / lenient rest**: a lenient global baseline (real errors in annotated code, untyped function bodies left unchecked) with a strict per-module override (`disallow_untyped_defs`/`disallow_any_generics`/…) on the load-bearing, well-typed core — `processor.*`, `common.*`, `logger.*`, `api.db`, `api.params`. Untyped libs (`obd`, `paho.mqtt`, `sgp4`) are `ignore_missing_imports`. Ratchet the strict surface outward over time: next `disallow_untyped_calls`/`disallow_untyped_decorators`, then widen the strict module list to `api.routes.*`/`tools.*`/`sensors.*`/`mqttbus.*` (the routes mainly need handler return types).
 
 ## Offline Constraint
 
