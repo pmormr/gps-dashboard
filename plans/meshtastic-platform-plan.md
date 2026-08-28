@@ -255,8 +255,9 @@ The payoff view — live situational awareness for someone on the trail.
 
 ## Sibling subsystem: phone-over-IP position tracking
 
-> Revived 2026-08-28 into its own plan — `plans/phone-tracking-plan.md`
-> (OwnTracks → Recorder on rex-nas → van pull). Still deliberately not part of
-> this plan (different transport/tool/connectivity); the two converge only at
-> the shared "tracked entities" map overlay (PT5 there). The caveat stands both
-> ways: van + phone both off-grid is LoRa-only — an argument for both transports.
+> Landed 2026-08-28 — OwnTracks → Recorder on rex-nas → van pull, now the live
+> tier in `.claude/modules/phone.md`. Still deliberately not part of this plan
+> (different transport/tool/connectivity); the two converge only at the shared
+> "tracked entities" map overlay (deferred there until this plan gives it a
+> second live source). The caveat stands both ways: van + phone both off-grid
+> is LoRa-only — an argument for both transports.

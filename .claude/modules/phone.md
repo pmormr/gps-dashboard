@@ -1,11 +1,11 @@
-# Phone Location History
+# Phone Tracking
 
-The user's **Google Timeline** history imported as a `phone_*` tier and rendered
-as a time-scrubbed, color-by-mode map overlay — 15 years of breadcrumb alongside
-van GPS and drone tracks. The **history** half of the phone-tracking theme; the
-*live* half (OwnTracks → Recorder pull → `owntracks_points`) is active in
-`plans/phone-tracking-plan.md` — different source, different tier lifecycle,
-deliberately a separate tier; only the HTTP surface is shared
+Two tiers, one theme, deliberately separate tables: the **history** half — the
+user's **Google Timeline** export imported as the `phone_*` tier, a
+time-scrubbed color-by-mode map overlay (15 years of breadcrumb alongside van
+GPS and drone tracks) — and the **live** half — continuous self-hosted OwnTracks
+logging into `owntracks_points` (last section). Different sources, different
+lifecycles (full-replace vs. append-only); only the HTTP surface is shared
 (`api/routes/phone.py` serves both).
 
 Architecturally this is the **drone importer pattern** (batch `tools/` importer →
@@ -112,3 +112,63 @@ layer painting `['get','color']`, a `phone-visit` circle layer + popup, and a
   van's own GPS; different provenance, both interesting. Revisit only if noisy.
 - **`place_id` stays unresolved** — human place names need Google's Places API
   (online, per-lookup); store the id, render coords/semantic type.
+
+## Live tier — OwnTracks (continuous self-hosted logging)
+
+The go-forward complement to the occasional Timeline export (landed 2026-08-28,
+ex-`plans/phone-tracking-plan.md`): the phone's OwnTracks app POSTs each fix to
+an **OwnTracks Recorder** container on rex-nas (`:8083`, HTTP-only, MQTT
+disabled), and the Pi pulls the Recorder's REST API 5-minutely
+(`gps-owntracks-sync.timer` → `tools/sync_owntracks.py`) into the append-only
+`owntracks_points` table (unique `(device, timestamp)`; velocity km/h and
+battery % as OwnTracks reports them). A near-live latest-position read falls
+out of the cadence. Home-side detail (Recorder container, WG peer) lives in the
+network vault, not here.
+
+Durable decisions:
+
+- **Recorder-as-collector; the van pulls.** Not an MQTT bridge into the van
+  bus: the Recorder's `/store` on rex-nas is the tier's rebuild source of truth
+  (delete every row and re-run to backfill), a pull catches up over arbitrary
+  off-grid gaps where a bridge queue overflows silently, and the van bus stays
+  GPS/sensor-only.
+- **OwnTracks HTTP mode, not MQTT** — with the Recorder collecting, a home
+  broker would only be a middleman; HTTP batches queued fixes and is the
+  friendlier mode on flaky cell links.
+- **Transport = WireGuard, zero public exposure.** The phone is a road-warrior
+  `wg1` peer on rex-edge (full trust, laptop class — it doubles as the user's
+  general remote access to home/van). OwnTracks targets the Recorder's LAN
+  address, valid from home WiFi and through the tunnel; NAT hairpin from home
+  WiFi works, so WG stays always-on. No TLS or app-layer auth inside the
+  tunnel — the dashboard's own trusted-LAN model.
+- **No dedup** against `phone_*` or the van track — the same
+  different-provenance stance as the history tier.
+- **Single-entity styling** until a second live source (Meshtastic) exists;
+  the two then converge at a shared "tracked entities" overlay
+  (`plans/meshtastic-platform-plan.md`).
+
+Sync (`tools/sync_owntracks.py`): short-timeout preflight → exit 0 when
+unreachable (boondocking is normal — the timer just fires again); per
+(user, device) cursor = `MAX(timestamp)`, re-pulled minus 1 h slack with
+`INSERT OR IGNORE` making the overlap free; users/devices discovered from the
+Recorder, so a second phone needs no code. The timer's enable line in the Pi's
+post-receive hook is drone-style (unconditional).
+
+API: `GET /api/phone/owntracks` (window/bbox/device filters, oldest first,
+capped + `truncated`) · `GET /api/phone/owntracks/latest` (most recent fix per
+device, window-independent — the live-marker read).
+
+Render: the Layers panel's **Phone live** toggle — dashed fuchsia per-device
+breadcrumb following the global time window, plus a ringed always-current
+latest-fix marker (popup: battery/accuracy/altitude) refreshed every 60 s
+while on.
+
+Traps / open:
+
+- **The app's outgoing queue does not survive a connection-mode switch** — a
+  13,744-message MQTT-mode backlog was lost in the MQTT→HTTP switch. Never
+  switch modes expecting a flush, and never point a queued app at a live
+  broker with nothing recording — the queue drains into nothing.
+- Recorder `/store` backup scope on rex-nas is still open (vault matter).
+- Verify a fix lands over cell + tunnel on the next outing; tune the app's
+  reporting mode (significant-changes vs. move) after a week of real data.
