@@ -331,6 +331,11 @@ export const MapView = (() => {
   // feature's `color` by phone.ts, so these layers are domain-free).
   let phonePathData: FeatureCollection = emptyFC()
   let phoneVisitData: FeatureCollection = emptyFC()
+
+  // Phone live-tier overlay (OwnTracks): windowed breadcrumb + latest-fix
+  // markers, colors and popups baked by phone.ts like the history overlay.
+  let owntracksTrackData: FeatureCollection = emptyFC()
+  let owntracksLatestData: FeatureCollection = emptyFC()
   // Places overlay: prebuilt pin GeoJSON (per-kind color baked in by
   // places.ts); clicks hand the feature's row id to the registered callback
   // (the detail sheet), keeping this layer domain-free too.
@@ -530,6 +535,42 @@ export const MapView = (() => {
           },
         })
       }
+      // Phone live tier (OwnTracks) sits with the history layers, under the van
+      // track. Dashed line separates the live breadcrumb from the solid history
+      // runs; the latest-fix marker is a ringed dot sized to read as "is here".
+      if (!m.getSource('owntracks-track')) {
+        m.addSource('owntracks-track', { type: 'geojson', data: owntracksTrackData })
+      }
+      if (!m.getLayer('owntracks-track-line')) {
+        m.addLayer({
+          id: 'owntracks-track-line',
+          type: 'line',
+          source: 'owntracks-track',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 2.5,
+            'line-opacity': 0.9,
+            'line-dasharray': [2, 1.5],
+          },
+        })
+      }
+      if (!m.getSource('owntracks-latest')) {
+        m.addSource('owntracks-latest', { type: 'geojson', data: owntracksLatestData })
+      }
+      if (!m.getLayer('owntracks-latest-circle')) {
+        m.addLayer({
+          id: 'owntracks-latest-circle',
+          type: 'circle',
+          source: 'owntracks-latest',
+          paint: {
+            'circle-radius': 7,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+          },
+        })
+      }
 
       if (!m.getSource('track')) m.addSource('track', { type: 'geojson', data: trackData })
       if (!m.getLayer('track-line')) {
@@ -703,6 +744,8 @@ export const MapView = (() => {
       setGeoJSON('ann-range', rangeFC())
       setGeoJSON('phone-track', phonePathData)
       setGeoJSON('phone-visits', phoneVisitData)
+      setGeoJSON('owntracks-track', owntracksTrackData)
+      setGeoJSON('owntracks-latest', owntracksLatestData)
       setGeoJSON('places', placeData)
       setGeoJSON('search-results', searchData)
       setGeoJSON('wx-warnings', warningsData)
@@ -815,22 +858,24 @@ export const MapView = (() => {
     })
   }
 
-  // Click a phone-history visit pin → its prebuilt popup (phone.ts bakes the HTML
-  // into the feature). Layer-scoped and registered once; a no-op until the layer
-  // exists, like the range tooltip.
+  // Click a phone-history visit pin or a live latest-fix marker → its prebuilt
+  // popup (phone.ts bakes the HTML into the feature). Layer-scoped and registered
+  // once; a no-op until the layer exists, like the range tooltip.
   function wirePhonePopup(m: MlMap): void {
     phonePopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '260px' })
-    m.on('mouseenter', 'phone-visit-circle', () => {
-      m.getCanvas().style.cursor = 'pointer'
-    })
-    m.on('mouseleave', 'phone-visit-circle', () => {
-      m.getCanvas().style.cursor = ''
-    })
-    m.on('click', 'phone-visit-circle', (e) => {
-      const feature = e.features && e.features[0]
-      const html = feature && (feature.properties?.popup as string | undefined)
-      if (html) phonePopup!.setLngLat(e.lngLat).setHTML(html).addTo(m)
-    })
+    for (const layer of ['phone-visit-circle', 'owntracks-latest-circle']) {
+      m.on('mouseenter', layer, () => {
+        m.getCanvas().style.cursor = 'pointer'
+      })
+      m.on('mouseleave', layer, () => {
+        m.getCanvas().style.cursor = ''
+      })
+      m.on('click', layer, (e) => {
+        const feature = e.features && e.features[0]
+        const html = feature && (feature.properties?.popup as string | undefined)
+        if (html) phonePopup!.setLngLat(e.lngLat).setHTML(html).addTo(m)
+      })
+    }
   }
 
   // Basemap pois marks: cursor affordance + the decoded tile attrs to the
@@ -1264,6 +1309,16 @@ export const MapView = (() => {
     if (phoneVisitData.features.length === 0 && phonePopup) phonePopup.remove()
   }
 
+  // Replace the phone live-tier overlay with prebuilt GeoJSON (built by phone.ts:
+  // per-device breadcrumb + latest-fix markers). Clearing is empty/empty.
+  function setOwntracksData(trackFC: FeatureCollection, latestFC: FeatureCollection): void {
+    owntracksTrackData = trackFC
+    owntracksLatestData = latestFC
+    if (!map) return
+    setGeoJSON('owntracks-track', owntracksTrackData)
+    setGeoJSON('owntracks-latest', owntracksLatestData)
+  }
+
   // Replace the places overlay with prebuilt pin GeoJSON (built by
   // places.ts). Clearing is setPlacesData(empty).
   function setPlacesData(fc: FeatureCollection): void {
@@ -1568,6 +1623,7 @@ export const MapView = (() => {
     showDroneTracks,
     clearDroneTracks,
     setPhoneData,
+    setOwntracksData,
     setPlacesData,
     setSearchResultsData,
     setRadarFrames,

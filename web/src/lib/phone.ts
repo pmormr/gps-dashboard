@@ -14,7 +14,16 @@
 
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 
-import { getPhonePlaces, getPhoneTracks, type PhonePath, type PhoneVisit } from './api'
+import {
+  getOwntracks,
+  getOwntracksLatest,
+  getPhonePlaces,
+  getPhoneTracks,
+  type OwntracksLatest,
+  type OwntracksPoint,
+  type PhonePath,
+  type PhoneVisit,
+} from './api'
 import { emptyFC, escapeHtml, fmtDate, fmtDurationSecs, fmtTime } from './geo'
 import type { MapView as MapViewType } from './map'
 
@@ -158,4 +167,92 @@ export async function syncPhone(view: View, fromIso: string, toIso: string): Pro
 export function clearPhone(view: View): void {
   token++
   view.setPhoneData(emptyFC(), emptyFC())
+}
+
+// ── Live tier (OwnTracks Recorder sync — plans/phone-tracking-plan.md) ──
+
+/** Live-tier color — one entity until a second live source exists (plan PT5). */
+export const LIVE_COLOR = '#d946ef'
+
+/** Build the live breadcrumb: one LineString per device, single-entity color. */
+export function owntracksTrackFC(points: OwntracksPoint[]): FeatureCollection {
+  const byDevice = new Map<string, OwntracksPoint[]>()
+  for (const p of points) {
+    const key = `${p.user}/${p.device}`
+    const list = byDevice.get(key)
+    if (list) list.push(p)
+    else byDevice.set(key, [p])
+  }
+  const features: Feature<LineString>[] = []
+  for (const [key, pts] of byDevice) {
+    if (pts.length < 2) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: pts.map((p) => [p.lon, p.lat]) },
+      properties: { device: key, color: LIVE_COLOR },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function owntracksPopupHtml(d: OwntracksLatest): string {
+  const parts = [
+    d.battery != null ? `🔋 ${d.battery}%` : null,
+    d.accuracy != null ? `±${Math.round(d.accuracy)} m` : null,
+    d.altitude != null ? `${Math.round(d.altitude)} m alt` : null,
+  ].filter(Boolean)
+  return (
+    `<div class="phone-popup">` +
+    `<div class="phone-popup-title">📍 ${escapeHtml(d.user)}/${escapeHtml(d.device)}</div>` +
+    `<div class="phone-popup-meta">${fmtDate(d.timestamp)} · ${fmtTime(d.timestamp)}</div>` +
+    (parts.length ? `<div class="phone-popup-meta">${parts.join(' · ')}</div>` : '') +
+    `</div>`
+  )
+}
+
+/** Build the latest-fix marker FC (each device carries its prebuilt popup). */
+export function owntracksLatestFC(devices: OwntracksLatest[]): FeatureCollection {
+  const features: Feature<Point>[] = devices.map((d) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [d.lon, d.lat] },
+    properties: { color: LIVE_COLOR, popup: owntracksPopupHtml(d) },
+  }))
+  return { type: 'FeatureCollection', features }
+}
+
+/** Age label for the freshest latest-fix timestamp, or '' when none. */
+export function owntracksAgeLabel(devices: OwntracksLatest[], now = Date.now()): string {
+  if (!devices.length) return ''
+  const newest = Math.max(...devices.map((d) => new Date(d.timestamp).getTime()))
+  const ageSecs = Math.max(0, (now - newest) / 1000)
+  return ageSecs < 90 ? 'just now' : `${fmtDurationSecs(ageSecs)} ago`
+}
+
+// Same stale-fetch guard as the history overlay, on its own token.
+let liveToken = 0
+
+/**
+ * Fetch the live tier (windowed breadcrumb + always-current latest markers) and
+ * push it to the map. Returns a status string for the panel; a superseded fetch
+ * returns '' and paints nothing.
+ */
+export async function syncPhoneLive(view: View, fromIso: string, toIso: string): Promise<string> {
+  const mine = ++liveToken
+  const [window, latest] = await Promise.all([
+    getOwntracks(fromIso, toIso),
+    getOwntracksLatest(),
+  ])
+  if (mine !== liveToken) return ''
+  const points = window.points ?? []
+  const devices = latest.devices ?? []
+  view.setOwntracksData(owntracksTrackFC(points), owntracksLatestFC(devices))
+  if (!devices.length && !points.length) return 'No live fixes yet'
+  const age = owntracksAgeLabel(devices)
+  return `${points.length.toLocaleString()} pts in window · latest ${age}`
+}
+
+/** Clear the live overlay and cancel any in-flight sync. */
+export function clearPhoneLive(view: View): void {
+  liveToken++
+  view.setOwntracksData(emptyFC(), emptyFC())
 }

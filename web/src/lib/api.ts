@@ -829,6 +829,48 @@ export function getPhonePlaces(start: string, end: string): Promise<PhonePlacesR
   return getJSON<PhonePlacesResponse>(`/api/phone/places?${params}`)
 }
 
+// ── Phone live tier (OwnTracks Recorder sync — plans/phone-tracking-plan.md) ──
+
+/** One live-tier fix pulled from the OwnTracks Recorder. */
+export interface OwntracksPoint {
+  user: string
+  device: string
+  timestamp: string
+  lat: number
+  lon: number
+  accuracy: number | null
+  altitude: number | null
+  velocity: number | null
+  battery: number | null
+}
+
+/** The most recent fix per device (the live-marker read). */
+export interface OwntracksLatest extends OwntracksPoint {
+  synced_at: string
+}
+
+export interface OwntracksResponse {
+  points: OwntracksPoint[]
+  count: number
+  truncated: boolean
+}
+
+export interface OwntracksLatestResponse {
+  devices: OwntracksLatest[]
+  count: number
+}
+
+/** Live-tier phone points inside the window, oldest first. */
+export function getOwntracks(start: string, end: string): Promise<OwntracksResponse> {
+  const params = new URLSearchParams({ start, end })
+  return getJSON<OwntracksResponse>(`/api/phone/owntracks?${params}`)
+}
+
+/** The most recent fix per device, regardless of the time window. */
+export function getOwntracksLatest(): Promise<OwntracksLatestResponse> {
+  return getJSON<OwntracksLatestResponse>('/api/phone/owntracks/latest')
+}
+
 // ── Places (the POI tier: NPS + RIDB federal sources + the broad OSM extract) ──
 
 export type PlaceKind =

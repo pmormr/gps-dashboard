@@ -37,6 +37,14 @@
     layers.phoneStatus = on ? 'Loading…' : ''
   }
 
+  // Phone live (OwnTracks) follows the same store-flip pattern; Map.svelte's
+  // effect owns the fetch plus a 60 s refresh while on.
+  function onPhoneLive(e: Event): void {
+    const on = (e.currentTarget as HTMLInputElement).checked
+    layers.phoneLive = on
+    layers.phoneLiveStatus = on ? 'Loading…' : ''
+  }
+
   // Places are viewport-driven; like phone, the toggle only flips the store —
   // Map.svelte's effect does the bbox fetch/clear and writes placesStatus.
   function onPlaces(e: Event): void {
@@ -69,6 +77,13 @@
     </label>
     <div class="label-hint">Google Timeline · follows the time window · colored by mode</div>
     {#if layers.phoneStatus}<p class="label-hint">{layers.phoneStatus}</p>{/if}
+  </div>
+  <div class="layers-section">
+    <label class="label-check">
+      <input type="checkbox" checked={layers.phoneLive} onchange={onPhoneLive} /> 📍 Phone live
+    </label>
+    <div class="label-hint">OwnTracks · follows the time window · ringed dot = latest fix</div>
+    {#if layers.phoneLiveStatus}<p class="label-hint">{layers.phoneLiveStatus}</p>{/if}
   </div>
   <div class="layers-section">
     <label class="label-check">

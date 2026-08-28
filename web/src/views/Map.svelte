@@ -15,7 +15,15 @@
   import { decodeFeatureId } from '../lib/icons'
   import { hookLabels, setPoiCategories, setSuppressedIds } from '../lib/labels'
   import type { MapView as MapViewType, BasemapPoiHit } from '../lib/map'
-  import { clearPhone, MODE_COLORS, MODE_LEGEND, syncPhone } from '../lib/phone'
+  import {
+    clearPhone,
+    clearPhoneLive,
+    LIVE_COLOR,
+    MODE_COLORS,
+    MODE_LEGEND,
+    syncPhone,
+    syncPhoneLive,
+  } from '../lib/phone'
   import { annotations } from '../lib/stores/annotations.svelte'
   import { layers } from '../lib/stores/layers.svelte'
   import { selection } from '../lib/stores/selection.svelte'
@@ -150,6 +158,30 @@
       .catch((err) => {
         layers.phoneStatus = `Error: ${errMsg(err)}`
       })
+  })
+
+  // Phone live-tier overlay: window-following like the history overlay, plus a
+  // 60 s refresh while on so the latest-fix marker tracks the Pi's 5-min pull
+  // (the effect cleanup tears the interval down on toggle-off/window change).
+  $effect(() => {
+    if (!view) return
+    if (!layers.phoneLive) {
+      clearPhoneLive(view)
+      return
+    }
+    const range = selection.range
+    const run = (): void => {
+      syncPhoneLive(view!, range.from.toISOString(), range.to.toISOString())
+        .then((label) => {
+          if (label) layers.phoneLiveStatus = label
+        })
+        .catch((err) => {
+          layers.phoneLiveStatus = `Error: ${errMsg(err)}`
+        })
+    }
+    run()
+    const timer = setInterval(run, 60_000)
+    return () => clearInterval(timer)
   })
 
   // The shared POI category selection drives the basemap's own marks too —
@@ -334,7 +366,7 @@
     <button class="map-fab" title="Zoom to current location" onclick={zoomToCurrent}>⊕</button>
 
     <!-- On-map legends, visible only while that layer is on. -->
-    {#if layers.drone || layers.phone || layers.places || layers.searchResults}
+    {#if layers.drone || layers.phone || layers.phoneLive || layers.places || layers.searchResults}
       <div class="map-legend-chips">
         {#if layers.searchResults}
           <div class="legend-chip legend-chip-results">
@@ -364,6 +396,12 @@
             {#each MODE_LEGEND as m (m.group)}
               <span class="legend-chip-item"><span class="legend-swatch" style:background={MODE_COLORS[m.group]}></span>{m.label}</span>
             {/each}
+          </div>
+        {/if}
+        {#if layers.phoneLive}
+          <div class="legend-chip">
+            <span class="legend-chip-icon">📍</span>
+            <span class="legend-chip-item"><span class="legend-swatch" style:background={LIVE_COLOR}></span>Phone live</span>
           </div>
         {/if}
         {#if layers.places}

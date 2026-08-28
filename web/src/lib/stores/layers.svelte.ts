@@ -35,6 +35,11 @@ class LayersStore {
   phone = $state(false)
   phoneStatus = $state('')
 
+  // Phone live-tier overlay (OwnTracks sync). Window-following like phone, plus
+  // a 60 s refresh while on so the latest-fix marker tracks the 5-min sync.
+  phoneLive = $state(false)
+  phoneLiveStatus = $state('')
+
   // Places overlay (the POI tier). Viewport-driven, not time-windowed —
   // Map.svelte refetches it on map movement while it's on. `placeGroups` is
   // THE POI category selection (one control by design): the same

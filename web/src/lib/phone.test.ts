@@ -2,7 +2,16 @@ import type { LineString, Point } from 'geojson'
 import { describe, expect, it } from 'vitest'
 
 import type { PhonePath, PhoneVisit } from './api'
-import { MODE_COLORS, modeGroup, phonePathsToFC, phoneVisitsToFC } from './phone'
+import {
+  LIVE_COLOR,
+  MODE_COLORS,
+  modeGroup,
+  owntracksAgeLabel,
+  owntracksLatestFC,
+  owntracksTrackFC,
+  phonePathsToFC,
+  phoneVisitsToFC,
+} from './phone'
 
 function pt(lon: number, lat: number, activity_type: string | null) {
   return { lon, lat, importance: 0, activity_type }
@@ -85,5 +94,99 @@ describe('phoneVisitsToFC', () => {
     expect((f.geometry as Point).coordinates).toEqual([-77, 40])
     expect(f.properties?.color).toBeTruthy()
     expect(f.properties?.popup).toContain('HOME')
+  })
+})
+
+describe('owntracksTrackFC', () => {
+  it('emits one line per device with the live color', () => {
+    const p = (device: string, lon: number, lat: number) => ({
+      user: 'paul',
+      device,
+      timestamp: '2026-08-28T15:00:00.000Z',
+      lat,
+      lon,
+      accuracy: null,
+      altitude: null,
+      velocity: null,
+      battery: null,
+    })
+    const fc = owntracksTrackFC([
+      p('phone', -77, 40),
+      p('phone', -77.1, 40.1),
+      p('tablet', -90, 30),
+      p('tablet', -90.1, 30.1),
+    ])
+    expect(fc.features).toHaveLength(2)
+    expect(fc.features.map((f) => f.properties?.device)).toEqual(['paul/phone', 'paul/tablet'])
+    expect(fc.features[0].properties?.color).toBe(LIVE_COLOR)
+    expect((fc.features[0].geometry as LineString).coordinates).toEqual([
+      [-77, 40],
+      [-77.1, 40.1],
+    ])
+  })
+
+  it('drops a device with fewer than two points', () => {
+    const single = {
+      user: 'paul',
+      device: 'phone',
+      timestamp: '2026-08-28T15:00:00.000Z',
+      lat: 40,
+      lon: -77,
+      accuracy: null,
+      altitude: null,
+      velocity: null,
+      battery: null,
+    }
+    expect(owntracksTrackFC([single]).features).toHaveLength(0)
+  })
+})
+
+describe('owntracksLatestFC', () => {
+  it('builds a marker with a popup naming the device', () => {
+    const fc = owntracksLatestFC([
+      {
+        user: 'paul',
+        device: 'phone',
+        timestamp: '2026-08-28T15:06:07.000Z',
+        lat: 39.318,
+        lon: -77.84,
+        accuracy: 3,
+        altitude: 123,
+        velocity: null,
+        battery: 100,
+        synced_at: '2026-08-28T15:10:00.000Z',
+      },
+    ])
+    expect(fc.features).toHaveLength(1)
+    expect((fc.features[0].geometry as Point).coordinates).toEqual([-77.84, 39.318])
+    const popup = fc.features[0].properties?.popup as string
+    expect(popup).toContain('paul/phone')
+    expect(popup).toContain('100%')
+    expect(popup).toContain('±3 m')
+  })
+})
+
+describe('owntracksAgeLabel', () => {
+  const dev = (timestamp: string) => ({
+    user: 'paul',
+    device: 'phone',
+    timestamp,
+    lat: 0,
+    lon: 0,
+    accuracy: null,
+    altitude: null,
+    velocity: null,
+    battery: null,
+    synced_at: timestamp,
+  })
+
+  it('returns empty for no devices', () => {
+    expect(owntracksAgeLabel([])).toBe('')
+  })
+
+  it('labels a fresh fix as just now and an old one by age', () => {
+    const now = new Date('2026-08-28T15:07:00.000Z').getTime()
+    expect(owntracksAgeLabel([dev('2026-08-28T15:06:30.000Z')], now)).toBe('just now')
+    expect(owntracksAgeLabel([dev('2026-08-28T14:07:00.000Z')], now)).toMatch(/ago$/)
   })
 })
