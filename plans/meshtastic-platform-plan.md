@@ -253,22 +253,10 @@ The payoff view — live situational awareness for someone on the trail.
 - **Daemon package name** — `meshd/` (peer to `logger/`/`processor/`) vs. another home.
   Minor.
 
-## Parked — sibling subsystem: phone-over-IP position tracking
+## Sibling subsystem: phone-over-IP position tracking
 
-> Out of scope here; raised 2026-06-29, parked (no own plan yet). Recorded so it
-> isn't lost. **Do not fold into this plan** — different transport/tool/connectivity.
-
-The other half of "track the people associated with the van over whatever link is
-available": **off-grid → LoRa/Meshtastic (this plan); on-grid → the phone reports its
-own GPS over IP (cell/data).** Likely shape if revived:
-
-- **OwnTracks** (self-hosted, iOS/Android) publishing location over MQTT → reuse the
-  existing mosquitto + `mqttbus/ingest.py` bus (a phone is just another topic).
-- **Collector = the always-on home site**, reached privately over the WireGuard VPN;
-  the van reads/syncs when its uplink to home is up (the van is too often off-grid to
-  be the live collector).
-- **Storage** per-source (`phone_positions`, like drone/mesh); converge only at a
-  shared map "tracked entities" overlay (the same overlay the mesh nodes use).
-- **Open:** live vs. history intent; per-source table vs. a generic `tracked_entities`.
-- **Caveat:** needs a phone→collector path, so van + phone both off-grid is LoRa-only
-  — an argument for having both transports.
+> Revived 2026-08-28 into its own plan — `plans/phone-tracking-plan.md`
+> (OwnTracks → Recorder on rex-nas → van pull). Still deliberately not part of
+> this plan (different transport/tool/connectivity); the two converge only at
+> the shared "tracked entities" map overlay (PT5 there). The caveat stands both
+> ways: van + phone both off-grid is LoRa-only — an argument for both transports.
