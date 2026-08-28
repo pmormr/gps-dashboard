@@ -3,9 +3,10 @@
 The user's **Google Timeline** history imported as a `phone_*` tier and rendered
 as a time-scrubbed, color-by-mode map overlay — 15 years of breadcrumb alongside
 van GPS and drone tracks. The **history** half of the phone-tracking theme; the
-*live* half (OwnTracks-over-MQTT) stays parked in
-`plans/meshtastic-platform-plan.md` — different transport, different tier
-lifecycle, deliberately not part of this subsystem.
+*live* half (OwnTracks → Recorder pull → `owntracks_points`) is active in
+`plans/phone-tracking-plan.md` — different source, different tier lifecycle,
+deliberately a separate tier; only the HTTP surface is shared
+(`api/routes/phone.py` serves both).
 
 Architecturally this is the **drone importer pattern** (batch `tools/` importer →
 per-source, fully-rebuildable derived tier → frontend overlay), minus the LAN

@@ -37,16 +37,19 @@ documented in the network vault, not here.
   flaky cell links. Recorder runs MQTT-disabled (`OTR_PORT=0`). The van bus
   stays GPS/sensor-only.
 - **PT3 — Transport security = WireGuard peer, zero public exposure.** The
-  phone joins rex-edge `wg1` as a roaming peer (keypair auth, next free slot),
-  `AllowedIPs` narrowed to rex-nas only, and rex-edge contains the peer to
-  rex-nas:8083 (the vps-peer containment pattern). OwnTracks targets the
-  Recorder's LAN address, which is valid both from home WiFi and through the
-  tunnel. No TLS or app-layer auth inside the tunnel: identity is the
-  OwnTracks user/device fields; trust is the network layer — the same
-  trusted-LAN model as the dashboard itself. A public HTTPS path (e.g. via the
-  vps reverse-proxy edge) is rejected while WG suffices: it adds attack
-  surface and an availability chain for no UX gain (the app buffers through
-  outages regardless).
+  phone joins rex-edge `wg1` as a roaming peer (keypair auth, next free slot).
+  **Amended 2026-08-28:** the peer is a full **road-warrior** peer — the same
+  split-tunnel AllowedIPs and trust class as the laptop peers, *not* contained
+  to rex-nas:8083 as originally sketched — because the phone should reach the
+  home and van networks generally when away, not just the Recorder. (Cost: a
+  compromised phone key reaches everything a laptop key does — accepted, same
+  owner-device posture.) OwnTracks targets the Recorder's LAN address, which
+  is valid both from home WiFi and through the tunnel. No TLS or app-layer
+  auth inside the tunnel: identity is the OwnTracks user/device fields; trust
+  is the network layer — the same trusted-LAN model as the dashboard itself.
+  A public HTTPS path (e.g. via the vps reverse-proxy edge) is rejected while
+  WG suffices: it adds attack surface and an availability chain for no UX gain
+  (the app buffers through outages regardless).
 - **PT4 — Own append-only tier, separate from the Timeline tier.**
   `owntracks_points` (user, device, ms-UTC `timestamp`, lat/lon, accuracy,
   altitude, velocity, battery), unique on (device, timestamp), idempotent
@@ -63,23 +66,32 @@ documented in the network vault, not here.
   (HTTP-only, `/store` volume, LAN-bound); WG peer + containment rule on
   rex-edge; OwnTracks app → HTTP mode, endpoint URL, user/device identity.
   Verify fixes land in the Recorder away from home; document in the vault.
-  First step: check the app's outgoing-queue counter — it has been running
-  disconnected and may flush a timestamped backlog (free backfill).
+  **Done 2026-08-28** (Recorder verified end-to-end; peer `10.1.250.14/32`
+  `phone-pmorgan`; live fixes landing over HTTP). Outcomes: the 13,744-message
+  backlog **did not survive** the MQTT→HTTP mode switch (accepted loss — the
+  Timeline export covers that period); NAT hairpin from home WiFi **works**
+  (the tunnel handshakes from inside the LAN, learned endpoint = the phone's
+  LAN address), so WG stays always-on. Still open: verify a fix lands over
+  cell away from home.
 - **P1 — Van tier.** `owntracks_points` schema in `api/db.py`;
   `tools/sync_owntracks.py` (Recorder REST, windowed `from`/`to`, per-device
   cursor = MAX(timestamp), idempotent, KeyboardInterrupt → 130);
-  `gps-owntracks-sync.timer` oneshot (+ its enable line in the Pi's
-  post-receive hook, per Deployment). Read API: window + latest reads,
-  probably alongside `api/routes/phone.py` — naming open.
+  `gps-owntracks-sync.timer` oneshot at **5 min** (near-live latest marker;
+  the pull preflights the Recorder with a short timeout and no-ops off-grid,
+  drone-style unconditional re-enable in the Pi's post-receive hook, per
+  Deployment). Read API (settled 2026-08-28): `GET /api/phone/owntracks`
+  (windowed) + `GET /api/phone/owntracks/latest`, in `api/routes/phone.py` —
+  PT4's tier separation is data lifecycle, not route-file organization.
 - **P2 — Frontend.** The Layers panel's Phone section grows a live toggle:
   trailing breadcrumb following the global time selection + latest-position
   marker. Single-entity styling until PT5's overlay exists.
 
 ## Open
 
-- **Home-WiFi behavior:** WG always-on relies on NAT hairpin to rex-edge's
-  public endpoint from inside the LAN. If hairpin fails, use the WG app's
-  trusted-WiFi auto-off — the Recorder endpoint IP is valid either way. Verify.
+- ~~**Home-WiFi behavior**~~ — resolved 2026-08-28: NAT hairpin works from
+  home WiFi (handshake completes from inside the LAN), WG stays always-on.
+- **Away-from-home verification:** confirm a fix lands over cell + the tunnel
+  on the next outing (config is IP-based, valid on both paths).
 - **Recorder `/store` retention + backup scope on rex-nas** — it is now the
   rebuild source of truth for this tier; fold into the NAS backup story
   (vault matter).
