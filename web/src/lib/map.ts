@@ -132,29 +132,54 @@ function notifyRadarLoad(): void {
     radarLoadCbs.forEach((cb) => cb({ ...radarLoadStats }))
   }, 100)
 }
-function radarTileStarted(): void {
+// Per-frame in-flight counters, keyed by the frame ts in the archive URL —
+// the truthful tile-residency signal (map.isSourceLoaded() lies for these
+// sources). A frame's reads draining to 0 fires onRadarFrameDrained, which
+// the swap machinery uses to complete a pending swap the moment its target's
+// viewport tiles have landed — instead of waiting out an idle event a busy
+// playback loop can starve on a slow link.
+const radarFramePending = new Map<number, number>()
+let onRadarFrameDrained: ((frame: number) => void) | null = null
+const RADAR_FRAME_RE = /\/tiles\/weather\/radar\/(\d+)\.pmtiles/
+function radarFrameOf(url: string): number | null {
+  const m = RADAR_FRAME_RE.exec(url)
+  return m ? Number(m[1]) : null
+}
+function radarTileStarted(frame: number | null): void {
   radarLoadStats.pending++
+  if (frame != null) radarFramePending.set(frame, (radarFramePending.get(frame) ?? 0) + 1)
   notifyRadarLoad()
 }
-function radarTileFinished(bytes: number): void {
+function radarTileFinished(frame: number | null, bytes: number): void {
   radarLoadStats.pending = Math.max(0, radarLoadStats.pending - 1)
   if (bytes > 0) {
     radarLoadStats.tiles++
     radarLoadStats.bytes += bytes
+  }
+  if (frame != null) {
+    const n = (radarFramePending.get(frame) ?? 1) - 1
+    if (n <= 0) {
+      radarFramePending.delete(frame)
+      onRadarFrameDrained?.(frame)
+    } else {
+      radarFramePending.set(frame, n)
+    }
   }
   notifyRadarLoad()
 }
 const pmtilesProtocol = new Protocol()
 maplibregl.addProtocol('pmtiles', (params, abortController) => {
   const counted = params.type !== 'json' && params.url.includes('/tiles/weather/')
-  if (counted) radarTileStarted()
+  const frame = counted ? radarFrameOf(params.url) : null
+  if (counted) radarTileStarted(frame)
   const result = pmtilesProtocol.tile(params, abortController)
   if (counted) {
     // A branch observer on the same promise: aborted/failed reads still
     // decrement pending (0 bytes), and MapLibre keeps the original rejection.
     result.then(
-      (r) => radarTileFinished((r as { data?: { byteLength?: number } }).data?.byteLength ?? 0),
-      () => radarTileFinished(0),
+      (r) =>
+        radarTileFinished(frame, (r as { data?: { byteLength?: number } }).data?.byteLength ?? 0),
+      () => radarTileFinished(frame, 0),
     )
   }
   return result
@@ -1092,10 +1117,46 @@ export const MapView = (() => {
   // ticks (150–600ms) land inside any delay window, and a "defer while a swap
   // is pending" guard on a delayed warm starves the warm forever — the deck
   // never warms and every swap pays the cold path (skipped + flashing frames).
+  // Suppressed during loop playback: there the bounded lookahead primes ahead
+  // of the playhead instead — a whole-deck warm burst would queue hundreds of
+  // tiles in front of the very frames the loop needs next on a slow link.
   function radarIdleWarm(): void {
-    if (!radarFrames.length || radarWarm) return
+    if (!radarFrames.length || radarWarm || radarPlayback) return
     if (radarTargetFrame != null && radarTargetFrame !== radarShownFrame) return
     applyRadarWarm(true)
+  }
+
+  // Loop-playback mode (set by the Weather view): swaps prefer the per-frame
+  // drain signal, the idle warm yields to the lookahead, and frames the
+  // playhead has passed stay visible — by the second loop every frame swaps
+  // from resident tiles.
+  let radarPlayback = false
+  function setRadarPlayback(active: boolean): void {
+    radarPlayback = active
+  }
+
+  /** Whether the last requested frame hasn't rendered yet — the playhead's
+   * hold gate: playback advances only between landed swaps, so a slow link
+   * slows the loop instead of dropping frames. */
+  function radarSwapPending(): boolean {
+    return radarTargetFrame != null && radarTargetFrame !== radarShownFrame
+  }
+
+  /** The frame currently rendered at radarOpacity (null = none landed yet). */
+  function getRadarShownFrame(): number | null {
+    return radarShownFrame
+  }
+
+  /** Make upcoming loop frames' layers visible so their tiles fetch ahead of
+   * the playhead (bounded lookahead — unloaded/absent layers are skipped). */
+  function primeRadarFrames(frames: number[]): void {
+    if (!map) return
+    for (const f of frames) {
+      const id = radarLayerId(f)
+      if (map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'visible') {
+        map.setLayoutProperty(id, 'visibility', 'visible')
+      }
+    }
   }
 
   function coolRadar(): void {
@@ -1156,7 +1217,15 @@ export const MapView = (() => {
       applyRadarSwap(frame)
       return
     }
+    // Lookahead fast path: a frame that was already visible (primed or passed
+    // on an earlier loop) with no reads in flight has its tiles resident —
+    // swap now instead of waiting a round trip through drain/idle.
+    const wasVisible = map.getLayoutProperty(id, 'visibility') === 'visible'
     map.setLayoutProperty(id, 'visibility', 'visible')
+    if (wasVisible && !radarFramePending.has(frame)) {
+      applyRadarSwap(frame)
+      return
+    }
     armRadarSwap()
   }
 
@@ -1174,9 +1243,13 @@ export const MapView = (() => {
     // A cooled swap just landed — the next idle warms the neighborhood.
   }
 
-  // Ceiling on how long a cold swap waits for idle: past this, swap anyway and
-  // let the target's remaining tiles pop in as they arrive.
-  const RADAR_SWAP_FALLBACK_MS = 600
+  // A cold swap completes on the first of three signals: the target frame's
+  // tile reads draining to 0 (the per-frame instrumentation — fastest, and
+  // immune to a busy loop starving the idle event), the map going idle, or a
+  // generous fallback ceiling. The ceiling is wedge-proofing only — with the
+  // playhead holding on pending swaps it no longer paces playback, so it can
+  // afford to be long enough that it never fires on a merely-slow link.
+  const RADAR_SWAP_FALLBACK_MS = 2500
   let radarSwapTimer: ReturnType<typeof setTimeout> | null = null
 
   function armRadarSwap(): void {
@@ -1187,8 +1260,19 @@ export const MapView = (() => {
     }, RADAR_SWAP_FALLBACK_MS)
   }
 
-  // Completes a pending swap (idle handler + the fallback timer): idle means
-  // the target's visible tiles are done loading.
+  // Drain-driven completion: when the pending target's last read lands, wait
+  // one frame and re-check (a tile wave can drain before the next spawns),
+  // then swap.
+  onRadarFrameDrained = (frame: number): void => {
+    if (frame !== radarTargetFrame || frame === radarShownFrame) return
+    requestAnimationFrame(() => {
+      if (frame !== radarTargetFrame || radarFramePending.has(frame)) return
+      completeRadarSwap()
+    })
+  }
+
+  // Completes a pending swap (drain callback + idle handler + the fallback
+  // timer): the target's visible tiles are done loading, or the ceiling hit.
   function completeRadarSwap(): void {
     if (!map || radarTargetFrame == null || radarTargetFrame === radarShownFrame) return
     if (!map.getLayer(radarLayerId(radarTargetFrame))) return
@@ -1207,6 +1291,7 @@ export const MapView = (() => {
     if (radarSwapTimer) clearTimeout(radarSwapTimer)
     radarSwapTimer = null
     radarWarm = false
+    radarPlayback = false
     if (map) for (const f of radarFrames) removeRadarLayer(map, f)
     radarFrames = []
     radarShownFrame = null
@@ -1806,6 +1891,10 @@ export const MapView = (() => {
     setRadarFrames,
     showRadarFrame,
     setRadarOpacity,
+    setRadarPlayback,
+    primeRadarFrames,
+    radarSwapPending,
+    getRadarShownFrame,
     clearRadar,
     onRadarLoad,
     offRadarLoad,
@@ -1840,3 +1929,8 @@ export const MapView = (() => {
     getExaggeration,
   }
 })()
+
+// LAN-trusted debug handle (no auth to protect): lets an on-device console —
+// or a Playwright run — poke the shared MapView directly. Three separate
+// on-device radar debug sessions earned this its place.
+;(window as unknown as { __vanos?: object }).__vanos = { map: MapView }

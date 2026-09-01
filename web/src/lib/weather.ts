@@ -51,6 +51,15 @@ export const LOADED_FRAME_CAP = 48
 /** Recenter the loaded neighborhood when the playhead gets this close to its edge. */
 export const RECENTER_MARGIN = 8
 
+/**
+ * How many frames ahead of the playhead get primed (made visible so their
+ * tiles fetch) during loop playback. Bounded so the link serves the near
+ * future first — a whole-deck warm queues hundreds of tiles in front of the
+ * frame the loop needs next; frames behind the playhead stay visible, so by
+ * the second loop the whole window is resident anyway.
+ */
+export const PLAYBACK_LOOKAHEAD = 4
+
 /** An index range [start, end) into the frame list — the loaded neighborhood. */
 export interface FrameRange {
   start: number

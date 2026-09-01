@@ -14,6 +14,7 @@
     loadRadar,
     loadWarnings,
     needsRecenter,
+    PLAYBACK_LOOKAHEAD,
     RECENTER_MARGIN,
     sliceRange,
     WINDOW_PRESETS,
@@ -167,12 +168,24 @@
   })
 
   // Advance the loop while playing. Reads playing/speed/length (not index), so it
-  // restarts on those changes without looping on its own writes.
+  // restarts on those changes without looping on its own writes. Hold, don't
+  // skip: the speed is a *minimum* dwell — a tick that lands while the last
+  // frame is still loading waits for the next tick, so a slow link slows the
+  // loop instead of dropping frames.
   $effect(() => {
     if (!playing || frames.length < 2) return
     const ms = SPEEDS[speedIdx].ms
-    const timer = setInterval(() => (index = (index + 1) % frames.length), ms)
+    const timer = setInterval(() => {
+      if (view?.radarSwapPending()) return
+      index = (index + 1) % frames.length
+    }, ms)
     return () => clearInterval(timer)
+  })
+
+  // Loop-playback mode: swaps prefer the drain signal and the idle warm
+  // yields to the lookahead priming (map.ts setRadarPlayback).
+  $effect(() => {
+    view?.setRadarPlayback(playing)
   })
 
   // Render the current frame — driven by auto-advance and scrubbing — and keep
@@ -183,6 +196,14 @@
   $effect(() => {
     if (!view || !frames.length) return
     view.showRadarFrame(frames[index])
+    if (playing) {
+      view.primeRadarFrames(
+        Array.from(
+          { length: PLAYBACK_LOOKAHEAD },
+          (_, k) => frames[(index + 1 + k) % frames.length],
+        ),
+      )
+    }
     if (
       needsRecenter(loadedRange, frames.length, index, RECENTER_MARGIN) &&
       recenterTimer == null
