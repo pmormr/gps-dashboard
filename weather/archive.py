@@ -71,6 +71,9 @@ def pack_frame(
                 'max_lat_e7': round(layer.lat_bounds[1] * 1e7),
             }
             writer.finalize(header, {'attribution': layer.attribution, 'frame_ms': frame_ms})
+        # nginx direct-serves the archive as www-data — every frame must be
+        # world-readable by construction (not umask-dependent), or it 403s.
+        os.chmod(tmp, 0o644)
         tmp.replace(dest)
     except BaseException:
         tmp.unlink(missing_ok=True)

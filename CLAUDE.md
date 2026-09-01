@@ -52,7 +52,7 @@ ssh pmorgan@192.168.42.178 "journalctl -u gps-logger -f"
 ssh pmorgan@192.168.42.178 "sudo systemctl status gps-dashboard gps-logger"
 ```
 
-App runs at `http://192.168.42.178/`. Production topology is **nginx (:80, LAN front door) → waitress (Flask app, `127.0.0.1:8000`)**. nginx direct-serves `/static` + the two immutable PMTiles archives (`/tiles/osm.pmtiles`, `/tiles/terrain.pmtiles`) with native Range and owns the clean access log (→ syslog `/dev/log` → the pmpi1 relay → Graylog); it proxies everything else (JSON API, SPA shell, raster tile proxy) to waitress. The app binds localhost:8000 (`GPS_BIND_HOST`/`GPS_BIND_PORT`); set `GPS_DEV=1` for the Werkzeug reloader/debugger during local iteration. nginx config is repo-managed (`deploy/gps-dashboard.nginx.conf`, symlinked into `/etc/nginx/conf.d/`, read from the checkout like `deploy/mediamtx.yml`).
+App runs at `http://192.168.42.178/`. Production topology is **nginx (:80, LAN front door) → waitress (Flask app, `127.0.0.1:8000`)**. nginx direct-serves `/static`, the two immutable PMTiles archives (`/tiles/osm.pmtiles`, `/tiles/terrain.pmtiles`), and the per-frame weather archives (`/tiles/weather/…` — a radar pan/zoom is a burst of hundreds of range reads that would starve waitress's thread pool) with native Range and owns the clean access log (→ syslog `/dev/log` → the pmpi1 relay → Graylog); it proxies everything else (JSON API, SPA shell, raster tile proxy) to waitress. The app binds localhost:8000 (`GPS_BIND_HOST`/`GPS_BIND_PORT`); set `GPS_DEV=1` for the Werkzeug reloader/debugger during local iteration. nginx config is repo-managed (`deploy/gps-dashboard.nginx.conf`, symlinked into `/etc/nginx/conf.d/`, read from the checkout like `deploy/mediamtx.yml`).
 
 ## Architecture
 
