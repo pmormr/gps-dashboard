@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PIL import Image
 
@@ -164,7 +164,8 @@ def render_tile(
     dy0 = (tymax - iymax) / (tymax - tymin) * TILE_PX
     dy1 = (tymax - iymin) / (tymax - tymin) * TILE_PX
     dw, dh = max(1, round(dx1 - dx0)), max(1, round(dy1 - dy0))
-    src = src.resize((dw, dh), Image.Resampling.LANCZOS)
+    if src.size != (dw, dh):
+        src = src.resize((dw, dh), Image.Resampling.LANCZOS)
     if (dw, dh) == (TILE_PX, TILE_PX):
         return src
     tile = Image.new('RGBA', (TILE_PX, TILE_PX), (0, 0, 0, 0))
@@ -177,6 +178,14 @@ def pyramid_tiles(
 ) -> Iterator[tuple[int, int, int, Image.Image]]:
     """Yield every non-empty tile of the sparse ``min_zoom..max_zoom`` pyramid.
 
+    Rendered top-down (``max_zoom`` first): the native level slices straight off
+    the master, then the working image is box-halved once per level and each
+    lower zoom slices from its own half-size image. Every crop/resample thus
+    touches a level-sized image instead of re-filtering the full-resolution
+    master once per zoom — the difference between ~1.3 and ~7 full-image passes
+    per frame. Yield order is not part of the contract (packing sorts by tile
+    id).
+
     Args:
         master: The assembled master canvas.
         grid: The master grid.
@@ -185,10 +194,16 @@ def pyramid_tiles(
     Yields:
         ``(z, x, y, tile)`` for each tile carrying data.
     """
-    for z in range(layer.min_zoom, layer.max_zoom + 1):
+    level, level_grid = master, grid
+    for z in range(layer.max_zoom, layer.min_zoom - 1, -1):
         x0, y0, x1, y1 = geo.tile_range(z, layer.lon_bounds, layer.lat_bounds)
         for x in range(x0, x1 + 1):
             for y in range(y0, y1 + 1):
-                tile = render_tile(master, grid, z, x, y)
+                tile = render_tile(level, level_grid, z, x, y)
                 if tile is not None:
                     yield z, x, y, tile
+        if z > layer.min_zoom:
+            level = level.reduce(2)
+            # Only the georeferencing fields (merc_bounds + pixel dims) matter to
+            # render_tile; the tile_* fields still describe the native lattice.
+            level_grid = replace(level_grid, zoom=z - 1, width=level.width, height=level.height)

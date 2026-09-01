@@ -8,6 +8,12 @@ Type=oneshot
 User=pmorgan
 WorkingDirectory=/mnt/nvme/gps-dashboard
 Environment=GPS_WEATHER_ARCHIVE_DIR=/mnt/nvme/cache/weather
+# Background capture must never contend with gps-logger/gps-dashboard for the
+# CPU or the NVMe — it re-runs every 5 min, latency is free. Scales to future
+# registry layers: more capture work stretches the tick, not the Pi.
+Nice=10
+CPUWeight=30
+IOWeight=30
 # Capture-while-online, play-offline: every registered layer — the radar rolling
 # archive (grab the new frames in the upstream ~2 h window, prune past 14 days)
 # plus the keep-latest vector layers (warnings). A clean no-op per layer when
