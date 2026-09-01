@@ -405,8 +405,8 @@ export const MapView = (() => {
   // view feeds a sliding neighborhood of the full archive index, not every
   // frame. The shown frame is selected by raster-opacity and double-buffered:
   // showRadarFrame sets a *target*, and the previously shown frame keeps
-  // rendering until the target's source has its tiles (sourcedata/idle complete
-  // the swap), so scrubbing into unloaded archive never blanks the radar. The
+  // rendering until the target's tiles land (idle or the fallback ceiling
+  // completes the swap), so scrubbing into unloaded archive never blanks. The
   // non-shown frames' layers are only 'visible' (preloading their tiles for the
   // loop) while the camera is at rest — see applyRadarWarm. Inserted below the
   // first symbol layer so basemap labels stay legible under the radar. Re-added
@@ -419,9 +419,8 @@ export const MapView = (() => {
   // (during camera moves + on first load) = only the shown frame, because a
   // visible layer fetches viewport tiles on every move — ×24 frames that's
   // megabytes per pan/zoom gesture and seconds of stall on a slow LAN uplink.
-  // movestart cools; moveend re-warms after a short debounce.
+  // movestart cools; the map's idle event re-warms (see radarIdleWarm).
   let radarWarm = false
-  let radarWarmTimer: ReturnType<typeof setTimeout> | null = null
 
   // Warnings overlay (vector): active NWS alert polygons, colored by severity.
   // Always-present source (empty until the Weather view pushes data), the
@@ -1086,25 +1085,20 @@ export const MapView = (() => {
     }
   }
 
-  // Re-warm shortly after the camera settles: the shown frame's tiles arrive
-  // first (it's the only visible layer while cold), then the rest of the window
-  // preloads in the background for the loop. A pending swap defers the warm —
-  // the target frame must not fight 47 preloading layers for the request pool
-  // (applyRadarSwap re-schedules once it lands).
-  const RADAR_WARM_DELAY_MS = 400
-  function scheduleRadarWarm(): void {
-    if (radarWarmTimer) clearTimeout(radarWarmTimer)
-    radarWarmTimer = null
+  // Re-warm on the map's idle event — the only warm trigger. Idle means
+  // nothing visible is still loading, so flipping 47 preload layers visible
+  // can't contend with the shown frame's own tiles (the slow-link first-paint
+  // hazard a timer-based warm races). It must fire with no delay: playback
+  // ticks (150–600ms) land inside any delay window, and a "defer while a swap
+  // is pending" guard on a delayed warm starves the warm forever — the deck
+  // never warms and every swap pays the cold path (skipped + flashing frames).
+  function radarIdleWarm(): void {
     if (!radarFrames.length || radarWarm) return
-    radarWarmTimer = setTimeout(() => {
-      radarWarmTimer = null
-      if (radarTargetFrame == null || radarTargetFrame === radarShownFrame) applyRadarWarm(true)
-    }, RADAR_WARM_DELAY_MS)
+    if (radarTargetFrame != null && radarTargetFrame !== radarShownFrame) return
+    applyRadarWarm(true)
   }
 
   function coolRadar(): void {
-    if (radarWarmTimer) clearTimeout(radarWarmTimer)
-    radarWarmTimer = null
     if (radarWarm) applyRadarWarm(false)
   }
 
@@ -1127,15 +1121,11 @@ export const MapView = (() => {
     if (radarTargetFrame != null && radarTargetFrame !== radarShownFrame) {
       // A pending swap (a long scrub jump) must not fight a whole-neighborhood
       // warm for the request pool (MapLibre caps parallel image loads): cool to
-      // target-only so its tiles load first — applyRadarSwap re-warms after.
-      if (radarWarmTimer) clearTimeout(radarWarmTimer)
-      radarWarmTimer = null
+      // target-only so its tiles load first — idle re-warms once it lands.
       if (radarWarm) applyRadarWarm(false)
       armRadarSwap()
-    } else {
-      // New layers start cold (shown/target only) — warm them once settled.
-      scheduleRadarWarm()
     }
+    // else: new layers start cold (shown-only) — the next idle warms them.
   }
 
   // Select the shown frame by opacity (see addRadarLayer): the shown frame at
@@ -1157,12 +1147,7 @@ export const MapView = (() => {
       for (const f of radarFrames) setRadarLayerOpacity(f, 0)
       return
     }
-    if (frame === radarShownFrame) {
-      // A cancelled jump (scrubbed back to the shown frame) may have left the
-      // deck cooled with no swap pending to re-warm it.
-      scheduleRadarWarm()
-      return
-    }
+    if (frame === radarShownFrame) return // cancelled jump — idle re-warms
     const id = radarLayerId(frame)
     // Not in the loaded set yet — the view recenters the neighborhood and
     // setRadarFrames arms the swap once the layer exists.
@@ -1186,8 +1171,7 @@ export const MapView = (() => {
     radarSwapTimer = null
     radarShownFrame = frame
     for (const f of radarFrames) setRadarLayerOpacity(f, f === frame ? radarOpacity : 0)
-    // A cooled long-jump swap just landed — warm the neighborhood behind it.
-    scheduleRadarWarm()
+    // A cooled swap just landed — the next idle warms the neighborhood.
   }
 
   // Ceiling on how long a cold swap waits for idle: past this, swap anyway and
@@ -1220,8 +1204,6 @@ export const MapView = (() => {
 
   /** Remove all radar sources/layers and reset state (the view-leave teardown). */
   function clearRadar(): void {
-    if (radarWarmTimer) clearTimeout(radarWarmTimer)
-    radarWarmTimer = null
     if (radarSwapTimer) clearTimeout(radarSwapTimer)
     radarSwapTimer = null
     radarWarm = false
@@ -1300,10 +1282,12 @@ export const MapView = (() => {
     // Radar warm/cold: any camera move (gesture or programmatic) drops the
     // non-shown frame layers so the move only fetches one frame's tiles.
     map.on('movestart', coolRadar)
-    map.on('moveend', scheduleRadarWarm)
     // Radar double-buffer: a cold target swaps in once the map goes idle (its
     // visible tiles are done); armRadarSwap's fallback timer is the ceiling.
+    // radarIdleWarm runs after it (registration order), so a swap that lands
+    // on this idle warms the neighborhood behind it in the same tick.
     map.on('idle', completeRadarSwap)
+    map.on('idle', radarIdleWarm)
     wireLongPress(map)
     map.on('idle', idlePrefetch)
     applyBasemap(currentLayer)

@@ -72,11 +72,18 @@ layer two is a registry entry, not a rename.
   scrubbing into unloaded archive holds the last frame instead of blanking.
   **Trap: never gate the swap on `map.isSourceLoaded()`** — it reads false
   indefinitely for these raster sources and silently wedges the swap forever
-  (cost a full on-device debugging session). While a swap is pending, the
-  neighborhood warm defers (`scheduleRadarWarm` guard) so the target's tiles
-  own MapLibre's 16-parallel image pool instead of queuing behind ~380 warm
-  tiles. ‹ › step buttons beside Play for precise frame stepping (a
-  2,880-position slider is coarse per-pixel).
+  (cost a full on-device debugging session). The neighborhood warm has exactly
+  one trigger: the map's **`idle` event, with no delay** (`radarIdleWarm`,
+  guarded by pending-target + already-warm; `movestart` cools). Idle is by
+  definition contention-free — nothing visible is still loading — so the warm
+  can't starve the shown/target frame's tiles out of MapLibre's 16-parallel
+  image pool. **Trap: any delayed warm starves under playback** — ticks
+  (150–600 ms) land inside the delay window, so a "defer while a swap is
+  pending" guard drops the warm every time, the deck never warms, and every
+  swap pays the cold path (frames skipped at the fallback ceiling + a blank
+  flash per frame — a shipped regression, found on-device). ‹ › step buttons
+  beside Play for precise frame stepping (a 2,880-position slider is coarse
+  per-pixel).
 - **Deferred within P3/P4:** NWS zone-only alerts (null geometry) don't render —
   storm-based polygons do.
 
