@@ -5,17 +5,12 @@
  * proxies; plans/cameras-plan.md). A bare `fetch` + `RTCPeerConnection`, no
  * signaling library: non-trickle, gather host ICE candidates (the offline LAN
  * needs no STUN), POST the full SDP offer to the WHEP endpoint, apply the
- * answer. Media then flows peer-to-peer from MediaMTX's ICE port straight to the
- * browser; only this handshake crosses HTTP, and only to the same host as the
- * app (a different port = MediaMTX).
+ * answer. Media then flows peer-to-peer from MediaMTX's ICE port straight to
+ * the browser; only this handshake crosses HTTP, same-origin through nginx
+ * (see {@link whepEndpoint}).
  *
  * Callers pick the media kinds: radio requests `['audio']`, cameras `['video']`.
  */
-
-/** MediaMTX WebRTC port — `webrtcAddress` in `deploy/mediamtx.yml`. WHEP lives
- *  at `http://<host>:8889/<path>/whep`; the app is served on a different port,
- *  so a WHEP fetch is always cross-origin to the same host. */
-const WEBRTC_PORT = 8889
 
 /** ICE gathering fallback: some browsers never fire `complete` when only host
  *  candidates exist, so cap the wait and send whatever we have. */
@@ -25,19 +20,17 @@ const ICE_TIMEOUT_MS = 3000
 export type WhepMedia = 'audio' | 'video'
 
 /**
- * The WHEP endpoint URL for a MediaMTX path, derived from the page location.
- *
- * Same host as the app, MediaMTX's WebRTC port. Pure so it can be unit-tested;
- * defaults to the live `window.location`.
+ * The WHEP endpoint URL for a MediaMTX path — nginx's same-origin proxy
+ * (`/whep/<path>` → `127.0.0.1:8889/<path>/whep`, see
+ * `deploy/gps-dashboard.nginx.conf`). Same-origin rather than the hub's own
+ * `:8889` because the TLS front (`https://van.pmormr.com`) blocks the hub's
+ * plain-HTTP port as mixed content; riding the page origin works under every
+ * access mode and skips the CORS preflight the cross-origin POST needed.
  *
  * @param path The MediaMTX path name (e.g. `radio`, `cam-front`).
- * @param loc The page location (protocol + hostname).
  */
-export function whepEndpoint(
-  path: string,
-  loc: { protocol: string; hostname: string } = window.location,
-): string {
-  return `${loc.protocol}//${loc.hostname}:${WEBRTC_PORT}/${path}/whep`
+export function whepEndpoint(path: string): string {
+  return `/whep/${path}`
 }
 
 /** A live receive-only WHEP session. */
