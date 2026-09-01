@@ -202,6 +202,7 @@
               class="wx-chip"
               class:wx-chip--on={windowHours === h}
               onclick={() => pickWindow(h)}
+              title={`Load the last ${h} hour${h === 1 ? '' : 's'} of radar frames`}
             >
               {h}h
             </button>
@@ -213,11 +214,12 @@
           class="wx-chip"
           onclick={() => (speedIdx = (speedIdx + 1) % SPEEDS.length)}
           aria-label="Playback speed"
+          title="Playback speed"
         >
           {SPEEDS[speedIdx].label}
         </button>
 
-        <label class="wx-opacity">
+        <label class="wx-opacity" title="Radar opacity">
           <span aria-hidden="true">◐</span>
           <input type="range" min="0.2" max="1" step="0.05" bind:value={opacity} aria-label="Radar opacity" />
         </label>
@@ -228,11 +230,16 @@
           class:wx-chip--on={warningsOn}
           onclick={toggleWarnings}
           aria-label="Toggle watches & warnings"
+          title={warningsOn
+            ? `NWS watches & warnings — ${warningsCount} active (click to hide)`
+            : 'Show NWS watches & warnings'}
         >
           ⚠{warningsCount ? ` ${warningsCount}` : ''}
         </button>
 
-        <button type="button" class="wx-chip" onclick={centerOnVan}>⌖ Van</button>
+        <button type="button" class="wx-chip" onclick={centerOnVan} title="Center the map on the van">
+          ⌖ Van
+        </button>
       </div>
     </div>
   {/if}
