@@ -1,11 +1,11 @@
 /**
  * Keep the screen awake while the Drive view is active. The Screen Wake Lock
- * API needs a secure context, which `http://<LAN-IP>:5000` is not — browsers
- * don't even expose `navigator.wakeLock` there — so the production path is the
- * NoSleep-style fallback: a silent, invisible, looping video (a ~1.6 kB bundled
- * asset, inlined by Vite, offline-safe). The real API is used where it exists
- * (localhost dev, a future LAN-HTTPS setup) and re-acquired on tab return,
- * since the browser silently releases it on visibility loss.
+ * API needs a secure context — present at `https://van.pmormr.com` (and
+ * localhost dev), absent on the plain-IP http fallback, where browsers don't
+ * even expose `navigator.wakeLock`. The real API is used where it exists and
+ * re-acquired on tab return (the browser silently releases it on visibility
+ * loss); otherwise the NoSleep-style fallback runs: a silent, invisible,
+ * looping video (a ~1.6 kB bundled asset, inlined by Vite, offline-safe).
  */
 
 import wakelockVideo from '../assets/wakelock.mp4'

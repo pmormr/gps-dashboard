@@ -209,7 +209,10 @@ GPS logging stays its own process and is **not** on the bus. New moving parts:
   `deploy/mosquitto.conf` stays tcp `:1883` only. Resolve by rebuilding mosquitto with
   libwebsockets, finding a WS-enabled package, or bridging MQTT→browser through Flask
   (SSE / server-side WS). The DB-backed viewer above sidesteps it and covers most of the
-  need.
+  need. **When this lands:** the dashboard origin is `https://van.pmormr.com`, which
+  blocks a plain `ws://<pi>:9001` as mixed content — front the WS listener through the
+  nginx chain (a `/mqtt` location with `Upgrade`/`Connection` headers, like `/whep/…`
+  fronts MediaMTX), never a raw port.
 
 `mqttbus/client.py` is the shared paho v2 client factory (env broker host/port,
 bounded reconnect backoff, optional retained LWT). `mqttbus/topics.py` is the single

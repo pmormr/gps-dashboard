@@ -127,13 +127,13 @@ export function groupBySlot(feeds: Feed[]): { key: string; label: string; feeds:
 }
 
 /**
- * Copy text to the clipboard, working on the plain-HTTP LAN.
+ * Copy text to the clipboard, working in both access modes.
  *
- * The dashboard is served over `http://<ip>` (not HTTPS/localhost), which is an
- * *insecure context* — `navigator.clipboard` is unavailable there. So try the
- * async Clipboard API when it's actually usable, then fall back to the legacy
- * `execCommand('copy')` over a hidden textarea (the only path that works on the
- * van LAN). Returns whether the copy succeeded so the caller can show feedback.
+ * Over `https://van.pmormr.com` (secure context) the async Clipboard API works;
+ * on the plain-IP http fallback it's unavailable (`navigator.clipboard`
+ * undefined or gated), so fall back to the legacy `execCommand('copy')` over a
+ * hidden textarea. Returns whether the copy succeeded so the caller can show
+ * feedback.
  */
 export async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {

@@ -145,11 +145,12 @@ to the **hub**, never the publisher:
 - VLC/OBS `rtsp://<pi>:8554/radio` (~0.5–1 s)
 - any browser `http://<pi>:8889/radio` (WebRTC, sub-second, no STUN on the LAN)
 - the `/radio` **Listen-live card** — a bare `fetch` + `RTCPeerConnection` WHEP client
-  (`web/src/lib/radioListen.ts`, no signaling lib): non-trickle (host candidates only),
-  POST the SDP offer to `.../radio/whep`. Cross-origin works (MediaMTX v1.19.2 sends
-  `Access-Control-Allow-Origin: *` on WHEP); teardown is client-side `pc.close()`, never
-  WHEP DELETE (buggy in this version). Independent of the CI-V readout — the stream plane
-  stands alone.
+  (`web/src/lib/whep.ts`, shared with cameras/broadcast; no signaling lib): non-trickle
+  (host candidates only), POST the SDP offer to the same-origin nginx proxy
+  `/whep/radio` (→ `127.0.0.1:8889/radio/whep` — the hub's own plain-HTTP port is
+  mixed content from the https front); teardown is client-side `pc.close()`, never
+  WHEP DELETE (buggy in this version). Independent of the CI-V readout — the stream
+  plane stands alone.
 
 **Capture sharing = ALSA dsnoop** (`deploy/asound.conf` → `/etc/asound.conf`, manual
 install like the udev rules): the hw codec is single-open; dsnoop lets recorder + publisher

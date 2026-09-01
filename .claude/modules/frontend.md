@@ -242,10 +242,12 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   gate (a parked van must not grow a fuzzball), 30 min age trim, and an
   oldest-half decimation at the count cap. Rendered as a puck-blue engine layer
   (`MapView.setBreadcrumb`) above the red history track, below place pins.
-- **Wake lock** — `lib/wakelock.ts`: the real API needs a secure context (absent at
-  `http://<LAN-IP>`), so production falls back to a NoSleep-style invisible looping
-  video (~1.6 kB `web/src/assets/wakelock.mp4`, Vite-inlined, offline-safe; seek-back
-  instead of `loop` — some iOS versions pause tiny looping videos).
+- **Wake lock** — `lib/wakelock.ts`: the real API needs a secure context, so it engages
+  at `https://van.pmormr.com` but not on the plain-IP http fallback, which uses the
+  NoSleep-style invisible looping video (~1.6 kB `web/src/assets/wakelock.mp4`,
+  Vite-inlined, offline-safe; seek-back instead of `loop` — some iOS versions pause
+  tiny looping videos). Same split for the clipboard: `lib/broadcast.ts` `copyText`
+  uses the async Clipboard API in a secure context, `execCommand` fallback otherwise.
 
 ## Other views
 
