@@ -31,16 +31,34 @@ layer two is a registry entry, not a rename.
   warnings, 0 console errors).
 - **Real footprint — measured on the Pi:** ~12.3 MB/frame avg (min 11.7, max
   12.6) during active weather (400+ warning polygons) → **~35 GB / 14 d**
-  extrapolated. Matches the plan's ~32 GB estimate; under 50 GB, z8 stays. Recheck
-  after calmer weather (sparser frames should run smaller).
-- **Animation warm-up fix (session four):** the loop selected the shown frame by
-  toggling layer visibility, so MapLibre only fetched a frame's tiles the first
-  time the loop reached it (several passes to fully populate). Now every windowed
-  frame layer stays `visibility:visible` and selection is by `raster-opacity`
-  (shown = opacity, rest = 0) — a visible layer preloads its tiles regardless of
-  opacity, and `draw_raster` skips opacity-0 layers so hidden frames cost nothing
-  to render. All frames preload up front (verified: opening `/weather` fetches all
-  24 windowed frames' tiles immediately, all 206).
+  extrapolated — before the PNG8 encode below, which cuts frames to ~1/3
+  (→ order 10–12 GB / 14 d as the archive rolls over). Under 50 GB either way,
+  z8 stays.
+- **Perf pass (2026-09-01) — slow-LAN delivery + Pi CPU:**
+  - **nginx direct-serves `/tiles/weather/…​.pmtiles`** (regex location into the
+    archive dir, immutable cache headers) — the osm/terrain offload. Byte-range
+    bursts (hundreds per pan/zoom) no longer queue on waitress's 8 threads or
+    starve the JSON API; `pack_frame` chmods each frame `644` by construction
+    (the www-data o+r trap, automated). The Flask route stays as the dev path.
+  - **Warm/cold frame visibility** (`map.ts`): frame selection stays
+    `raster-opacity` (a visible layer keeps its tiles loaded, so the loop never
+    stutters on warmed frames), but the *non-shown* frames are only
+    `visibility:visible` while the camera is at rest. `movestart` cools (a move
+    fetches one frame's viewport tiles, not ~24×), `moveend` + 400 ms debounce
+    re-warms so the window preloads in the background; first load starts cold
+    (shown frame renders first, the burst follows on settle).
+  - **Fetcher CPU ~5× down** (laptop-benchmarked on a live frame, 492 tiles:
+    3.0 s → 0.61 s; Pi tick was ~24 s CPU): `pyramid_tiles` renders top-down
+    with per-level box-halving (was: every zoom level crop+LANCZOS'd the
+    full-res master — ~7 full-image passes), z8 skips the same-size resize, and
+    `_encode_png` quantizes to palette PNG8 (FASTOCTREE, visually lossless —
+    transparent px survive exactly) instead of `optimize=True` RGBA — encode
+    ~8× cheaper **and** frames ~69% smaller on the wire (8.7 → 2.7 MB moderate
+    weather).
+  - **`weather-fetch.service` is niced** (`Nice=10`, `CPUWeight=30`,
+    `IOWeight=30`): capture latency is free (5-min tick), so remaining work
+    yields to gps-logger/gps-dashboard — and future registry layers stretch the
+    tick, not the Pi.
 - **Deferred within P3/P4:** full-14-day lazy scrubbing (v1 loads a 1/3/6-h window
   of frames as sources; scrubbing beyond that is a documented follow-up); NWS
   zone-only alerts (null geometry) don't render — storm-based polygons do.

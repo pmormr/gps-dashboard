@@ -355,13 +355,21 @@ export const MapView = (() => {
 
   // ── Weather radar animation overlay ──
   // One raster source+layer per loaded frame (each a per-frame PMTiles read over
-  // the registered pmtiles:// protocol, like the terrain DEM). Only the current
-  // frame's layer is visible; the Weather controller toggles it frame-to-frame to
-  // animate. Inserted below the first symbol layer so basemap labels stay legible
-  // under the radar. Re-added on every style swap by reinstallOverlays.
+  // the registered pmtiles:// protocol, like the terrain DEM). The shown frame is
+  // selected by raster-opacity; the *other* frames' layers are only 'visible'
+  // (preloading their tiles for the animation loop) while the camera is at rest —
+  // see applyRadarWarm. Inserted below the first symbol layer so basemap labels
+  // stay legible under the radar. Re-added on every style swap by reinstallOverlays.
   let radarFrames: number[] = []
   let radarVisibleFrame: number | null = null
   let radarOpacity = 0.8
+  // Warm = every frame layer visible so the whole window's tiles load. Cold
+  // (during camera moves + on first load) = only the shown frame, because a
+  // visible layer fetches viewport tiles on every move — ×24 frames that's
+  // megabytes per pan/zoom gesture and seconds of stall on a slow LAN uplink.
+  // movestart cools; moveend re-warms after a short debounce.
+  let radarWarm = false
+  let radarWarmTimer: ReturnType<typeof setTimeout> | null = null
 
   // Warnings overlay (vector): active NWS alert polygons, colored by severity.
   // Always-present source (empty until the Weather view pushes data), the
@@ -981,14 +989,15 @@ export const MapView = (() => {
     }
   }
 
-  // Every windowed frame layer stays visibility:visible so MapLibre loads all
-  // frames' viewport tiles up front — a visible layer requests its tiles
-  // regardless of paint opacity. (Selecting the frame by visibility instead made
-  // a frame's tiles fetch only the first time the loop reached it, so the loop
-  // took several passes to fully populate.) Frame selection is by raster-opacity:
-  // the shown frame at radarOpacity, the rest at 0. raster-opacity-transition:0
-  // (like raster-fade-duration:0) snaps the switch instead of cross-fading two
-  // frames mid-loop. beforeId keeps radar under the basemap labels.
+  // Frame selection is by raster-opacity, not visibility: a visible layer keeps
+  // its tiles loaded regardless of paint opacity, so the loop never stutters on
+  // frames it already warmed. (Selecting by visibility made a frame's tiles
+  // fetch only the first time the loop reached it — several passes to fully
+  // populate.) Visibility is instead the warm/cold lever (radarWarm): warm =
+  // all frames preload, cold = only the shown frame fetches on camera moves.
+  // raster-opacity-transition:0 (like raster-fade-duration:0) snaps the frame
+  // switch instead of cross-fading two frames mid-loop. beforeId keeps radar
+  // under the basemap labels.
   function addRadarLayer(m: MlMap, frame: number): void {
     const id = radarLayerId(frame)
     if (!m.getSource(id)) m.addSource(id, radarSourceSpec(frame))
@@ -998,7 +1007,7 @@ export const MapView = (() => {
           id,
           type: 'raster',
           source: id,
-          layout: { visibility: 'visible' },
+          layout: { visibility: radarLayerVisibility(frame) },
           paint: {
             'raster-opacity': frame === radarVisibleFrame ? radarOpacity : 0,
             'raster-opacity-transition': { duration: 0, delay: 0 },
@@ -1008,6 +1017,36 @@ export const MapView = (() => {
         firstSymbolLayerId(m),
       )
     }
+  }
+
+  function radarLayerVisibility(frame: number): 'visible' | 'none' {
+    return radarWarm || frame === radarVisibleFrame ? 'visible' : 'none'
+  }
+
+  function applyRadarWarm(warm: boolean): void {
+    radarWarm = warm
+    if (!map) return
+    for (const f of radarFrames) {
+      const id = radarLayerId(f)
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', radarLayerVisibility(f))
+    }
+  }
+
+  // Re-warm shortly after the camera settles: the shown frame's tiles arrive
+  // first (it's the only visible layer while cold), then the rest of the window
+  // preloads in the background for the loop.
+  const RADAR_WARM_DELAY_MS = 400
+  function scheduleRadarWarm(): void {
+    if (radarWarmTimer) clearTimeout(radarWarmTimer)
+    radarWarmTimer = null
+    if (!radarFrames.length || radarWarm) return
+    radarWarmTimer = setTimeout(() => applyRadarWarm(true), RADAR_WARM_DELAY_MS)
+  }
+
+  function coolRadar(): void {
+    if (radarWarmTimer) clearTimeout(radarWarmTimer)
+    radarWarmTimer = null
+    if (radarWarm) applyRadarWarm(false)
   }
 
   function removeRadarLayer(m: MlMap, frame: number): void {
@@ -1025,11 +1064,14 @@ export const MapView = (() => {
     if (!map) return
     for (const f of prev) if (!next.has(f)) removeRadarLayer(map, f)
     for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
+    // New layers start cold (shown frame only) — warm the rest once settled.
+    scheduleRadarWarm()
   }
 
-  // Select the shown frame by opacity (all frame layers stay visible so their
-  // tiles stay loaded — see addRadarLayer): the shown frame at radarOpacity, the
-  // rest at 0.
+  // Select the shown frame by opacity (see addRadarLayer): the shown frame at
+  // radarOpacity, the rest at 0. While cold, the shown frame's layer must also
+  // be flipped visible (it may have been added as a non-shown 'none' layer);
+  // already-warmed layers are left visible so their tiles keep rendering.
   /** Show exactly one loaded frame (null hides all) — the animation step. */
   function showRadarFrame(frame: number | null): void {
     radarVisibleFrame = frame
@@ -1038,6 +1080,7 @@ export const MapView = (() => {
       const id = radarLayerId(f)
       if (map.getLayer(id)) {
         map.setPaintProperty(id, 'raster-opacity', f === frame ? radarOpacity : 0)
+        if (!radarWarm && f === frame) map.setLayoutProperty(id, 'visibility', 'visible')
       }
     }
   }
@@ -1056,6 +1099,9 @@ export const MapView = (() => {
 
   /** Remove all radar sources/layers and reset state (the view-leave teardown). */
   function clearRadar(): void {
+    if (radarWarmTimer) clearTimeout(radarWarmTimer)
+    radarWarmTimer = null
+    radarWarm = false
     if (map) for (const f of radarFrames) removeRadarLayer(map, f)
     radarFrames = []
     radarVisibleFrame = null
@@ -1111,6 +1157,10 @@ export const MapView = (() => {
     map.on('movestart', (e) => {
       if ((e as { originalEvent?: Event }).originalEvent) userMoveCbs.forEach((cb) => cb())
     })
+    // Radar warm/cold: any camera move (gesture or programmatic) drops the
+    // non-shown frame layers so the move only fetches one frame's tiles.
+    map.on('movestart', coolRadar)
+    map.on('moveend', scheduleRadarWarm)
     wireLongPress(map)
     map.on('idle', idlePrefetch)
     applyBasemap(currentLayer)
