@@ -66,10 +66,17 @@ layer two is a registry entry, not a rename.
   MapLibre sources — recentered (throttled 150 ms) as the playhead moves
   (`sliceRange`/`needsRecenter` in `weather.ts`), which bounds layer count,
   warm fetch, and GPU tile textures regardless of window size. Frame swaps are
-  **double-buffered** in `map.ts` (shown vs target; sourcedata/idle complete
-  the swap when the target's tiles arrive), so scrubbing into unloaded archive
-  holds the last frame instead of blanking. ‹ › step buttons beside Play for
-  precise frame stepping (a 2,880-position slider is coarse per-pixel).
+  **double-buffered** in `map.ts` (shown vs target): a warm deck swaps
+  instantly (tiles resident — the playback case); a cold target goes visible
+  and swaps on the map's next `idle` with a 600 ms fallback ceiling, so
+  scrubbing into unloaded archive holds the last frame instead of blanking.
+  **Trap: never gate the swap on `map.isSourceLoaded()`** — it reads false
+  indefinitely for these raster sources and silently wedges the swap forever
+  (cost a full on-device debugging session). While a swap is pending, the
+  neighborhood warm defers (`scheduleRadarWarm` guard) so the target's tiles
+  own MapLibre's 16-parallel image pool instead of queuing behind ~380 warm
+  tiles. ‹ › step buttons beside Play for precise frame stepping (a
+  2,880-position slider is coarse per-pixel).
 - **Deferred within P3/P4:** NWS zone-only alerts (null geometry) don't render —
   storm-based polygons do.
 
