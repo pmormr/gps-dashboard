@@ -96,6 +96,15 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+.wx-load {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wx-load--busy {
+  color: var(--accent);
+}
 
 .wx-controls {
   display: flex;

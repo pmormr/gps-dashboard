@@ -92,6 +92,19 @@ export function frameDateLabel(ms: number): string {
 }
 
 /**
+ * Compact byte-count label for the tile-load readout (B → kB → MB).
+ *
+ * Binary units; MB keeps one decimal below 10 MB, whole numbers above — the
+ * readout stays short while it climbs during a session.
+ */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1_048_576) return `${Math.round(n / 1024)} kB`
+  const mb = n / 1_048_576
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
+}
+
+/**
  * A compact "how long ago" label for a frame instant, given now.
  *
  * Pure (now injected) so it's deterministic to test. Sub-minute reads "now",

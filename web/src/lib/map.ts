@@ -110,9 +110,55 @@ function rasterTileUrl(layer: string, refresh: boolean): string {
   return `/tiles/${layer}/{z}/{x}/{y}.png` + (refresh ? '?refresh=1' : '')
 }
 
-// Register the pmtiles:// protocol once for the MapLibre instance.
+// Register the pmtiles:// protocol once for the MapLibre instance. The wrapper
+// instruments radar-frame tile reads (URL-filtered so osm/terrain stay
+// uncounted): in-flight count + cumulative decoded-payload tiles/bytes, pushed
+// to Weather-view subscribers so the control bar can show what a pan/zoom is
+// actually costing on a slow link. 'json' requests (the per-archive TileJSON
+// resolution) aren't tiles and are skipped.
+export interface RadarLoadStats {
+  pending: number
+  tiles: number
+  bytes: number
+}
+const radarLoadStats: RadarLoadStats = { pending: 0, tiles: 0, bytes: 0 }
+const radarLoadCbs = new Set<(stats: RadarLoadStats) => void>()
+let radarLoadNotifyTimer: ReturnType<typeof setTimeout> | null = null
+// Coalesce notification bursts (hundreds of tile events per gesture) to ~10 Hz.
+function notifyRadarLoad(): void {
+  if (radarLoadNotifyTimer) return
+  radarLoadNotifyTimer = setTimeout(() => {
+    radarLoadNotifyTimer = null
+    radarLoadCbs.forEach((cb) => cb({ ...radarLoadStats }))
+  }, 100)
+}
+function radarTileStarted(): void {
+  radarLoadStats.pending++
+  notifyRadarLoad()
+}
+function radarTileFinished(bytes: number): void {
+  radarLoadStats.pending = Math.max(0, radarLoadStats.pending - 1)
+  if (bytes > 0) {
+    radarLoadStats.tiles++
+    radarLoadStats.bytes += bytes
+  }
+  notifyRadarLoad()
+}
 const pmtilesProtocol = new Protocol()
-maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile)
+maplibregl.addProtocol('pmtiles', (params, abortController) => {
+  const counted = params.type !== 'json' && params.url.includes('/tiles/weather/')
+  if (counted) radarTileStarted()
+  const result = pmtilesProtocol.tile(params, abortController)
+  if (counted) {
+    // A branch observer on the same promise: aborted/failed reads still
+    // decrement pending (0 bytes), and MapLibre keeps the original rejection.
+    result.then(
+      (r) => radarTileFinished((r as { data?: { byteLength?: number } }).data?.byteLength ?? 0),
+      () => radarTileFinished(0),
+    )
+  }
+  return result
+})
 
 // Fetch + patch a vector theme's style on first use (then cached). MapLibre
 // rejects a root-relative sprite URL, so sprite/glyphs are absolutized against
@@ -1105,6 +1151,22 @@ export const MapView = (() => {
     if (map) for (const f of radarFrames) removeRadarLayer(map, f)
     radarFrames = []
     radarVisibleFrame = null
+    // The loaded-tiles/bytes tally reads "since opening Weather" — reset it on
+    // leave (pending stays: in-flight aborts decrement it themselves).
+    radarLoadStats.tiles = 0
+    radarLoadStats.bytes = 0
+    notifyRadarLoad()
+  }
+
+  /** Subscribe to radar tile-load stats (fires immediately with the current). */
+  function onRadarLoad(cb: (stats: RadarLoadStats) => void): void {
+    radarLoadCbs.add(cb)
+    cb({ ...radarLoadStats })
+  }
+
+  /** Unsubscribe a radar tile-load stats callback. */
+  function offRadarLoad(cb: (stats: RadarLoadStats) => void): void {
+    radarLoadCbs.delete(cb)
   }
 
   /** Replace the warnings overlay with prebuilt GeoJSON (expiry-filtered upstream). */
@@ -1680,6 +1742,8 @@ export const MapView = (() => {
     showRadarFrame,
     setRadarOpacity,
     clearRadar,
+    onRadarLoad,
+    offRadarLoad,
     setWarnings,
     clearWarnings,
     fitToCoords,

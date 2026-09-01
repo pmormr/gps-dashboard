@@ -2,10 +2,11 @@
   import { onMount } from 'svelte'
 
   import { getGpsdLive } from '../lib/api'
-  import type { MapView as MapViewType } from '../lib/map'
+  import type { MapView as MapViewType, RadarLoadStats } from '../lib/map'
   import {
     clearRadar,
     clearWarnings,
+    formatBytes,
     frameAgeLabel,
     frameDateLabel,
     frameTimeLabel,
@@ -39,6 +40,12 @@
   let nowMs = $state(Date.now())
   let warningsOn = $state(true)
   let warningsCount = $state(0)
+  // Tile-load readout, pushed by the instrumented pmtiles protocol (map.ts):
+  // pending = radar tile reads in flight, tiles/bytes = downloaded this visit.
+  let loadStats = $state<RadarLoadStats>({ pending: 0, tiles: 0, bytes: 0 })
+  const onLoadStats = (stats: RadarLoadStats): void => {
+    loadStats = stats
+  }
 
   const current = $derived(frames.length ? frames[index] : null)
   const newest = $derived(frames.length ? frames[frames.length - 1] : null)
@@ -114,6 +121,7 @@
       view = mod.MapView
       host.showMap()
       hide = host.hideMap
+      view.onRadarLoad(onLoadStats)
       void loadWindow(windowHours)
       void refreshWarnings()
     })
@@ -122,6 +130,7 @@
       cancelled = true
       clearInterval(nowTimer)
       if (view) {
+        view.offRadarLoad(onLoadStats)
         clearRadar(view)
         clearWarnings(view)
       }
@@ -191,6 +200,15 @@
       <div class="wx-readout">
         <span class="wx-time">{current != null ? frameTimeLabel(current) : '—'}</span>
         <span class="wx-date">{current != null ? frameDateLabel(current) : ''}</span>
+        {#if loadStats.pending || loadStats.bytes}
+          <span
+            class="wx-load"
+            class:wx-load--busy={loadStats.pending > 0}
+            title="Radar tiles — loading now · downloaded since opening Weather"
+          >
+            {#if loadStats.pending}↓{loadStats.pending} · {/if}{formatBytes(loadStats.bytes)}
+          </span>
+        {/if}
         <span class="wx-frameno">{index + 1}/{frames.length}</span>
       </div>
 
