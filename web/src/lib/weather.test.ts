@@ -1,39 +1,46 @@
 import { describe, expect, it } from 'vitest'
 
-import { decimateFrames, formatBytes, frameAgeLabel } from './weather'
+import { formatBytes, frameAgeLabel, needsRecenter, sliceRange } from './weather'
 
-describe('decimateFrames', () => {
-  const uniform = (n: number, stepMs = 420_000, start = 1_788_000_000_000): number[] =>
-    Array.from({ length: n }, (_, i) => start + i * stepMs)
-
-  it('returns everything when under budget', () => {
-    const frames = uniform(50)
-    expect(decimateFrames(frames, 90)).toEqual(frames)
+describe('sliceRange', () => {
+  it('covers everything when the list fits the cap', () => {
+    expect(sliceRange(30, 29, 48)).toEqual({ start: 0, end: 30 })
+    expect(sliceRange(0, 0, 48)).toEqual({ start: 0, end: 0 })
   })
 
-  it('thins to at most the budget, evenly, keeping newest and oldest', () => {
-    const frames = uniform(2900)
-    const out = decimateFrames(frames, 84)
-    expect(out.length).toBeLessThanOrEqual(84)
-    expect(out.length).toBeGreaterThan(80)
-    expect(out[0]).toBe(frames[0])
-    expect(out[out.length - 1]).toBe(frames[frames.length - 1])
-    const gaps = out.slice(1).map((f, i) => f - out[i])
-    const target = (frames[frames.length - 1] - frames[0]) / 83
-    for (const g of gaps) expect(Math.abs(g - target)).toBeLessThan(target)
+  it('centers the cap on the index', () => {
+    expect(sliceRange(2900, 1000, 48)).toEqual({ start: 976, end: 1024 })
   })
 
-  it('stays ascending and deduped across archive gaps', () => {
-    // A 3-day hole in the middle: targets falling inside collapse to its edges.
-    const frames = [...uniform(500), ...uniform(500, 420_000, 1_788_500_000_000)]
-    const out = decimateFrames(frames, 60)
-    expect(out.length).toBeLessThanOrEqual(60)
-    expect([...out].sort((a, b) => a - b)).toEqual(out)
-    expect(new Set(out).size).toBe(out.length)
+  it('clamps at both ends', () => {
+    expect(sliceRange(2900, 3, 48)).toEqual({ start: 0, end: 48 })
+    expect(sliceRange(2900, 2899, 48)).toEqual({ start: 2852, end: 2900 })
+  })
+})
+
+describe('needsRecenter', () => {
+  const range = { start: 100, end: 148 }
+
+  it('is false comfortably inside the range', () => {
+    expect(needsRecenter(range, 2900, 124, 8)).toBe(false)
   })
 
-  it('handles empty input', () => {
-    expect(decimateFrames([], 84)).toEqual([])
+  it('is true outside the range', () => {
+    expect(needsRecenter(range, 2900, 99, 8)).toBe(true)
+    expect(needsRecenter(range, 2900, 148, 8)).toBe(true)
+  })
+
+  it('is true within the margin of an edge with frames beyond it', () => {
+    expect(needsRecenter(range, 2900, 105, 8)).toBe(true)
+    expect(needsRecenter(range, 2900, 141, 8)).toBe(true)
+  })
+
+  it('ignores edges the list actually ends at', () => {
+    expect(needsRecenter({ start: 0, end: 48 }, 2900, 3, 8)).toBe(false)
+    expect(needsRecenter({ start: 2852, end: 2900 }, 2900, 2897, 8)).toBe(false)
+    // The whole list loaded: never recenters.
+    expect(needsRecenter({ start: 0, end: 30 }, 30, 0, 8)).toBe(false)
+    expect(needsRecenter({ start: 0, end: 30 }, 30, 29, 8)).toBe(false)
   })
 })
 

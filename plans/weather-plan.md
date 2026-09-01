@@ -59,13 +59,17 @@ layer two is a registry entry, not a rename.
     `IOWeight=30`): capture latency is free (5-min tick), so remaining work
     yields to gps-logger/gps-dashboard — and future registry layers stretch the
     tick, not the Pi.
-- **Window presets (revised 2026-09-01): 6 h / 24 h / 2 w, default 6 h** — the
-  whole archive is now reachable. Each preset carries a frame budget
-  (`WINDOW_PRESETS` in `weather.ts`); over-budget windows thin evenly by time
-  (closest-frame-to-target, gap-safe — `decimateFrames`), so 6 h is full
-  fidelity, 24 h ≈ 20-min steps, 2 w ≈ 4-h steps. The budget bounds layer
-  count, warm fetch, and GPU tile textures. **Full-fidelity lazy scrubbing of
-  the archive stays the deferred follow-up** if the thinned steps disappoint.
+- **Window presets (revised 2026-09-01): 6 h / 24 h / 2 w, default 6 h — full
+  archive at native ~7-min granularity.** The lazy-scrub follow-up is built:
+  the scrubber indexes every archived frame in the window, and only a sliding
+  neighborhood of `LOADED_FRAME_CAP` (48) frames around the playhead exists as
+  MapLibre sources — recentered (throttled 150 ms) as the playhead moves
+  (`sliceRange`/`needsRecenter` in `weather.ts`), which bounds layer count,
+  warm fetch, and GPU tile textures regardless of window size. Frame swaps are
+  **double-buffered** in `map.ts` (shown vs target; sourcedata/idle complete
+  the swap when the target's tiles arrive), so scrubbing into unloaded archive
+  holds the last frame instead of blanking. ‹ › step buttons beside Play for
+  precise frame stepping (a 2,880-position slider is coarse per-pixel).
 - **Deferred within P3/P4:** NWS zone-only alerts (null geometry) don't render —
   storm-based polygons do.
 

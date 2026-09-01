@@ -20,87 +20,82 @@ type View = typeof MapViewType
 /** The radar layer id (the registry's raster entry one; the frontend seam for more). */
 export const RADAR_LAYER = 'radar'
 
-/** One playback-window preset — how far back the loaded loop/scrub reaches. */
+/** One playback-window preset — how far back the scrubber reaches. */
 export interface WindowPreset {
   hours: number
   label: string
   title: string
-  /** Frame budget: bigger windows thin evenly by time to stay under it. */
-  maxFrames: number
 }
 
 /**
- * Playback-window presets. Every loaded frame is a MapLibre raster source +
- * layer whose viewport tiles fully preload while the camera rests (the warm
- * mechanism), so the budget bounds layer count, background fetch, and GPU tile
- * textures — the 2-week archive (~2,900 frames) can't load 1:1. 6 h is the
- * full-fidelity live window; 24 h ≈ 20-min steps; 2 w ≈ 4-h steps. Full-
- * fidelity lazy scrubbing of the archive stays the documented follow-up
- * (plans/weather-plan.md).
+ * Playback-window presets. Every window scrubs at native capture granularity
+ * (~7 min frames): the scrubber indexes the full frame list, and only a
+ * sliding neighborhood around the playhead is loaded as MapLibre sources
+ * (LOADED_FRAME_CAP), so even the ~2,900-frame 2-week archive stays light.
  */
 export const WINDOW_PRESETS: readonly WindowPreset[] = [
-  { hours: 6, label: '6h', title: 'Load the last 6 hours of radar', maxFrames: 90 },
-  {
-    hours: 24,
-    label: '24h',
-    title: 'Load the last 24 hours of radar (thinned to ~20 min steps)',
-    maxFrames: 72,
-  },
-  {
-    hours: 336,
-    label: '2w',
-    title: 'Load the whole 2-week archive (thinned to ~4 h steps)',
-    maxFrames: 84,
-  },
+  { hours: 6, label: '6h', title: 'Scrub the last 6 hours of radar' },
+  { hours: 24, label: '24h', title: 'Scrub the last 24 hours of radar' },
+  { hours: 336, label: '2w', title: 'Scrub the whole 2-week archive' },
 ]
 
 /**
- * Thin a frame list to at most `maxFrames`, evenly spaced by time.
- *
- * Picks the closest on-disk frame to each evenly spaced instant across the
- * span (newest and oldest always survive), so archive gaps don't skew the
- * spread and duplicates collapse. Ascending in, ascending out.
+ * How many frames around the playhead stay loaded as raster sources/layers.
+ * Each loaded frame preloads its viewport tiles while the camera rests (the
+ * warm mechanism), so the cap bounds layer count, background fetch, and GPU
+ * tile textures — ~50 is the proven-comfortable load of the old full-window
+ * design.
  */
-export function decimateFrames(frames: number[], maxFrames: number): number[] {
-  if (frames.length <= maxFrames) return frames.slice()
-  const newest = frames[frames.length - 1]
-  const oldest = frames[0]
-  const step = (newest - oldest) / (maxFrames - 1)
-  const picked = new Set<number>()
-  for (let i = 0; i < maxFrames; i++) picked.add(closestFrame(frames, newest - i * step))
-  return [...picked].sort((a, b) => a - b)
-}
+export const LOADED_FRAME_CAP = 48
 
-/** Binary-search the frame closest to a target instant (frames ascending). */
-function closestFrame(frames: number[], target: number): number {
-  let lo = 0
-  let hi = frames.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (frames[mid] < target) lo = mid + 1
-    else hi = mid
-  }
-  if (lo > 0 && target - frames[lo - 1] < frames[lo] - target) return frames[lo - 1]
-  return frames[lo]
+/** Recenter the loaded neighborhood when the playhead gets this close to its edge. */
+export const RECENTER_MARGIN = 8
+
+/** An index range [start, end) into the frame list — the loaded neighborhood. */
+export interface FrameRange {
+  start: number
+  end: number
 }
 
 /**
- * Fetch a preset's frame window, thin it to the preset's budget, load the
- * survivors as raster sources, and return them ascending (old → new) — the
- * order the scrubber and loop advance through.
- *
- * @param view The MapView façade.
- * @param preset The window preset (reach + frame budget).
- * @returns The loaded frame instants (epoch-ms), ascending.
+ * The loaded-neighborhood range for a playhead position: `cap` indices
+ * centered on `index`, clamped to the list — the whole list when it fits.
  */
-export async function loadRadar(view: View, preset: WindowPreset): Promise<number[]> {
+export function sliceRange(total: number, index: number, cap: number): FrameRange {
+  if (total <= cap) return { start: 0, end: total }
+  let start = index - Math.floor(cap / 2)
+  if (start < 0) start = 0
+  if (start + cap > total) start = total - cap
+  return { start, end: start + cap }
+}
+
+/**
+ * Whether the loaded neighborhood should recenter on the playhead: the index
+ * left the range, or came within `margin` of an edge that has frames beyond it.
+ */
+export function needsRecenter(
+  range: FrameRange,
+  total: number,
+  index: number,
+  margin: number,
+): boolean {
+  if (index < range.start || index >= range.end) return true
+  if (index - range.start < margin && range.start > 0) return true
+  if (range.end - 1 - index < margin && range.end < total) return true
+  return false
+}
+
+/**
+ * Fetch a preset's frame index, ascending (old → new) — the order the
+ * scrubber and loop advance through. Fetch only: the view owns which slice of
+ * the index is loaded as sources (the sliding neighborhood).
+ *
+ * @param preset The window preset (reach).
+ * @returns The available frame instants (epoch-ms), ascending.
+ */
+export async function loadRadar(preset: WindowPreset): Promise<number[]> {
   const resp = await getWeatherFrames(RADAR_LAYER, preset.hours)
-  const frames = decimateFrames(
-    [...resp.frames].sort((a, b) => a - b),
-    preset.maxFrames,
-  )
-  view.setRadarFrames(frames)
-  return frames
+  return [...resp.frames].sort((a, b) => a - b)
 }
 
 /** Tear down the radar overlay (view-leave). */

@@ -10,17 +10,26 @@
     frameAgeLabel,
     frameDateLabel,
     frameTimeLabel,
+    LOADED_FRAME_CAP,
     loadRadar,
     loadWarnings,
+    needsRecenter,
+    RECENTER_MARGIN,
+    sliceRange,
     WINDOW_PRESETS,
+    type FrameRange,
   } from '../lib/weather'
   import './map.css'
   import './weather.css'
 
   // Weather view: the shared map engine (mapHost.ts) under an animated radar
-  // overlay. weather.ts loads a recent frame window as per-frame PMTiles raster
-  // sources through the MapView façade; this view owns the playback clock and the
-  // scrubber/opacity/window chrome. Radar renders below basemap labels.
+  // overlay. The scrubber indexes every archived frame in the window at native
+  // (~7 min) granularity; only a sliding neighborhood around the playhead is
+  // loaded as per-frame PMTiles raster sources through the MapView façade
+  // (which double-buffers frame swaps, so scrubbing into unloaded archive
+  // holds the last frame instead of blanking). This view owns the playback
+  // clock, the neighborhood, and the scrubber/opacity/window chrome. Radar
+  // renders below basemap labels.
   let view = $state<typeof MapViewType | undefined>()
 
   const SPEEDS = [
@@ -50,16 +59,27 @@
   const current = $derived(frames.length ? frames[index] : null)
   const newest = $derived(frames.length ? frames[frames.length - 1] : null)
 
+  // The loaded neighborhood: which slice of `frames` currently has map sources.
+  let loadedRange = $state<FrameRange>({ start: 0, end: 0 })
+  let recenterTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** (Re)load the neighborhood of frames around the playhead as map sources. */
+  function applyRange(): void {
+    if (!view) return
+    loadedRange = sliceRange(frames.length, index, LOADED_FRAME_CAP)
+    view.setRadarFrames(frames.slice(loadedRange.start, loadedRange.end))
+  }
+
   async function loadWindow(hours: number): Promise<void> {
     if (!view) return
     const preset = WINDOW_PRESETS.find((p) => p.hours === hours) ?? WINDOW_PRESETS[0]
     loading = true
     error = ''
     try {
-      const loaded = await loadRadar(view, preset)
-      frames = loaded
-      index = loaded.length ? loaded.length - 1 : 0 // show newest first
+      frames = await loadRadar(preset)
+      index = frames.length ? frames.length - 1 : 0 // show newest first
       playing = false
+      applyRange()
     } catch {
       error = 'Radar unavailable'
       frames = []
@@ -84,6 +104,12 @@
   function onScrub(e: Event): void {
     playing = false
     index = Number((e.currentTarget as HTMLInputElement).value)
+  }
+
+  /** Step the playhead one frame (pauses playback). */
+  function step(delta: number): void {
+    playing = false
+    index = Math.min(frames.length - 1, Math.max(0, index + delta))
   }
 
   async function refreshWarnings(): Promise<void> {
@@ -130,6 +156,7 @@
     return () => {
       cancelled = true
       clearInterval(nowTimer)
+      if (recenterTimer) clearTimeout(recenterTimer)
       if (view) {
         view.offRadarLoad(onLoadStats)
         clearRadar(view)
@@ -148,9 +175,23 @@
     return () => clearInterval(timer)
   })
 
-  // Render the current frame — driven by both auto-advance and scrubbing.
+  // Render the current frame — driven by auto-advance and scrubbing — and keep
+  // the loaded neighborhood centered on it. Recentering is throttled, not
+  // debounced: a pending timer isn't reset by further index changes, so
+  // continuous playback and drag-scrubbing still recenter every 150 ms instead
+  // of starving until the motion stops.
   $effect(() => {
-    if (view && frames.length) view.showRadarFrame(frames[index])
+    if (!view || !frames.length) return
+    view.showRadarFrame(frames[index])
+    if (
+      needsRecenter(loadedRange, frames.length, index, RECENTER_MARGIN) &&
+      recenterTimer == null
+    ) {
+      recenterTimer = setTimeout(() => {
+        recenterTimer = null
+        applyRange()
+      }, 150)
+    }
   })
 
   // Push opacity through to the raster layers.
@@ -181,11 +222,29 @@
       <div class="wx-scrubline">
         <button
           type="button"
+          class="wx-play wx-step"
+          onclick={() => step(-1)}
+          aria-label="Previous frame"
+          title="Step back one frame"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
           class="wx-play"
           onclick={togglePlay}
           aria-label={playing ? 'Pause' : 'Play'}
         >
           {playing ? '❚❚' : '▶'}
+        </button>
+        <button
+          type="button"
+          class="wx-play wx-step"
+          onclick={() => step(1)}
+          aria-label="Next frame"
+          title="Step forward one frame"
+        >
+          ›
         </button>
         <input
           class="wx-scrub"

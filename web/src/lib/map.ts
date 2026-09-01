@@ -400,14 +400,20 @@ export const MapView = (() => {
   const pinMarkers: Marker[] = []
 
   // ── Weather radar animation overlay ──
-  // One raster source+layer per loaded frame (each a per-frame PMTiles read over
-  // the registered pmtiles:// protocol, like the terrain DEM). The shown frame is
-  // selected by raster-opacity; the *other* frames' layers are only 'visible'
-  // (preloading their tiles for the animation loop) while the camera is at rest —
-  // see applyRadarWarm. Inserted below the first symbol layer so basemap labels
-  // stay legible under the radar. Re-added on every style swap by reinstallOverlays.
+  // One raster source+layer per *loaded* frame (each a per-frame PMTiles read
+  // over the registered pmtiles:// protocol, like the terrain DEM) — the Weather
+  // view feeds a sliding neighborhood of the full archive index, not every
+  // frame. The shown frame is selected by raster-opacity and double-buffered:
+  // showRadarFrame sets a *target*, and the previously shown frame keeps
+  // rendering until the target's source has its tiles (sourcedata/idle complete
+  // the swap), so scrubbing into unloaded archive never blanks the radar. The
+  // non-shown frames' layers are only 'visible' (preloading their tiles for the
+  // loop) while the camera is at rest — see applyRadarWarm. Inserted below the
+  // first symbol layer so basemap labels stay legible under the radar. Re-added
+  // on every style swap by reinstallOverlays.
   let radarFrames: number[] = []
-  let radarVisibleFrame: number | null = null
+  let radarShownFrame: number | null = null // rendered at radarOpacity right now
+  let radarTargetFrame: number | null = null // requested; swaps in once loaded
   let radarOpacity = 0.8
   // Warm = every frame layer visible so the whole window's tiles load. Cold
   // (during camera moves + on first load) = only the shown frame, because a
@@ -1055,7 +1061,7 @@ export const MapView = (() => {
           source: id,
           layout: { visibility: radarLayerVisibility(frame) },
           paint: {
-            'raster-opacity': frame === radarVisibleFrame ? radarOpacity : 0,
+            'raster-opacity': frame === radarShownFrame ? radarOpacity : 0,
             'raster-opacity-transition': { duration: 0, delay: 0 },
             'raster-fade-duration': 0,
           },
@@ -1066,7 +1072,9 @@ export const MapView = (() => {
   }
 
   function radarLayerVisibility(frame: number): 'visible' | 'none' {
-    return radarWarm || frame === radarVisibleFrame ? 'visible' : 'none'
+    return radarWarm || frame === radarShownFrame || frame === radarTargetFrame
+      ? 'visible'
+      : 'none'
   }
 
   function applyRadarWarm(warm: boolean): void {
@@ -1106,41 +1114,65 @@ export const MapView = (() => {
     const next = new Set(frames)
     const prev = radarFrames
     radarFrames = frames.slice()
-    if (radarVisibleFrame != null && !next.has(radarVisibleFrame)) radarVisibleFrame = null
+    if (radarShownFrame != null && !next.has(radarShownFrame)) radarShownFrame = null
+    if (radarTargetFrame != null && !next.has(radarTargetFrame)) radarTargetFrame = null
     if (!map) return
     for (const f of prev) if (!next.has(f)) removeRadarLayer(map, f)
     for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
-    // New layers start cold (shown frame only) — warm the rest once settled.
+    // New layers start cold (shown/target frames only) — warm the rest once
+    // settled — and a pending swap's target may have just gained its layer.
     scheduleRadarWarm()
+    maybeCompleteRadarSwap()
   }
 
   // Select the shown frame by opacity (see addRadarLayer): the shown frame at
-  // radarOpacity, the rest at 0. While cold, the shown frame's layer must also
-  // be flipped visible (it may have been added as a non-shown 'none' layer);
-  // already-warmed layers are left visible so their tiles keep rendering.
-  /** Show exactly one loaded frame (null hides all) — the animation step. */
+  // radarOpacity, the rest at 0. Double-buffered: the swap to the target waits
+  // until its source has tiles, so the previous frame keeps rendering instead
+  // of blanking — the case that matters when the scrubber jumps into archive
+  // the sliding neighborhood hasn't loaded yet.
+  /** Request a frame to show (null hides all) — the animation/scrub step. */
   function showRadarFrame(frame: number | null): void {
-    radarVisibleFrame = frame
+    radarTargetFrame = frame
     if (!map) return
-    for (const f of radarFrames) {
-      const id = radarLayerId(f)
-      if (map.getLayer(id)) {
-        map.setPaintProperty(id, 'raster-opacity', f === frame ? radarOpacity : 0)
-        if (!radarWarm && f === frame) map.setLayoutProperty(id, 'visibility', 'visible')
-      }
+    if (frame == null) {
+      radarShownFrame = null
+      for (const f of radarFrames) setRadarLayerOpacity(f, 0)
+      return
     }
+    if (frame === radarShownFrame) return
+    const id = radarLayerId(frame)
+    // Not in the loaded set yet — the view recenters the neighborhood and the
+    // setRadarFrames/sourcedata path completes the swap.
+    if (!map.getLayer(id)) return
+    if (!radarWarm) map.setLayoutProperty(id, 'visibility', 'visible')
+    if (map.isSourceLoaded(id)) applyRadarSwap(frame)
+  }
+
+  function setRadarLayerOpacity(frame: number, opacity: number): void {
+    if (!map) return
+    const id = radarLayerId(frame)
+    if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', opacity)
+  }
+
+  function applyRadarSwap(frame: number): void {
+    radarShownFrame = frame
+    for (const f of radarFrames) setRadarLayerOpacity(f, f === frame ? radarOpacity : 0)
+  }
+
+  // Completes a pending swap once the target's source has its viewport tiles.
+  // Wired to sourcedata + idle: cheap early-outs, real work only while a swap
+  // is actually pending.
+  function maybeCompleteRadarSwap(): void {
+    if (!map || radarTargetFrame == null || radarTargetFrame === radarShownFrame) return
+    const id = radarLayerId(radarTargetFrame)
+    if (map.getLayer(id) && map.isSourceLoaded(id)) applyRadarSwap(radarTargetFrame)
   }
 
   /** Set the radar opacity (0..1) — applies to the shown frame; the rest stay 0. */
   function setRadarOpacity(opacity: number): void {
     radarOpacity = opacity
     if (!map) return
-    for (const f of radarFrames) {
-      const id = radarLayerId(f)
-      if (map.getLayer(id)) {
-        map.setPaintProperty(id, 'raster-opacity', f === radarVisibleFrame ? opacity : 0)
-      }
-    }
+    for (const f of radarFrames) setRadarLayerOpacity(f, f === radarShownFrame ? opacity : 0)
   }
 
   /** Remove all radar sources/layers and reset state (the view-leave teardown). */
@@ -1150,7 +1182,8 @@ export const MapView = (() => {
     radarWarm = false
     if (map) for (const f of radarFrames) removeRadarLayer(map, f)
     radarFrames = []
-    radarVisibleFrame = null
+    radarShownFrame = null
+    radarTargetFrame = null
     // The loaded-tiles/bytes tally reads "since opening Weather" — reset it on
     // leave (pending stays: in-flight aborts decrement it themselves).
     radarLoadStats.tiles = 0
@@ -1223,6 +1256,10 @@ export const MapView = (() => {
     // non-shown frame layers so the move only fetches one frame's tiles.
     map.on('movestart', coolRadar)
     map.on('moveend', scheduleRadarWarm)
+    // Radar double-buffer: complete a pending frame swap once the target's
+    // source has tiles (sourcedata), with idle as the catch-all.
+    map.on('sourcedata', maybeCompleteRadarSwap)
+    map.on('idle', maybeCompleteRadarSwap)
     wireLongPress(map)
     map.on('idle', idlePrefetch)
     applyBasemap(currentLayer)
