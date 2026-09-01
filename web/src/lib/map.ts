@@ -1198,6 +1198,14 @@ export const MapView = (() => {
   function maybeCompleteRadarSwap(): void {
     if (!map || radarTargetFrame == null || radarTargetFrame === radarShownFrame) return
     const id = radarLayerId(radarTargetFrame)
+    console.log(
+      '[wx] pendingSwap',
+      radarTargetFrame,
+      'layer=',
+      !!map.getLayer(id),
+      'srcLoaded=',
+      map.isSourceLoaded(id),
+    )
     if (map.getLayer(id) && map.isSourceLoaded(id)) applyRadarSwap(radarTargetFrame)
   }
 
