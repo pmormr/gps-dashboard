@@ -1159,8 +1159,12 @@ export const MapView = (() => {
     const id = radarLayerId(frame)
     // Not in the loaded set yet — the view recenters the neighborhood and the
     // setRadarFrames/sourcedata path completes the swap.
-    if (!map.getLayer(id)) return
+    if (!map.getLayer(id)) {
+      console.log('[wx] show: no layer yet for', frame)
+      return
+    }
     if (!radarWarm) map.setLayoutProperty(id, 'visibility', 'visible')
+    console.log('[wx] show', frame, 'srcLoaded=', map.isSourceLoaded(id))
     if (map.isSourceLoaded(id)) applyRadarSwap(frame)
   }
 
@@ -1173,6 +1177,17 @@ export const MapView = (() => {
   function applyRadarSwap(frame: number): void {
     radarShownFrame = frame
     for (const f of radarFrames) setRadarLayerOpacity(f, f === frame ? radarOpacity : 0)
+    const id = radarLayerId(frame)
+    console.log(
+      '[wx] swap done',
+      frame,
+      'vis=',
+      map?.getLayoutProperty(id, 'visibility'),
+      'opacity=',
+      map?.getPaintProperty(id, 'raster-opacity'),
+      'warm=',
+      radarWarm,
+    )
     // A cooled long-jump swap just landed — warm the neighborhood behind it.
     scheduleRadarWarm()
   }
