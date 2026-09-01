@@ -1117,8 +1117,11 @@ export const MapView = (() => {
     if (radarShownFrame != null && !next.has(radarShownFrame)) radarShownFrame = null
     if (radarTargetFrame != null && !next.has(radarTargetFrame)) radarTargetFrame = null
     if (!map) return
-    for (const f of prev) if (!next.has(f)) removeRadarLayer(map, f)
-    for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
+    let removed = 0
+    let added = 0
+    for (const f of prev) if (!next.has(f)) (removeRadarLayer(map, f), removed++)
+    for (const f of frames) if (!prev.includes(f)) (addRadarLayer(map, f), added++)
+    console.log('[wx] setRadarFrames n=', frames.length, 'removed=', removed, 'added=', added)
     if (radarTargetFrame != null && radarTargetFrame !== radarShownFrame) {
       // A pending swap (a long scrub jump) must not fight a whole-neighborhood
       // warm for the request pool (MapLibre caps parallel image loads): cool to
