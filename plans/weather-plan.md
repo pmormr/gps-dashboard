@@ -72,18 +72,25 @@ layer two is a registry entry, not a rename.
   scrubbing into unloaded archive holds the last frame instead of blanking.
   **Trap: never gate the swap on `map.isSourceLoaded()`** — it reads false
   indefinitely for these raster sources and silently wedges the swap forever
-  (cost a full on-device debugging session). The neighborhood warm has exactly
-  one trigger: the map's **`idle` event, with no delay** (`radarIdleWarm`,
-  guarded by pending-target + already-warm; `movestart` cools). Idle is by
-  definition contention-free — nothing visible is still loading — so the warm
-  can't starve the shown/target frame's tiles out of MapLibre's 16-parallel
-  image pool. **Trap: any delayed warm starves under playback** — ticks
-  (150–600 ms) land inside the delay window, so a "defer while a swap is
-  pending" guard drops the warm every time, the deck never warms, and every
-  swap pays the cold path (frames skipped at the fallback ceiling + a blank
-  flash per frame — a shipped regression, found on-device). ‹ › step buttons
-  beside Play for precise frame stepping (a 2,880-position slider is coarse
-  per-pixel).
+  (cost a full on-device debugging session). The truthful residency signal is
+  **our own instrumented `pmtiles://` protocol**: per-frame in-flight read
+  counters (keyed by the frame ts in the archive URL); a pending target's
+  reads draining to 0 completes the swap (rAF re-check for tile waves), with
+  map `idle` and a 2500 ms ceiling as wedge-proof backstops only. **Playback
+  holds instead of skipping**: the Weather view's tick advances only when the
+  last requested frame rendered (`radarSwapPending` gate) — speed is a
+  *minimum dwell*, so a slow link slows the loop rather than dropping frames.
+  While playing, a bounded **lookahead primes the next 4 frames** and passed
+  frames stay visible (loop 2+ swaps from resident tiles); the whole-deck
+  warm runs only when *not* playing, on the map's **`idle` event with no
+  delay** (`radarIdleWarm`; `movestart` cools). **Trap (two shipped
+  regressions taught this):** under playback, any delayed or whole-deck warm
+  starves — ticks land inside every delay window, and a 48-layer burst queues
+  hundreds of tiles in front of the frame the loop needs next on a slow link.
+  HaLow-verified 2026-09-01: 5 loops × 51 frames, strict order, ~300 ms
+  cadence from loop one. ‹ › step buttons beside Play for precise frame
+  stepping (a 2,880-position slider is coarse per-pixel). `window.__vanos`
+  exposes the shared MapView for on-device console/Playwright debugging.
 - **Deferred within P3/P4:** NWS zone-only alerts (null geometry) don't render —
   storm-based polygons do.
 
