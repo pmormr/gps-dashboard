@@ -67,7 +67,6 @@
   function applyRange(): void {
     if (!view) return
     loadedRange = sliceRange(frames.length, index, LOADED_FRAME_CAP)
-    console.log('[wx] applyRange', frames.length, index, loadedRange.start, loadedRange.end)
     view.setRadarFrames(frames.slice(loadedRange.start, loadedRange.end))
   }
 

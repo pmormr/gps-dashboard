@@ -1117,11 +1117,8 @@ export const MapView = (() => {
     if (radarShownFrame != null && !next.has(radarShownFrame)) radarShownFrame = null
     if (radarTargetFrame != null && !next.has(radarTargetFrame)) radarTargetFrame = null
     if (!map) return
-    let removed = 0
-    let added = 0
-    for (const f of prev) if (!next.has(f)) (removeRadarLayer(map, f), removed++)
-    for (const f of frames) if (!prev.includes(f)) (addRadarLayer(map, f), added++)
-    console.log('[wx] setRadarFrames n=', frames.length, 'removed=', removed, 'added=', added)
+    for (const f of prev) if (!next.has(f)) removeRadarLayer(map, f)
+    for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
     if (radarTargetFrame != null && radarTargetFrame !== radarShownFrame) {
       // A pending swap (a long scrub jump) must not fight a whole-neighborhood
       // warm for the request pool (MapLibre caps parallel image loads): cool to
@@ -1129,24 +1126,29 @@ export const MapView = (() => {
       if (radarWarmTimer) clearTimeout(radarWarmTimer)
       radarWarmTimer = null
       if (radarWarm) applyRadarWarm(false)
+      armRadarSwap()
     } else {
       // New layers start cold (shown/target only) — warm them once settled.
       scheduleRadarWarm()
     }
-    maybeCompleteRadarSwap()
   }
 
   // Select the shown frame by opacity (see addRadarLayer): the shown frame at
-  // radarOpacity, the rest at 0. Double-buffered: the swap to the target waits
-  // until its source has tiles, so the previous frame keeps rendering instead
-  // of blanking — the case that matters when the scrubber jumps into archive
-  // the sliding neighborhood hasn't loaded yet.
+  // radarOpacity, the rest at 0. Double-buffered: a warm deck swaps instantly
+  // (the frame's tiles are already resident — the playback case); a cold
+  // target swaps on the map's next idle (idle can't fire while its visible
+  // tiles are still loading) with a fallback timer as the ceiling, so the
+  // previous frame keeps rendering instead of blanking on an archive jump.
+  // NB: never gate this on map.isSourceLoaded() — it reads false indefinitely
+  // for these raster sources, which silently wedged the swap forever.
   /** Request a frame to show (null hides all) — the animation/scrub step. */
   function showRadarFrame(frame: number | null): void {
     radarTargetFrame = frame
     if (!map) return
     if (frame == null) {
       radarShownFrame = null
+      if (radarSwapTimer) clearTimeout(radarSwapTimer)
+      radarSwapTimer = null
       for (const f of radarFrames) setRadarLayerOpacity(f, 0)
       return
     }
@@ -1157,15 +1159,15 @@ export const MapView = (() => {
       return
     }
     const id = radarLayerId(frame)
-    // Not in the loaded set yet — the view recenters the neighborhood and the
-    // setRadarFrames/sourcedata path completes the swap.
-    if (!map.getLayer(id)) {
-      console.log('[wx] show: no layer yet for', frame)
+    // Not in the loaded set yet — the view recenters the neighborhood and
+    // setRadarFrames arms the swap once the layer exists.
+    if (!map.getLayer(id)) return
+    if (radarWarm) {
+      applyRadarSwap(frame)
       return
     }
-    if (!radarWarm) map.setLayoutProperty(id, 'visibility', 'visible')
-    console.log('[wx] show', frame, 'srcLoaded=', map.isSourceLoaded(id))
-    if (map.isSourceLoaded(id)) applyRadarSwap(frame)
+    map.setLayoutProperty(id, 'visibility', 'visible')
+    armRadarSwap()
   }
 
   function setRadarLayerOpacity(frame: number, opacity: number): void {
@@ -1175,38 +1177,33 @@ export const MapView = (() => {
   }
 
   function applyRadarSwap(frame: number): void {
+    if (radarSwapTimer) clearTimeout(radarSwapTimer)
+    radarSwapTimer = null
     radarShownFrame = frame
     for (const f of radarFrames) setRadarLayerOpacity(f, f === frame ? radarOpacity : 0)
-    const id = radarLayerId(frame)
-    console.log(
-      '[wx] swap done',
-      frame,
-      'vis=',
-      map?.getLayoutProperty(id, 'visibility'),
-      'opacity=',
-      map?.getPaintProperty(id, 'raster-opacity'),
-      'warm=',
-      radarWarm,
-    )
     // A cooled long-jump swap just landed — warm the neighborhood behind it.
     scheduleRadarWarm()
   }
 
-  // Completes a pending swap once the target's source has its viewport tiles.
-  // Wired to sourcedata + idle: cheap early-outs, real work only while a swap
-  // is actually pending.
-  function maybeCompleteRadarSwap(): void {
+  // Ceiling on how long a cold swap waits for idle: past this, swap anyway and
+  // let the target's remaining tiles pop in as they arrive.
+  const RADAR_SWAP_FALLBACK_MS = 600
+  let radarSwapTimer: ReturnType<typeof setTimeout> | null = null
+
+  function armRadarSwap(): void {
+    if (radarSwapTimer) return
+    radarSwapTimer = setTimeout(() => {
+      radarSwapTimer = null
+      completeRadarSwap()
+    }, RADAR_SWAP_FALLBACK_MS)
+  }
+
+  // Completes a pending swap (idle handler + the fallback timer): idle means
+  // the target's visible tiles are done loading.
+  function completeRadarSwap(): void {
     if (!map || radarTargetFrame == null || radarTargetFrame === radarShownFrame) return
-    const id = radarLayerId(radarTargetFrame)
-    console.log(
-      '[wx] pendingSwap',
-      radarTargetFrame,
-      'layer=',
-      !!map.getLayer(id),
-      'srcLoaded=',
-      map.isSourceLoaded(id),
-    )
-    if (map.getLayer(id) && map.isSourceLoaded(id)) applyRadarSwap(radarTargetFrame)
+    if (!map.getLayer(radarLayerId(radarTargetFrame))) return
+    applyRadarSwap(radarTargetFrame)
   }
 
   /** Set the radar opacity (0..1) — applies to the shown frame; the rest stay 0. */
@@ -1220,6 +1217,8 @@ export const MapView = (() => {
   function clearRadar(): void {
     if (radarWarmTimer) clearTimeout(radarWarmTimer)
     radarWarmTimer = null
+    if (radarSwapTimer) clearTimeout(radarSwapTimer)
+    radarSwapTimer = null
     radarWarm = false
     if (map) for (const f of radarFrames) removeRadarLayer(map, f)
     radarFrames = []
@@ -1297,10 +1296,9 @@ export const MapView = (() => {
     // non-shown frame layers so the move only fetches one frame's tiles.
     map.on('movestart', coolRadar)
     map.on('moveend', scheduleRadarWarm)
-    // Radar double-buffer: complete a pending frame swap once the target's
-    // source has tiles (sourcedata), with idle as the catch-all.
-    map.on('sourcedata', maybeCompleteRadarSwap)
-    map.on('idle', maybeCompleteRadarSwap)
+    // Radar double-buffer: a cold target swaps in once the map goes idle (its
+    // visible tiles are done); armRadarSwap's fallback timer is the ceiling.
+    map.on('idle', completeRadarSwap)
     wireLongPress(map)
     map.on('idle', idlePrefetch)
     applyBasemap(currentLayer)
