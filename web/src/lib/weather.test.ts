@@ -1,6 +1,41 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatBytes, frameAgeLabel } from './weather'
+import { decimateFrames, formatBytes, frameAgeLabel } from './weather'
+
+describe('decimateFrames', () => {
+  const uniform = (n: number, stepMs = 420_000, start = 1_788_000_000_000): number[] =>
+    Array.from({ length: n }, (_, i) => start + i * stepMs)
+
+  it('returns everything when under budget', () => {
+    const frames = uniform(50)
+    expect(decimateFrames(frames, 90)).toEqual(frames)
+  })
+
+  it('thins to at most the budget, evenly, keeping newest and oldest', () => {
+    const frames = uniform(2900)
+    const out = decimateFrames(frames, 84)
+    expect(out.length).toBeLessThanOrEqual(84)
+    expect(out.length).toBeGreaterThan(80)
+    expect(out[0]).toBe(frames[0])
+    expect(out[out.length - 1]).toBe(frames[frames.length - 1])
+    const gaps = out.slice(1).map((f, i) => f - out[i])
+    const target = (frames[frames.length - 1] - frames[0]) / 83
+    for (const g of gaps) expect(Math.abs(g - target)).toBeLessThan(target)
+  })
+
+  it('stays ascending and deduped across archive gaps', () => {
+    // A 3-day hole in the middle: targets falling inside collapse to its edges.
+    const frames = [...uniform(500), ...uniform(500, 420_000, 1_788_500_000_000)]
+    const out = decimateFrames(frames, 60)
+    expect(out.length).toBeLessThanOrEqual(60)
+    expect([...out].sort((a, b) => a - b)).toEqual(out)
+    expect(new Set(out).size).toBe(out.length)
+  })
+
+  it('handles empty input', () => {
+    expect(decimateFrames([], 84)).toEqual([])
+  })
+})
 
 describe('formatBytes', () => {
   it('renders bytes below 1 kB', () => {

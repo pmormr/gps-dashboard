@@ -20,20 +20,85 @@ type View = typeof MapViewType
 /** The radar layer id (the registry's raster entry one; the frontend seam for more). */
 export const RADAR_LAYER = 'radar'
 
-/** Playback-window presets (hours) — how far back the loaded loop reaches. */
-export const WINDOW_PRESETS = [1, 3, 6] as const
+/** One playback-window preset — how far back the loaded loop/scrub reaches. */
+export interface WindowPreset {
+  hours: number
+  label: string
+  title: string
+  /** Frame budget: bigger windows thin evenly by time to stay under it. */
+  maxFrames: number
+}
 
 /**
- * Fetch the recent frame window, load the frames as raster sources, and return
- * them ascending (old → new) — the order the scrubber and loop advance through.
+ * Playback-window presets. Every loaded frame is a MapLibre raster source +
+ * layer whose viewport tiles fully preload while the camera rests (the warm
+ * mechanism), so the budget bounds layer count, background fetch, and GPU tile
+ * textures — the 2-week archive (~2,900 frames) can't load 1:1. 6 h is the
+ * full-fidelity live window; 24 h ≈ 20-min steps; 2 w ≈ 4-h steps. Full-
+ * fidelity lazy scrubbing of the archive stays the documented follow-up
+ * (plans/weather-plan.md).
+ */
+export const WINDOW_PRESETS: readonly WindowPreset[] = [
+  { hours: 6, label: '6h', title: 'Load the last 6 hours of radar', maxFrames: 90 },
+  {
+    hours: 24,
+    label: '24h',
+    title: 'Load the last 24 hours of radar (thinned to ~20 min steps)',
+    maxFrames: 72,
+  },
+  {
+    hours: 336,
+    label: '2w',
+    title: 'Load the whole 2-week archive (thinned to ~4 h steps)',
+    maxFrames: 84,
+  },
+]
+
+/**
+ * Thin a frame list to at most `maxFrames`, evenly spaced by time.
+ *
+ * Picks the closest on-disk frame to each evenly spaced instant across the
+ * span (newest and oldest always survive), so archive gaps don't skew the
+ * spread and duplicates collapse. Ascending in, ascending out.
+ */
+export function decimateFrames(frames: number[], maxFrames: number): number[] {
+  if (frames.length <= maxFrames) return frames.slice()
+  const newest = frames[frames.length - 1]
+  const oldest = frames[0]
+  const step = (newest - oldest) / (maxFrames - 1)
+  const picked = new Set<number>()
+  for (let i = 0; i < maxFrames; i++) picked.add(closestFrame(frames, newest - i * step))
+  return [...picked].sort((a, b) => a - b)
+}
+
+/** Binary-search the frame closest to a target instant (frames ascending). */
+function closestFrame(frames: number[], target: number): number {
+  let lo = 0
+  let hi = frames.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (frames[mid] < target) lo = mid + 1
+    else hi = mid
+  }
+  if (lo > 0 && target - frames[lo - 1] < frames[lo] - target) return frames[lo - 1]
+  return frames[lo]
+}
+
+/**
+ * Fetch a preset's frame window, thin it to the preset's budget, load the
+ * survivors as raster sources, and return them ascending (old → new) — the
+ * order the scrubber and loop advance through.
  *
  * @param view The MapView façade.
- * @param windowHours How far back to load (a WINDOW_PRESETS value).
+ * @param preset The window preset (reach + frame budget).
  * @returns The loaded frame instants (epoch-ms), ascending.
  */
-export async function loadRadar(view: View, windowHours: number): Promise<number[]> {
-  const resp = await getWeatherFrames(RADAR_LAYER, windowHours)
-  const frames = [...resp.frames].sort((a, b) => a - b)
+export async function loadRadar(view: View, preset: WindowPreset): Promise<number[]> {
+  const resp = await getWeatherFrames(RADAR_LAYER, preset.hours)
+  const frames = decimateFrames(
+    [...resp.frames].sort((a, b) => a - b),
+    preset.maxFrames,
+  )
   view.setRadarFrames(frames)
   return frames
 }

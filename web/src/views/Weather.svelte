@@ -34,7 +34,7 @@
   let playing = $state(false) // open on "now"; Play animates the loop
   let speedIdx = $state(1)
   let opacity = $state(0.8)
-  let windowHours = $state(3)
+  let windowHours = $state(6)
   let loading = $state(true)
   let error = $state('')
   let nowMs = $state(Date.now())
@@ -52,10 +52,11 @@
 
   async function loadWindow(hours: number): Promise<void> {
     if (!view) return
+    const preset = WINDOW_PRESETS.find((p) => p.hours === hours) ?? WINDOW_PRESETS[0]
     loading = true
     error = ''
     try {
-      const loaded = await loadRadar(view, hours)
+      const loaded = await loadRadar(view, preset)
       frames = loaded
       index = loaded.length ? loaded.length - 1 : 0 // show newest first
       playing = false
@@ -214,15 +215,15 @@
 
       <div class="wx-controls">
         <div class="wx-group" role="group" aria-label="Window">
-          {#each WINDOW_PRESETS as h (h)}
+          {#each WINDOW_PRESETS as p (p.hours)}
             <button
               type="button"
               class="wx-chip"
-              class:wx-chip--on={windowHours === h}
-              onclick={() => pickWindow(h)}
-              title={`Load the last ${h} hour${h === 1 ? '' : 's'} of radar frames`}
+              class:wx-chip--on={windowHours === p.hours}
+              onclick={() => pickWindow(p.hours)}
+              title={p.title}
             >
-              {h}h
+              {p.label}
             </button>
           {/each}
         </div>

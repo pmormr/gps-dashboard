@@ -59,9 +59,15 @@ layer two is a registry entry, not a rename.
     `IOWeight=30`): capture latency is free (5-min tick), so remaining work
     yields to gps-logger/gps-dashboard — and future registry layers stretch the
     tick, not the Pi.
-- **Deferred within P3/P4:** full-14-day lazy scrubbing (v1 loads a 1/3/6-h window
-  of frames as sources; scrubbing beyond that is a documented follow-up); NWS
-  zone-only alerts (null geometry) don't render — storm-based polygons do.
+- **Window presets (revised 2026-09-01): 6 h / 24 h / 2 w, default 6 h** — the
+  whole archive is now reachable. Each preset carries a frame budget
+  (`WINDOW_PRESETS` in `weather.ts`); over-budget windows thin evenly by time
+  (closest-frame-to-target, gap-safe — `decimateFrames`), so 6 h is full
+  fidelity, 24 h ≈ 20-min steps, 2 w ≈ 4-h steps. The budget bounds layer
+  count, warm fetch, and GPU tile textures. **Full-fidelity lazy scrubbing of
+  the archive stays the deferred follow-up** if the thinned steps disappoint.
+- **Deferred within P3/P4:** NWS zone-only alerts (null geometry) don't render —
+  storm-based polygons do.
 
 ## P0 results (2026-07-28) — spike complete, design locked
 
