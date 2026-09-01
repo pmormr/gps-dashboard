@@ -1119,9 +1119,17 @@ export const MapView = (() => {
     if (!map) return
     for (const f of prev) if (!next.has(f)) removeRadarLayer(map, f)
     for (const f of frames) if (!prev.includes(f)) addRadarLayer(map, f)
-    // New layers start cold (shown/target frames only) — warm the rest once
-    // settled — and a pending swap's target may have just gained its layer.
-    scheduleRadarWarm()
+    if (radarTargetFrame != null && radarTargetFrame !== radarShownFrame) {
+      // A pending swap (a long scrub jump) must not fight a whole-neighborhood
+      // warm for the request pool (MapLibre caps parallel image loads): cool to
+      // target-only so its tiles load first — applyRadarSwap re-warms after.
+      if (radarWarmTimer) clearTimeout(radarWarmTimer)
+      radarWarmTimer = null
+      if (radarWarm) applyRadarWarm(false)
+    } else {
+      // New layers start cold (shown/target only) — warm them once settled.
+      scheduleRadarWarm()
+    }
     maybeCompleteRadarSwap()
   }
 
@@ -1139,7 +1147,12 @@ export const MapView = (() => {
       for (const f of radarFrames) setRadarLayerOpacity(f, 0)
       return
     }
-    if (frame === radarShownFrame) return
+    if (frame === radarShownFrame) {
+      // A cancelled jump (scrubbed back to the shown frame) may have left the
+      // deck cooled with no swap pending to re-warm it.
+      scheduleRadarWarm()
+      return
+    }
     const id = radarLayerId(frame)
     // Not in the loaded set yet — the view recenters the neighborhood and the
     // setRadarFrames/sourcedata path completes the swap.
@@ -1157,6 +1170,8 @@ export const MapView = (() => {
   function applyRadarSwap(frame: number): void {
     radarShownFrame = frame
     for (const f of radarFrames) setRadarLayerOpacity(f, f === frame ? radarOpacity : 0)
+    // A cooled long-jump swap just landed — warm the neighborhood behind it.
+    scheduleRadarWarm()
   }
 
   // Completes a pending swap once the target's source has its viewport tiles.
