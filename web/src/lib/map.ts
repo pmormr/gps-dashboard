@@ -1088,13 +1088,18 @@ export const MapView = (() => {
 
   // Re-warm shortly after the camera settles: the shown frame's tiles arrive
   // first (it's the only visible layer while cold), then the rest of the window
-  // preloads in the background for the loop.
+  // preloads in the background for the loop. A pending swap defers the warm —
+  // the target frame must not fight 47 preloading layers for the request pool
+  // (applyRadarSwap re-schedules once it lands).
   const RADAR_WARM_DELAY_MS = 400
   function scheduleRadarWarm(): void {
     if (radarWarmTimer) clearTimeout(radarWarmTimer)
     radarWarmTimer = null
     if (!radarFrames.length || radarWarm) return
-    radarWarmTimer = setTimeout(() => applyRadarWarm(true), RADAR_WARM_DELAY_MS)
+    radarWarmTimer = setTimeout(() => {
+      radarWarmTimer = null
+      if (radarTargetFrame == null || radarTargetFrame === radarShownFrame) applyRadarWarm(true)
+    }, RADAR_WARM_DELAY_MS)
   }
 
   function coolRadar(): void {
