@@ -84,8 +84,8 @@ def test_existing_frames_and_span(archive_root):
 
 def test_prune_removes_only_expired(archive_root):
     now = 1_000 * archive.DAY_MS
-    fresh = now - 2 * archive.DAY_MS
-    stale = now - 30 * archive.DAY_MS
+    fresh = now - RADAR.retention_days * archive.DAY_MS // 2
+    stale = now - (RADAR.retention_days + 29) * archive.DAY_MS
     for key in (fresh, stale):
         archive.pack_frame(RADAR, key, [(8, 40, 90, _tile((1, 1, 1, 255)))])
     removed = archive.prune(RADAR, now)

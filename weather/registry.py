@@ -93,7 +93,9 @@ RADAR = RasterLayer(
     min_zoom=2,
     max_zoom=8,
     export_max_h=4100,
-    retention_days=14,
+    # 24 h — a radar loop is only ever read near-live; deeper history was dead
+    # weight (user call 2026-09-01, down from the original 14 d).
+    retention_days=1,
     attribution='NOAA/NWS MRMS base reflectivity',
 )
 

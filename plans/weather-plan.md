@@ -59,8 +59,10 @@ layer two is a registry entry, not a rename.
     `IOWeight=30`): capture latency is free (5-min tick), so remaining work
     yields to gps-logger/gps-dashboard — and future registry layers stretch the
     tick, not the Pi.
-- **Window presets (revised 2026-09-01): 6 h / 24 h / 2 w, default 6 h — full
-  archive at native ~7-min granularity.** The lazy-scrub follow-up is built:
+- **Window presets: 6 h / 24 h, default 6 h — full archive at native ~7-min
+  granularity.** (Retention cut to 24 h and the 2 w preset dropped 2026-09-01:
+  a radar loop is read near-live, deeper history was dead weight — 28 GB of
+  archive trimmed to under 1 GB.) The lazy-scrub follow-up is built:
   the scrubber indexes every archived frame in the window, and only a sliding
   neighborhood of `LOADED_FRAME_CAP` (48) frames around the playhead exists as
   MapLibre sources — recentered (throttled 150 ms) as the playhead moves
@@ -228,8 +230,8 @@ Three parts, each mapped to an existing pattern in the repo.
      sparse tile pyramid, pack to a per-frame PMTiles — written tmp-then-rename
      (the `_atomic_write` convention in `api/routes/tiles.py`), so readers
      never see a partial archive.
-  4. Prune frames older than **14 days** (prune before fetch, so a full disk
-     can't wedge capture).
+  4. Prune frames older than the registry retention (prune before fetch, so a
+     full disk can't wedge capture).
 - Must handle `KeyboardInterrupt` → `"\nInterrupted."`, exit 130 (tools rule).
 
 ### 2. Storage + delivery — tile the radar, don't ship a big image
@@ -287,8 +289,9 @@ stops fighting cheap delivery.
 
 ## Locked decisions
 
-1. **Retention:** 14 days (storage is negligible; the ceiling is delivery, solved
-   by tiling).
+1. **Retention:** 24 hours (revised 2026-09-01 from the original 14 days — a
+   radar loop is read near-live; storage was never the ceiling, but the deep
+   archive was dead weight in the scrub UI).
 2. **Render:** MapLibre raster over the shared OSM basemap (consistent look), a
    *separate view*, not a toggle on the main map.
 3. **Best resolution:** yes — native-res export pair per frame beats the single

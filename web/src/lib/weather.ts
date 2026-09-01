@@ -31,12 +31,11 @@ export interface WindowPreset {
  * Playback-window presets. Every window scrubs at native capture granularity
  * (~7 min frames): the scrubber indexes the full frame list, and only a
  * sliding neighborhood around the playhead is loaded as MapLibre sources
- * (LOADED_FRAME_CAP), so even the ~2,900-frame 2-week archive stays light.
+ * (LOADED_FRAME_CAP). 24h matches the archive retention (weather/registry.py).
  */
 export const WINDOW_PRESETS: readonly WindowPreset[] = [
   { hours: 6, label: '6h', title: 'Scrub the last 6 hours of radar' },
-  { hours: 24, label: '24h', title: 'Scrub the last 24 hours of radar' },
-  { hours: 336, label: '2w', title: 'Scrub the whole 2-week archive' },
+  { hours: 24, label: '24h', title: 'Scrub the whole 24-hour archive' },
 ]
 
 /**

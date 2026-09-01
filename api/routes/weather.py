@@ -52,8 +52,9 @@ def weather_frames(layer: str) -> Response:
     """Available frame instants for a layer, newest first.
 
     The animation window is the head of the list (``frames[:N]`` = the recent
-    loop); the full list is the 14-day scrub range. ``?window=<hours>`` trims to
-    the trailing window (a float) for a cheap recent-only fetch.
+    loop); the full list spans the layer's retention (24 h for radar).
+    ``?window=<hours>`` trims to the trailing window (a float) for a cheap
+    recent-only fetch.
 
     Args:
         layer: The raster layer id.
