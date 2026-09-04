@@ -28,7 +28,7 @@ docs_bp = Blueprint('docs', __name__)
 
 log = logging.getLogger(__name__)
 
-_GIT_AUTHOR = ['-c', 'user.name=van-dashboard', '-c', 'user.email=dashboard@vannet.local']
+_GIT_AUTHOR = ['-c', 'user.name=van-dashboard', '-c', 'user.email=dashboard@van.pmormr.com']
 
 # Serializes write+commit so two rapid saves can't interleave `git add`/`commit`.
 _write_lock = threading.Lock()
