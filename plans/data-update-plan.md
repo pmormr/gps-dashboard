@@ -111,7 +111,8 @@ the pyosmium build pass on the Pi.
   on the sidecar file's mtime — still derived, never trusted state), and the
   glance immediately surfaced a real gap: the Pi has **no SATCAT cache**
   (only ever fetched laptop-side) — the natural first Phase 2 run.
-- [ ] **Phase 2 — run (small)**: runner + `update_runs` + POST/cancel + log
+- [x] **Phase 2 — run (small)** (landed + deployed + Pi-live-verified
+  2026-09-06): runner + `update_runs` + POST/cancel + log
   tail UI. Chunks: NPS, RIDB, GNIS, SATCAT (direct download + import), OSM
   merge + wiki merge from *staged* files, phone timeline from staged Takeout.
   Sanity floor in `load()`. Staging-dir detection.
@@ -147,7 +148,12 @@ the pyosmium build pass on the Pi.
     button for a destructive override.
   - [x] Tests + strict mypy on the new surface (runner lifecycle
     in-process, single-flight, floors, fetch atomicity, HTTP surface).
-  - [ ] First live runs on the Pi (SATCAT first, then NPS/RIDB/GNIS).
+  - [x] First live runs on the Pi, all ok 2026-09-06: SATCAT (closed the
+    Phase 1 gap, 173 sats), NPS (~4.5 min, 23,333 places — parks steady at
+    474, floor silent), RIDB (~2 min, 247 MB @ ~2 MB/s over Starlink,
+    16,383 places), GNIS (~6 min, 876k parsed → 726k loaded; both OSM
+    dedupe stages exercised). Total spend ≈ 390 MB. Downloaded zips stay in
+    staging by design (overwritten next run, not pruned).
 - [ ] **Phase 3 — run (big)**: on-Pi OSM chain (Geofabrik download → build →
   merge → GNIS re-import), on-Pi wiki fetch (long resumable job), basemap
   `pmtiles extract` + atomic replace. System installs documented. Resolve the
