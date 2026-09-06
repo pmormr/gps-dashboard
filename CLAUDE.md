@@ -97,7 +97,8 @@ Signatures + purpose only — full request/response behavior lives in the route 
 - `GET /api/gpsd/{sky,status,live}` — live constellation (skyplot), device/fix snapshot, the Drive view's 1 Hz fix poll
 - `GET /api/constellation` · `/api/passes` — logged-observation 3D reconstruction + pass prediction (observatory.md)
 - `GET/POST /api/radio/*` — ID-5100A readout/control via rigctld, transmission log + WAV playback, TX console (radio.md)
-- `GET /api/ntp` · `/api/syslog` · `/api/mediamtx` · `/api/data/status` — Diagnostics drill-in reads (time, log relay, media hub, offline-data freshness)
+- `GET /api/ntp` · `/api/syslog` · `/api/mediamtx` — Diagnostics drill-in reads (time, log relay, media hub)
+- `GET/POST /api/data/*` — offline-data freshness + the detached update runner (status, spawn/cancel, run log tails; `plans/data-update-plan.md`)
 - `GET /api/docs/tree` · `GET/PUT /api/docs/file` — network-docs vault browse + auto-committing edit saves
 - `GET /api/broadcast/*` — feed config (secrets interpolated server-side), two-sides live status on both hubs, wall snapshots, hub logs (broadcast.md)
 

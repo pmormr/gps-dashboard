@@ -1178,6 +1178,31 @@ export async function putDocFile(
   return { committed: body.committed, etag: resp.headers.get('ETag') ?? '' }
 }
 
+/** One update run's bookkeeping row (status derived server-side from pid liveness). */
+export interface DataRun {
+  id: number
+  chunk: string
+  status: 'running' | 'ok' | 'failed' | 'cancelled'
+  started: string
+  finished: string | null
+  exit_code: number | null
+}
+
+/** A staged transfer file waiting in the staging dir. */
+export interface DataStaged {
+  path: string
+  size_bytes: number
+  mtime_unix: number
+}
+
+/** Per-chunk runnability, derived from the runner's job table + staging dir. */
+export interface DataRunState {
+  supported: boolean
+  requires_staged: boolean
+  staged: DataStaged | null
+  runnable: boolean
+}
+
 /** One offline-data chunk's derived freshness (the /data drill-in row). */
 export interface DataChunk {
   id: string
@@ -1195,17 +1220,35 @@ export interface DataChunk {
   detail: Record<string, unknown>
   /** Derived ordering warnings (e.g. GNIS predating the OSM slice). */
   warnings: string[]
+  run: DataRunState
+  last_run: DataRun | null
   error?: string
 }
 
 export interface DataStatus {
   generated_at: string
   chunks: DataChunk[]
+  active_run: DataRun | null
 }
 
 /** Fetch offline-data freshness for every registered chunk. */
 export function getDataStatus(): Promise<DataStatus> {
   return getJSON<DataStatus>('/api/data/status')
+}
+
+/** Spawn a detached update run; throws Error(server message) on 400/409/500. */
+export function startDataUpdate(chunk: string, force = false): Promise<{ run: DataRun }> {
+  return sendJSON<{ run: DataRun }>(`/api/data/update/${chunk}`, 'POST', { force })
+}
+
+/** One run's row + its log tail. */
+export function getDataRun(id: number, lines = 40): Promise<{ run: DataRun; log: string }> {
+  return getJSON<{ run: DataRun; log: string }>(`/api/data/runs/${id}?lines=${lines}`)
+}
+
+/** SIGTERM a running update; throws Error(server message) when not running. */
+export function cancelDataRun(id: number): Promise<{ cancelled: number }> {
+  return sendJSON<{ cancelled: number }>(`/api/data/runs/${id}/cancel`, 'POST')
 }
 
 // ── Broadcast (event-day feed config reference; .claude/modules/broadcast.md) ──

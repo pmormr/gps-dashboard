@@ -115,6 +115,39 @@ the pyosmium build pass on the Pi.
   tail UI. Chunks: NPS, RIDB, GNIS, SATCAT (direct download + import), OSM
   merge + wiki merge from *staged* files, phone timeline from staged Takeout.
   Sanity floor in `load()`. Staging-dir detection.
+  Work breakdown (built + laptop-live-verified 2026-09-06; GNIS-after-OSM
+  stays warning-driven in Phase 2 — auto-chaining lands with the Phase 3 OSM
+  chain):
+  - [x] `update_runs` table (main DB) + runner core (`updater/run.py` +
+    `updater/runs.py`): single-flight check-and-insert, log capture,
+    SIGTERM → cancelled, dead-pid ⇒ failed derived at read time.
+  - [x] Phase-2 jobs: nps/ridb/gnis/satcat (fetch + import), osm/wiki/phone
+    (staged-file import), reusing the importer functions in-process — each
+    job builds an argv through the importer's own `parse_args`, so runner
+    and CLI can never drift.
+  - [x] `updater/fetch.py` + `updater/paths.py`: streaming download →
+    staging (`<db_dir>/staging`, override `GPS_STAGING_DIR`; logs at
+    `<db_dir>/update-logs`, override `GPS_UPDATE_LOG_DIR`), `.part` atomic
+    rename, staged detection by the producing tools' default filenames
+    (`osm-places.db` / `wiki-cache.db` / `Timeline.json`).
+  - [x] Sanity floor in `import_places.load()`: per-kind ≥50% of existing
+    (kinds with ≥20 rows) + slice/event totals; `--force` override;
+    total-only floor on `merge_osm`/`merge_wiki` (deviation: merges don't
+    go through `load()`, so the floor lands twice — full per-kind in
+    `load()`, total-only in the merges).
+  - [x] API: POST `/api/data/update/<chunk>` (202 spawn-handshake / 400
+    unrunnable / 409 busy), GET `/api/data/runs/<id>` (+log tail), POST
+    cancel; status grows per-chunk `run`/`last_run` + top-level
+    `active_run`. Runner exit 75 (EX_TEMPFAIL) = lost the single-flight
+    race, mapped to 409.
+  - [x] UI: update buttons w/ transfer cost, run panel (2 s log tail,
+    cancel/dismiss, auto-follows runs started over SSH via `active_run`),
+    clickable last-run outcome per chunk; dist rebuilt. Force is
+    deliberately API/CLI-only (`--force` / POST `{"force": true}`) — no UI
+    button for a destructive override.
+  - [x] Tests + strict mypy on the new surface (runner lifecycle
+    in-process, single-flight, floors, fetch atomicity, HTTP surface).
+  - [ ] First live runs on the Pi (SATCAT first, then NPS/RIDB/GNIS).
 - [ ] **Phase 3 — run (big)**: on-Pi OSM chain (Geofabrik download → build →
   merge → GNIS re-import), on-Pi wiki fetch (long resumable job), basemap
   `pmtiles extract` + atomic replace. System installs documented. Resolve the
