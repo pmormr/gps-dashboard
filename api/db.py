@@ -655,6 +655,24 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON owntracks_points(device, timestamp);
         CREATE INDEX IF NOT EXISTS idx_owntracks_points_timestamp
             ON owntracks_points(timestamp);
+
+        -- Offline-data update runs (plans/data-update-plan.md): history +
+        -- single-flight bookkeeping written only by the detached runner
+        -- (updater/run.py); Flask reads. Never a freshness source — freshness
+        -- is always derived from the data itself (updater/probes.py). An open
+        -- row (finished IS NULL) whose pid is dead reads as failed.
+        CREATE TABLE IF NOT EXISTS update_runs (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            chunk     TEXT NOT NULL,
+            started   TEXT NOT NULL,
+            finished  TEXT,
+            status    TEXT NOT NULL,
+            exit_code INTEGER,
+            pid       INTEGER NOT NULL,
+            log_path  TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_update_runs_chunk
+            ON update_runs(chunk, id);
     """)
     conn.commit()
     # The places tier lives in the ATTACHed sidecar, so its schema only applies

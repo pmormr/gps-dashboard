@@ -39,6 +39,7 @@ import bisect
 import json
 import sqlite3
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -464,8 +465,12 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments.
+
+    Args:
+        argv: Explicit argument list (the update runner builds one); None
+            reads ``sys.argv`` as usual.
 
     Returns:
         The parsed argument namespace.
@@ -485,7 +490,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--dry-run', action='store_true', help='Parse + report, but do not write the DB'
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
