@@ -111,7 +111,7 @@ import sys
 import time
 import zipfile
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -1198,12 +1198,69 @@ def osm_name_dupes(conn: sqlite3.Connection, places: list[Place]) -> set[str]:
 # --- Load --------------------------------------------------------------------------
 
 
+SANITY_MIN_ROWS = 20
+SANITY_FLOOR = 0.5
+
+
+class SanityFloorError(RuntimeError):
+    """An incoming slice is implausibly small next to the one it would replace."""
+
+
+def check_sanity_floor(
+    conn: sqlite3.Connection, source: str, places: list[Place], events: list[Event]
+) -> None:
+    """Guard the destructive full-replace against a gutted incoming slice.
+
+    A truncated fetch or a source-side regression must not silently wipe a
+    healthy slice (the observed tell: parks 470→12). Incoming counts must be
+    at least :data:`SANITY_FLOOR` of existing — per ``source_kind`` (so one
+    collapsed kind can't hide inside a healthy total), on the slice total,
+    and on the event total. Kinds with fewer than :data:`SANITY_MIN_ROWS`
+    existing rows are too noisy to floor-check and are skipped.
+
+    Args:
+        conn: An open, initialized connection.
+        source: The slice about to be replaced.
+        places: The incoming POI rows.
+        events: The incoming event rows.
+
+    Raises:
+        SanityFloorError: When any floor is breached (``--force`` skips the
+            check entirely).
+    """
+    existing: dict[str, int] = dict(
+        conn.execute(
+            'SELECT source_kind, count(*) FROM places WHERE source = ? GROUP BY source_kind',
+            (source,),
+        ).fetchall()
+    )
+    incoming = Counter(a.source_kind for a in places)
+    checks: list[tuple[str, int, int]] = [('total', sum(existing.values()), len(places))]
+    checks += [(kind, n, incoming.get(kind, 0)) for kind, n in sorted(existing.items())]
+    n_events = conn.execute(
+        'SELECT count(*) FROM place_events WHERE source = ?', (source,)
+    ).fetchone()[0]
+    checks.append(('events', n_events, len(events)))
+    problems = [
+        f'{name} {have:,}→{got:,}'
+        for name, have, got in checks
+        if have >= SANITY_MIN_ROWS and got < have * SANITY_FLOOR
+    ]
+    if problems:
+        raise SanityFloorError(
+            f"Sanity floor: incoming '{source}' slice is implausibly small vs the "
+            f'existing one ({"; ".join(problems)}); refusing to replace. '
+            f'--force overrides.'
+        )
+
+
 def load(
     conn: sqlite3.Connection,
     places: list[Place],
     events: list[Event],
     source: str = SOURCE,
     kind_ranks: dict[str, tuple[str, int]] | None = None,
+    force: bool = False,
 ) -> None:
     """Full-replace one source's slice of the places tier.
 
@@ -1218,7 +1275,14 @@ def load(
         kind_ranks: ``source_kind → (category, rank)`` stamp table; defaults to
             the federal :data:`api.db.PLACES_KIND_RANKS`. A row's
             ``rank_override`` beats the table's rank.
+        force: Skip the sanity floor (deliberate shrink, e.g. a source pruned
+            upstream).
+
+    Raises:
+        SanityFloorError: When the incoming slice breaches the sanity floor.
     """
+    if not force:
+        check_sanity_floor(conn, source, places, events)
     ranks = PLACES_KIND_RANKS if kind_ranks is None else kind_ranks
 
     def stamp(a: Place) -> tuple[str | None, int | None]:
@@ -1282,25 +1346,38 @@ def load(
         conn.execute("INSERT INTO places_fts(places_fts) VALUES('rebuild')")
 
 
-def merge_osm(conn: sqlite3.Connection, transfer_path: Path) -> int:
+def merge_osm(conn: sqlite3.Connection, transfer_path: Path, force: bool = False) -> int:
     """Full-replace the ``source='osm'`` slice from a transfer DB.
 
     ATTACHes the file ``tools/build_osm_pois.py`` produced and swaps the slice
     in one sidecar-write transaction (reads from the ATTACHed transfer file are
     fine — the no-cross-file-write invariant concerns writes only), then
     rebuilds the FTS index. OSM rows carry no events, so the event tables are
-    untouched.
+    untouched. A total-count sanity floor (same rationale as
+    :func:`check_sanity_floor`; no per-kind pass — that's a full scan of a
+    ~10M-row slice) guards against a gutted transfer file.
 
     Args:
         conn: An open, initialized connection.
         transfer_path: The transfer DB (its ``places`` table already carries
             ``category``/``rank`` and the build's ``synced_at``).
+        force: Skip the sanity floor.
 
     Returns:
         The number of rows merged in.
+
+    Raises:
+        SanityFloorError: When the transfer slice breaches the sanity floor.
     """
     conn.execute('ATTACH DATABASE ? AS osm_src', (str(transfer_path),))
     try:
+        if not force:
+            _check_merge_floor(
+                conn,
+                'osm slice',
+                "SELECT count(*) FROM places WHERE source = 'osm'",
+                "SELECT count(*) FROM osm_src.places WHERE source = 'osm'",
+            )
         with conn:
             conn.execute("DELETE FROM places WHERE source = 'osm'")
             merged = conn.execute(
@@ -1315,22 +1392,57 @@ def merge_osm(conn: sqlite3.Connection, transfer_path: Path) -> int:
         conn.execute('DETACH DATABASE osm_src')
 
 
-def merge_wiki(conn: sqlite3.Connection, transfer_path: Path) -> int:
+def _check_merge_floor(
+    conn: sqlite3.Connection, label: str, existing_sql: str, incoming_sql: str
+) -> None:
+    """Total-count sanity floor for the ATTACH-and-swap merges.
+
+    Args:
+        conn: A connection with the transfer DB already ATTACHed.
+        label: What is being replaced, for the error message.
+        existing_sql: ``count(*)`` over the slice about to be replaced.
+        incoming_sql: ``count(*)`` over the transfer DB's slice.
+
+    Raises:
+        SanityFloorError: When the transfer slice breaches the sanity floor.
+    """
+    existing = conn.execute(existing_sql).fetchone()[0]
+    incoming = conn.execute(incoming_sql).fetchone()[0]
+    if existing >= SANITY_MIN_ROWS and incoming < existing * SANITY_FLOOR:
+        raise SanityFloorError(
+            f'Sanity floor: transfer {label} is implausibly small vs the existing '
+            f'one ({existing:,}→{incoming:,}); refusing to replace. --force overrides.'
+        )
+
+
+def merge_wiki(conn: sqlite3.Connection, transfer_path: Path, force: bool = False) -> int:
     """Full-replace ``place_wiki`` from a transfer DB built by ``fetch_wikipedia.py``.
 
-    Same ATTACH-and-swap shape as :func:`merge_osm`; no FTS involvement — the
-    wiki cache is a detail-read join, never searched.
+    Same ATTACH-and-swap shape as :func:`merge_osm`, including the total-count
+    sanity floor; no FTS involvement — the wiki cache is a detail-read join,
+    never searched.
 
     Args:
         conn: An open, initialized connection.
         transfer_path: The wiki transfer DB (its ``place_wiki`` table matches
             the sidecar's).
+        force: Skip the sanity floor.
 
     Returns:
         The number of rows merged in.
+
+    Raises:
+        SanityFloorError: When the transfer slice breaches the sanity floor.
     """
     conn.execute('ATTACH DATABASE ? AS wiki_src', (str(transfer_path),))
     try:
+        if not force:
+            _check_merge_floor(
+                conn,
+                'wiki cache',
+                'SELECT count(*) FROM place_wiki',
+                'SELECT count(*) FROM wiki_src.place_wiki',
+            )
         with conn:
             conn.execute('DELETE FROM place_wiki')
             merged = conn.execute(
@@ -1407,7 +1519,7 @@ def run_ridb(args: argparse.Namespace) -> int:
 
     conn = get_connection()
     init_db(conn)
-    load(conn, places, [], source=RIDB_SOURCE)
+    load(conn, places, [], source=RIDB_SOURCE, force=args.force)
     print(f'Loaded into {api.db.places_db_path()}', flush=True)
     return 0
 
@@ -1436,7 +1548,7 @@ def run_osm(args: argparse.Namespace) -> int:
     conn = get_connection()
     init_db(conn)
     print(f'Merging {transfer_path} (delete + insert + FTS rebuild) ...', flush=True)
-    merged = merge_osm(conn, transfer_path)
+    merged = merge_osm(conn, transfer_path, force=args.force)
     print(f'Merged {merged} osm rows into {api.db.places_db_path()}', flush=True)
     return 0
 
@@ -1485,7 +1597,7 @@ def run_gnis(args: argparse.Namespace) -> int:
         print('Dry run — not writing.', flush=True)
         return 0
 
-    load(conn, places, [], source=GNIS_SOURCE, kind_ranks=GNIS_KIND_RANKS)
+    load(conn, places, [], source=GNIS_SOURCE, kind_ranks=GNIS_KIND_RANKS, force=args.force)
     print(f'Loaded into {api.db.places_db_path()}', flush=True)
     return 0
 
@@ -1514,13 +1626,44 @@ def run_wiki(args: argparse.Namespace) -> int:
     conn = get_connection()
     init_db(conn)
     print(f'Merging {transfer_path} (delete + insert) ...', flush=True)
-    merged = merge_wiki(conn, transfer_path)
+    merged = merge_wiki(conn, transfer_path, force=args.force)
     print(f'Merged {merged:,} wiki rows into {api.db.places_db_path()}', flush=True)
     return 0
 
 
 def run(args: argparse.Namespace) -> int:
-    """Fetch every endpoint, transform, and (unless ``--dry-run``) load.
+    """Dispatch to the selected mode, mapping a sanity-floor breach to exit 1.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        A process exit code.
+    """
+    modes = [m for m in (args.ridb_zip, args.osm_db, args.gnis_zip, args.wiki_db) if m]
+    if len(modes) > 1:
+        print(
+            '--ridb-zip / --osm-db / --gnis-zip / --wiki-db are mutually exclusive',
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        if args.ridb_zip:
+            return run_ridb(args)
+        if args.osm_db:
+            return run_osm(args)
+        if args.gnis_zip:
+            return run_gnis(args)
+        if args.wiki_db:
+            return run_wiki(args)
+        return run_nps(args)
+    except SanityFloorError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+def run_nps(args: argparse.Namespace) -> int:
+    """Walk the NPS API, transform, and (unless ``--dry-run``) load.
 
     Args:
         args: Parsed arguments.
@@ -1529,22 +1672,6 @@ def run(args: argparse.Namespace) -> int:
         A process exit code.
     """
     import api.db
-
-    modes = [m for m in (args.ridb_zip, args.osm_db, args.gnis_zip, args.wiki_db) if m]
-    if len(modes) > 1:
-        print(
-            '--ridb-zip / --osm-db / --gnis-zip / --wiki-db are mutually exclusive',
-            file=sys.stderr,
-        )
-        return 2
-    if args.ridb_zip:
-        return run_ridb(args)
-    if args.osm_db:
-        return run_osm(args)
-    if args.gnis_zip:
-        return run_gnis(args)
-    if args.wiki_db:
-        return run_wiki(args)
 
     api_key = resolve_api_key(args.api_key, Path(args.env_file))
     session = requests.Session()
@@ -1592,13 +1719,17 @@ def run(args: argparse.Namespace) -> int:
 
     conn = get_connection()
     init_db(conn)
-    load(conn, places, events)
+    load(conn, places, events, force=args.force)
     print(f'Loaded into {api.db.places_db_path()}', flush=True)
     return 0
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments.
+
+    Args:
+        argv: Explicit argument list (the update runner builds one); None
+            reads ``sys.argv`` as usual.
 
     Returns:
         The parsed argument namespace.
@@ -1641,7 +1772,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--dry-run', action='store_true', help='Fetch + report, but do not write the DB'
     )
-    return parser.parse_args()
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Skip the sanity floor guarding destructive full-replaces',
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> None:

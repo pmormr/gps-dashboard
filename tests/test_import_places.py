@@ -10,20 +10,29 @@ rows as in the pipe-delimited national file; no network. The one zip built here
 
 from __future__ import annotations
 
+import sqlite3
 import zipfile
 from pathlib import Path
+
+import pytest
 
 from tools.import_places import (
     GNIS_CLASS_RANKS,
     GNIS_KIND_RANKS,
     GNIS_MEMBER,
+    SANITY_MIN_ROWS,
+    Event,
     Place,
     RidbExport,
+    SanityFloorError,
     _ridb_label,
     apply_park_fallback,
     build_ridb_places,
+    check_sanity_floor,
     dedupe_by_source_id,
     drop_name_shadowed,
+    load,
+    merge_osm,
     parse_ampm,
     parse_asset,
     parse_event,
@@ -454,3 +463,118 @@ def test_read_gnis_zip(tmp_path: Path) -> None:
     places, skipped = read_gnis_zip(archive)
     assert [a.name for a in places] == ['Longs Peak', 'Lost Lake']
     assert skipped == {'class': 1}
+
+
+# --- Sanity floor (destructive full-replace guard) -----------------------------------
+
+
+def _floor_place(kind: str, i: int) -> Place:
+    return Place(kind, f'{kind}-{i}', None, f'{kind} {i}', None, None, None, {})
+
+
+_EVENT_STUB = Event('E1', None, 'Talk', None, None, None, None, None, (), {})
+
+
+def _floor_conn() -> sqlite3.Connection:
+    """Minimal in-memory tables for the floor's count queries."""
+    conn = sqlite3.connect(':memory:')
+    conn.execute('CREATE TABLE places (source TEXT, source_kind TEXT)')
+    conn.execute('CREATE TABLE place_events (source TEXT)')
+    return conn
+
+
+def _seed_kinds(conn: sqlite3.Connection, source: str, **kinds: int) -> None:
+    for kind, n in kinds.items():
+        conn.executemany(
+            'INSERT INTO places (source, source_kind) VALUES (?, ?)', [(source, kind)] * n
+        )
+
+
+def test_sanity_floor_first_import_passes() -> None:
+    conn = _floor_conn()
+    check_sanity_floor(conn, 'nps', [_floor_place('park', 1)], [])
+
+
+def test_sanity_floor_catches_gutted_slice() -> None:
+    conn = _floor_conn()
+    _seed_kinds(conn, 'nps', park=470)
+    incoming = [_floor_place('park', i) for i in range(12)]
+    with pytest.raises(SanityFloorError, match=r'park 470→12'):
+        check_sanity_floor(conn, 'nps', incoming, [])
+
+
+def test_sanity_floor_catches_kind_collapse_inside_healthy_total() -> None:
+    conn = _floor_conn()
+    _seed_kinds(conn, 'nps', park=40, site=40)
+    incoming = [_floor_place('park', i) for i in range(10)]
+    incoming += [_floor_place('site', i) for i in range(90)]
+    with pytest.raises(SanityFloorError, match=r'park 40→10'):
+        check_sanity_floor(conn, 'nps', incoming, [])
+
+
+def test_sanity_floor_ignores_small_kinds_and_other_sources() -> None:
+    conn = _floor_conn()
+    _seed_kinds(conn, 'nps', tour=SANITY_MIN_ROWS - 1)
+    _seed_kinds(conn, 'osm', peak=1000)
+    check_sanity_floor(conn, 'nps', [_floor_place('park', 1)], [])
+
+
+def test_sanity_floor_checks_events() -> None:
+    conn = _floor_conn()
+    conn.executemany('INSERT INTO place_events (source) VALUES (?)', [('nps',)] * 30)
+    with pytest.raises(SanityFloorError, match=r'events 30→2'):
+        check_sanity_floor(conn, 'nps', [], [_EVENT_STUB, _EVENT_STUB])
+
+
+def _schema_conn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
+    """A real main+sidecar pair in tmp, full schema initialized."""
+    import api.db as db
+
+    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'main.db')
+    monkeypatch.setattr(db, 'PLACES_DB_PATH', None)
+    conn = db.get_connection()
+    db.init_db(conn)
+    return conn
+
+
+def test_load_enforces_floor_and_force_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _schema_conn(tmp_path, monkeypatch)
+    seed = [_floor_place('park', i) for i in range(SANITY_MIN_ROWS)]
+    load(conn, seed, [], source='nps')
+    shrunken = [_floor_place('park', 0)]
+    with pytest.raises(SanityFloorError):
+        load(conn, shrunken, [], source='nps')
+    load(conn, shrunken, [], source='nps', force=True)
+    n = conn.execute("SELECT count(*) FROM places WHERE source = 'nps'").fetchone()[0]
+    assert n == 1
+
+
+def _transfer_db(path: Path, rows: int) -> None:
+    src = sqlite3.connect(path)
+    src.execute(
+        'CREATE TABLE places (source TEXT, source_kind TEXT, source_id TEXT, park_code TEXT, '
+        'name TEXT, lat REAL, lon REAL, summary TEXT, details TEXT, synced_at TEXT, '
+        'category TEXT, rank INTEGER)'
+    )
+    src.executemany(
+        "INSERT INTO places VALUES ('osm', 'peak', ?, NULL, ?, 40.0, -105.0, NULL, '{}', "
+        "'2026-01-01T00:00:00.000Z', 'outdoors', 3)",
+        [(f'osm-{i}', f'Peak {i}') for i in range(rows)],
+    )
+    src.commit()
+    src.close()
+
+
+def test_merge_osm_floor_blocks_gutted_transfer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _schema_conn(tmp_path, monkeypatch)
+    load(conn, [_floor_place('peak', i) for i in range(30)], [], source='osm', force=True)
+    transfer = tmp_path / 'osm-places.db'
+    _transfer_db(transfer, rows=3)
+    with pytest.raises(SanityFloorError, match=r'30→3'):
+        merge_osm(conn, transfer)
+    merged = merge_osm(conn, transfer, force=True)
+    assert merged == 3
