@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fmtDurationSecs, haversineMeters, initialBearingDeg } from './geo'
+import { fmtDurationSecs, haversineMeters, initialBearingDeg, trailFC } from './geo'
 
 describe('initialBearingDeg', () => {
   it('reports the cardinal directions from a mid-latitude origin', () => {
@@ -65,5 +65,67 @@ describe('fmtDurationSecs', () => {
     expect(fmtDurationSecs(300, { padMin: true })).toBe('5m') // bare minutes unpadded
     expect(fmtDurationSecs(3600, { padMin: true })).toBe('1h 00m')
     expect(fmtDurationSecs(3660, { padMin: true })).toBe('1h 01m')
+  })
+})
+
+describe('trailFC', () => {
+  const pt = (minute: number) => ({
+    timestamp: `2026-10-03T15:${String(minute).padStart(2, '0')}:00.000Z`,
+    lat: 39,
+    lon: -76 + minute / 100,
+  })
+  const at = (minute: number) => pt(minute).timestamp
+  const shape = (fc: ReturnType<typeof trailFC>) =>
+    fc.features.map((f) => [f.properties?.gap, f.geometry.coordinates.length])
+
+  it('is one solid line with no gaps', () => {
+    expect(shape(trailFC([pt(1), pt(2), pt(3)]))).toEqual([[false, 3]])
+  })
+
+  it('is empty below two points', () => {
+    expect(trailFC([pt(1)]).features).toEqual([])
+  })
+
+  it('breaks at a gap and bridges it with a tagged connector', () => {
+    const fc = trailFC([pt(1), pt(2), pt(5), pt(6)], [{ start: at(2), end: at(5) }])
+    expect(shape(fc)).toEqual([
+      [false, 2],
+      [true, 2],
+      [false, 2],
+    ])
+    expect(fc.features[1].geometry.coordinates).toEqual([
+      [pt(2).lon, 39],
+      [pt(5).lon, 39],
+    ])
+  })
+
+  it('breaks between the surviving neighbours when decimation dropped the gap ends', () => {
+    const fc = trailFC([pt(1), pt(2), pt(8), pt(9)], [{ start: at(3), end: at(5) }])
+    expect(shape(fc)).toEqual([
+      [false, 2],
+      [true, 2],
+      [false, 2],
+    ])
+  })
+
+  it('ignores a gap no pair of points straddles', () => {
+    const fc = trailFC([pt(4), pt(5), pt(6)], [{ start: at(1), end: at(2) }])
+    expect(shape(fc)).toEqual([[false, 3]])
+  })
+
+  it('keeps a lone point between two gaps connected only by connectors', () => {
+    const fc = trailFC(
+      [pt(1), pt(2), pt(5), pt(8), pt(9)],
+      [
+        { start: at(2), end: at(5) },
+        { start: at(5), end: at(8) },
+      ],
+    )
+    expect(shape(fc)).toEqual([
+      [false, 2],
+      [true, 2],
+      [true, 2],
+      [false, 2],
+    ])
   })
 })

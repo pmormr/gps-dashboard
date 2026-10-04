@@ -9,11 +9,13 @@
 
 import { getPoints } from '../api'
 import { errMsg } from '../errors'
-import type { TrackPoint } from '../geo'
+import type { TrackGap, TrackPoint } from '../geo'
 import type { Range } from './selection.svelte'
 
 class TrackStore {
   points = $state<TrackPoint[]>([])
+  /** Data-gap intervals in the loaded window — where the trail breaks. */
+  gaps = $state<TrackGap[]>([])
   truncated = $state(false)
   status = $state('')
   /** A window fetch is in flight (camera choreography waits on it — Map.svelte). */
@@ -66,6 +68,7 @@ class TrackStore {
     if (token !== this.fetchToken) return // superseded by a newer window
     this.loading = false
     this.points = data.points
+    this.gaps = data.gaps ?? []
     this.truncated = data.truncated ?? false
     this.status = `${data.points.length.toLocaleString()} pts${data.truncated ? ' (truncated)' : ''}`
     this.empty = data.points.length ? '' : 'No GPS points for this window'

@@ -42,6 +42,16 @@ triggering deviation becomes the vertex `importance`; straightaways collapse to
 endpoints (low count, low importance), sharp turns emit high-importance vertices.
 Accuracy gating applies here too.
 
+**Data gaps:** a hole of ≥ `gap_min_seconds` between consecutive *accepted* fixes that
+the van moved across (moving, or resuming outside the stop radius) ends the trail at
+the last pre-gap fix, restarts it at the first post-gap fix, and emits a `gap` event
+(`timestamp` → `end_time`, `magnitude` = seconds). Both end vertices take the jump
+distance as `importance`. `/api/points` serves the intervals as `gaps`, and the map
+breaks the line between whichever surviving points straddle one, bridging it with a
+faint dashed connector (`geo.trailFC`). A hole while parked that resumes in place is
+still one dwell. The receiver's in-tunnel extrapolation (a few seconds of 2D fixes at
+its ~77 m accuracy cap) is already dropped by `accuracy_reject`, so a tunnel is a gap.
+
 Net: sparse simplified vertices while driving + one collapsed point per stop, each
 weighted so the renderer and the size-aware decimator (`/api/points`) can rank them.
 
@@ -59,9 +69,15 @@ The starting values below were validated against a real drive — no changes nee
 | `stop_radius` | 15 m | release if the solution wanders past this |
 | `simplify_epsilon` | ~2.5 m | perpendicular deviation to emit a moving vertex; near raw resolution → lane-level shape at 5 Hz |
 | `move_emit_max_gap` | 60 s | keep-alive emit on long straightaways |
+| `gap_min_seconds` | 10 s | accepted-fix hole that breaks the trail (a `gap` event) |
 | `accuracy_reject` | eph > 50 m | drop / down-weight |
 
 ## Traps
+
+- **The gap's first fix is committed as a plain vertex, never as a stop start:** the
+  `gap` event is keyed to that fix and the cursor lands on it. A stop candidate opening
+  on the same fix would key a provisional `stop_start` *at* the cursor, where the
+  per-batch `src_raw_id > cursor` clear can't reach it — it would duplicate every batch.
 
 - **Live current-position dot reads raw, not the processed tier:**
   `/api/points/latest` serves raw `gps_points`, so a stop row converging over its first

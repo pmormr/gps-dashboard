@@ -78,6 +78,11 @@ def get_points():
     *within* the moving kind (perpendicular deviation in metres; a stop's is dwell
     seconds), so stops are taken unconditionally rather than ranked against them.
     ``truncated`` therefore means moving vertices were dropped — stops never are.
+
+    ``gaps`` lists the processor's data-gap intervals overlapping the window. They
+    ride as intervals rather than flags on vertices so the renderer can break the
+    line between whichever two surviving points straddle one, whatever decimation
+    dropped.
     """
     start, end, err = parse_required_window(request.args)
     if err:
@@ -129,6 +134,19 @@ def get_points():
     # reports as truncated rather than silently hiding the loss.
     truncated = len(moving) == move_budget
 
+    gaps = conn.execute(
+        'SELECT timestamp AS start, end_time AS end FROM track_events '
+        "WHERE type = 'gap' AND end_time >= ? AND timestamp <= ? ORDER BY timestamp",
+        [start, end],
+    ).fetchall()
+
     points = [dict(r) for r in stops] + [dict(r) for r in moving]
     points.sort(key=lambda p: p['timestamp'])
-    return jsonify({'points': points, 'count': len(points), 'truncated': truncated})
+    return jsonify(
+        {
+            'points': points,
+            'count': len(points),
+            'truncated': truncated,
+            'gaps': [dict(r) for r in gaps],
+        }
+    )

@@ -274,6 +274,7 @@
     // null) must not re-run this effect — refit is still true then, and the
     // re-run's fitTo would stomp the animation it just yielded to.
     view.showTrack(pts, {
+      gaps: track.gaps,
       fitBounds:
         track.refit && untrack(() => layers.pendingZoom == null && layers.pendingFit == null),
     })

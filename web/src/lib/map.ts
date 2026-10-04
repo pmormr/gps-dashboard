@@ -19,7 +19,16 @@ import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import type { GeoJSONSource, Map as MlMap, Marker, Popup } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 
-import { emptyFC, escapeHtml, fmtAltitude, fmtDate, fmtDurationSecs, fmtTime } from './geo'
+import {
+  emptyFC,
+  escapeHtml,
+  fmtAltitude,
+  fmtDate,
+  fmtDurationSecs,
+  fmtTime,
+  trailFC,
+  type TrackGap,
+} from './geo'
 import { DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
 import { prefetchTiles } from './prefetch'
 
@@ -272,20 +281,6 @@ const DRONE_COLORS: Record<string, string> = {
   FC8671: '#ec4899', // DJI Neo — pink
 }
 const DRONE_DEFAULT_COLOR = '#94a3b8'
-
-function lineFC(points: MapPoint[]): FeatureCollection {
-  if (points.length < 2) return emptyFC()
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
-        properties: {},
-      },
-    ],
-  }
-}
 
 function droneColor(modelCode: string): string {
   return DRONE_COLORS[modelCode] || DRONE_DEFAULT_COLOR
@@ -662,8 +657,25 @@ export const MapView = (() => {
           id: 'track-line',
           type: 'line',
           source: 'track',
+          filter: ['!=', ['get', 'gap'], true],
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: { 'line-color': TRACK_COLOR, 'line-width': 3, 'line-opacity': 0.85 },
+        })
+      }
+      // Data gaps (tunnel, lost antenna): a faint dashed connector between the two
+      // ends — "no data here", not a driven path.
+      if (!m.getLayer('track-gap-line')) {
+        m.addLayer({
+          id: 'track-gap-line',
+          type: 'line',
+          source: 'track',
+          filter: ['==', ['get', 'gap'], true],
+          paint: {
+            'line-color': TRACK_COLOR,
+            'line-width': 2,
+            'line-opacity': 0.4,
+            'line-dasharray': [2, 3],
+          },
         })
       }
 
@@ -1495,11 +1507,15 @@ export const MapView = (() => {
 
   function showTrack(
     points: MapPoint[],
-    { fitBounds = true, showEndpoints = false }: { fitBounds?: boolean; showEndpoints?: boolean } = {},
+    {
+      fitBounds = true,
+      showEndpoints = false,
+      gaps = [],
+    }: { fitBounds?: boolean; showEndpoints?: boolean; gaps?: TrackGap[] } = {},
   ): void {
     clearMarkers(endpointMarkers)
     lastTrackPoints = points
-    trackData = lineFC(points)
+    trackData = trailFC(points, gaps)
     setGeoJSON('track', trackData)
     stopFeatures = points.filter((p) => p.kind === 'stop').map(stopPointToFeature)
     setGeoJSON('stops', stopsFC())

@@ -129,6 +129,28 @@ def test_stop_matched_on_interval_overlap_not_just_start(client):
     assert body['points'][0]['lat'] == 40.0
 
 
+def test_gaps_overlapping_window_are_served(client):
+    """Data-gap intervals touching the window ride along; others and non-gap events don't."""
+    conn = db.get_connection()
+    conn.executemany(
+        'INSERT INTO track_events (timestamp, end_time, type, magnitude, src_raw_id) '
+        'VALUES (?, ?, ?, ?, ?)',
+        [
+            (_ts(11, 50), _ts(12, 5), 'gap', 900.0, 1),  # straddles the window start
+            (_ts(12, 20), _ts(12, 22), 'gap', 120.0, 2),  # inside
+            (_ts(13, 30), _ts(13, 40), 'gap', 600.0, 3),  # after the window
+            (_ts(12, 30), None, 'stop_start', None, 4),  # not a gap
+        ],
+    )
+    conn.commit()
+    body = _get(client).get_json()
+
+    assert body['gaps'] == [
+        {'start': _ts(11, 50), 'end': _ts(12, 5)},
+        {'start': _ts(12, 20), 'end': _ts(12, 22)},
+    ]
+
+
 def test_moving_vertex_outside_window_excluded(client):
     _insert(client, kind='track', timestamp=_ts(12, 30), importance=1.0)
     _insert(client, kind='track', timestamp=_ts(14, 0), importance=1.0)

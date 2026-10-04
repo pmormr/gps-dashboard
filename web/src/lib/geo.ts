@@ -6,7 +6,7 @@
  * controllers (`phone.ts`/`places.ts`), the timeline, and the inspect-window panel.
  */
 
-import type { FeatureCollection } from 'geojson'
+import type { Feature, FeatureCollection, LineString } from 'geojson'
 
 /** An empty GeoJSON FeatureCollection (the reset value for map sources). */
 export function emptyFC(): FeatureCollection {
@@ -36,6 +36,57 @@ export interface TrackPoint {
   dwell_start?: string | null
   dwell_end?: string | null
   radius?: number
+}
+
+/** A hole in the fix stream the van moved across (a `gap` track event). */
+export interface TrackGap {
+  /** Timestamp of the last fix before the hole. */
+  start: string
+  /** Timestamp of the first fix after it. */
+  end: string
+}
+
+/**
+ * The trail as GeoJSON: solid runs of consecutive points, broken wherever two
+ * neighbours straddle a data gap, plus a two-point connector across each break
+ * tagged `gap: true` (styled as a faint dashed "no data" line).
+ *
+ * The break is found by interval, not by vertex identity, so it lands between
+ * whichever points survived decimation.
+ *
+ * Args:
+ *   points: Trail points in ascending time order.
+ *   gaps: Gap intervals in ascending time order.
+ */
+export function trailFC(
+  points: Pick<TrackPoint, 'timestamp' | 'lat' | 'lon'>[],
+  gaps: TrackGap[] = [],
+): FeatureCollection<LineString> {
+  const line = (coords: number[][], gap: boolean): Feature<LineString> => ({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords },
+    properties: { gap },
+  })
+  const features: Feature<LineString>[] = []
+  const spans = gaps.map((g) => [Date.parse(g.start), Date.parse(g.end)])
+  let next = 0
+  let run: number[][] = []
+  let prevMs = -Infinity
+  for (const p of points) {
+    const ms = Date.parse(p.timestamp)
+    const here = [p.lon, p.lat]
+    // Gaps that ended before the previous point can no longer be straddled.
+    while (next < spans.length && spans[next][0] < prevMs) next++
+    if (run.length > 0 && next < spans.length && spans[next][1] <= ms) {
+      if (run.length > 1) features.push(line(run, false))
+      features.push(line([run[run.length - 1], here], true))
+      run = []
+    }
+    run.push(here)
+    prevMs = ms
+  }
+  if (run.length > 1) features.push(line(run, false))
+  return { type: 'FeatureCollection', features }
 }
 
 /** Window stats over a set of track points. */

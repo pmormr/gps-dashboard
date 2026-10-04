@@ -6,7 +6,8 @@ frontend reads: software static-hold for stops + Reumann–Witkam line
 simplification for moving segments, with per-fix accuracy gating. Each emitted
 row carries ``n_raw`` (raw fixes subsumed) and ``importance`` (decimation
 priority); regime transitions emit ``track_events`` (``stop_start`` /
-``stop_end``).
+``stop_end``), and a hole in the accepted-fix stream that the van moved across
+emits a ``gap`` event and breaks the trail there instead of bridging it.
 
 Writer invariant: the logger owns raw (``gps_points``, ``receiver_metadata``);
 this process owns the processed tier (``track_points``, ``track_events``) only.
@@ -76,6 +77,8 @@ class Thresholds:
         simplify_epsilon: Metres of perpendicular deviation that emits a moving vertex.
         move_emit_max_gap: Seconds; keep-alive emit on a long straightaway.
         accuracy_reject: Metres; fixes with eph above this are dropped.
+        gap_min_seconds: Seconds between consecutive accepted fixes at or above
+            which the trail breaks (a ``gap`` event) rather than bridging the hole.
     """
 
     stop_speed_enter: float = 0.5
@@ -85,6 +88,7 @@ class Thresholds:
     simplify_epsilon: float = 2.5
     move_emit_max_gap: float = 60.0
     accuracy_reject: float = 50.0
+    gap_min_seconds: float = 10.0
 
 
 class State(Enum):
@@ -128,7 +132,8 @@ class Anchor:
         lat: Latitude (deg).
         lon: Longitude (deg).
         raw_id: Raw id of the committed vertex (equals the cursor at emit time).
-        ts: Canonical timestamp, for the keep-alive gap.
+        ts: Canonical timestamp of the last fix it represents (a stop's is its
+            dwell end), for the keep-alive and data-gap clocks.
     """
 
     lat: float
@@ -357,6 +362,12 @@ class TrackFilter:
         self.cand_fixes: list[Fix] = []
         self.open_stop: Stop | None = None
 
+        # Last accepted fix, for data-gap detection. At a committed boundary that
+        # is the anchor, so a replay from the cursor sees the same gaps.
+        self._last: tuple[str, float, float] | None = (
+            (anchor.ts, anchor.lat, anchor.lon) if anchor is not None else None
+        )
+
         self._finalized_tracks: list[TrackRow] = []
         self._finalized_events: list[EventRow] = []
 
@@ -377,6 +388,13 @@ class TrackFilter:
         if fix.eph is not None and fix.eph > self.t.accuracy_reject:
             self.dropped += 1
             return
+        last = self._last
+        self._last = (fix.timestamp, fix.lat, fix.lon)
+        if last is not None:
+            gap_seconds = epoch_seconds(fix.timestamp) - epoch_seconds(last[0])
+            if gap_seconds >= self.t.gap_min_seconds and self._moved_across_gap(fix):
+                self._break_at_gap(fix, last, gap_seconds)
+                return
         if self.state is State.MOVING:
             self._feed_moving(fix)
         elif self.state is State.CANDIDATE:
@@ -407,6 +425,66 @@ class TrackFilter:
             provisional_tracks,
             provisional_events,
         )
+
+    # --- Data gaps ---------------------------------------------------------
+
+    def _moved_across_gap(self, fix: Fix) -> bool:
+        """Return whether a hole in the fix stream is one the van moved across.
+
+        A hole while stationary that resumes in the same place (Pi off overnight, a
+        logger restart) is still one dwell, not a break in the trail.
+
+        Args:
+            fix: The first accepted fix after the hole.
+
+        Returns:
+            False when a stop or stop candidate simply continues at ``fix``.
+        """
+        if self.state is State.MOVING:
+            return True
+        stop = self.open_stop if self.state is State.PARKED else self.cand
+        assert stop is not None
+        held_lat, held_lon = stop.lat_lon
+        return _distance_m(fix.lat, fix.lon, held_lat, held_lon) > self.t.stop_radius
+
+    def _break_at_gap(self, fix: Fix, last: tuple[str, float, float], gap_seconds: float) -> None:
+        """End the trail at the last pre-gap fix and restart it at ``fix``.
+
+        Both ends are finalized with the jump they bound as ``importance`` so the
+        decimator keeps them, and the ``gap`` event is keyed to ``fix`` — the
+        cursor lands on it too, so a replay from there cannot re-emit the event.
+        ``fix`` is committed as a plain vertex even when slow: a stop candidate
+        opening on it would key a provisional ``stop_start`` at the cursor, where
+        the per-batch clear cannot reach it. The next slow fix opens the candidate.
+
+        Args:
+            fix: The first accepted fix after the hole.
+            last: ``(timestamp, lat, lon)`` of the last accepted fix before it.
+            gap_seconds: Duration of the hole.
+        """
+        last_ts, last_lat, last_lon = last
+        jump_m = _distance_m(last_lat, last_lon, fix.lat, fix.lon)
+        if self.state is State.PARKED:
+            self._finalize_stop()
+        elif self.state is State.CANDIDATE:
+            self._replay_candidate()
+        if self.pending is not None:
+            self._emit_vertex(
+                self.pending, n_raw=self.seg_n, importance=max(self.seg_max_dev, jump_m)
+            )
+        self._finalized_events.append(
+            EventRow(
+                timestamp=last_ts,
+                end_time=fix.timestamp,
+                type='gap',
+                magnitude=gap_seconds,
+                payload=None,
+                src_raw_id=fix.id,
+            )
+        )
+        self.events_emitted += 1
+        self._emit_vertex(fix, n_raw=1, importance=jump_m)
+        self._set_anchor(fix)
 
     # --- MOVING regime -----------------------------------------------------
 
@@ -524,14 +602,18 @@ class TrackFilter:
         self.seg_n = 0
         self.seg_max_dev = 0.0
 
-    def _abort_candidate(self, fix: Fix) -> None:
-        """Replay buffered candidate fixes as moving, then re-handle ``fix``."""
+    def _replay_candidate(self) -> None:
+        """Drop the stop candidate, replaying its buffered fixes as moving."""
         buffered = self.cand_fixes
         self.cand = None
         self.cand_fixes = []
         self.state = State.MOVING
         for buffered_fix in buffered:
             self._step_moving(buffered_fix)
+
+    def _abort_candidate(self, fix: Fix) -> None:
+        """Replay buffered candidate fixes as moving, then re-handle ``fix``."""
+        self._replay_candidate()
         self._feed_moving(fix)
 
     # --- PARKED regime -----------------------------------------------------
@@ -549,6 +631,11 @@ class TrackFilter:
 
     def _close_stop(self, fix: Fix) -> None:
         """Finalize the dwell + its events, then process ``fix`` as the departure."""
+        self._finalize_stop()
+        self._feed_moving(fix)
+
+    def _finalize_stop(self) -> None:
+        """Finalize the open dwell + its events and resume moving at the held position."""
         stop = self.open_stop
         assert stop is not None
         held_lat, held_lon = stop.lat_lon
@@ -572,7 +659,6 @@ class TrackFilter:
         self.anchor = Anchor(held_lat, held_lon, stop.last_raw_id, stop.last_ts)
         self._set_anchor_none()
         self.state = State.MOVING
-        self._feed_moving(fix)
 
     def _stop_row(self, stop: Stop) -> TrackRow:
         """Render the current state of a dwell as a ``track_points`` row."""
@@ -660,7 +746,8 @@ def reconstruct_anchor(conn: sqlite3.Connection, cursor: int) -> Anchor | None:
     The simplifier's anchor is an already-committed vertex sitting at the cursor,
     so a fresh replay (which reads only rows after the cursor) would otherwise
     lose it and diverge. Reading it back makes replay match steady state. A
-    committed ``stop`` row anchors the resumed drive at the held position.
+    committed ``stop`` row anchors the resumed drive at the held position, timed
+    at its dwell end (its ``timestamp`` is the dwell start).
 
     Args:
         conn: Open SQLite connection.
@@ -670,8 +757,8 @@ def reconstruct_anchor(conn: sqlite3.Connection, cursor: int) -> Anchor | None:
         The reconstructed anchor, or None when no committed output exists.
     """
     row = conn.execute(
-        'SELECT lat, lon, timestamp, src_raw_id FROM track_points '
-        'WHERE src_raw_id <= ? ORDER BY src_raw_id DESC LIMIT 1',
+        'SELECT lat, lon, COALESCE(dwell_end, timestamp) AS timestamp, src_raw_id '
+        'FROM track_points WHERE src_raw_id <= ? ORDER BY src_raw_id DESC LIMIT 1',
         (cursor,),
     ).fetchone()
     if row is None:

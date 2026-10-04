@@ -5,7 +5,7 @@ import type { FeatureCollection } from 'geojson'
 
 import type { BroadcastFeeds, BroadcastLogs, BroadcastStatus } from './broadcast'
 import type { DocsTree } from './docs'
-import type { TrackPoint } from './geo'
+import type { TrackGap, TrackPoint } from './geo'
 import type { DroneFlight } from './map'
 
 export interface LocationReading {
@@ -615,6 +615,8 @@ export function transmitRadio(
 export interface PointsResponse {
   points: TrackPoint[]
   truncated?: boolean
+  /** Data-gap intervals overlapping the window (see geo.trailFC). */
+  gaps?: TrackGap[]
 }
 
 /** Trail/history for a time window (stops always kept; moving thinned by importance). */
