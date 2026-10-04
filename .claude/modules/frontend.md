@@ -38,6 +38,14 @@ below that — measure via CDP, don't trust narrow screenshots.)
 
 - **Shell** (`web/src/lib/Shell.svelte`) — persistent nav chrome + active-tab highlight.
   A `RouteDef.tab` maps a sub-route (`/ntp`, `/gpsd`, `/globe`, …) to its parent tab.
+- **Cross-tab faults** (`web/src/lib/faults.ts`) — `activeFaults(status)` is the one place
+  that decides what counts as a fault and how it reads; Home's panels and the Shell's
+  fault strip both call it. Shell runs its own 30 s `/api/status` poll so a fault shows on
+  every tab (a strip above the phone tab row, a block under the sidebar brand). The phone
+  strip's height is reserved through `--fault-h` → `--nav-h` (`app.css`), so everything
+  anchored above the bar lifts with it — **offset from `--nav-h`, never `--tabs-h`**.
+  First source: `gnss_link` (`api/routes/status.py::_gnss_link` — receiver talking but no
+  fix reads healthy to every service check).
 - **Section pattern** (`routes.ts` `SECTIONS`, `SectionNav.svelte`, `SectionHub.svelte`) —
   the one shared treatment for "a tab with sub-destinations", replacing the old ad-hoc
   Systems button list + Sky `.views` strip. `SECTIONS` maps a tab's `to` → its sibling

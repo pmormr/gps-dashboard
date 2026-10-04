@@ -23,6 +23,7 @@ from api.db import get_connection, now_canonical
 from api.sensor_schema import METRIC_META, THROTTLE_LIVE_MASK
 from common import proc
 from common.obd import derive_fuel_rate_lph
+from common.timefmt import age_seconds
 
 status_bp = Blueprint('status', __name__)
 
@@ -48,6 +49,15 @@ _STATUS_SERVICES = (
     'syslog-ng',
     'mediamtx',
 )
+
+#: Seconds without a raw fix (or receiver telemetry) before the GNSS link reads as
+#: faulted. Matches the logger's no-fix watchdog; safe while parked, where the
+#: logger still writes ~1 Hz.
+_GNSS_MAX_AGE_S = 120
+
+#: Seconds a satellite sweep stays current for the signal check — three of the
+#: logger's 60 s sweep intervals.
+_GNSS_SWEEP_MAX_AGE_S = 180
 
 
 def _latest(conn: sqlite3.Connection, table: str, cols: list[str]) -> dict | None:
@@ -120,6 +130,58 @@ def _obd_link(conn: sqlite3.Connection) -> str | None:
     """
     row = conn.execute("SELECT status FROM sensors WHERE type = 'obd' LIMIT 1").fetchone()
     return row['status'] if row else None
+
+
+def _fresh(row: dict | None, max_age_s: float) -> bool:
+    """Return whether a latest-row dict exists and is younger than ``max_age_s``.
+
+    Args:
+        row: A ``_latest`` result (carries ``timestamp``), or None.
+        max_age_s: Freshness window in seconds.
+
+    Returns:
+        True when the row exists and its timestamp is inside the window.
+    """
+    return row is not None and age_seconds(row['timestamp']) <= max_age_s
+
+
+def _gnss_link(conn: sqlite3.Connection, location: dict | None, gnss: dict | None) -> str | None:
+    """Classify the GNSS receiver chain's health from what the logger last wrote.
+
+    The logger writes receiver telemetry (``receiver_metadata``) whether or not
+    there is a fix, so a stale fix beside fresh telemetry means the receiver is
+    talking but cannot navigate — a state every service check reads as healthy.
+    The latest satellite sweep then separates a dead RF path from a weak sky.
+
+    Args:
+        conn: Open SQLite connection.
+        location: The latest raw fix (``gps_points``), or None.
+        gnss: The latest receiver telemetry (``receiver_metadata``), or None.
+
+    Returns:
+        ``ok`` (recent fix), ``no_signal`` (receiver up, no satellite carries any
+        signal — antenna path or a fully blocked sky), ``no_fix`` (receiver up,
+        some signal, no solution), ``offline`` (nothing recent from the logger),
+        or None when the logger has never written.
+    """
+    if location is None and gnss is None:
+        return None
+    if _fresh(location, _GNSS_MAX_AGE_S):
+        return 'ok'
+    if not _fresh(gnss, _GNSS_MAX_AGE_S):
+        return 'offline'
+    sweep = conn.execute(
+        'SELECT timestamp, COUNT(*) AS seen, SUM(snr > 0) AS with_signal '
+        'FROM sat_observations '
+        'WHERE timestamp = (SELECT MAX(timestamp) FROM sat_observations)'
+    ).fetchone()
+    if (
+        sweep['seen']
+        and not sweep['with_signal']
+        and age_seconds(sweep['timestamp']) <= _GNSS_SWEEP_MAX_AGE_S
+    ):
+        return 'no_signal'
+    return 'no_fix'
 
 
 def _cameras(conn: sqlite3.Connection) -> dict | None:
@@ -214,15 +276,14 @@ def _decode_meta() -> dict[str, dict]:
 def status() -> Response:
     """The Home glance: latest per-domain reading + service health in one read."""
     conn = get_connection()
+    location = _latest(conn, 'gps_points', ['lat', 'lon', 'speed', 'altitude', 'track', 'mode'])
+    gnss = _latest(conn, 'receiver_metadata', ['nsat_used', 'nsat_seen', 'hdop', 'vdop', 'pdop'])
     return jsonify(
         {
             'now': now_canonical(),
-            'location': _latest(
-                conn, 'gps_points', ['lat', 'lon', 'speed', 'altitude', 'track', 'mode']
-            ),
-            'gnss': _latest(
-                conn, 'receiver_metadata', ['nsat_used', 'nsat_seen', 'hdop', 'vdop', 'pdop']
-            ),
+            'location': location,
+            'gnss': gnss,
+            'gnss_link': _gnss_link(conn, location, gnss),
             'house': _latest(
                 conn,
                 'victron_readings',

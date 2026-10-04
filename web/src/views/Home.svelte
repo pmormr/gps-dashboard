@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getStatus, type Status } from '../lib/api'
+  import { gnssFault } from '../lib/faults'
   import { celsiusToF, fmtDurationSecs, metersToFeet } from '../lib/geo'
   import { poll } from '../lib/poll.svelte'
   import { decodeCoded } from '../lib/sensors'
@@ -87,6 +88,7 @@
       stats: [],
     })
     const panels: Panel[] = []
+    const gnssNote = gnssFault(s)
 
     if (!s.house) {
       panels.push(empty('House power'))
@@ -126,17 +128,29 @@
       panels.push(empty('Location'))
     } else {
       const loc = s.location
-      const moving = (loc.speed ?? 0) > 0.5
-      const fix = loc.mode === 3 ? '3D fix' : loc.mode === 2 ? '2D fix' : 'no fix'
+      // A GNSS fault outranks the last row's motion state: that row is the final
+      // fix before the outage, so 'Moving · 62 mph' would be hours out of date.
+      const moving = !gnssNote && (loc.speed ?? 0) > 0.5
+      const fix = gnssNote
+        ? 'no fix'
+        : loc.mode === 3
+          ? '3D fix'
+          : loc.mode === 2
+            ? '2D fix'
+            : 'no fix'
       panels.push({
         name: 'Location',
-        headline: moving ? 'Moving' : 'Parked',
+        headline: gnssNote ? 'No fix' : moving ? 'Moving' : 'Parked',
         alt: moving ? `${mph((loc.speed ?? 0) * 3.6)} mph` : '',
-        note: staleNote(loc.timestamp, MAX_AGE.location),
-        dim: age(loc.timestamp) > MAX_AGE.location,
+        note: gnssNote ?? staleNote(loc.timestamp, MAX_AGE.location),
+        dim: !gnssNote && age(loc.timestamp) > MAX_AGE.location,
+        warn: gnssNote != null,
         stats: [
-          { label: 'Fix', value: fix, warn: loc.mode != null && loc.mode < 2 },
-          { label: 'Position', value: `${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}` },
+          { label: 'Fix', value: fix, warn: fix === 'no fix' },
+          {
+            label: gnssNote ? 'Last position' : 'Position',
+            value: `${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}`,
+          },
           { label: 'Altitude', value: `${r0(loc.altitude)} m`, alt: `${ft(loc.altitude)} ft` },
           ...(moving
             ? [{ label: 'Heading', value: `${compass(loc.track)} ${r0(loc.track)}°` }]
@@ -175,8 +189,9 @@
         name: 'GNSS',
         headline: `${s.gnss.nsat_used ?? '—'}/${s.gnss.nsat_seen ?? '—'}`,
         alt: 'sats used/seen',
-        note: staleNote(s.gnss.timestamp, MAX_AGE.gnss),
-        dim: age(s.gnss.timestamp) > MAX_AGE.gnss,
+        note: gnssNote ?? staleNote(s.gnss.timestamp, MAX_AGE.gnss),
+        dim: !gnssNote && age(s.gnss.timestamp) > MAX_AGE.gnss,
+        warn: gnssNote != null,
         stats: [
           { label: 'HDOP', value: r1(s.gnss.hdop) },
           { label: 'VDOP', value: r1(s.gnss.vdop) },

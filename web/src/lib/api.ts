@@ -129,6 +129,10 @@ export interface Status {
   now: string
   location: LocationReading | null
   gnss: GnssReading | null
+  /** GNSS receiver-chain health: ok / no_signal (receiver up, no satellite signal —
+   * antenna path) / no_fix (some signal, no solution) / offline (logger silent);
+   * null when the logger has never written. */
+  gnss_link: string | null
   house: HouseReading | null
   cabin: CabinReading | null
   van: VanReading | null

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from api.db import get_connection, now_canonical
+from common.timefmt import format_canonical
 
 
 def _insert_status_rows(ts: str) -> None:
@@ -79,6 +82,7 @@ def test_status_empty_db(client):
     for domain in ('location', 'gnss', 'house', 'cabin', 'van', 'pi', 'router', 'nvr', 'cameras'):
         assert data[domain] is None
     assert data['obd_link'] is None  # obd stream never registered
+    assert data['gnss_link'] is None  # logger has never written
     assert 'now' in data
     assert data['ntp'] == {'synced': True}
 
@@ -200,3 +204,62 @@ def test_status_returns_most_recent(client):
 
     assert data['cabin']['timestamp'] == '2026-06-28T12:00:00.000Z'
     assert data['cabin']['temp_c'] == 25.0
+
+
+def _ago(seconds: float) -> str:
+    """Return the canonical timestamp ``seconds`` before now."""
+    return format_canonical(datetime.now(UTC) - timedelta(seconds=seconds))
+
+
+def _insert_gnss_state(
+    fix_age: float | None, telemetry_age: float | None, sweep: tuple[float, list[float]] | None
+) -> None:
+    """Insert the logger-written rows that drive the ``gnss_link`` classification.
+
+    Args:
+        fix_age: Age in seconds of the latest raw fix, or None for no fix row.
+        telemetry_age: Age of the latest ``receiver_metadata`` row, or None for none.
+        sweep: ``(age, snrs)`` — one satellite sweep with a row per SNR — or None.
+    """
+    conn = get_connection()
+    if fix_age is not None:
+        conn.execute(
+            'INSERT INTO gps_points (timestamp, lat, lon, speed, mode) VALUES (?, ?, ?, ?, ?)',
+            (_ago(fix_age), 39.5, -105.1, 0.0, 3),
+        )
+    if telemetry_age is not None:
+        conn.execute(
+            'INSERT INTO receiver_metadata (timestamp, nsat_used, nsat_seen) VALUES (?, ?, ?)',
+            (_ago(telemetry_age), 0, 34),
+        )
+    if sweep is not None:
+        ts = _ago(sweep[0])
+        conn.executemany(
+            'INSERT INTO sat_observations (timestamp, gnssid, svid, az, el, snr, used) '
+            'VALUES (?, 0, ?, 90.0, 45.0, ?, 0)',
+            [(ts, svid, snr) for svid, snr in enumerate(sweep[1], start=1)],
+        )
+    conn.commit()
+
+
+@pytest.mark.parametrize(
+    ('fix_age', 'telemetry_age', 'sweep', 'expected'),
+    [
+        (None, None, None, None),  # logger has never written
+        (1, 1, (30, [41.0, 38.0]), 'ok'),
+        (1, 1, (30, [0.0, 0.0]), 'ok'),  # a recent fix wins over a dead-looking sweep
+        (3600, 1, (30, [0.0, 0.0, 0.0]), 'no_signal'),  # receiver up, RF path dead
+        (3600, 1, (30, [0.0, 12.0]), 'no_fix'),  # some signal, no solution
+        (3600, 1, (900, [0.0, 0.0]), 'no_fix'),  # sweep too old to blame the antenna
+        (3600, 1, None, 'no_fix'),  # no sweep at all (unpositioned sats after a cold start)
+        (None, 1, (30, [0.0, 0.0]), 'no_signal'),  # never had a fix, receiver talking
+        (3600, 3600, (3600, [0.0, 0.0]), 'offline'),  # logger/gpsd down
+        (3600, None, None, 'offline'),
+    ],
+)
+def test_status_gnss_link(client, fix_age, telemetry_age, sweep, expected):
+    """``gnss_link`` separates a healthy fix, a dead RF path, a weak sky, and a dead logger."""
+    _insert_gnss_state(fix_age, telemetry_age, sweep)
+    data = client.get('/api/status').get_json()
+
+    assert data['gnss_link'] == expected

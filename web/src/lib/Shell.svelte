@@ -1,11 +1,23 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
 
+  import { getStatus, type Status } from './api'
+  import { activeFaults } from './faults'
+  import { poll } from './poll.svelte'
   import { router } from './router.svelte'
   import { NAV, PHONE_PRIMARY_TABS, SECTIONS } from './routes'
   import SectionNav from './SectionNav.svelte'
 
   let { children }: { children: Snippet } = $props()
+
+  // Cross-tab faults: a slow status poll, independent of whichever view is open,
+  // so a fault is visible without anyone opening Home. The root class reserves
+  // the phone strip's height (app.css).
+  const health = poll<Status>(getStatus, 30000)
+  const faults = $derived(health.data ? activeFaults(health.data) : [])
+  $effect(() => {
+    document.documentElement.classList.toggle('has-fault', faults.length > 0)
+  })
 
   // Phone bottom bar shows the primary tabs + a "More" sheet for the rest; the
   // desktop sidebar shows all of NAV (CSS reveals the overflow items there).
@@ -22,6 +34,13 @@
 <div class="shell">
   <nav class="nav">
     <div class="brand">Van OS</div>
+    {#if faults.length > 0}
+      <div class="faults" role="alert">
+        {#each faults as fault (fault.id)}
+          <button class="fault" onclick={() => go(fault.to)}>⚠ {fault.message}</button>
+        {/each}
+      </div>
+    {/if}
     <ul>
       {#each NAV as item (item.label)}
         {@const subs = SECTIONS[item.to]}
@@ -105,12 +124,38 @@
     display: none;
   }
 
+  /* Fault strip: one line above the tab row on phones (its height is reserved
+     via --fault-h), a wrapping block under the brand in the desktop sidebar. */
+  .faults {
+    height: var(--fault-h);
+    overflow: hidden;
+  }
+
+  .fault {
+    display: block;
+    width: 100%;
+    height: var(--fault-h);
+    padding: 0 12px;
+    background: var(--warn);
+    border: none;
+    color: #1a1300;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: var(--fault-h);
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
   .nav ul {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
-    height: var(--nav-h);
+    height: var(--tabs-h);
   }
 
   .nav li {
@@ -240,6 +285,21 @@
       font-size: 18px;
       color: var(--text);
       letter-spacing: 0.5px;
+    }
+
+    .faults {
+      height: auto;
+      padding: 0 12px 10px;
+    }
+
+    .fault {
+      height: auto;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.35;
+      text-align: left;
+      white-space: normal;
     }
 
     .nav ul {

@@ -10,7 +10,11 @@
   --ok: #3ecf8e;
   --warn: #f0b429;
   --err: #ef5350;
-  --nav-h: 56px;
+  /* Phone bottom bar = the tab row plus the shell's fault strip. Everything that
+     sits above the bar offsets by --nav-h, so an active fault lifts it all. */
+  --tabs-h: 56px;
+  --fault-h: 0px;
+  --nav-h: calc(var(--tabs-h) + var(--fault-h));
   --sidebar-w: 220px;
   /* Desktop content cap: readability over raw width-fill on a parked laptop
      (~1440px). Control/prose pages cap here; dense tables opt out via .app-page--wide. */
@@ -18,6 +22,14 @@
 
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
+}
+
+/* Shell toggles .has-fault while a cross-tab fault is active. Phone-only: the
+   desktop sidebar shows the fault inline and needs no reserved height. */
+@media (max-width: 767px) {
+  :root.has-fault {
+    --fault-h: 26px;
+  }
 }
 
 * {
