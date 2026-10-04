@@ -87,7 +87,7 @@ class Thresholds:
     stop_radius: float = 15.0
     simplify_epsilon: float = 2.5
     move_emit_max_gap: float = 60.0
-    accuracy_reject: float = 50.0
+    accuracy_reject: float = 15.0
     gap_min_seconds: float = 10.0
 
 

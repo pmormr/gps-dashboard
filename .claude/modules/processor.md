@@ -70,7 +70,7 @@ The starting values below were validated against a real drive — no changes nee
 | `simplify_epsilon` | ~2.5 m | perpendicular deviation to emit a moving vertex; near raw resolution → lane-level shape at 5 Hz |
 | `move_emit_max_gap` | 60 s | keep-alive emit on long straightaways |
 | `gap_min_seconds` | 10 s | accepted-fix hole that breaks the trail (a `gap` event) |
-| `accuracy_reject` | eph > 50 m | drop / down-weight |
+| `accuracy_reject` | eph > 15 m | drop. The M9N reports ~2 m with sky and climbs through 15–50 m in the second or two before it loses signal (and carries a stale value on the first fix after), so a looser gate lets those become the vertices either side of a gap. 10 m is too tight: thousands of honest 10–15 m fixes |
 
 ## Traps
 

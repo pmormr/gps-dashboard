@@ -26,7 +26,9 @@ T0 = datetime(2026, 10, 3, 15, 46, 0, tzinfo=UTC)
 LON_PER_S = 25.0 / 86_200.0
 
 
-def _fix(fix_id: int, t: float, lon_s: float, speed: float = 25.0, lat: float = 39.26) -> Fix:
+def _fix(
+    fix_id: int, t: float, lon_s: float, speed: float = 25.0, lat: float = 39.26, eph: float = 2.0
+) -> Fix:
     """Build a fix ``t`` seconds after T0, ``lon_s`` seconds of driving east of the origin."""
     return Fix(
         id=fix_id,
@@ -36,7 +38,7 @@ def _fix(fix_id: int, t: float, lon_s: float, speed: float = 25.0, lat: float = 
         speed=speed,
         altitude=10.0,
         track=90.0,
-        eph=2.0,
+        eph=eph,
     )
 
 
@@ -91,6 +93,19 @@ def test_hole_shorter_than_threshold_is_bridged():
     _, result = _run(_drive(1, 0, 30) + _drive(100, 38, 30))
 
     assert _gaps(result) == []
+
+
+def test_degrading_fixes_before_a_gap_do_not_become_its_edge():
+    """The receiver's last gasps as signal dies are rejected, so the gap starts at a good fix."""
+    before = _drive(1, 0, 30)
+    dying = [_fix(50 + i, 30 + i, 30 + i, eph=eph) for i, eph in enumerate((16.2, 32.7, 32.7))]
+    stale = [_fix(99, 5_000, 5_000, eph=32.7)]
+    after = _drive(100, 5_001, 30)
+    filt, result = _run(before + dying + stale + after)
+
+    assert filt.dropped == 4
+    assert _gaps(result) == [(before[-1].timestamp, after[0].timestamp, 4972.0)]
+    assert max(r.accuracy or 0.0 for r in result.finalized_tracks) == 2.0
 
 
 def test_parked_hole_resuming_in_place_is_one_dwell():
