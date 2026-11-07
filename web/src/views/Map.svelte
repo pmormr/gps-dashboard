@@ -13,7 +13,7 @@
   } from '../lib/places'
   import type { TrackPoint } from '../lib/geo'
   import { decodeFeatureId } from '../lib/icons'
-  import { hookLabels, setPoiCategories, setSuppressedIds } from '../lib/labels'
+  import { setPoiCategories, setSuppressedIds } from '../lib/labels'
   import type { MapView as MapViewType, BasemapPoiHit } from '../lib/map'
   import {
     clearPhone,
@@ -35,38 +35,18 @@
   import AnnotationsDrawer from './AnnotationsDrawer.svelte'
   import PlaceSheet from './PlaceSheet.svelte'
   import PoiIcon from './PoiIcon.svelte'
-  import DataLayers from './DataLayers.svelte'
-  import InspectPanel from './InspectPanel.svelte'
-  import MapStyle from './MapStyle.svelte'
-  import TimeDock from './TimeDock.svelte'
 
-  // Map view: the persistent engine (mapHost.ts) + Svelte chrome. The engine
-  // (map.ts + MapLibre, ~283 kB gz) is dynamic-imported so it's a Map-only chunk;
-  // the main bundle stays small. `view` is passed to chrome children (Layers) so
-  // they never import map.ts directly. Map-local state (Layers) lives in
-  // stores that persist across the cheap chrome remount; the engine itself
-  // persists too, so on a fresh load the two agree without reading back. The
-  // window fetch itself lives in the shared track store (driven by the TimeDock);
-  // this view only *renders* it — trail, annotation overlays, pendingPan.
+  // Map view: the persistent engine (mapHost.ts) + the Map-specific Svelte
+  // chrome (annotations, ⊕ FAB, legends, place sheet). The engine (map.ts +
+  // MapLibre, ~283 kB gz) is dynamic-imported so it's a Map-only chunk; the
+  // main bundle stays small. The icon rail (data layers / style / inspect) and
+  // the TimeDock overlay are shell-owned — App renders MapChrome beside this
+  // view from routes.ts MAP_CHROME — so the same controls reach Drive and
+  // Weather. The window fetch lives in the shared track store (driven by the
+  // TimeDock); this view only *renders* it — trail, annotation overlays,
+  // pendingPan. Data-layer overlays follow the singleton `layers` store.
   let view = $state<typeof MapViewType | undefined>()
   let drawerOpen = $state(false)
-
-  // The right icon rail: exclusive-open panels — opening one
-  // closes the rest. Default closed (a clean map); resets on remount. Data layers
-  // and map style are separate buttons — overlay toggles and basemap styling
-  // aren't related tasks.
-  type RailPanel = 'data' | 'style' | 'inspect'
-  const RAIL: { id: RailPanel; icon: string; label: string }[] = [
-    { id: 'data', icon: '🗂', label: 'Data layers' },
-    { id: 'style', icon: '🎨', label: 'Map style' },
-    { id: 'inspect', icon: '📊', label: 'Inspect window' },
-  ]
-  let openPanel = $state<RailPanel | null>(null)
-  const railLabel = $derived(RAIL.find((r) => r.id === openPanel)?.label ?? '')
-
-  function toggleRail(id: RailPanel): void {
-    openPanel = openPanel === id ? null : id
-  }
 
   // Places detail sheet: the open row id (from a pin click or the Nearby
   // panel), null = closed. `placeStub` is the unresolved-basemap-mark case:
@@ -122,8 +102,6 @@
       view = mod.MapView
       host.showMap()
       hide = host.hideMap
-      // Re-apply label settings whenever the vector base (re)loads its style.
-      hookLabels(mod.MapView, () => layers.labelSettings)
       // Pin taps open the detail sheet (the engine only hands back the row id).
       mod.MapView.onPlaceClick((id) => {
         placeStub = null
@@ -417,39 +395,6 @@
     {/if}
   </div>
 
-  <div class="map-rail">
-    {#each RAIL as r (r.id)}
-      <button
-        type="button"
-        class:active={openPanel === r.id}
-        title={r.label}
-        aria-label={r.label}
-        onclick={() => toggleRail(r.id)}
-      >{r.icon}</button>
-    {/each}
-  </div>
-
-  {#if openPanel}
-    <div class="rail-card">
-      <div class="rail-card-hdr">
-        <span>{railLabel}</span>
-        <button type="button" aria-label="Close panel" onclick={() => (openPanel = null)}>✕</button>
-      </div>
-      <div class="rail-card-body">
-        {#if openPanel === 'data'}
-          <DataLayers {view} />
-        {:else if openPanel === 'style'}
-          <MapStyle {view} />
-        {:else}
-          <InspectPanel />
-        {/if}
-      </div>
-    </div>
-  {/if}
-
-  <div class="tl-overlay">
-    <TimeDock />
-  </div>
 </div>
 
 <AnnotationsDrawer bind:open={drawerOpen} />

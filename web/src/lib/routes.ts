@@ -143,3 +143,35 @@ export interface HubTile {
   /** Liveness dot; omit for a static destination (e.g. Trends). */
   dot?: 'ok' | 'warn' | 'err'
 }
+
+/** A panel on the map's right icon rail. */
+export type RailPanel = 'data' | 'style' | 'inspect'
+
+/** Rail button chrome per panel, in rail order. */
+export const RAIL_PANELS: Record<RailPanel, { icon: string; label: string }> = {
+  data: { icon: '🗂', label: 'Data layers' },
+  style: { icon: '🎨', label: 'Map style' },
+  inspect: { icon: '📊', label: 'Inspect window' },
+}
+
+/** The shell-rendered chrome a map route wants over the shared engine. */
+export interface MapChromeDef {
+  /** Rail panels, top to bottom; a one-entry list renders a single button. */
+  rail: RailPanel[]
+  /** Mount the shared TimeDock as the map's bottom overlay. */
+  timeDock?: boolean
+}
+
+/**
+ * Map chrome per route, keyed by route path. The engine and the `layers` /
+ * `selection` stores are singletons, so the controls over them are shell-owned
+ * (`App` renders `MapChrome` from this table) rather than re-declared by each
+ * map view — engine-wide state gets shell chrome, view-local state stays in the
+ * view. Drive takes a single button: a column would cover the town-compass
+ * marks along the top-right edge.
+ */
+export const MAP_CHROME: Record<string, MapChromeDef> = {
+  '/map': { rail: ['data', 'style', 'inspect'], timeDock: true },
+  '/drive': { rail: ['style'] },
+  '/weather': { rail: ['style'] },
+}
