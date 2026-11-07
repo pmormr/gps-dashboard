@@ -572,6 +572,55 @@ def test_gnis_load_stamps_community_category(client) -> None:
     conn.close()
     found = client.get('/api/places?q=leadville').get_json()['places']
     assert [(a['category'], a['rank'], a['source']) for a in found] == [('community', 3, 'gnis')]
+    assert found[0]['population'] is None
+
+
+def test_geonames_load_writes_population(client) -> None:
+    """The GeoNames slice carries population as a real column (the compass
+    filters/sorts on it) and stays search-only so it never doubles GNIS's pins."""
+    from tools.import_places import GEONAMES_KIND_RANKS
+
+    town = Place(
+        'populated_place',
+        '5427946',
+        None,
+        'Leadville',
+        39.25,
+        -106.29,
+        'Village · Colorado, US',
+        {'featureCode': 'PPLA2', 'population': 2600},
+        population=2600,
+    )
+    conn = get_connection()
+    load(conn, [town], [], source='geonames', kind_ranks=GEONAMES_KIND_RANKS)
+    stored = conn.execute(
+        "SELECT population, rank FROM places WHERE source = 'geonames'"
+    ).fetchone()
+    conn.close()
+    assert tuple(stored) == (2600, 5)
+    found = client.get('/api/places?q=leadville').get_json()['places']
+    assert [(a['source'], a['population']) for a in found] == [('geonames', 2600)]
+
+
+def test_places_population_migration(tmp_path: Path) -> None:
+    """A sidecar created before the column existed gains it + its partial index."""
+    import sqlite3
+
+    from api.db import _ensure_places_population
+
+    conn = sqlite3.connect(':memory:')
+    conn.execute(f"ATTACH DATABASE '{tmp_path / 'old-places.db'}' AS places_db")
+    conn.execute(
+        'CREATE TABLE places_db.places (id INTEGER PRIMARY KEY, source TEXT, lat REAL, '
+        'lon REAL, rank INTEGER)'
+    )
+    _ensure_places_population(conn)
+    _ensure_places_population(conn)  # idempotent
+    columns = {row[1] for row in conn.execute('PRAGMA places_db.table_info(places)')}
+    assert 'population' in columns
+    indexes = {row[1] for row in conn.execute('PRAGMA places_db.index_list(places)')}
+    assert 'idx_places_population' in indexes
+    conn.close()
 
 
 # --- Wikipedia cache ------------------------------------------------------------------

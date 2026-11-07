@@ -13,7 +13,7 @@ on startup (exit :data:`updater.runs.BUSY_EXIT` when held), captures its
 output to a per-run log file, marks SIGTERM/Ctrl+C as ``cancelled``, and
 closes its row with the outcome. Flask only ever reads.
 
-Phase 2 jobs (plans/data-update-plan.md): nps/ridb/gnis/satcat fetch + import
+Phase 2 jobs (plans/data-update-plan.md): nps/ridb/gnis/geonames/satcat fetch + import
 directly; osm/wiki/phone import a *staged* file from the staging dir (the
 Phase 3 on-Pi OSM/wiki builds don't exist yet). The GNIS-after-OSM invariant
 stays warning-driven here — auto-chaining lands with the Phase 3 OSM chain.
@@ -82,6 +82,12 @@ def _job_gnis(force: bool) -> None:
     _places_import(['--gnis-zip', str(fetch.download_gnis())], force)
 
 
+def _job_geonames(force: bool) -> None:
+    """Download the GeoNames cities500 dump + admin1 names into staging and import them."""
+    cities, admin1 = fetch.download_geonames()
+    _places_import(['--geonames-zip', str(cities), '--geonames-admin1', str(admin1)], force)
+
+
 def _job_satcat(force: bool) -> None:
     """Force-refresh the CelesTrak SATCAT cache."""
     del force  # nothing destructive to floor-check
@@ -118,6 +124,7 @@ JOBS: dict[str, Callable[[bool], None]] = {
     'nps': _job_nps,
     'ridb': _job_ridb,
     'gnis': _job_gnis,
+    'geonames': _job_geonames,
     'satcat': _job_satcat,
     'osm': _job_osm,
     'wiki': _job_wiki,

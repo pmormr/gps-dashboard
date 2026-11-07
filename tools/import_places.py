@@ -32,6 +32,14 @@ Three mutually exclusive modes, each full-replacing its own ``source`` slice of
   (:func:`osm_name_dupes` — the untagged remainder of the same seeding).
   **Re-run this after every OSM merge**: a fresh OSM slice moves both
   boundaries.
+* **GeoNames** (``--geonames-zip``) — parses the GeoNames ``cities500.zip``
+  dump (``download.geonames.org/export/dump/``, ~10 MB, every settlement
+  with population ≥ 500 worldwide, CC-BY 4.0) into ``source='geonames'``
+  rows clipped to the basemap bbox: the tier's only **population-bearing**
+  settlement layer, read by the Drive compass (plans/drive-hud-plan.md).
+  ``--geonames-admin1`` (``admin1CodesASCII.txt``) supplies region names for
+  the teaser. Rank 5 (search-only) so it never doubles GNIS's town pins; no
+  dedupe against other slices. Pi-side import like GNIS.
 * **Wiki merge** (``--wiki-db``) — swaps in the ``place_wiki`` summary cache
   built off-Pi by ``tools/fetch_wikipedia.py`` (offline Wikipedia blurbs +
   thumbnails, keyed by wiki id so source merges never orphan them).
@@ -154,6 +162,8 @@ class Place:
         details: Trimmed source record (display-only structure), stored as JSON.
         rank_override: Per-row pin-rank override (e.g. pin-hidden assets demote
             to search-only rank 5); None takes the kind table's rank.
+        population: Resident count for populated places (GeoNames only — the
+            Drive compass's weighting input); None for every other source.
     """
 
     source_kind: str
@@ -165,6 +175,7 @@ class Place:
     summary: str | None
     details: dict[str, Any]
     rank_override: int | None = None
+    population: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1111,6 +1122,192 @@ def read_gnis_zip(path: Path) -> tuple[list[Place], Counter[str]]:
     return rows, skipped
 
 
+# --- GeoNames (populated places with population) ---------------------------------------
+
+GEONAMES_SOURCE = 'geonames'
+GEONAMES_MEMBER = 'cities500.txt'
+#: ``cities500.txt`` field order — tab-separated, no header row (the dump's
+#: readme). Parsed positionally; a short row is malformed and skipped.
+GEONAMES_FIELDS = (
+    'geonameid',
+    'name',
+    'asciiname',
+    'alternatenames',
+    'latitude',
+    'longitude',
+    'feature_class',
+    'feature_code',
+    'country_code',
+    'cc2',
+    'admin1_code',
+    'admin2_code',
+    'admin3_code',
+    'admin4_code',
+    'population',
+    'elevation',
+    'dem',
+    'timezone',
+    'modification_date',
+)
+
+#: Feature codes that are a settlement you can drive to. ``PPLX`` (a section
+#: of a populated place — neighbourhoods) is dropped on purpose: inside any
+#: city it would flood the compass strip with boroughs. ``PPLQ``/``PPLW``/
+#: ``PPLH`` (abandoned / destroyed / historical) aren't places any more.
+GEONAMES_CODES: frozenset[str] = frozenset(
+    {'PPL', 'PPLA', 'PPLA2', 'PPLA3', 'PPLA4', 'PPLC', 'PPLF', 'PPLG', 'PPLL', 'PPLS'}
+)
+#: Seat-of-government flags worth a word in the summary teaser.
+GEONAMES_SEAT_LABELS: dict[str, str] = {
+    'PPLC': 'national capital',
+    'PPLA': 'state capital',
+    'PPLA2': 'county seat',
+}
+#: ``source_kind`` → (category, rank) for :func:`load`. One kind — the tier's
+#: GNIS vocabulary, so a "populated" search matches both slices alike.
+#: **Rank 5 (search-only, never pinned) on purpose**: GNIS already pins every
+#: US town, and a second pin per town would double the map's community layer.
+#: The Drive compass reads this slice by ``population``, not by rank
+#: (plans/drive-hud-plan.md D4 — the GNIS demotion/promotion swap is the
+#: follow-up).
+GEONAMES_KIND_RANKS: dict[str, tuple[str, int]] = {'populated_place': ('community', 5)}
+
+
+def read_admin1_codes(path: Path | None) -> dict[str, str]:
+    """Parse GeoNames ``admin1CodesASCII.txt`` into ``'US.CO' → 'Colorado'``.
+
+    US codes are the postal abbreviations, but Canada/Mexico use numbers
+    (``CA.02`` is British Columbia), so the summary teaser needs the names.
+
+    Args:
+        path: The downloaded file, or None to fall back to raw codes.
+
+    Returns:
+        The code → name map (empty when ``path`` is None).
+    """
+    if path is None:
+        return {}
+    names: dict[str, str] = {}
+    with path.open(encoding='utf-8', newline='') as fh:
+        for row in csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE):
+            if len(row) >= 2 and row[0] and row[1]:
+                names[row[0]] = row[1]
+    return names
+
+
+def _size_label(population: int) -> str:
+    """The teaser's size word, by the same ×10 bands the compass tiers on."""
+    if population >= 100_000:
+        return 'City'
+    if population >= 10_000:
+        return 'Town'
+    return 'Village'
+
+
+def parse_geonames_row(record: dict[str, str], admin1: dict[str, str]) -> Place | None:
+    """Transform one ``cities500`` row, or None when out of scope.
+
+    Skips unlisted feature codes, nameless rows, rows without a parsable
+    positive population, and coordinates outside :data:`GNIS_BBOX` (the
+    basemap bbox — same clip as every other source).
+
+    Args:
+        record: One row keyed by :data:`GEONAMES_FIELDS`.
+        admin1: The :func:`read_admin1_codes` map (may be empty).
+
+    Returns:
+        The settlement as a :class:`Place` carrying ``population``, or None.
+    """
+    code = (record.get('feature_code') or '').strip()
+    if code not in GEONAMES_CODES:
+        return None
+    name = (record.get('name') or '').strip()
+    if not name:
+        return None
+    try:
+        population = int(record.get('population') or 0)
+    except ValueError:
+        return None
+    if population <= 0:
+        return None
+    lat = _coord(record.get('latitude'))
+    lon = _coord(record.get('longitude'))
+    if lat is None or lon is None or lat == 0.0:
+        return None
+    if not (GNIS_BBOX[0] <= lon <= GNIS_BBOX[2] and GNIS_BBOX[1] <= lat <= GNIS_BBOX[3]):
+        return None
+    country = (record.get('country_code') or '').strip()
+    admin1_code = (record.get('admin1_code') or '').strip()
+    admin1_key = f'{country}.{admin1_code}' if country and admin1_code else ''
+    region = admin1.get(admin1_key, admin1_code)
+    label = _size_label(population)
+    seat = GEONAMES_SEAT_LABELS.get(code)
+    if seat:
+        label = f'{label} ({seat})'
+    where = ', '.join(p for p in (region, country) if p)
+    elevation_text = (record.get('elevation') or '').strip()
+    details = _ridb_details(
+        {
+            'featureCode': code,
+            'population': population,
+            'region': region or None,
+            'country': country or None,
+            'elevation': int(elevation_text) if elevation_text.lstrip('-').isdigit() else None,
+            'timezone': (record.get('timezone') or '').strip() or None,
+        }
+    )
+    return Place(
+        source_kind='populated_place',
+        source_id=record['geonameid'].strip(),
+        park_code=None,
+        name=name,
+        lat=lat,
+        lon=lon,
+        summary=' · '.join(p for p in (label, where) if p),
+        details=details,
+        population=population,
+    )
+
+
+def read_geonames_zip(path: Path, admin1: dict[str, str]) -> tuple[list[Place], Counter[str]]:
+    """Stream the ``cities500`` member into place rows.
+
+    Args:
+        path: The downloaded ``cities500.zip``.
+        admin1: The :func:`read_admin1_codes` map.
+
+    Returns:
+        ``(rows, skipped)`` — the in-scope rows plus skip counts by reason
+        (``code`` / ``short_row`` / ``unnamed_or_no_population`` /
+        ``no_coord_or_bbox``).
+    """
+    rows: list[Place] = []
+    skipped: Counter[str] = Counter()
+    with zipfile.ZipFile(path) as zf, zf.open(GEONAMES_MEMBER) as raw:
+        reader = csv.reader(
+            io.TextIOWrapper(raw, encoding='utf-8', newline=''),
+            delimiter='\t',
+            quoting=csv.QUOTE_NONE,
+        )
+        for fields in reader:
+            if len(fields) < len(GEONAMES_FIELDS):
+                skipped['short_row'] += 1
+                continue
+            record = dict(zip(GEONAMES_FIELDS, fields, strict=False))
+            place = parse_geonames_row(record, admin1)
+            if place is not None:
+                rows.append(place)
+            elif record['feature_code'].strip() not in GEONAMES_CODES:
+                skipped['code'] += 1
+            elif not record['name'].strip() or not record['population'].strip().isdigit():
+                skipped['unnamed_or_no_population'] += 1
+            elif int(record['population']) <= 0:
+                skipped['unnamed_or_no_population'] += 1
+            else:
+                skipped['no_coord_or_bbox'] += 1
+    return rows, skipped
+
+
 def osm_gnis_ids(conn: sqlite3.Connection) -> set[str]:
     """Collect every ``gnis:feature_id`` riding on an OSM row's tags.
 
@@ -1300,8 +1497,8 @@ def load(
         conn.execute('DELETE FROM places WHERE source = ?', (source,))
         conn.executemany(
             'INSERT INTO places (source, source_kind, source_id, park_code, name, '
-            'lat, lon, summary, details, synced_at, category, rank) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'lat, lon, summary, details, synced_at, category, rank, population) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 (
                     source,
@@ -1315,6 +1512,7 @@ def load(
                     json.dumps(a.details),
                     now,
                     *stamp(a),
+                    a.population,
                 )
                 for a in places
             ],
@@ -1602,6 +1800,47 @@ def run_gnis(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_geonames(args: argparse.Namespace) -> int:
+    """Parse a local GeoNames ``cities500.zip`` and (unless ``--dry-run``) load it.
+
+    No dedupe against the other slices: the GeoNames rows are the compass's
+    population source and deliberately coexist with GNIS's pinned towns
+    (rank 5 keeps them off the map).
+
+    Args:
+        args: Parsed arguments (``geonames_zip`` set, ``geonames_admin1`` optional).
+
+    Returns:
+        A process exit code.
+    """
+    import api.db
+
+    zip_path = Path(args.geonames_zip)
+    if not zip_path.exists():
+        print(f'GeoNames export not found: {zip_path}', file=sys.stderr)
+        return 1
+    admin1_path = Path(args.geonames_admin1) if args.geonames_admin1 else None
+    if admin1_path is not None and not admin1_path.exists():
+        print(f'GeoNames admin1 codes not found: {admin1_path}', file=sys.stderr)
+        return 1
+    admin1 = read_admin1_codes(admin1_path)
+    print(f'Reading {zip_path} ({len(admin1):,} admin1 names) ...', flush=True)
+    places, skipped = read_geonames_zip(zip_path, admin1)
+    skips = ', '.join(f'{reason} {n:,}' for reason, n in skipped.most_common())
+    print(f'Parsed {len(places):,} populated places (skipped: {skips})', flush=True)
+    by_size = Counter(_size_label(a.population or 0) for a in places)
+    print('  ' + ' · '.join(f'{label} {n:,}' for label, n in by_size.most_common()), flush=True)
+    if args.dry_run:
+        print('Dry run — not writing.', flush=True)
+        return 0
+
+    conn = get_connection()
+    init_db(conn)
+    load(conn, places, [], source=GEONAMES_SOURCE, kind_ranks=GEONAMES_KIND_RANKS, force=args.force)
+    print(f'Loaded into {api.db.places_db_path()}', flush=True)
+    return 0
+
+
 def run_wiki(args: argparse.Namespace) -> int:
     """Merge a prebuilt Wikipedia-cache transfer DB into the sidecar.
 
@@ -1640,10 +1879,13 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         A process exit code.
     """
-    modes = [m for m in (args.ridb_zip, args.osm_db, args.gnis_zip, args.wiki_db) if m]
+    modes = [
+        m for m in (args.ridb_zip, args.osm_db, args.gnis_zip, args.geonames_zip, args.wiki_db) if m
+    ]
     if len(modes) > 1:
         print(
-            '--ridb-zip / --osm-db / --gnis-zip / --wiki-db are mutually exclusive',
+            '--ridb-zip / --osm-db / --gnis-zip / --geonames-zip / --wiki-db are '
+            'mutually exclusive',
             file=sys.stderr,
         )
         return 2
@@ -1654,6 +1896,8 @@ def run(args: argparse.Namespace) -> int:
             return run_osm(args)
         if args.gnis_zip:
             return run_gnis(args)
+        if args.geonames_zip:
+            return run_geonames(args)
         if args.wiki_db:
             return run_wiki(args)
         return run_nps(args)
@@ -1763,6 +2007,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         '--gnis-zip',
         help='Import a local USGS GNIS Domestic Names national zip (source=gnis) '
         'instead of the NPS API',
+    )
+    parser.add_argument(
+        '--geonames-zip',
+        help='Import a local GeoNames cities500.zip (source=geonames, populated places '
+        'with population) instead of the NPS API',
+    )
+    parser.add_argument(
+        '--geonames-admin1',
+        help='GeoNames admin1CodesASCII.txt beside --geonames-zip (region names for the '
+        'summary teaser; raw codes without it)',
     )
     parser.add_argument(
         '--wiki-db',

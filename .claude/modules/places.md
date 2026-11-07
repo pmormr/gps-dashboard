@@ -87,9 +87,9 @@ the importers, recipe in `tools/backup_db.py`'s docstring).
 
 ## Sources
 
-Four sources, one importer (`tools/import_places.py`), **full-replace per source**
-(`source` column: `nps` | `ridb` | `osm` | `gnis`) — an import never touches other
-sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source slice
+Five sources, one importer (`tools/import_places.py`), **full-replace per source**
+(`source` column: `nps` | `ridb` | `osm` | `gnis` | `geonames`) — an import never
+touches other sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source slice
 (below).
 
 - **NPS API** (`developer.nps.gov/api/v1/`, api.data.gov key): parks, thingstodo, tours,
@@ -126,6 +126,20 @@ sources' rows. The `place_wiki` cache is a fifth, place-shaped-but-not-a-source 
   OSM slice has no settlement rows). **Re-run the GNIS import after every OSM
   merge** (a fresh OSM slice moves both dedupe boundaries).
   Pi-side import like RIDB (pipe-delimited parse, no geometry work).
+- **GeoNames** (`--geonames-zip <cities500.zip> [--geonames-admin1 <admin1CodesASCII.txt>]`):
+  the tier's only **population-bearing** settlement layer (~43.5k NA rows from the
+  ~14 MB worldwide dump, CC-BY 4.0) — the Drive compass's weighting input
+  (`plans/drive-hud-plan.md`). `population` is a **real column** (NULL on every other
+  source) with a partial index `idx_places_population` over `(lat, lon)`, so a bbox +
+  `population IS NOT NULL` read plans onto ~100k rows instead of the rank partials;
+  `_ensure_places_population` in `api/db.py` is the in-place migration for older
+  sidecars. Feature-code filter `GEONAMES_CODES` in the importer drops `PPLX`
+  neighbourhoods (they'd flood the compass inside any city) and
+  abandoned/historical codes. **Rank 5 (search-only) on purpose**: GNIS already pins
+  every US town, so a pinned GeoNames row would double the community layer —
+  search shows the GNIS+GeoNames pair for a US town until the planned swap
+  (demote GNIS twins by name within ~3 km, promote GeoNames). No dedupe against
+  other slices, no OSM ordering dependency.
 - **State parks**: no unified source exists (that's the commercial apps' manual
   aggregation). Punted — federal + OSM is the baseline.
 
@@ -191,6 +205,8 @@ RIDB:
   `--osm-db`. The merge + FTS rebuild is minutes-long — never at drive time.
 - **GNIS** ~seasonally, chained **after** the OSM merge (the dedupe reads the fresh OSM
   slice): download the zip on the laptop, `scp`, run `--gnis-zip` on the Pi.
+- **GeoNames** ~seasonally, from the Data tab (the `geonames` updater chunk downloads
+  both files and imports; no ordering dependency) or by hand with `--geonames-zip`.
 - **Wiki** ~seasonally, after OSM rebuilds: `tools/fetch_wikipedia.py` on the laptop
   (resumable; incremental re-runs only fetch new keys), `scp` the transfer DB, run
   `--wiki-db` on the Pi.

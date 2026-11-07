@@ -27,6 +27,8 @@ GNIS_URL = (
     'https://prd-tnm.s3.amazonaws.com/StagedProducts/GeographicNames/'
     'DomesticNames/DomesticNames_National_Text.zip'
 )
+GEONAMES_URL = 'https://download.geonames.org/export/dump/cities500.zip'
+GEONAMES_ADMIN1_URL = 'https://download.geonames.org/export/dump/admin1CodesASCII.txt'
 
 #: Conventional staged filename per staged-import chunk: the producing tool's
 #: default output name (``tools/build_osm_pois.py`` / ``tools/fetch_wikipedia.py``)
@@ -131,3 +133,14 @@ def download_ridb() -> Path:
 def download_gnis() -> Path:
     """Fetch the USGS GNIS Domestic Names national zip (~37 MB) into staging."""
     return download(GNIS_URL, staging_dir() / 'DomesticNames_National_Text.zip')
+
+
+def download_geonames() -> tuple[Path, Path]:
+    """Fetch the GeoNames ``cities500.zip`` (~10 MB) + ``admin1CodesASCII.txt`` into staging.
+
+    Returns:
+        ``(cities_zip, admin1_codes)`` — the importer takes both.
+    """
+    cities = download(GEONAMES_URL, staging_dir() / 'cities500.zip')
+    admin1 = download(GEONAMES_ADMIN1_URL, staging_dir() / 'admin1CodesASCII.txt')
+    return cities, admin1

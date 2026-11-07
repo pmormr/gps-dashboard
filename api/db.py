@@ -713,7 +713,8 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
             details     TEXT NOT NULL,
             synced_at   TEXT NOT NULL,
             category    TEXT,
-            rank        INTEGER
+            rank        INTEGER,
+            population  INTEGER
         );
         CREATE UNIQUE INDEX IF NOT EXISTS places_db.idx_places_source_key
             ON places(source, source_id);
@@ -815,6 +816,31 @@ def _init_places_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS places_db.idx_places_rank_name
             ON places(rank, name) WHERE rank <= 3;
     """)
+    conn.commit()
+    _ensure_places_population(conn)
+
+
+def _ensure_places_population(conn: sqlite3.Connection) -> None:
+    """Add the ``population`` column + its partial index to a pre-existing sidecar.
+
+    ``population`` is a real column rather than a ``details`` key because the
+    Drive compass's nearby-towns read filters and sorts on it; a JSON extract
+    over the ~11M-row table has no index to lean on. Only the GeoNames slice
+    (``tools/import_places.py --geonames-zip``) sets it, so the partial index
+    is ~100k rows — the compass bbox read plans onto it instead of the
+    rank-gated latlon partials. The fresh-init DDL already carries the column;
+    this is the in-place migration for sidecars created before it existed.
+
+    Args:
+        conn: An open connection with the sidecar attached.
+    """
+    columns = {row[1] for row in conn.execute('PRAGMA places_db.table_info(places)')}
+    if 'population' not in columns:
+        conn.execute('ALTER TABLE places_db.places ADD COLUMN population INTEGER')
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS places_db.idx_places_population '
+        'ON places(lat, lon) WHERE population IS NOT NULL'
+    )
     conn.commit()
 
 

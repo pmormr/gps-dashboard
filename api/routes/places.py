@@ -60,6 +60,7 @@ _PLACE_COLS = (
     'synced_at',
     'category',
     'rank',
+    'population',
 )
 _PLACE_COLUMNS = ', '.join(_PLACE_COLS)
 #: p.-qualified projection for queries that join places_fts (whose column names

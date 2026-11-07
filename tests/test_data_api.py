@@ -56,7 +56,7 @@ def test_status_shape(client, hermetic_paths: None) -> None:
 def test_empty_db_reads_missing(client, hermetic_paths: None) -> None:
     body = client.get('/api/data/status').get_json()
     by_id = {c['id']: c for c in body['chunks']}
-    for chunk_id in ('nps', 'ridb', 'osm', 'gnis'):
+    for chunk_id in ('nps', 'ridb', 'osm', 'gnis', 'geonames'):
         assert by_id[chunk_id]['state'] == 'missing'
         assert by_id[chunk_id]['detail'] == {'rows': 0}
     assert by_id['basemap']['state'] == 'missing'

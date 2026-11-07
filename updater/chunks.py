@@ -107,6 +107,16 @@ CHUNKS: tuple[Chunk, ...] = (
         deps=('osm',),
     ),
     Chunk(
+        id='geonames',
+        label='GeoNames towns',
+        section='places',
+        action='pi_run',
+        cadence='~seasonal',
+        transfer='~10 MB zip',
+        stale_days=180,
+        probe=lambda conn: probes.places_slice(conn, 'geonames'),
+    ),
+    Chunk(
         id='wiki',
         label='Wikipedia cache',
         section='places',

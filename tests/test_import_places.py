@@ -17,6 +17,9 @@ from pathlib import Path
 import pytest
 
 from tools.import_places import (
+    GEONAMES_FIELDS,
+    GEONAMES_KIND_RANKS,
+    GEONAMES_MEMBER,
     GNIS_CLASS_RANKS,
     GNIS_KIND_RANKS,
     GNIS_MEMBER,
@@ -37,12 +40,15 @@ from tools.import_places import (
     parse_asset,
     parse_event,
     parse_facility,
+    parse_geonames_row,
     parse_gnis_row,
     parse_park,
     parse_ridb_facility,
     parse_ridb_recarea,
     parse_thingstodo,
     parse_tour,
+    read_admin1_codes,
+    read_geonames_zip,
     read_gnis_zip,
     summarize,
 )
@@ -463,6 +469,114 @@ def test_read_gnis_zip(tmp_path: Path) -> None:
     places, skipped = read_gnis_zip(archive)
     assert [a.name for a in places] == ['Longs Peak', 'Lost Lake']
     assert skipped == {'class': 1}
+
+
+# --- GeoNames ------------------------------------------------------------------------
+
+_GEONAMES_DENVER = {
+    'geonameid': '5419384',
+    'name': 'Denver',
+    'asciiname': 'Denver',
+    'alternatenames': 'Denver City',
+    'latitude': '39.73915',
+    'longitude': '-104.9847',
+    'feature_class': 'P',
+    'feature_code': 'PPLA',
+    'country_code': 'US',
+    'cc2': '',
+    'admin1_code': 'CO',
+    'admin2_code': '031',
+    'admin3_code': '',
+    'admin4_code': '',
+    'population': '715522',
+    'elevation': '1609',
+    'dem': '1609',
+    'timezone': 'America/Denver',
+    'modification_date': '2024-01-01',
+}
+_ADMIN1 = {'US.CO': 'Colorado', 'CA.02': 'British Columbia'}
+
+
+def test_parse_geonames_state_capital() -> None:
+    place = parse_geonames_row(_GEONAMES_DENVER, _ADMIN1)
+    assert place is not None
+    assert place.source_kind == 'populated_place'
+    assert place.source_id == '5419384'
+    assert place.population == 715522
+    assert (place.lat, place.lon) == (39.73915, -104.9847)
+    assert place.summary == 'City (state capital) · Colorado, US'
+    assert place.details == {
+        'featureCode': 'PPLA',
+        'population': 715522,
+        'region': 'Colorado',
+        'country': 'US',
+        'elevation': 1609,
+        'timezone': 'America/Denver',
+    }
+
+
+def test_parse_geonames_size_bands_and_raw_region_fallback() -> None:
+    village = {**_GEONAMES_DENVER, 'feature_code': 'PPL', 'population': '800', 'elevation': ''}
+    place = parse_geonames_row(village, {})
+    assert place is not None
+    assert place.summary == 'Village · CO, US'
+    assert 'elevation' not in place.details  # blank source values are dropped, like GNIS
+    town = parse_geonames_row({**village, 'population': '12000'}, {})
+    assert town is not None
+    assert town.summary == 'Town · CO, US'
+
+
+def test_parse_geonames_skips_out_of_scope_rows() -> None:
+    # Neighbourhoods (PPLX) would flood the compass inside any city.
+    assert parse_geonames_row({**_GEONAMES_DENVER, 'feature_code': 'PPLX'}, _ADMIN1) is None
+    assert parse_geonames_row({**_GEONAMES_DENVER, 'feature_code': 'PPLH'}, _ADMIN1) is None
+    assert parse_geonames_row({**_GEONAMES_DENVER, 'population': '0'}, _ADMIN1) is None
+    assert parse_geonames_row({**_GEONAMES_DENVER, 'population': 'x'}, _ADMIN1) is None
+    assert parse_geonames_row({**_GEONAMES_DENVER, 'name': ' '}, _ADMIN1) is None
+    paris = {**_GEONAMES_DENVER, 'latitude': '48.85', 'longitude': '2.35'}
+    assert parse_geonames_row(paris, _ADMIN1) is None
+
+
+def test_geonames_kind_ranks_are_search_only() -> None:
+    """GNIS already pins every US town; GeoNames rows must not double the pins."""
+    assert GEONAMES_KIND_RANKS == {'populated_place': ('community', 5)}
+
+
+def test_read_admin1_codes(tmp_path: Path) -> None:
+    path = tmp_path / 'admin1CodesASCII.txt'
+    path.write_text('US.CO\tColorado\tColorado\t5417618\nCA.02\tBritish Columbia\tBC\t5909050\n')
+    assert read_admin1_codes(path) == _ADMIN1
+    assert read_admin1_codes(None) == {}
+
+
+def test_read_geonames_zip(tmp_path: Path) -> None:
+    def row(**over: str) -> str:
+        record = {**_GEONAMES_DENVER, **over}
+        return '\t'.join(record[f] for f in GEONAMES_FIELDS)
+
+    lines = [
+        row(),
+        row(geonameid='2', name='Capitol Hill', feature_code='PPLX'),
+        row(
+            geonameid='3',
+            name='Vancouver',
+            country_code='CA',
+            admin1_code='02',
+            latitude='49.25',
+            longitude='-123.1',
+            population='600000',
+        ),
+        'short\trow',
+        row(geonameid='4', name='Paris', latitude='48.85', longitude='2.35'),
+    ]
+    archive = tmp_path / 'cities500.zip'
+    with zipfile.ZipFile(archive, 'w') as zf:
+        zf.writestr(GEONAMES_MEMBER, '\n'.join(lines) + '\n')
+
+    places, skipped = read_geonames_zip(archive, _ADMIN1)
+    assert [(a.name, a.population) for a in places] == [('Denver', 715522), ('Vancouver', 600000)]
+    assert places[1].summary == 'City (state capital) · British Columbia, CA'
+    assert skipped == {'code': 1, 'short_row': 1, 'no_coord_or_bbox': 1}
 
 
 # --- Sanity floor (destructive full-replace guard) -----------------------------------
