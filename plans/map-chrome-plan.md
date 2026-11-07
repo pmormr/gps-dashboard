@@ -35,11 +35,11 @@ view chrome.**
 
 ## Items
 
-1. [ ] Route-declared map chrome (M1 + M2): `MAP_CHROME` registry, `MapChrome.svelte`,
+1. [x] Route-declared map chrome (M1 + M2): `MAP_CHROME` registry, `MapChrome.svelte`,
    Shell renders it, Map.svelte sheds the rail.
-2. [ ] Persist map style prefs (theme/base/terrain/exaggeration/minor roads) in
-   localStorage, versioned key. Data-layer toggles stay session-scoped (flagged —
-   user to confirm).
+2. [x] Persist map style prefs (theme/base/terrain/exaggeration/minor roads) in
+   localStorage, versioned key (`lib/mapPrefs.ts`; engine + store both seed from
+   it). Data-layer toggles stay session-scoped (flagged — user to confirm).
 3. [ ] Drive quick toggle: one-tap ☀/🌙 in the HUD flipping light ↔ dark.
 4. [ ] Ground-aware compass styling (M5): dark text + light halo on light ground.
 5. [ ] Compass text size up (names 13→16, cities 14→18, meta 10→12 first guess);

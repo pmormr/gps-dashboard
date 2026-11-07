@@ -29,7 +29,8 @@ import {
   trailFC,
   type TrackGap,
 } from './geo'
-import { DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
+import type { BasemapTheme } from './labels'
+import { loadStylePrefs } from './mapPrefs'
 import { prefetchTiles } from './prefetch'
 
 /**
@@ -198,26 +199,37 @@ maplibregl.addProtocol('pmtiles', (params, abortController) => {
 // rejects a root-relative sprite URL, so sprite/glyphs are absolutized against
 // location.origin (portable across localhost and the LAN IP); the pmtiles
 // source URL stays root-relative.
-const vectorStyleCache = new Map<BasemapTheme, maplibregl.StyleSpecification>()
+// Caches the *promise*, so the boot warm-up and the engine's first load share
+// one fetch instead of both missing while it is in flight.
+const vectorStyleCache = new Map<BasemapTheme, Promise<maplibregl.StyleSpecification>>()
 // The unified POI icon sprite (SDF — tintable), second sprite beside the
 // style's own: GL refs are 'poi:<name>' (see icons.ts).
 const POI_SPRITE = '/static/vendor/basemap/sprite-poi/poi'
 
-async function loadVectorStyle(theme: BasemapTheme): Promise<maplibregl.StyleSpecification> {
+function loadVectorStyle(theme: BasemapTheme): Promise<maplibregl.StyleSpecification> {
   const cached = vectorStyleCache.get(theme)
   if (cached) return cached
-  const s = await (await fetch(`/static/vendor/basemap/style-${theme}.json`)).json()
-  s.sprite = [
-    { id: 'default', url: location.origin + s.sprite },
-    { id: 'poi', url: location.origin + POI_SPRITE },
-  ]
-  s.glyphs = location.origin + s.glyphs
-  vectorStyleCache.set(theme, s)
-  return s
+  const loading = (async () => {
+    const s = await (await fetch(`/static/vendor/basemap/style-${theme}.json`)).json()
+    s.sprite = [
+      { id: 'default', url: location.origin + s.sprite },
+      { id: 'poi', url: location.origin + POI_SPRITE },
+    ]
+    s.glyphs = location.origin + s.glyphs
+    return s as maplibregl.StyleSpecification
+  })()
+  // A failed fetch must not poison the cache — the next call retries.
+  loading.catch(() => vectorStyleCache.delete(theme))
+  vectorStyleCache.set(theme, loading)
+  return loading
 }
 
+// The engine boots from the persisted style prefs — the same seed the `layers`
+// store initialises from, so store and engine agree without a read-back.
+const BOOT_PREFS = loadStylePrefs()
+
 // Warm the boot theme so the first map mount doesn't wait on the fetch.
-void loadVectorStyle(DEFAULT_BASEMAP_THEME)
+void loadVectorStyle(BOOT_PREFS.theme)
 
 // Minimal style the map boots with so `map` exists synchronously; replaced by the
 // real basemap as soon as its style is ready.
@@ -377,14 +389,14 @@ export interface CameraPose {
 
 export const MapView = (() => {
   let map: MlMap | undefined
-  let currentLayer = 'osm'
-  let currentTheme: BasemapTheme = DEFAULT_BASEMAP_THEME
+  let currentLayer: string = BOOT_PREFS.base
+  let currentTheme: BasemapTheme = BOOT_PREFS.theme
   let currentRefresh = false
   let onVectorBaseCb: ((map: MlMap) => void) | null = null
 
   // 3D / terrain state (driven by the 3D toggle UI; default flat 2D).
-  let terrainEnabled = false
-  let exaggeration = 1.3
+  let terrainEnabled = BOOT_PREFS.terrain
+  let exaggeration = BOOT_PREFS.exaggeration
 
   // Overlay state, the source of truth re-applied after every style load.
   let trackData: FeatureCollection = emptyFC()
@@ -1347,6 +1359,8 @@ export const MapView = (() => {
       style: BOOTSTRAP_STYLE,
       center: [-98, 39], // center of US
       zoom: 4,
+      // A persisted 3D preference boots pitched like the toggle leaves it.
+      pitch: terrainEnabled ? 60 : 0,
       maxZoom: 20,
       maxPitch: 80,
       attributionControl: false,
@@ -1357,8 +1371,8 @@ export const MapView = (() => {
         customAttribution: [VECTOR_ATTRIBUTION, TERRAIN_ATTRIBUTION],
       }),
     )
-    // Lock to a flat, north-up view by default; the 3D toggle unlocks rotate + pitch.
-    setRotationEnabled(false)
+    // Flat + north-up unless 3D is on; the 3D toggle unlocks rotate + pitch.
+    setRotationEnabled(terrainEnabled)
     map.on('styledata', reinstallOverlays)
     map.on('style.load', handleStyleLoad)
     wireRangeTooltip(map)
