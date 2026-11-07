@@ -188,3 +188,156 @@
 .drive-recenter:active {
   transform: translateX(-50%) scale(0.97);
 }
+
+/* ── Town compass: two bearing strips framing the map ───────────────────────
+   Ahead on top (−90° left edge … 0° centre … +90° right edge), behind on the
+   HUD's top edge (the ring unrolled the other way, so a town passed on the
+   left slides off the top-left and reappears bottom-left). Marks are laid out
+   by lib/compass.ts (two greedy rows); the strips only paint them. */
+.drive-compass {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 62px;
+  z-index: 6;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.drive-compass--ahead {
+  top: 0;
+  background: linear-gradient(rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0));
+}
+
+.drive-compass--behind {
+  background: linear-gradient(rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.82));
+}
+
+.drive-compass-axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.drive-compass--ahead .drive-compass-axis {
+  top: 0;
+}
+
+.drive-compass--behind .drive-compass-axis {
+  bottom: 0;
+}
+
+.drive-compass-nose {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.drive-compass--ahead .drive-compass-nose {
+  top: 1px;
+}
+
+.drive-compass--behind .drive-compass-nose {
+  bottom: 1px;
+}
+
+.drive-compass-mark {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: nowrap;
+  color: var(--text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.drive-compass--ahead .drive-compass-mark {
+  top: 8px;
+  align-items: flex-start;
+}
+
+.drive-compass--ahead .drive-compass-mark.row1 {
+  top: 36px;
+}
+
+.drive-compass--behind .drive-compass-mark {
+  bottom: 8px;
+  align-items: flex-start;
+}
+
+.drive-compass--behind .drive-compass-mark.row1 {
+  bottom: 36px;
+}
+
+/* The bearing tick sits on the axis line at the mark's true position, which
+   the label may have been nudged away from by edge clamping. */
+.drive-compass-mark .tick {
+  position: absolute;
+  width: 2px;
+  height: 7px;
+  background: #4ade80;
+}
+
+.drive-compass--ahead .tick {
+  top: -8px;
+}
+
+.drive-compass--behind .tick {
+  bottom: -8px;
+}
+
+.drive-compass-mark .name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.drive-compass-mark .meta {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.drive-compass-mark .pips {
+  letter-spacing: -1px;
+  color: #4ade80;
+}
+
+/* Tier accents: villages green, towns blue, cities amber — the same split the
+   slot quotas use, so the colour says why a mark is on the strip. */
+.drive-compass-mark[data-tier='3'] .tick,
+.drive-compass-mark[data-tier='3'] .pips {
+  background-color: var(--accent);
+  color: var(--accent);
+}
+
+.drive-compass-mark[data-tier='3'] .name {
+  font-weight: 700;
+}
+
+.drive-compass-mark[data-tier='4'] .tick,
+.drive-compass-mark[data-tier='5'] .tick,
+.drive-compass-mark[data-tier='4'] .pips,
+.drive-compass-mark[data-tier='5'] .pips {
+  background-color: #fbbf24;
+  color: #fbbf24;
+}
+
+.drive-compass-mark[data-tier='4'] .name,
+.drive-compass-mark[data-tier='5'] .name {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* The status pill + wake chip drop below the ahead strip. */
+.drive-status,
+.drive-wake {
+  top: 70px;
+}

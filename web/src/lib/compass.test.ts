@@ -161,6 +161,17 @@ describe('packLabels', () => {
     expect(byName.c.left).toBe(50)
   })
 
+  it('prefers the mark nearest dead-ahead within a tier when rows are full', () => {
+    const marks = [
+      { name: 'edge', x: 0, tier: 2, distanceM: 1_300 },
+      { name: 'ahead', x: 0.6, tier: 2, distanceM: 33_000 },
+      { name: 'other', x: 0.35, tier: 2, distanceM: 2_000 },
+    ]
+    // One row: 'other' (nearer, but off-centre) collides with 'ahead' and loses.
+    const placed = packLabels(marks, 300, () => 100, 1)
+    expect(placed.map((p) => p.mark.name)).toEqual(['ahead', 'edge'])
+  })
+
   it('keeps labels inside the strip and drops what no row can hold', () => {
     const marks = [
       { name: 'edge', x: 1, tier: 3, distanceM: 1 },

@@ -180,10 +180,12 @@ export interface PlacedLabel<T> {
 }
 
 /**
- * 1-D greedy label packing: marks in priority order (bigger tier, then
- * nearer) each take the first row where they don't overlap an earlier
- * label; past `rows` rows they're dropped. Labels are centred on their
- * strip position and kept inside the strip.
+ * 1-D greedy label packing: marks in priority order each take the first row
+ * where they don't overlap an earlier label; past `rows` rows they're
+ * dropped. Priority is bigger tier, then closer to the strip's centre (dead
+ * ahead / dead astern — a mark at the edge is about to change strips
+ * anyway), then nearer. Labels are centred on their strip position and
+ * kept inside the strip.
  */
 export function packLabels<T extends { x: number; tier: number; distanceM: number }>(
   marks: readonly T[],
@@ -192,7 +194,10 @@ export function packLabels<T extends { x: number; tier: number; distanceM: numbe
   rows = 2,
   gapPx = 6,
 ): PlacedLabel<T>[] {
-  const ordered = [...marks].sort((a, b) => b.tier - a.tier || a.distanceM - b.distanceM)
+  const offCentre = (m: T): number => Math.abs(m.x - 0.5)
+  const ordered = [...marks].sort(
+    (a, b) => b.tier - a.tier || offCentre(a) - offCentre(b) || a.distanceM - b.distanceM,
+  )
   const placed: PlacedLabel<T>[] = []
   for (const mark of ordered) {
     const width = Math.min(measure(mark), widthPx)

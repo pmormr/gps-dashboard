@@ -89,12 +89,21 @@ logs, plus one new places source.
    no ranking, nearest-first with `distance_m`/`bearing_deg`/`tier`;
    selection (slots, hysteresis, shadowing) is the client's. Helpers in
    `common/geo.py` (strict-typed). Leadville real-data read: 19 rows, 11 ms.
-3. [ ] **`web/src/lib/compass.ts`** — pure: tier, radius, candidate set,
-   hysteresis state, strip assignment, 1-D greedy label packing (≤2 rows per
-   strip). Constants in one block like `follow.ts`. Vitest.
-4. [ ] **Compass strips in `Drive.svelte`** — poll `nearby` when the van has
-   moved >2 km (or 60 s), render marks + pip bars, re-layout per heading
-   frame. On-device tune of R/slots from the road.
+3. [x] **`web/src/lib/compass.ts`** — built 2026-11-07: radii + leave band,
+   metro shadowing, per-strip slot quotas, sticky membership, fold dead
+   zone, unrolled-ring `stripX`, 2-row greedy `packLabels` (priority: tier,
+   then nearest the strip centre, then distance — a mark at the edge is
+   about to change strips anyway), pips, compact miles. Vitest-covered.
+4. [x] **Compass strips in `Drive.svelte`** — built 2026-11-07
+   (`views/DriveCompass.svelte`): refetch on >2 km / 60 s, distance +
+   bearing recomputed from the raw fix every selection (server values age
+   with every metre), selection on a 3° heading step, per-frame positions
+   off the smooth heading, behind strip pinned to the measured HUD height.
+   Laptop check with a mocked fix near Leadville (playwright-cli route
+   mock of `/api/gpsd/live` + the real GeoNames sidecar): Denver /
+   Colorado Springs / Edwards / Breckenridge / Leadville North ahead,
+   Leadville astern, labels inside a 393 px viewport. **Not yet seen on the
+   dash** — tune R / slots / shadowing from the road.
 5. [ ] **`GET /api/points/elevation`** — D8 window start + D9 buckets;
    returns `{start, reason, buckets:[{t, alt}]}`. Tests.
 6. [ ] **HUD records block** — ALT cell becomes current + ▲ high (time) +

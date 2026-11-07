@@ -28,6 +28,7 @@
     wakeLockStatus,
     type WakeLockStatus,
   } from '../lib/wakelock'
+  import DriveCompass from './DriveCompass.svelte'
   import './map.css'
   import './drive.css'
 
@@ -114,6 +115,10 @@
   )
   const hdg = $derived(live.heading != null ? Math.round(live.heading) % 360 : null)
   const altLabel = $derived(fmtAltitude(live.fix?.alt ?? null))
+
+  // The behind-compass strip sits on the HUD's top edge, whose height varies
+  // with the engine-gated OBD row — measured, not assumed.
+  let hudHeight = $state(0)
 
   function onGesture(): void {
     suspended = true
@@ -266,7 +271,14 @@
 
   <div class="drive-wake" class:drive-wake--bad={!wake.active}>{wakeLabel}</div>
 
-  <div class="drive-hud">
+  <DriveCompass
+    lat={live.fix?.lat ?? null}
+    lon={live.fix?.lon ?? null}
+    heading={live.heading}
+    bottomPx={hudHeight}
+  />
+
+  <div class="drive-hud" bind:clientHeight={hudHeight}>
     {#if van}
       <div class="drive-obd">
         <div class="drive-hud-cell">
