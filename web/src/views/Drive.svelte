@@ -26,6 +26,7 @@
     initialBearingDeg,
     mpsToMph,
   } from '../lib/geo'
+  import { fmtPopulation, type Here } from '../lib/compass'
   import { cardinal, type Crumb, extendCrumbs } from '../lib/live'
   import { elevationRecords } from '../lib/records'
   import type { MapView as MapViewType } from '../lib/map'
@@ -49,6 +50,8 @@
   let view = $state<typeof MapViewType | undefined>()
   /** A gesture took the camera; follow resumes via the recenter pill. */
   let suspended = $state(false)
+  /** The current town, bound out of the compass for the HUD's centre readout. */
+  let here = $state<Here | null>(null)
 
   // Follow-loop scratch (plain lets — per-frame mutation must not retrigger the effect).
   let zoom = speedZoom(null)
@@ -338,6 +341,7 @@
     lon={live.fix?.lon ?? null}
     heading={live.heading}
     bottomPx={hudHeight}
+    bind:here
   />
 
   <div class="drive-hud" bind:clientHeight={hudHeight}>
@@ -371,6 +375,13 @@
           {hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}
           <span class="drive-wake" class:drive-wake--bad={!wake.active}>· {wakeLabel}</span>
         </span>
+      </div>
+      <div class="drive-hud-here">
+        {#if here}
+          <span class="k">{here.inside ? 'IN' : 'NEAR'}</span>
+          <span class="v">{here.place.name}</span>
+          <span class="pop" data-tier={here.place.tier}>{fmtPopulation(here.place.population)}</span>
+        {/if}
       </div>
       {#if destination.current}
         <button

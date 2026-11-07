@@ -278,7 +278,12 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   with darkened tier accents over light themes / USGS. The one
   **overlap-free guarantee is only against other marks**: the status pill (bad fix
   only) may sit on a dead-ahead label; the wake readout therefore lives inline in
-  the HUD, not floating. Tap-to-navigate is deferred to the navigation plan. Road
+  the HUD, not floating. The HUD's **centre readout** is the current town
+  (`currentTown`, bound out of the compass): the candidate the van is *deepest
+  inside* by its tier's in-town radius (`TOWN_RADII_KM`; distance ÷ radius, so a
+  city centre 5 km off beats a village 1.4 km off; the incumbent holds to
+  `LEAVE_FACTOR`), labelled IN, else the nearest candidate labelled NEAR — name +
+  tier-coloured population. Tap-to-navigate is deferred to the navigation plan. Road
   tuning is open: `plans/drive-hud-plan.md`.
 - **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH) off a 5 s
   `/api/status` poll; `fuel_rate_lph` is derived server-side into the `van` block

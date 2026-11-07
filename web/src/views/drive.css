@@ -107,8 +107,45 @@
 .drive-hud-speed {
   display: flex;
   flex-direction: column;
+  flex: none;
+}
+
+/* Current town — the centre readout. Takes the row's free middle (flex: 1) and
+   centres in it, so it never overlaps the speed or the right-hand cells on a
+   phone; a long name ellipsises. The population carries the tier colour like
+   the ring labels (--tier-color per tier below). */
+.drive-hud-here {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+}
+
+.drive-hud-here .k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.drive-hud-here .v {
+  max-width: 100%;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drive-hud-here .pop {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .drive-hud-speed-row {
@@ -306,20 +343,28 @@
    --tier-color per tier, set on both the tick and the mark: the dot paints it
    as background, the population number as text (never both on one element). */
 .drive-compass-tick,
-.drive-compass-mark {
+.drive-compass-mark,
+.drive-hud-here .pop {
   --tier-color: #4ade80;
 }
 
 .drive-compass-tick[data-tier='3'],
-.drive-compass-mark[data-tier='3'] {
+.drive-compass-mark[data-tier='3'],
+.drive-hud-here .pop[data-tier='3'] {
   --tier-color: var(--accent);
 }
 
 .drive-compass-tick[data-tier='4'],
 .drive-compass-tick[data-tier='5'],
 .drive-compass-mark[data-tier='4'],
-.drive-compass-mark[data-tier='5'] {
+.drive-compass-mark[data-tier='5'],
+.drive-hud-here .pop[data-tier='4'],
+.drive-hud-here .pop[data-tier='5'] {
   --tier-color: #fbbf24;
+}
+
+.drive-hud-here .pop {
+  color: var(--tier-color);
 }
 
 .drive-compass-tick {

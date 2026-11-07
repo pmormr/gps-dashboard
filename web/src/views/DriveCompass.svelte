@@ -2,7 +2,9 @@
   import { getPlacesNearby, type NearbyPlace } from '../lib/api'
   import {
     CITY_NAME_PX,
+    currentTown,
     fmtMiles,
+    type Here,
     fmtPopulation,
     labelSize,
     type Mark,
@@ -29,8 +31,15 @@
     lon,
     heading,
     bottomPx,
-  }: { lat: number | null; lon: number | null; heading: number | null; bottomPx: number } =
-    $props()
+    here = $bindable(null),
+  }: {
+    lat: number | null
+    lon: number | null
+    heading: number | null
+    bottomPx: number
+    /** The current town (bound out for the HUD's centre readout). */
+    here?: Here | null
+  } = $props()
 
   let candidates = $state<NearbyPlace[]>([])
   let marks = $state<Mark[]>([])
@@ -88,20 +97,26 @@
   })
 
   // Selection: on a new candidate set or a fresh fix (1 Hz) — the O(n²)
-  // shadowing is not a per-frame job. Placement below is.
+  // shadowing is not a per-frame job. Placement below is. The current-town
+  // readout rides the same recomputed candidate set (hysteresis via hereId).
+  let hereId: number | null = null
   $effect(() => {
     const cands = candidates
     if (lat == null || lon == null) {
       marks = []
+      here = null
+      hereId = null
       return
     }
-    const here = { lat, lon }
+    const van = { lat, lon }
     const fresh = cands.map((c) => ({
       ...c,
-      distance_m: haversineMeters(here.lat, here.lon, c.lat, c.lon),
-      bearing_deg: initialBearingDeg(here.lat, here.lon, c.lat, c.lon),
+      distance_m: haversineMeters(van.lat, van.lon, c.lat, c.lon),
+      bearing_deg: initialBearingDeg(van.lat, van.lon, c.lat, c.lon),
     }))
     marks = selectMarks(fresh, compassState)
+    here = currentTown(fresh, hereId)
+    hereId = here?.place.id ?? null
   })
 
   // Per-frame placement off the smooth heading. The label box estimate

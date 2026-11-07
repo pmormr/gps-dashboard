@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { NearbyPlace } from './api'
 import {
   CITY_NAME_PX,
+  currentTown,
   fmtMiles,
   labelSize,
   LEAVE_FACTOR,
@@ -221,5 +222,42 @@ describe('labelSize', () => {
     expect(city.width).toBeGreaterThan(village.width)
     expect(city.height).toBeGreaterThan(village.height)
     expect(CITY_NAME_PX).toBeGreaterThan(0)
+  })
+})
+
+describe('currentTown', () => {
+  const place = (id: number, tier: number, km: number, population = 1000): NearbyPlace => ({
+    id,
+    name: `p${id}`,
+    summary: null,
+    lat: 0,
+    lon: 0,
+    population,
+    tier,
+    distance_m: km * 1000,
+    bearing_deg: 0,
+  })
+
+  it('is null with no candidates', () => {
+    expect(currentTown([], null)).toBeNull()
+  })
+
+  it('picks the candidate the van is deepest inside, not the nearest point', () => {
+    const village = place(1, 1, 1.4) // 1.4 of 1.5 km → ratio 0.93
+    const city = place(2, 4, 5) // 5 of 15 km → ratio 0.33
+    expect(currentTown([village, city], null)).toEqual({ place: city, inside: true })
+  })
+
+  it('falls back to the nearest candidate as "near" when none contains the van', () => {
+    const a = place(1, 1, 4)
+    const b = place(2, 2, 6)
+    expect(currentTown([a, b], null)).toEqual({ place: a, inside: false })
+  })
+
+  it('keeps the incumbent out to the leave band', () => {
+    const inc = place(1, 2, 3.3) // 3.3 of 3 km → ratio 1.1: out for a newcomer, in for the incumbent
+    expect(currentTown([inc], null)).toEqual({ place: inc, inside: false })
+    expect(currentTown([inc], 1)).toEqual({ place: inc, inside: true })
+    expect(currentTown([place(1, 2, 3.6)], 1)).toEqual({ place: place(1, 2, 3.6), inside: false })
   })
 })

@@ -40,7 +40,44 @@ export const MEMBER_STICKINESS = 0.85
 /** Refetch candidates after this much movement, or this much time. */
 export const REFETCH_METERS = 2000
 export const REFETCH_MS = 60_000
-/** Pip-bar cells (one per tier). */
+/** "In town" radius per tier (index = tier − 1), km: how far from a
+ *  settlement's point you still count as *in* it (GeoNames has no polygons). */
+export const TOWN_RADII_KM: readonly number[] = [1.5, 3, 7, 15, 25]
+
+/** The settlement the van is in (or, failing that, nearest to) — the HUD readout. */
+export interface Here {
+  place: NearbyPlace
+  /** Inside the place's in-town radius, vs merely the nearest candidate. */
+  inside: boolean
+}
+
+/**
+ * The current town: of the candidates whose in-town radius contains the van,
+ * the one the van is deepest inside (distance ÷ radius — a city centre 5 km
+ * off beats a village 1.4 km off); the incumbent keeps its seat out to
+ * LEAVE_FACTOR × radius so a boundary doesn't flicker. With none containing
+ * the van, the nearest candidate, flagged `inside: false` ("near").
+ */
+export function currentTown(
+  candidates: readonly NearbyPlace[],
+  previousId: number | null,
+): Here | null {
+  let best: NearbyPlace | null = null
+  let bestRatio = Infinity
+  let nearest: NearbyPlace | null = null
+  for (const c of candidates) {
+    const idx = Math.min(Math.max(Math.round(c.tier), 1), TOWN_RADII_KM.length) - 1
+    const ratio = c.distance_m / (TOWN_RADII_KM[idx] * 1000)
+    const limit = c.id === previousId ? LEAVE_FACTOR : 1
+    if (ratio <= limit && ratio < bestRatio) {
+      best = c
+      bestRatio = ratio
+    }
+    if (!nearest || c.distance_m < nearest.distance_m) nearest = c
+  }
+  if (best) return { place: best, inside: true }
+  return nearest ? { place: nearest, inside: false } : null
+}
 
 /** One settlement that earned a mark. */
 export interface Mark {
