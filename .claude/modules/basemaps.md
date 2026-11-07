@@ -2,8 +2,9 @@
 
 Two basemaps served two different ways, plus an elevation source for 3D rendering. A
 single `maplibregl.Map` (`MapView`, `web/src/lib/map.ts`) renders everything — pure
-MapLibre GL (not Leaflet) so the map can pitch and drape on terrain. The map's right
-icon rail drives it via the **Map style** panel (`web/src/views/MapStyle.svelte`):
+MapLibre GL (not Leaflet) so the map can pitch and drape on terrain. The shell-owned right
+icon rail (`MapChrome.svelte` — reaching Map, Drive and Weather) drives it via the
+**Map style** panel (`web/src/views/MapStyle.svelte`):
 basemap switch, vector *theme* picker, terrain draping + exaggeration (off = flat 2D,
 north-up; on unlocks pitch + rotate), and label *density* / minor-street-name tuning
 (vector only). The
@@ -40,8 +41,9 @@ are *generated*, not hand-vendored: `npm run gen:styles` (in `web/`) runs
 `web/scripts/generate-basemap-styles.mjs`, which emits every built-in
 `@protomaps/basemaps` flavor plus local overrides — zoom-interpolated road-name sizes
 (Medium face for majors), scaled shields, and a readable early floor for POI-mark text.
-**Dark is the boot default** (`DEFAULT_BASEMAP_THEME`, `labels.ts`); the Map style
-panel switches themes at runtime (`MapView.setVectorTheme`; per-theme style docs
+**Dark is the default** (`DEFAULT_BASEMAP_THEME`, `labels.ts`), but the chosen
+theme / base / terrain **persist** (`lib/mapPrefs.ts`, `map-style.v1`) and the engine
+boots from them; the Map style panel switches themes at runtime (`MapView.setVectorTheme`; per-theme style docs
 fetched + cached on first use); `applyLabels` re-applies mark styling on
 every style load and swaps the mark halo dark on the dark-ground themes. Regeneration
 caveats: the npm package's output must target the served archive's tile schema version

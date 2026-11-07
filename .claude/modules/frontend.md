@@ -38,6 +38,24 @@ below that — measure via CDP, don't trust narrow screenshots.)
 
 - **Shell** (`web/src/lib/Shell.svelte`) — persistent nav chrome + active-tab highlight.
   A `RouteDef.tab` maps a sub-route (`/ntp`, `/gpsd`, `/globe`, …) to its parent tab.
+  The desktop sidebar **collapses** to a 60 px icon-only rail (« / » in the brand row;
+  localStorage `nav-collapsed`; manual only — no auto-collapse on Drive, by decision):
+  `.nav-collapsed` on `<html>` overrides `--sidebar-w` (`app.css`), which every
+  full-bleed view (map host + region, globe, places) insets by, so they all widen with
+  it (MapLibre tracks the container resize itself). Nested sub-destinations hide while
+  collapsed and SectionNav's pill strip returns on desktop to cover them.
+- **Map chrome** (`routes.ts` `MAP_CHROME` + `views/MapChrome.svelte`, rendered by `App`
+  beside the routed view) — the rule: **engine-wide state gets shell-owned chrome;
+  view-local state stays in the view.** The engine and the `layers`/`selection` stores
+  are singletons, so the right icon rail over them (🗂 Data layers · 🎨 Map style · 📊
+  Inspect) and the Map's TimeDock overlay are *declared per map route* rather than
+  re-rendered by each view — Map: all three + the dock; Drive and Weather: a single 🎨
+  button (a column would cover the town-compass marks along the top-right edge). Keyed
+  by path, so panels default closed on every route change. The label hook
+  (`hookLabels`) installs here, so a fresh load landing on Drive applies
+  theme-dependent label settings. Views keep their own chrome: Map's annotations / ⊕ /
+  legends, Drive's HUD + compass, Weather's radar panel (a *different* axis — 7-min
+  frames, a loop — kept per-view by design).
 - **Cross-tab faults** (`web/src/lib/faults.ts`) — `activeFaults(status)` is the one place
   that decides what counts as a fault and how it reads; Home's panels and the Shell's
   fault strip both call it. Shell runs its own 30 s `/api/status` poll so a fault shows on
@@ -73,7 +91,13 @@ below that — measure via CDP, don't trust narrow screenshots.)
   window — driven by the mounted TimeDock, consumed by the map trail and the density lane.
   `annotations.svelte.ts` is **axis-level** (named windows: list + jump reachable from Map
   and Trends; only the pin/polyline rendering + `pendingPan` stay map-side).
-  `layers.svelte.ts` is **map-local** (data-on-map). `live.svelte.ts` is the **live
+  `layers.svelte.ts` is the **map-engine state** (base / theme / terrain / labels + the
+  data-layer toggles); its style slice **persists** (`lib/mapPrefs.ts`, versioned
+  `map-style.v1` — the engine seeds from the same call, so a saved light theme boots
+  light with no dark flash; the data-layer toggles are session-scoped by decision) and
+  it publishes the basemap **ground** as `data-map-ground` on `<html>` for overlay CSS
+  (`mapGround`: dark/black vector themes = dark, everything else + USGS = light).
+  `live.svelte.ts` is the **live
   position feed** (Drive view, below): a refcounted 1 Hz `/api/gpsd/live` poll with rAF
   interpolation between fixes and speed-gated heading (pure math in `lib/live.ts`,
   Vitest-covered).
@@ -139,7 +163,8 @@ all chrome is idiomatic Svelte, with stores as the seam (UI intent → engine fa
   bands/ticks + the rubber-band. Its axis is the **requested window**, not the data
   extent, and it always renders — an empty window stays navigable. Hover emits
   `track.hoverMs` (the map's ghost dot) + tooltips.
-- **Right icon rail** (Map.svelte) — replaces the old floating-panel stack: 🗂 **Data
+- **Right icon rail** (shell-owned — `MapChrome.svelte`, see **Map chrome** above) —
+  replaces the old floating-panel stack: 🗂 **Data
   layers** (`DataLayers.svelte`: drone + phone + places toggles, plus **everything
   POI** — the one category filter *and* the density slider: the group chips +
   `labels.ts` zoom offset govern the basemap's own `pois` marks *and* the
@@ -245,7 +270,12 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   from the raw fix each selection (server values age with every metre); selection
   runs per fix, placement per frame off the smooth heading. Labels place greedily
   in 2-D (priority: tier, then distance; edge spot, else one row inward, else
-  dropped) with an estimated size — no DOM measurement per frame. The one
+  dropped) with an estimated size — no DOM measurement per frame (`labelSize`: the
+  font sizes are constants in `compass.ts` — 16 px names, 18 px cities, 12 px meta —
+  handed to `drive.css` as custom properties on the ring root, so the estimate and the
+  paint can't drift). The halo follows the basemap **ground** (`:root[data-map-ground]`,
+  set by the layers store): white-in-black over dark themes, dark text in a white halo
+  with darkened tier accents over light themes / USGS. The one
   **overlap-free guarantee is only against other marks**: the status pill (bad fix
   only) may sit on a dead-ahead label; the wake readout therefore lives inline in
   the HUD, not floating. Tap-to-navigate is deferred to the navigation plan. Road
