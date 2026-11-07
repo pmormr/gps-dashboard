@@ -1,8 +1,12 @@
 <script lang="ts">
   import { getPlacesNearby, type NearbyPlace } from '../lib/api'
   import {
+    CITY_NAME_PX,
     fmtMiles,
+    labelSize,
     type Mark,
+    META_PX,
+    NAME_PX,
     newCompassState,
     pips,
     placeMarks,
@@ -99,29 +103,20 @@
     marks = selectMarks(fresh, compassState)
   })
 
-  // Label size estimate — the wider of the two stacked lines (name over
-  // pips + miles), scaled with proximity — avoids DOM measurement per frame.
-  // Cities render 14px/800 (drive.css), the rest 13px/600–700.
-  const CHAR_PX_BY_TIER = [7.2, 7.2, 7.6, 8.8, 8.8]
-  const META_PX = 76
-  const LINES_PX = 26
-  const size = (m: Mark): { width: number; height: number } => {
-    const s = proximityScale(m)
-    return {
-      width: (Math.max(m.name.length * CHAR_PX_BY_TIER[Math.min(m.tier, 5) - 1], META_PX) + 4) * s,
-      height: LINES_PX * s,
-    }
-  }
-
-  // Per-frame placement off the smooth heading.
+  // Per-frame placement off the smooth heading. The label box estimate
+  // (lib/compass.ts labelSize) and the painted sizes (the custom properties
+  // on the root below) derive from the same constants, so they can't drift.
   const placed = $derived(
-    placeMarks(marks, heading, { width: frameWidth, height: frameHeight }, size),
+    placeMarks(marks, heading, { width: frameWidth, height: frameHeight }, labelSize),
   )
 </script>
 
 <div
   class="drive-compass"
   style:bottom={`${bottomPx}px`}
+  style:--compass-name={`${NAME_PX}px`}
+  style:--compass-city={`${CITY_NAME_PX}px`}
+  style:--compass-meta={`${META_PX}px`}
   bind:clientWidth={frameWidth}
   bind:clientHeight={frameHeight}
 >

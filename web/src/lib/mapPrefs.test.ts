@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_STYLE_PREFS, parseStylePrefs } from './mapPrefs'
+import { DEFAULT_STYLE_PREFS, mapGround, parseStylePrefs } from './mapPrefs'
 
 describe('parseStylePrefs', () => {
   it('returns defaults for null, empty and garbage input', () => {
@@ -41,5 +41,17 @@ describe('parseStylePrefs', () => {
       }),
     )
     expect(got).toEqual(DEFAULT_STYLE_PREFS)
+  })
+})
+
+describe('mapGround', () => {
+  it('is dark only for the dark vector themes', () => {
+    expect(mapGround('osm', 'dark')).toBe('dark')
+    expect(mapGround('osm', 'black')).toBe('dark')
+    expect(mapGround('osm', 'light')).toBe('light')
+    expect(mapGround('osm', 'grayscale')).toBe('light')
+  })
+  it('treats the USGS raster as light whatever the vector theme says', () => {
+    expect(mapGround('usgs', 'dark')).toBe('light')
   })
 })

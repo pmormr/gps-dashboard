@@ -233,6 +233,46 @@ export function proximityScale(mark: Pick<Mark, 'tier' | 'distanceM'>): number {
   return PROXIMITY_SCALE_FAR + (PROXIMITY_SCALE_NEAR - PROXIMITY_SCALE_FAR) * proximity(mark)
 }
 
+// ── Label typography ───────────────────────────────────────────────────────
+// drive.css reads these as custom properties set on the ring root, so the
+// placement estimate below and the painted size derive from one place.
+/** Name font size (px); cities (tier ≥ CITY_TIER) use CITY_NAME_PX. */
+export const NAME_PX = 16
+export const CITY_NAME_PX = 18
+/** The pips + miles line (px). */
+export const META_PX = 12
+/** First tier painted as a city (bigger, 800 weight). */
+export const CITY_TIER = 4
+/** Mean glyph advance as a fraction of font size per tier — system-ui at the
+ *  weights drive.css uses (600 / 600 / 700 / 800 / 800). */
+const NAME_EM: readonly number[] = [0.555, 0.555, 0.585, 0.63, 0.63]
+/** The widest meta line ("▮▮▯▯▯ 12.3 mi") in ems of META_PX. */
+const META_EM = 7.6
+const LINE_GAP_PX = 1
+
+/** Whether a tier paints as a city. */
+export function isCity(tier: number): boolean {
+  return tier >= CITY_TIER
+}
+
+/**
+ * Label box estimate for placement — the wider of the two stacked lines (name
+ * over pips + miles), scaled with proximity — avoids DOM measurement per frame.
+ */
+export function labelSize(mark: Pick<Mark, 'tier' | 'distanceM' | 'name'>): {
+  width: number
+  height: number
+} {
+  const s = proximityScale(mark)
+  const tier = Math.min(Math.max(Math.round(mark.tier), 1), NAME_EM.length)
+  const namePx = isCity(tier) ? CITY_NAME_PX : NAME_PX
+  const nameW = mark.name.length * namePx * NAME_EM[tier - 1]
+  return {
+    width: (Math.max(nameW, META_EM * META_PX) + 4) * s,
+    height: (namePx * 1.05 + LINE_GAP_PX + META_PX + 2) * s,
+  }
+}
+
 /** The population pip bar: one filled cell per tier (`▮▮▯▯▯` = 1k–10k). */
 export function pips(tier: number): string {
   const filled = Math.min(Math.max(Math.round(tier), 0), PIP_CELLS)

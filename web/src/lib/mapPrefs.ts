@@ -9,7 +9,7 @@
  * Data-layer toggles (drone/phone/places) are deliberately session-scoped.
  */
 
-import { BASEMAP_THEMES, DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
+import { BASEMAP_THEMES, DARK_THEMES, DEFAULT_BASEMAP_THEME, type BasemapTheme } from './labels'
 
 export type BaseLayer = 'osm' | 'usgs'
 
@@ -32,6 +32,19 @@ export const DEFAULT_STYLE_PREFS: Readonly<StylePrefs> = {
   exaggeration: 1.3,
   minorRoads: true,
   labelOffset: -1,
+}
+
+/** The basemap's ground tone — what overlay text has to read against. */
+export type MapGround = 'light' | 'dark'
+
+/**
+ * Ground for the current base + theme: the dark/black vector themes are dark,
+ * every other theme and the USGS raster are light. Published by the layers
+ * store as `data-map-ground` on <html> so overlay CSS (the Drive compass halo)
+ * flips without per-element JS.
+ */
+export function mapGround(base: BaseLayer, theme: BasemapTheme): MapGround {
+  return base === 'osm' && DARK_THEMES.has(theme) ? 'dark' : 'light'
 }
 
 /** localStorage key — versioned: bump when the shape or a field's range changes. */

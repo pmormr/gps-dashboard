@@ -38,7 +38,7 @@ export const BASEMAP_THEMES: { id: BasemapTheme; label: string }[] = [
 export const DEFAULT_BASEMAP_THEME: BasemapTheme = 'dark'
 
 /** Themes with a dark ground — marks swap to a dark halo so they don't glow. */
-const DARK_THEMES: ReadonlySet<BasemapTheme> = new Set(['dark', 'black'])
+export const DARK_THEMES: ReadonlySet<BasemapTheme> = new Set(['dark', 'black'])
 
 /** Current style-panel settings (a snapshot the store exposes). */
 export interface LabelSettings {

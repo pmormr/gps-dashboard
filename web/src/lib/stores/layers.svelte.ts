@@ -15,7 +15,13 @@
 import type { Place } from '../api'
 import { ALL_GROUP_KEYS } from '../places'
 import type { BasemapTheme, LabelSettings } from '../labels'
-import { type BaseLayer, loadStylePrefs, saveStylePrefs, type StylePrefs } from '../mapPrefs'
+import {
+  type BaseLayer,
+  loadStylePrefs,
+  mapGround,
+  saveStylePrefs,
+  type StylePrefs,
+} from '../mapPrefs'
 
 export type { BaseLayer }
 
@@ -108,5 +114,10 @@ export const layers = new LayersStore()
 $effect.root(() => {
   $effect(() => {
     saveStylePrefs(layers.stylePrefs)
+  })
+  // The ground signal for overlay CSS (drive.css compass halo): one attribute
+  // on <html>, flipped here rather than per element.
+  $effect(() => {
+    document.documentElement.dataset.mapGround = mapGround(layers.base, layers.theme)
   })
 })

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { NearbyPlace } from './api'
 import {
+  CITY_NAME_PX,
   fmtMiles,
+  labelSize,
   LEAVE_FACTOR,
   type Mark,
   METRO_SLOTS,
@@ -191,5 +193,24 @@ describe('pips + fmtMiles', () => {
     expect(fmtMiles(1609.344)).toBe('1.0 mi')
     expect(fmtMiles(16_200)).toBe('10 mi')
     expect(fmtMiles(200_000)).toBe('124 mi')
+  })
+})
+
+describe('labelSize', () => {
+  const near = { tier: 2, distanceM: 1000, name: 'Alma' }
+  it('scales with proximity', () => {
+    const far = { ...near, distanceM: 30_000 }
+    expect(labelSize(near).width).toBeGreaterThan(labelSize(far).width)
+    expect(labelSize(near).height).toBeGreaterThan(labelSize(far).height)
+  })
+  it('floors short names at the meta line width', () => {
+    expect(labelSize({ ...near, name: 'A' }).width).toBe(labelSize({ ...near, name: 'Al' }).width)
+  })
+  it('paints cities bigger than villages of the same name', () => {
+    const village = labelSize({ tier: 2, distanceM: 1e9, name: 'Springfield' })
+    const city = labelSize({ tier: 5, distanceM: 1e9, name: 'Springfield' })
+    expect(city.width).toBeGreaterThan(village.width)
+    expect(city.height).toBeGreaterThan(village.height)
+    expect(CITY_NAME_PX).toBeGreaterThan(0)
   })
 })

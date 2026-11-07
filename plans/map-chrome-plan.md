@@ -39,17 +39,18 @@ view chrome.**
    Shell renders it, Map.svelte sheds the rail.
 2. [x] Persist map style prefs (theme/base/terrain/exaggeration/minor roads) in
    localStorage, versioned key (`lib/mapPrefs.ts`; engine + store both seed from
-   it). Data-layer toggles stay session-scoped (flagged — user to confirm).
-3. [ ] Drive quick toggle: one-tap ☀/🌙 in the HUD flipping light ↔ dark.
-4. [ ] Ground-aware compass styling (M5): dark text + light halo on light ground.
-5. [ ] Compass text size up (names 13→16, cities 14→18, meta 10→12 first guess);
+   it). Data-layer toggles stay session-scoped (confirmed 2026-11-07).
+3. [-] ~~Drive quick toggle (HUD ☀/🌙)~~ — dropped 2026-11-07: the single style
+   button is enough (user's call).
+4. [x] Ground-aware compass styling (M5): dark text + light halo on light ground.
+5. [x] Compass text size up (names 13→16, cities 14→18, meta 10→12 first guess);
    the placement size estimate in `DriveCompass.svelte` derives from the same
    constants so marks can't overlap.
 6. [ ] Collapsible desktop sidebar (icon-only ~56px, persisted; fault block gets an
-   icon-only form; verify MapLibre picks up the container resize).
+   icon-only form; verify MapLibre picks up the container resize). **Manual
+   toggle only** — no auto-collapse on Drive (user's call 2026-11-07).
 7. [ ] Fold into `frontend.md` (Shell/Map/Drive sections), drop this file.
 
 ## Later / flagged
 
 - "Auto" theme from solar elevation (position + time; no dependency).
-- Auto-collapse the sidebar on Drive?

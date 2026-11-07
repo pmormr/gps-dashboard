@@ -227,7 +227,11 @@
    relative bearing meets the edge: ahead on top, behind along the HUD's top
    edge, a town being passed sliding down the side. Placed by lib/compass.ts;
    this only paints. No backing panel — text shadow over the map. --prox is
-   the proximity scale (closer inside its tier radius = bigger). */
+   the proximity scale (closer inside its tier radius = bigger); the font
+   sizes come in as --compass-name/--compass-city/--compass-meta from
+   lib/compass.ts so the placement estimate matches what is painted. The halo
+   flips with the basemap ground (:root[data-map-ground], set by the layers
+   store): white-in-black over dark themes, dark-in-white over light ones. */
 .drive-compass {
   position: absolute;
   inset: 0;
@@ -255,18 +259,19 @@
   color: var(--text);
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.95),
-    0 0 6px rgba(0, 0, 0, 0.7);
+    0 0 6px rgba(0, 0, 0, 0.85),
+    0 0 14px rgba(0, 0, 0, 0.6);
   opacity: calc(0.55 + 0.45 * (var(--prox, 1) - 0.85) / 0.4);
 }
 
 .drive-compass-mark .name {
-  font-size: calc(13px * var(--prox, 1));
+  font-size: calc(var(--compass-name, 16px) * var(--prox, 1));
   font-weight: 600;
   line-height: 1.05;
 }
 
 .drive-compass-mark .meta {
-  font-size: calc(10px * var(--prox, 1));
+  font-size: calc(var(--compass-meta, 12px) * var(--prox, 1));
   font-weight: 600;
   line-height: 1;
   color: var(--text-dim);
@@ -300,6 +305,45 @@
 
 .drive-compass-mark[data-tier='4'] .name,
 .drive-compass-mark[data-tier='5'] .name {
-  font-size: calc(14px * var(--prox, 1));
+  font-size: calc(var(--compass-city, 18px) * var(--prox, 1));
   font-weight: 800;
+}
+
+/* Light ground (light/white/grayscale themes, USGS raster): dark text in a
+   white halo — white text with a black shadow reads as a thin outline there —
+   and the tier accents darken so they keep contrast on a pale map. */
+:root[data-map-ground='light'] .drive-compass-mark {
+  color: #0f172a;
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.95),
+    0 0 6px rgba(255, 255, 255, 0.9),
+    0 0 14px rgba(255, 255, 255, 0.8);
+}
+
+:root[data-map-ground='light'] .drive-compass-mark .meta {
+  color: #334155;
+}
+
+:root[data-map-ground='light'] .drive-compass-tick {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+:root[data-map-ground='light'] .drive-compass-tick,
+:root[data-map-ground='light'] .drive-compass-mark .pips {
+  background-color: #15803d;
+  color: #15803d;
+}
+
+:root[data-map-ground='light'] .drive-compass-tick[data-tier='3'],
+:root[data-map-ground='light'] .drive-compass-mark[data-tier='3'] .pips {
+  background-color: #1d4ed8;
+  color: #1d4ed8;
+}
+
+:root[data-map-ground='light'] .drive-compass-tick[data-tier='4'],
+:root[data-map-ground='light'] .drive-compass-tick[data-tier='5'],
+:root[data-map-ground='light'] .drive-compass-mark[data-tier='4'] .pips,
+:root[data-map-ground='light'] .drive-compass-mark[data-tier='5'] .pips {
+  background-color: #b45309;
+  color: #b45309;
 }
