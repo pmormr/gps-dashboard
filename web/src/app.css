@@ -16,12 +16,22 @@
   --fault-h: 0px;
   --nav-h: calc(var(--tabs-h) + var(--fault-h));
   --sidebar-w: 220px;
+  --sidebar-collapsed-w: 60px;
   /* Desktop content cap: readability over raw width-fill on a parked laptop
      (~1440px). Control/prose pages cap here; dense tables opt out via .app-page--wide. */
   --content-max: 1140px;
 
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
+}
+
+/* Desktop sidebar collapse: Shell toggles .nav-collapsed on <html> (persisted)
+   and the sidebar becomes an icon-only rail. Every full-bleed view (map, globe,
+   places) insets by --sidebar-w, so they all widen with it. */
+@media (min-width: 768px) {
+  :root.nav-collapsed {
+    --sidebar-w: var(--sidebar-collapsed-w);
+  }
 }
 
 /* Shell toggles .has-fault while a cross-tab fault is active. Phone-only: the

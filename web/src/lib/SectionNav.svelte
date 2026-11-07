@@ -36,10 +36,14 @@
     background: var(--bg);
   }
   /* Desktop shows the sub-destinations nested in the sidebar instead (Shell), so
-     the top pill strip is phone-only. */
+     the top pill strip is phone-only — unless the sidebar is collapsed to its
+     icon-only rail, which has no room for nesting. */
   @media (min-width: 768px) {
     .section-nav {
       display: none;
+    }
+    :global(:root.nav-collapsed) .section-nav {
+      display: flex;
     }
   }
   .section-nav::-webkit-scrollbar {

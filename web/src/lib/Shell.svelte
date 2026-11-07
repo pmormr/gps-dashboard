@@ -29,15 +29,55 @@
     router.navigate(to)
     moreOpen = false
   }
+
+  // Desktop sidebar collapse (icon-only rail), persisted — a parked laptop or a
+  // landscape tablet on the dash wants the map width more than the labels.
+  // Manual only by design: no auto-collapse on Drive. The root class drives
+  // --sidebar-w (app.css), which every full-bleed view insets by.
+  const COLLAPSED_KEY = 'nav-collapsed'
+  let collapsed = $state(readCollapsed())
+
+  function readCollapsed(): boolean {
+    try {
+      return localStorage.getItem(COLLAPSED_KEY) === '1'
+    } catch {
+      return false
+    }
+  }
+
+  function toggleCollapsed(): void {
+    collapsed = !collapsed
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* private mode — the in-memory state still applies */
+    }
+  }
+
+  $effect(() => {
+    document.documentElement.classList.toggle('nav-collapsed', collapsed)
+  })
 </script>
 
 <div class="shell">
   <nav class="nav">
-    <div class="brand">Van OS</div>
+    <div class="brand">
+      <span class="brand-name">Van OS</span>
+      <button
+        type="button"
+        class="collapse"
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-expanded={!collapsed}
+        onclick={toggleCollapsed}
+      >{collapsed ? '»' : '«'}</button>
+    </div>
     {#if faults.length > 0}
       <div class="faults" role="alert">
         {#each faults as fault (fault.id)}
-          <button class="fault" onclick={() => go(fault.to)}>⚠ {fault.message}</button>
+          <button class="fault" title={fault.message} onclick={() => go(fault.to)}>
+            ⚠{#if !collapsed} {fault.message}{/if}
+          </button>
         {/each}
       </div>
     {/if}
@@ -279,12 +319,53 @@
     }
 
     .brand {
-      display: block;
-      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 12px 14px 20px;
       font-weight: 600;
       font-size: 18px;
       color: var(--text);
       letter-spacing: 0.5px;
+    }
+    .collapse {
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text-dim);
+      font: inherit;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .collapse:hover {
+      color: var(--text);
+    }
+
+    /* Collapsed: an icon-only rail. Labels, nested sub-destinations and the
+       brand name go; SectionNav's pill strip returns on top to cover the
+       sub-destinations (SectionNav.svelte). */
+    :global(:root.nav-collapsed) .brand {
+      padding: 14px 0;
+      justify-content: center;
+    }
+    :global(:root.nav-collapsed) .brand-name,
+    :global(:root.nav-collapsed) .navitem .label,
+    :global(:root.nav-collapsed) .subnav {
+      display: none;
+    }
+    :global(:root.nav-collapsed) .navitem {
+      justify-content: center;
+      padding: 12px 0;
+    }
+    :global(:root.nav-collapsed) .faults {
+      padding: 0 8px 10px;
+    }
+    :global(:root.nav-collapsed) .fault {
+      padding: 6px 0;
+      text-align: center;
     }
 
     .faults {

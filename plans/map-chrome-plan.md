@@ -46,7 +46,7 @@ view chrome.**
 5. [x] Compass text size up (names 13→16, cities 14→18, meta 10→12 first guess);
    the placement size estimate in `DriveCompass.svelte` derives from the same
    constants so marks can't overlap.
-6. [ ] Collapsible desktop sidebar (icon-only ~56px, persisted; fault block gets an
+6. [x] Collapsible desktop sidebar (icon-only ~56px, persisted; fault block gets an
    icon-only form; verify MapLibre picks up the container resize). **Manual
    toggle only** — no auto-collapse on Drive (user's call 2026-11-07).
 7. [ ] Fold into `frontend.md` (Shell/Map/Drive sections), drop this file.
