@@ -608,7 +608,17 @@ def _seed_settlements() -> None:
     """Five GeoNames rows around (39, -106) spanning the tier radii, plus a GNIS twin."""
     from tools.import_places import GEONAMES_KIND_RANKS
 
-    def town(source_id: str, name: str, lat: float, lon: float, population: int) -> Place:
+    def town(
+        source_id: str,
+        name: str,
+        lat: float,
+        lon: float,
+        population: int,
+        region: str | None = None,
+    ) -> Place:
+        details: dict = {'population': population}
+        if region:
+            details.update(region=region, country='US')
         return Place(
             'populated_place',
             source_id,
@@ -617,12 +627,12 @@ def _seed_settlements() -> None:
             lat,
             lon,
             None,
-            {'population': population},
+            details,
             population=population,
         )
 
     rows = [
-        town('1', 'Near Village', 39.045, -106.0, 800),  # ~5 km N, tier 1 (8 km)
+        town('1', 'Near Village', 39.045, -106.0, 800, 'Colorado'),  # ~5 km N, tier 1 (8 km)
         town('2', 'Far Village', 39.18, -106.0, 800),  # ~20 km N, tier 1 → out
         town('3', 'Town', 39.0, -105.65, 12_000),  # ~30 km E, tier 3 (110 km)
         town('4', 'City', 37.2, -106.0, 700_000),  # ~200 km S, tier 4 (250 km)
@@ -644,6 +654,9 @@ def test_nearby_keeps_each_tier_within_its_radius(client) -> None:
     assert body['count'] == 4 and body['truncated'] is False
     near = body['places'][0]
     assert near['tier'] == 1 and near['population'] == 800
+    # The importer's admin1 name + country ride along (the HUD's "Town, ST").
+    assert near['region'] == 'Colorado' and near['country'] == 'US'
+    assert body['places'][1]['region'] is None and body['places'][1]['country'] is None
     assert near['distance_m'] == pytest.approx(5_000, rel=0.02)
     assert near['bearing_deg'] == pytest.approx(0.0, abs=0.5)
     assert [p['tier'] for p in body['places']] == [1, 3, 4, 5]

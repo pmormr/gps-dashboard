@@ -381,6 +381,10 @@ export interface NearbyPlace {
   population: number
   /** ×10 population band, 1 (under 1k) … 5 (1M+). */
   tier: number
+  /** Importer's admin1 name (e.g. "Pennsylvania"), or null. */
+  region: string | null
+  /** ISO country code (e.g. "US"), or null. */
+  country: string | null
   distance_m: number
   /** Initial great-circle bearing from the query point, degrees true. */
   bearing_deg: number

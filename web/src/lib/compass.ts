@@ -317,6 +317,40 @@ export function labelSize(mark: Pick<Mark, 'tier' | 'distanceM' | 'name'>): {
   }
 }
 
+// US states + DC and Canadian provinces by the importer's admin1 *name*
+// (GeoNames maps the code to its name at import, so the postal code is
+// rebuilt here). Anything unmapped shows its full region name.
+const REGION_ABBREV: Readonly<Record<string, string>> = {
+  Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR', California: 'CA',
+  Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE', 'District of Columbia': 'DC',
+  Florida: 'FL', Georgia: 'GA', Hawaii: 'HI', Idaho: 'ID', Illinois: 'IL',
+  Indiana: 'IN', Iowa: 'IA', Kansas: 'KS', Kentucky: 'KY', Louisiana: 'LA',
+  Maine: 'ME', Maryland: 'MD', Massachusetts: 'MA', Michigan: 'MI', Minnesota: 'MN',
+  Mississippi: 'MS', Missouri: 'MO', Montana: 'MT', Nebraska: 'NE', Nevada: 'NV',
+  'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+  'North Carolina': 'NC', 'North Dakota': 'ND', Ohio: 'OH', Oklahoma: 'OK',
+  Oregon: 'OR', Pennsylvania: 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', Tennessee: 'TN', Texas: 'TX', Utah: 'UT', Vermont: 'VT',
+  Virginia: 'VA', Washington: 'WA', 'West Virginia': 'WV', Wisconsin: 'WI',
+  Wyoming: 'WY', 'Puerto Rico': 'PR',
+  Alberta: 'AB', 'British Columbia': 'BC', Manitoba: 'MB', 'New Brunswick': 'NB',
+  'Newfoundland and Labrador': 'NL', 'Nova Scotia': 'NS', 'Northwest Territories': 'NT',
+  Nunavut: 'NU', Ontario: 'ON', 'Prince Edward Island': 'PE', Quebec: 'QC',
+  Saskatchewan: 'SK', Yukon: 'YT',
+}
+
+/** "PA" for Pennsylvania, "ON" for Ontario; an unmapped region as given; '' for none. */
+export function regionAbbrev(region: string | null | undefined): string {
+  if (!region) return ''
+  return REGION_ABBREV[region] ?? region
+}
+
+/** "Philadelphia, PA" — the name with its region, or the bare name without one. */
+export function placeLabel(place: Pick<NearbyPlace, 'name' | 'region'>): string {
+  const r = regionAbbrev(place.region)
+  return r ? `${place.name}, ${r}` : place.name
+}
+
 /** Compact population for a ring label: 850 · 4.2k · 715k · 2.7M. */
 export function fmtPopulation(n: number): string {
   if (n < 1000) return String(Math.max(0, Math.round(n)))

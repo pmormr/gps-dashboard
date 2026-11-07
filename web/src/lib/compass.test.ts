@@ -4,6 +4,8 @@ import type { NearbyPlace } from './api'
 import {
   CITY_NAME_PX,
   currentTown,
+  placeLabel,
+  regionAbbrev,
   fmtMiles,
   labelSize,
   LEAVE_FACTOR,
@@ -34,6 +36,8 @@ function place(
     lon: 0,
     population: over.population,
     tier,
+    region: over.region ?? null,
+    country: over.country ?? null,
     distance_m: over.km * 1000,
     bearing_deg: over.bearing,
   }
@@ -234,6 +238,8 @@ describe('currentTown', () => {
     lon: 0,
     population,
     tier,
+    region: null,
+    country: null,
     distance_m: km * 1000,
     bearing_deg: 0,
   })
@@ -259,5 +265,21 @@ describe('currentTown', () => {
     expect(currentTown([inc], null)).toEqual({ place: inc, inside: false })
     expect(currentTown([inc], 1)).toEqual({ place: inc, inside: true })
     expect(currentTown([place(1, 2, 3.6)], 1)).toEqual({ place: place(1, 2, 3.6), inside: false })
+  })
+})
+
+describe('regionAbbrev + placeLabel', () => {
+  it('abbreviates US states and Canadian provinces by name', () => {
+    expect(regionAbbrev('Pennsylvania')).toBe('PA')
+    expect(regionAbbrev('District of Columbia')).toBe('DC')
+    expect(regionAbbrev('Ontario')).toBe('ON')
+  })
+  it('passes unmapped regions through and blanks a missing one', () => {
+    expect(regionAbbrev('Chihuahua')).toBe('Chihuahua')
+    expect(regionAbbrev(null)).toBe('')
+  })
+  it('labels a place with its region when known', () => {
+    expect(placeLabel({ name: 'Philadelphia', region: 'Pennsylvania' })).toBe('Philadelphia, PA')
+    expect(placeLabel({ name: 'Nowhere', region: null })).toBe('Nowhere')
   })
 })

@@ -438,6 +438,24 @@ def lookup_place():
     return jsonify({'id': row['id']})
 
 
+def _details_dict(raw: str | None) -> dict:
+    """Parse a row's ``details`` JSON, tolerating a missing or malformed blob.
+
+    Args:
+        raw: The stored JSON text, or None.
+
+    Returns:
+        The details object, or an empty dict when there is none to read.
+    """
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 @places_bp.get('/api/places/nearby')
 def nearby_places():
     """Population-bearing settlements around a point — the Drive compass read.
@@ -450,8 +468,11 @@ def nearby_places():
     and a metro from a few hundred km out. The client owns those constants
     and passes its hysteresis-widened values — this read is a plain distance
     filter with no ranking of its own. Rows come back nearest-first with
-    ``distance_m``, ``bearing_deg`` (true, from the point) and ``tier``;
-    ``truncated`` means the ``limit`` cut the far end.
+    ``distance_m``, ``bearing_deg`` (true, from the point), ``tier``, and the
+    importer's ``region``/``country`` (the GeoNames admin1 name, e.g.
+    ``Pennsylvania``, and ISO country — from the row's details; None when
+    absent) so the Drive HUD can say "Philadelphia, PA"; ``truncated``
+    means the ``limit`` cut the far end.
     """
     lat_arg = request.args.get('lat')
     lon_arg = request.args.get('lon')
@@ -491,7 +512,7 @@ def nearby_places():
 
     conn = get_connection()
     rows = conn.execute(
-        'SELECT id, name, summary, lat, lon, population, synced_at FROM places '
+        'SELECT id, name, summary, lat, lon, population, synced_at, details FROM places '
         f'WHERE population IS NOT NULL AND {" AND ".join(bbox_where)}',
         bbox_params,
     ).fetchall()
@@ -504,6 +525,7 @@ def nearby_places():
         if distance > radii[tier - 1] * 1000.0:
             continue
         synced_at = row['synced_at'] if synced_at is None else max(synced_at, row['synced_at'])
+        details = _details_dict(row['details'])
         places.append(
             {
                 'id': row['id'],
@@ -513,6 +535,8 @@ def nearby_places():
                 'lon': row['lon'],
                 'population': row['population'],
                 'tier': tier,
+                'region': details.get('region'),
+                'country': details.get('country'),
                 'distance_m': round(distance, 1),
                 'bearing_deg': round(initial_bearing_deg(lat, lon, row['lat'], row['lon']), 1),
             }
