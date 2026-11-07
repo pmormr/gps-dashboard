@@ -34,7 +34,7 @@ the flagged item before letting the Pi pull its own PBFs.
 | NPS places+events | ~100 MB API walk | Pi, WAN | ~monthly |
 | RIDB places | 245 MB public zip | Pi downloads + imports | ~seasonal |
 | GNIS names | 37 MB public zip | Pi downloads + imports (chained after OSM) | ~seasonal |
-| GeoNames towns | ~14 MB public zip + admin1 names | Pi downloads + imports (`geonames` chunk) | ~seasonal |
+| GeoNames towns | ~95 MB (US/CA/MX dumps) + admin1 names | Pi downloads + imports (`geonames` chunk) | ~seasonal |
 | OSM POIs | ~16 GB Geofabrik PBFs → ~3 GB transfer DB | Pi downloads + builds + merges (hours, detached) | ~seasonal |
 | Wikipedia cache | ~2–3 GB API fetch (hours, resumable) | Pi fetches + merges | after OSM |
 | Vector basemap | ~33 GB `pmtiles extract` of a dated Protomaps planet build | Pi extracts + atomic-replaces | ~seasonal/on demand |

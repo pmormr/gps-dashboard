@@ -83,9 +83,11 @@ def _job_gnis(force: bool) -> None:
 
 
 def _job_geonames(force: bool) -> None:
-    """Download the GeoNames cities500 dump + admin1 names into staging and import them."""
-    cities, admin1 = fetch.download_geonames()
-    _places_import(['--geonames-zip', str(cities), '--geonames-admin1', str(admin1)], force)
+    """Download the GeoNames country dumps + admin1 names into staging and import them."""
+    zips, admin1 = fetch.download_geonames()
+    _places_import(
+        ['--geonames-zip', *(str(z) for z in zips), '--geonames-admin1', str(admin1)], force
+    )
 
 
 def _job_satcat(force: bool) -> None:

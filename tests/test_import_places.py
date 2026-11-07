@@ -33,7 +33,9 @@ from tools.import_places import (
     build_ridb_places,
     check_sanity_floor,
     dedupe_by_source_id,
+    dedupe_geonames,
     drop_name_shadowed,
+    geonames_member,
     load,
     merge_osm,
     parse_ampm,
@@ -577,6 +579,33 @@ def test_read_geonames_zip(tmp_path: Path) -> None:
     assert [(a.name, a.population) for a in places] == [('Denver', 715522), ('Vancouver', 600000)]
     assert places[1].summary == 'City (state capital) · British Columbia, CA'
     assert skipped == {'code': 1, 'short_row': 1, 'no_coord_or_bbox': 1}
+
+    # A country dump carries its rows in <CC>.txt — the small-town source
+    # (Allentown, GA: 191 people, below cities500's floor).
+    country = tmp_path / 'US.zip'
+    with zipfile.ZipFile(country, 'w') as zf:
+        zf.writestr(
+            'US.txt',
+            row(
+                geonameid='5',
+                name='Allentown',
+                latitude='32.593',
+                longitude='-83.226',
+                population='191',
+            )
+            + '\n'
+            + row()
+            + '\n',
+        )
+    assert geonames_member(country, ['US.txt']) == 'US.txt'
+    assert geonames_member(tmp_path / 'cities500.zip', ['cities500.txt']) == 'cities500.txt'
+    with pytest.raises(KeyError):
+        geonames_member(country, ['readme.txt'])
+    places_us, _ = read_geonames_zip(country, _ADMIN1)
+    assert [(a.name, a.population) for a in places_us] == [('Allentown', 191), ('Denver', 715522)]
+    # Across dumps a repeated geonameid (Denver in both) is loaded once.
+    merged = dedupe_geonames(places + places_us)
+    assert [a.name for a in merged] == ['Denver', 'Vancouver', 'Allentown']
 
 
 # --- Sanity floor (destructive full-replace guard) -----------------------------------

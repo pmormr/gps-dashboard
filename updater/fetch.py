@@ -27,7 +27,11 @@ GNIS_URL = (
     'https://prd-tnm.s3.amazonaws.com/StagedProducts/GeographicNames/'
     'DomesticNames/DomesticNames_National_Text.zip'
 )
-GEONAMES_URL = 'https://download.geonames.org/export/dump/cities500.zip'
+#: GeoNames per-country dumps (every feature, population where the census has
+#: one) — the worldwide ``cities500`` has a 500-resident floor that drops the
+#: small towns the Drive compass most wants. North America = the basemap.
+GEONAMES_DUMPS: tuple[str, ...] = ('US', 'CA', 'MX')
+GEONAMES_DUMP_URL = 'https://download.geonames.org/export/dump/{cc}.zip'
 GEONAMES_ADMIN1_URL = 'https://download.geonames.org/export/dump/admin1CodesASCII.txt'
 
 #: Conventional staged filename per staged-import chunk: the producing tool's
@@ -135,12 +139,15 @@ def download_gnis() -> Path:
     return download(GNIS_URL, staging_dir() / 'DomesticNames_National_Text.zip')
 
 
-def download_geonames() -> tuple[Path, Path]:
-    """Fetch the GeoNames ``cities500.zip`` (~10 MB) + ``admin1CodesASCII.txt`` into staging.
+def download_geonames() -> tuple[list[Path], Path]:
+    """Fetch the GeoNames country dumps (US ~71 MB, CA ~8, MX ~15) + ``admin1CodesASCII.txt``.
 
     Returns:
-        ``(cities_zip, admin1_codes)`` — the importer takes both.
+        ``(dump_zips, admin1_codes)`` — the importer takes all of them.
     """
-    cities = download(GEONAMES_URL, staging_dir() / 'cities500.zip')
+    zips = [
+        download(GEONAMES_DUMP_URL.format(cc=cc), staging_dir() / f'{cc}.zip')
+        for cc in GEONAMES_DUMPS
+    ]
     admin1 = download(GEONAMES_ADMIN1_URL, staging_dir() / 'admin1CodesASCII.txt')
-    return cities, admin1
+    return zips, admin1

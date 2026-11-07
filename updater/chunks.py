@@ -112,7 +112,7 @@ CHUNKS: tuple[Chunk, ...] = (
         section='places',
         action='pi_run',
         cadence='~seasonal',
-        transfer='~10 MB zip',
+        transfer='~95 MB (US/CA/MX zips)',
         stale_days=180,
         probe=lambda conn: probes.places_slice(conn, 'geonames'),
     ),

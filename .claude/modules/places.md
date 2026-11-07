@@ -126,9 +126,11 @@ touches other sources' rows. The `place_wiki` cache is a fifth, place-shaped-but
   OSM slice has no settlement rows). **Re-run the GNIS import after every OSM
   merge** (a fresh OSM slice moves both dedupe boundaries).
   Pi-side import like RIDB (pipe-delimited parse, no geometry work).
-- **GeoNames** (`--geonames-zip <cities500.zip> [--geonames-admin1 <admin1CodesASCII.txt>]`):
-  the tier's only **population-bearing** settlement layer (~43.5k NA rows from the
-  ~14 MB worldwide dump, CC-BY 4.0) — the Drive compass's weighting input
+- **GeoNames** (`--geonames-zip US.zip CA.zip MX.zip [--geonames-admin1 <admin1CodesASCII.txt>]`):
+  the tier's only **population-bearing** settlement layer — the per-country dumps
+  (US ~71 MB, CA ~8, MX ~15; every settlement with a census count, CC-BY 4.0; the
+  worldwide `cities500.zip` also parses but its 500-resident floor drops the small
+  towns the compass wants — Allentown, GA is 191 people) — the Drive compass's weighting input
   (`plans/drive-hud-plan.md`). `population` is a **real column** (NULL on every other
   source) with a partial index `idx_places_population` over `(lat, lon)`, so a bbox +
   `population IS NOT NULL` read plans onto ~100k rows instead of the rank partials;
@@ -206,7 +208,8 @@ RIDB:
 - **GNIS** ~seasonally, chained **after** the OSM merge (the dedupe reads the fresh OSM
   slice): download the zip on the laptop, `scp`, run `--gnis-zip` on the Pi.
 - **GeoNames** ~seasonally, from the Data tab (the `geonames` updater chunk downloads
-  both files and imports; no ordering dependency) or by hand with `--geonames-zip`.
+  the three country dumps + admin1 names and imports; no ordering dependency) or by
+  hand with `--geonames-zip`.
 - **Wiki** ~seasonally, after OSM rebuilds: `tools/fetch_wikipedia.py` on the laptop
   (resumable; incremental re-runs only fetch new keys), `scp` the transfer DB, run
   `--wiki-db` on the Pi.

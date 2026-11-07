@@ -32,9 +32,11 @@ Three mutually exclusive modes, each full-replacing its own ``source`` slice of
   (:func:`osm_name_dupes` — the untagged remainder of the same seeding).
   **Re-run this after every OSM merge**: a fresh OSM slice moves both
   boundaries.
-* **GeoNames** (``--geonames-zip``) — parses the GeoNames ``cities500.zip``
-  dump (``download.geonames.org/export/dump/``, ~10 MB, every settlement
-  with population ≥ 500 worldwide, CC-BY 4.0) into ``source='geonames'``
+* **GeoNames** (``--geonames-zip``, repeatable) — parses GeoNames dumps
+  (``download.geonames.org/export/dump/``, CC-BY 4.0): the per-country
+  ``US.zip``/``CA.zip``/``MX.zip`` (every settlement with a census count —
+  the worldwide ``cities500.zip`` also parses, but its 500-resident floor
+  drops the small towns the Drive compass wants) into ``source='geonames'``
   rows clipped to the basemap bbox: the tier's only **population-bearing**
   settlement layer, read by the Drive compass (plans/drive-hud-plan.md).
   ``--geonames-admin1`` (``admin1CodesASCII.txt``) supplies region names for
@@ -1125,6 +1127,7 @@ def read_gnis_zip(path: Path) -> tuple[list[Place], Counter[str]]:
 # --- GeoNames (populated places with population) ---------------------------------------
 
 GEONAMES_SOURCE = 'geonames'
+#: Member name inside the worldwide dump; a country dump's member is ``<CC>.txt``.
 GEONAMES_MEMBER = 'cities500.txt'
 #: ``cities500.txt`` field order — tab-separated, no header row (the dump's
 #: readme). Parsed positionally; a short row is malformed and skipped.
@@ -1269,11 +1272,49 @@ def parse_geonames_row(record: dict[str, str], admin1: dict[str, str]) -> Place 
     )
 
 
-def read_geonames_zip(path: Path, admin1: dict[str, str]) -> tuple[list[Place], Counter[str]]:
-    """Stream the ``cities500`` member into place rows.
+def geonames_member(path: Path, names: Sequence[str]) -> str:
+    """The dump member to read: ``<stem>.txt`` for a country dump, else ``cities500.txt``.
 
     Args:
-        path: The downloaded ``cities500.zip``.
+        path: The zip's path (``US.zip`` → ``US.txt``).
+        names: The archive's member names.
+
+    Returns:
+        The member name to open.
+
+    Raises:
+        KeyError: Neither candidate is in the archive.
+    """
+    for candidate in (f'{path.stem}.txt', GEONAMES_MEMBER):
+        if candidate in names:
+            return candidate
+    raise KeyError(f'{path}: no {path.stem}.txt or {GEONAMES_MEMBER} member')
+
+
+def dedupe_geonames(places: Sequence[Place]) -> list[Place]:
+    """Drop repeated geonameids across dumps, keeping the first occurrence.
+
+    Args:
+        places: Parsed rows from one or more dumps.
+
+    Returns:
+        The rows with one entry per ``source_id``.
+    """
+    seen: set[str] = set()
+    out: list[Place] = []
+    for place in places:
+        if place.source_id in seen:
+            continue
+        seen.add(place.source_id)
+        out.append(place)
+    return out
+
+
+def read_geonames_zip(path: Path, admin1: dict[str, str]) -> tuple[list[Place], Counter[str]]:
+    """Stream a GeoNames dump's member into place rows.
+
+    Args:
+        path: A downloaded dump — a country ``<CC>.zip`` or ``cities500.zip``.
         admin1: The :func:`read_admin1_codes` map.
 
     Returns:
@@ -1283,7 +1324,7 @@ def read_geonames_zip(path: Path, admin1: dict[str, str]) -> tuple[list[Place], 
     """
     rows: list[Place] = []
     skipped: Counter[str] = Counter()
-    with zipfile.ZipFile(path) as zf, zf.open(GEONAMES_MEMBER) as raw:
+    with zipfile.ZipFile(path) as zf, zf.open(geonames_member(path, zf.namelist())) as raw:
         reader = csv.reader(
             io.TextIOWrapper(raw, encoding='utf-8', newline=''),
             delimiter='\t',
@@ -1801,7 +1842,9 @@ def run_gnis(args: argparse.Namespace) -> int:
 
 
 def run_geonames(args: argparse.Namespace) -> int:
-    """Parse a local GeoNames ``cities500.zip`` and (unless ``--dry-run``) load it.
+    """Parse local GeoNames dumps (country zips and/or ``cities500``), then load them.
+
+    Dry-run (``--dry-run``) parses and reports without writing.
 
     No dedupe against the other slices: the GeoNames rows are the compass's
     population source and deliberately coexist with GNIS's pinned towns
@@ -1815,17 +1858,24 @@ def run_geonames(args: argparse.Namespace) -> int:
     """
     import api.db
 
-    zip_path = Path(args.geonames_zip)
-    if not zip_path.exists():
-        print(f'GeoNames export not found: {zip_path}', file=sys.stderr)
-        return 1
+    zip_paths = [Path(z) for z in args.geonames_zip]
+    for zip_path in zip_paths:
+        if not zip_path.exists():
+            print(f'GeoNames export not found: {zip_path}', file=sys.stderr)
+            return 1
     admin1_path = Path(args.geonames_admin1) if args.geonames_admin1 else None
     if admin1_path is not None and not admin1_path.exists():
         print(f'GeoNames admin1 codes not found: {admin1_path}', file=sys.stderr)
         return 1
     admin1 = read_admin1_codes(admin1_path)
-    print(f'Reading {zip_path} ({len(admin1):,} admin1 names) ...', flush=True)
-    places, skipped = read_geonames_zip(zip_path, admin1)
+    places: list[Place] = []
+    skipped: Counter[str] = Counter()
+    for zip_path in zip_paths:
+        print(f'Reading {zip_path} ({len(admin1):,} admin1 names) ...', flush=True)
+        rows, skips_here = read_geonames_zip(zip_path, admin1)
+        places.extend(rows)
+        skipped.update(skips_here)
+    places = dedupe_geonames(places)
     skips = ', '.join(f'{reason} {n:,}' for reason, n in skipped.most_common())
     print(f'Parsed {len(places):,} populated places (skipped: {skips})', flush=True)
     by_size = Counter(_size_label(a.population or 0) for a in places)
@@ -2010,8 +2060,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         '--geonames-zip',
-        help='Import a local GeoNames cities500.zip (source=geonames, populated places '
-        'with population) instead of the NPS API',
+        nargs='+',
+        help='Import local GeoNames dumps — country US.zip/CA.zip/MX.zip and/or '
+        'cities500.zip (source=geonames, populated places with population) instead of '
+        'the NPS API',
     )
     parser.add_argument(
         '--geonames-admin1',
