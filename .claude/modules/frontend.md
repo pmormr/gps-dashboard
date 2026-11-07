@@ -282,7 +282,7 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   (`currentTown`, bound out of the compass): the candidate the van is *deepest
   inside* by its tier's in-town radius (`TOWN_RADII_KM`; distance ÷ radius, so a
   city centre 5 km off beats a village 1.4 km off; the incumbent holds to
-  `LEAVE_FACTOR`), labelled IN, else the nearest candidate labelled NEAR — "Name, ST"
+  `LEAVE_FACTOR`), labelled IN, else the nearest candidate labelled NEAR · distance — "Name, ST"
   (`placeLabel`: the importer's admin1 *name* → postal code via a static US/CA map in
   `compass.ts`; `/api/places/nearby` surfaces `region`/`country` from the row's details) +
   tier-coloured population. Tap-to-navigate is deferred to the navigation plan. Road

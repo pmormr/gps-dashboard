@@ -26,7 +26,7 @@
     initialBearingDeg,
     mpsToMph,
   } from '../lib/geo'
-  import { fmtPopulation, type Here, placeLabel } from '../lib/compass'
+  import { fmtMiles, fmtPopulation, type Here, placeLabel } from '../lib/compass'
   import { cardinal, type Crumb, extendCrumbs } from '../lib/live'
   import { elevationRecords } from '../lib/records'
   import type { MapView as MapViewType } from '../lib/map'
@@ -378,7 +378,7 @@
       </div>
       <div class="drive-hud-here">
         {#if here}
-          <span class="k">{here.inside ? 'IN' : 'NEAR'}</span>
+          <span class="k">{here.inside ? 'IN' : `NEAR · ${fmtMiles(here.place.distance_m)}`}</span>
           <span class="v">{placeLabel(here.place)}</span>
           <span class="pop" data-tier={here.place.tier}>{fmtPopulation(here.place.population)}</span>
         {/if}
