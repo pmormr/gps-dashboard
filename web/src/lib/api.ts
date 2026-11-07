@@ -347,6 +347,44 @@ export function getPointsRecent(minutes: number, limit: number): Promise<RecentP
   return getJSON<RecentPointsResponse>(`/api/points/recent?minutes=${minutes}&limit=${limit}`)
 }
 
+/** One settlement from /api/places/nearby (the GeoNames population slice). */
+export interface NearbyPlace {
+  id: number
+  name: string
+  summary: string | null
+  lat: number
+  lon: number
+  population: number
+  /** ×10 population band, 1 (under 1k) … 5 (1M+). */
+  tier: number
+  distance_m: number
+  /** Initial great-circle bearing from the query point, degrees true. */
+  bearing_deg: number
+}
+
+export interface NearbyResponse {
+  center: { lat: number; lon: number }
+  radii_km: number[]
+  places: NearbyPlace[]
+  count: number
+  truncated: boolean
+  synced_at: string | null
+}
+
+/**
+ * Settlements around a point, each within its tier's visibility radius
+ * (`radiiKm`: five km values for tiers 1–5 — the compass's own constants).
+ */
+export function getPlacesNearby(
+  lat: number,
+  lon: number,
+  radiiKm: readonly number[],
+  signal?: AbortSignal,
+): Promise<NearbyResponse> {
+  const query = qs({ lat, lon, radii: radiiKm.map((r) => r.toFixed(1)).join(',') })
+  return getJSON<NearbyResponse>(`/api/places/nearby?${query}`, signal)
+}
+
 /** The weather-radar frame index (mirrors /api/weather/<layer>/frames). */
 export interface WeatherFrames {
   layer: string
