@@ -61,6 +61,29 @@
   gap: 8px;
 }
 
+/* HUD action button (fullscreen) — the rail button's glass, sized for a dash tap. */
+.drive-hud-btn {
+  /* The HUD is pointer-transparent (map gestures pass through); each control
+     opts in, like .drive-dest. */
+  pointer-events: auto;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.drive-hud-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .drive-obd {
   display: flex;
   align-items: center;

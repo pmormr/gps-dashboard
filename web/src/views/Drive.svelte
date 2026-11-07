@@ -159,6 +159,29 @@
     lastFrameMs = 0
   }
 
+  // Fullscreen toggle: gets the browser chrome (URL bar) off a dash-mounted
+  // phone/tablet. The button only renders where the API exists — iPhone Safari
+  // offers fullscreen for <video> alone, so there it stays hidden.
+  const fullscreenSupported =
+    typeof document !== 'undefined' &&
+    document.fullscreenEnabled === true &&
+    typeof document.documentElement.requestFullscreen === 'function'
+  let fullscreen = $state(false)
+
+  function toggleFullscreen(): void {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void document.documentElement.requestFullscreen().catch(() => {})
+  }
+
+  $effect(() => {
+    const sync = (): void => {
+      fullscreen = !!document.fullscreenElement
+    }
+    sync()
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  })
+
   onMount(() => {
     let cancelled = false
     let hide: (() => void) | undefined
@@ -383,6 +406,16 @@
           <span class="rec rec-hi">▲ {fmtAltitude(records.high?.altitudeM ?? null)}</span>
           <span class="rec rec-lo">▼ {fmtAltitude(records.low?.altitudeM ?? null)}</span>
         </div>
+      {/if}
+      {#if fullscreenSupported}
+        <button
+          type="button"
+          class="drive-hud-btn"
+          title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          aria-pressed={fullscreen}
+          onclick={toggleFullscreen}
+        >{fullscreen ? '⤡' : '⛶'}</button>
       {/if}
     </div>
   </div>
