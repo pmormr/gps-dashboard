@@ -115,8 +115,13 @@
       bearing_deg: initialBearingDeg(van.lat, van.lon, c.lat, c.lon),
     }))
     marks = selectMarks(fresh, compassState)
-    here = currentTown(fresh, hereId)
-    hereId = here?.place.id ?? null
+    // Write `here` without reading it back: reading a state this effect just
+    // wrote registers it as a dependency, and a fresh object per run then
+    // re-triggers the effect forever (effect_update_depth_exceeded — froze
+    // the Drive view on the road, 2026-11-07).
+    const town = currentTown(fresh, hereId)
+    hereId = town?.place.id ?? null
+    here = town
   })
 
   // Per-frame placement off the smooth heading. The label box estimate
