@@ -41,7 +41,6 @@ export const MEMBER_STICKINESS = 0.85
 export const REFETCH_METERS = 2000
 export const REFETCH_MS = 60_000
 /** Pip-bar cells (one per tier). */
-export const PIP_CELLS = TIER_RADII_KM.length
 
 /** One settlement that earned a mark. */
 export interface Mark {
@@ -239,15 +238,23 @@ export function proximityScale(mark: Pick<Mark, 'tier' | 'distanceM'>): number {
 /** Name font size (px); cities (tier ≥ CITY_TIER) use CITY_NAME_PX. */
 export const NAME_PX = 16
 export const CITY_NAME_PX = 18
-/** The pips + miles line (px). */
+/** The population + miles line (px). */
 export const META_PX = 12
 /** First tier painted as a city (bigger, 800 weight). */
 export const CITY_TIER = 4
 /** Mean glyph advance as a fraction of font size per tier — system-ui at the
  *  weights drive.css uses (600 / 600 / 700 / 800 / 800). */
 const NAME_EM: readonly number[] = [0.555, 0.555, 0.585, 0.63, 0.63]
-/** The widest meta line ("▮▮▯▯▯ 12.3 mi") in ems of META_PX. */
+/** The widest meta line ("1.2M · 120 mi") in ems of META_PX. */
 const META_EM = 7.6
+/** Ring-dot diameter (px, before proximity scale) per tier: the at-a-glance
+ *  population cue — village / town / city — readable without reading. */
+const TICK_PX: readonly number[] = [6, 6, 9, 13, 13]
+
+/** The ring dot's diameter for a tier, px (before the proximity scale). */
+export function tickPx(tier: number): number {
+  return TICK_PX[Math.min(Math.max(Math.round(tier), 1), TICK_PX.length) - 1]
+}
 const LINE_GAP_PX = 1
 
 /** Whether a tier paints as a city. */
@@ -257,7 +264,7 @@ export function isCity(tier: number): boolean {
 
 /**
  * Label box estimate for placement — the wider of the two stacked lines (name
- * over pips + miles), scaled with proximity — avoids DOM measurement per frame.
+ * over population + miles), scaled with proximity — avoids DOM measurement per frame.
  */
 export function labelSize(mark: Pick<Mark, 'tier' | 'distanceM' | 'name'>): {
   width: number
@@ -273,10 +280,12 @@ export function labelSize(mark: Pick<Mark, 'tier' | 'distanceM' | 'name'>): {
   }
 }
 
-/** The population pip bar: one filled cell per tier (`▮▮▯▯▯` = 1k–10k). */
-export function pips(tier: number): string {
-  const filled = Math.min(Math.max(Math.round(tier), 0), PIP_CELLS)
-  return '▮'.repeat(filled) + '▯'.repeat(PIP_CELLS - filled)
+/** Compact population for a ring label: 850 · 4.2k · 715k · 2.7M. */
+export function fmtPopulation(n: number): string {
+  if (n < 1000) return String(Math.max(0, Math.round(n)))
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`
+  return `${(n / 1_000_000).toFixed(1)}M`
 }
 
 /** Compact miles for a ring label: one decimal under 10 mi, whole above. */

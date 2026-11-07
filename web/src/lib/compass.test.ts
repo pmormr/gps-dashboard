@@ -9,7 +9,8 @@ import {
   type Mark,
   METRO_SLOTS,
   newCompassState,
-  pips,
+  fmtPopulation,
+  tickPx,
   placeMarks,
   requestRadiiKm,
   ringPoint,
@@ -181,12 +182,20 @@ describe('proximity', () => {
   })
 })
 
-describe('pips + fmtMiles', () => {
-  it('renders one filled cell per tier', () => {
-    expect(pips(1)).toBe('▮▯▯▯▯')
-    expect(pips(3)).toBe('▮▮▮▯▯')
-    expect(pips(5)).toBe('▮▮▮▮▮')
-    expect(pips(9)).toBe('▮▮▮▮▮')
+describe('fmtPopulation + tickPx + fmtMiles', () => {
+  it('formats compact population', () => {
+    expect(fmtPopulation(850)).toBe('850')
+    expect(fmtPopulation(4213)).toBe('4.2k')
+    expect(fmtPopulation(715_000)).toBe('715k')
+    expect(fmtPopulation(2_700_000)).toBe('2.7M')
+  })
+
+  it('sizes the ring dot by tier, clamped', () => {
+    expect(tickPx(1)).toBe(tickPx(2))
+    expect(tickPx(3)).toBeGreaterThan(tickPx(2))
+    expect(tickPx(5)).toBeGreaterThan(tickPx(3))
+    expect(tickPx(0)).toBe(tickPx(1))
+    expect(tickPx(9)).toBe(tickPx(5))
   })
 
   it('formats compact miles', () => {

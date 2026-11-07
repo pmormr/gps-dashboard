@@ -257,7 +257,7 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   mark sits where the ray from the van (map centre) at its relative bearing meets
   the edge, so ahead is the top, behind the HUD's top edge, and a town being
   passed slides down the side — no strips, no fold, no snap. Marks are GeoNames
-  settlements from `/api/places/nearby` (name · population pip bar · miles;
+  settlements from `/api/places/nearby` (name · compact population (`4.2k`, `715k`, tier-coloured) · miles; the ring dot's diameter is tier-sized too — `tickPx` — the at-a-glance cue;
   colour/weight by population tier; **size + opacity by proximity**, normalised
   per tier — `proximityScale`, how deep inside its *own* radius — so a near
   village grows while a metro keeps a mid size from afar). Membership is four

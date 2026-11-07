@@ -3,15 +3,16 @@
   import {
     CITY_NAME_PX,
     fmtMiles,
+    fmtPopulation,
     labelSize,
     type Mark,
     META_PX,
     NAME_PX,
     newCompassState,
-    pips,
     placeMarks,
     proximityScale,
     REFETCH_METERS,
+    tickPx,
     REFETCH_MS,
     requestRadiiKm,
     selectMarks,
@@ -127,6 +128,7 @@
       style:left={`${p.tickX}px`}
       style:top={`${p.tickY}px`}
       style:--prox={proximityScale(p.mark)}
+      style:--tick={`${tickPx(p.mark.tier)}px`}
     ></span>
     <div
       class="drive-compass-mark"
@@ -137,7 +139,7 @@
       style:--prox={proximityScale(p.mark)}
     >
       <span class="name">{p.mark.name}</span>
-      <span class="meta"><span class="pips">{pips(p.mark.tier)}</span> {fmtMiles(p.mark.distanceM)}</span>
+      <span class="meta"><span class="pop">{fmtPopulation(p.mark.population)}</span> · {fmtMiles(p.mark.distanceM)}</span>
     </div>
   {/each}
 </div>

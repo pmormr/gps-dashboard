@@ -265,10 +265,10 @@
 
 .drive-compass-tick {
   position: absolute;
-  width: calc(8px * var(--prox, 1));
-  height: calc(8px * var(--prox, 1));
+  /* --tick is the tier diameter (lib/compass.ts tickPx): village / town / city. */
+  width: calc(var(--tick, 8px) * var(--prox, 1));
+  height: calc(var(--tick, 8px) * var(--prox, 1));
   border-radius: 50%;
-  background: #4ade80;
   box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7);
   transform: translate(-50%, -50%);
 }
@@ -301,29 +301,37 @@
   font-variant-numeric: tabular-nums;
 }
 
-.drive-compass-mark .pips {
-  letter-spacing: -1px;
-  color: #4ade80;
-}
-
 /* Tier accents: villages green, towns blue, cities amber — the same split the
-   slot quotas use, so the colour says why a mark is on the ring. */
-.drive-compass-tick[data-tier='3'],
-.drive-compass-mark[data-tier='3'] .pips {
-  background-color: var(--accent);
-  color: var(--accent);
+   slot quotas use, so the colour says why a mark is on the ring. One
+   --tier-color per tier, set on both the tick and the mark: the dot paints it
+   as background, the population number as text (never both on one element). */
+.drive-compass-tick,
+.drive-compass-mark {
+  --tier-color: #4ade80;
 }
 
-.drive-compass-mark[data-tier='3'] .name {
-  font-weight: 700;
+.drive-compass-tick[data-tier='3'],
+.drive-compass-mark[data-tier='3'] {
+  --tier-color: var(--accent);
 }
 
 .drive-compass-tick[data-tier='4'],
 .drive-compass-tick[data-tier='5'],
-.drive-compass-mark[data-tier='4'] .pips,
-.drive-compass-mark[data-tier='5'] .pips {
-  background-color: #fbbf24;
-  color: #fbbf24;
+.drive-compass-mark[data-tier='4'],
+.drive-compass-mark[data-tier='5'] {
+  --tier-color: #fbbf24;
+}
+
+.drive-compass-tick {
+  background-color: var(--tier-color);
+}
+
+.drive-compass-mark .pop {
+  color: var(--tier-color);
+}
+
+.drive-compass-mark[data-tier='3'] .name {
+  font-weight: 700;
 }
 
 .drive-compass-mark[data-tier='4'] .name,
@@ -352,21 +360,18 @@
 }
 
 :root[data-map-ground='light'] .drive-compass-tick,
-:root[data-map-ground='light'] .drive-compass-mark .pips {
-  background-color: #15803d;
-  color: #15803d;
+:root[data-map-ground='light'] .drive-compass-mark {
+  --tier-color: #15803d;
 }
 
 :root[data-map-ground='light'] .drive-compass-tick[data-tier='3'],
-:root[data-map-ground='light'] .drive-compass-mark[data-tier='3'] .pips {
-  background-color: #1d4ed8;
-  color: #1d4ed8;
+:root[data-map-ground='light'] .drive-compass-mark[data-tier='3'] {
+  --tier-color: #1d4ed8;
 }
 
 :root[data-map-ground='light'] .drive-compass-tick[data-tier='4'],
 :root[data-map-ground='light'] .drive-compass-tick[data-tier='5'],
-:root[data-map-ground='light'] .drive-compass-mark[data-tier='4'] .pips,
-:root[data-map-ground='light'] .drive-compass-mark[data-tier='5'] .pips {
-  background-color: #b45309;
-  color: #b45309;
+:root[data-map-ground='light'] .drive-compass-mark[data-tier='4'],
+:root[data-map-ground='light'] .drive-compass-mark[data-tier='5'] {
+  --tier-color: #b45309;
 }
