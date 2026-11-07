@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from api.db import canonical_timestamp, get_connection
 from api.params import bbox_point_where, parse_bbox, parse_limit, parse_required_window
+from common.timefmt import parse_iso
 
 points_bp = Blueprint('points', __name__)
 
@@ -148,5 +149,101 @@ def get_points():
             'count': len(points),
             'truncated': truncated,
             'gaps': [dict(r) for r in gaps],
+        }
+    )
+
+
+#: "Today" for the Drive HUD's records: the day stays open until the van has
+#: been stopped this long (a processor dwell), then the next move starts a
+#: new day. Not local midnight — the Pi's zone doesn't follow the van across
+#: time zones, and a late drive shouldn't split in two (drive-hud plan D8).
+DAY_BREAK_STOP_SECONDS = 4 * 3600
+#: Furthest back a day can reach when no qualifying stop exists.
+DAY_CAP_HOURS = 24
+ELEVATION_BUCKET_DEFAULT_S = 60
+ELEVATION_BUCKET_MIN_S = 10
+ELEVATION_BUCKET_MAX_S = 600
+
+
+def _day_start(conn, now: datetime) -> tuple[str, str]:
+    """Resolve the records window start: the end of the last ≥4 h stop, else the cap.
+
+    Reads the processed tier's stop dwells (the open/provisional dwell
+    included — a van parked ≥4 h *right now* starts a fresh day on its next
+    move). Only stops inside the cap window matter: anything older can't
+    beat the cap anyway.
+
+    Args:
+        conn: An open DB connection.
+        now: The reference "now" (UTC).
+
+    Returns:
+        ``(start_timestamp, reason)`` with ``reason`` ``'stop'`` or ``'cap'``.
+    """
+    cap = canonical_timestamp((now - timedelta(hours=DAY_CAP_HOURS)).isoformat())
+    rows = conn.execute(
+        "SELECT dwell_start, dwell_end FROM track_points WHERE kind = 'stop' "
+        'AND dwell_end >= ? ORDER BY dwell_start DESC',
+        (cap,),
+    ).fetchall()
+    for row in rows:
+        start, end = parse_iso(row['dwell_start']), parse_iso(row['dwell_end'])
+        if (end - start).total_seconds() >= DAY_BREAK_STOP_SECONDS:
+            return max(row['dwell_end'], cap), 'stop'
+    return cap, 'cap'
+
+
+@points_bp.get('/api/points/elevation')
+def elevation_series():
+    """Today's elevation profile for the Drive HUD's records block.
+
+    "Today" starts at the end of the last stop of at least
+    ``DAY_BREAK_STOP_SECONDS`` (processor dwell rows), capped at
+    ``DAY_CAP_HOURS`` back. The series is raw ``gps_points`` altitude in
+    ``bucket``-second **mean** buckets over 3D fixes only — raw 5 Hz altitude
+    jitters ±10 m, so a record taken over raw samples would be a noise
+    spike. ``high``/``low`` are the extreme buckets with the time they were
+    set; the client appends the live fix for the current value.
+    """
+    bucket, err = parse_limit(
+        request.args,
+        default=ELEVATION_BUCKET_DEFAULT_S,
+        maximum=ELEVATION_BUCKET_MAX_S,
+        key='bucket',
+    )
+    if err:
+        return err
+    if bucket < ELEVATION_BUCKET_MIN_S:
+        return jsonify({'error': f'bucket must be >= {ELEVATION_BUCKET_MIN_S} seconds'}), 400
+
+    now = datetime.now(UTC)
+    conn = get_connection()
+    start, reason = _day_start(conn, now)
+    rows = conn.execute(
+        "SELECT (CAST(strftime('%s', timestamp) AS INTEGER) / ?) * ? AS t, "
+        'AVG(altitude) AS alt, COUNT(*) AS n FROM gps_points '
+        'WHERE timestamp >= ? AND mode = 3 AND altitude IS NOT NULL '
+        'GROUP BY t ORDER BY t',
+        (bucket, bucket, start),
+    ).fetchall()
+    buckets = [
+        {
+            'timestamp': canonical_timestamp(datetime.fromtimestamp(row['t'], tz=UTC).isoformat()),
+            'altitude': round(row['alt'], 1),
+            'n': row['n'],
+        }
+        for row in rows
+    ]
+    high = max(buckets, key=lambda b: b['altitude'], default=None)
+    low = min(buckets, key=lambda b: b['altitude'], default=None)
+    return jsonify(
+        {
+            'start': start,
+            'start_reason': reason,
+            'bucket_s': bucket,
+            'buckets': buckets,
+            'high': high,
+            'low': low,
+            'now': canonical_timestamp(now.isoformat()),
         }
     )

@@ -262,3 +262,91 @@ def test_recent_stride_decimation_keeps_newest(client):
 def test_recent_validation(client):
     assert client.get('/api/points/recent?minutes=abc').status_code == 400
     assert client.get('/api/points/recent?limit=-5').status_code == 400
+
+
+# --- GET /api/points/elevation (the Drive HUD's records window) ----------------------
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from api.routes.points import DAY_BREAK_STOP_SECONDS, DAY_CAP_HOURS  # noqa: E402
+from common.timefmt import canonical_timestamp  # noqa: E402
+
+
+def _ago(minutes: float) -> str:
+    return canonical_timestamp((datetime.now(UTC) - timedelta(minutes=minutes)).isoformat())
+
+
+def _fix(client, minutes_ago: float, altitude: float | None, mode: int = 3) -> None:
+    conn = db.get_connection()
+    conn.execute(
+        'INSERT INTO gps_points (timestamp, lat, lon, altitude, mode) '
+        'VALUES (?, 40.0, -105.0, ?, ?)',
+        (_ago(minutes_ago), altitude, mode),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _stop(client, start_minutes_ago: float, end_minutes_ago: float) -> None:
+    _insert(
+        client,
+        kind='stop',
+        timestamp=_ago(start_minutes_ago),
+        dwell_start=_ago(start_minutes_ago),
+        dwell_end=_ago(end_minutes_ago),
+    )
+
+
+def test_elevation_empty_day_falls_back_to_cap(client):
+    body = client.get('/api/points/elevation').get_json()
+    assert body['buckets'] == [] and body['high'] is None and body['low'] is None
+    assert body['start_reason'] == 'cap'
+    assert abs(
+        datetime.now(UTC)
+        - datetime.fromisoformat(body['start']).replace(tzinfo=UTC)
+        - timedelta(hours=DAY_CAP_HOURS)
+    ) < timedelta(seconds=5)
+    assert body['bucket_s'] == 60
+
+
+def test_elevation_day_starts_after_last_long_stop(client):
+    long_stop_min = DAY_BREAK_STOP_SECONDS / 60 + 30
+    _stop(
+        client, start_minutes_ago=600 + long_stop_min, end_minutes_ago=600
+    )  # ≥4 h, ended 10 h ago
+    _stop(client, start_minutes_ago=300, end_minutes_ago=280)  # a 20 min stop: no break
+    _fix(client, 700, 4000.0)  # before the day: must not count
+    _fix(client, 500, 2000.0)
+    _fix(client, 500.1, 2100.0)  # same minute → averaged with the one above
+    _fix(client, 400, 3500.0)
+    _fix(client, 350, 9999.0, mode=2)  # 2D fix: altitude is garbage, excluded
+    _fix(client, 200, 1500.0)
+    body = client.get('/api/points/elevation').get_json()
+    assert body['start_reason'] == 'stop'
+    assert [b['altitude'] for b in body['buckets']] == [2050.0, 3500.0, 1500.0]
+    assert [b['n'] for b in body['buckets']] == [2, 1, 1]
+    assert body['high']['altitude'] == 3500.0 and body['low']['altitude'] == 1500.0
+    assert body['high']['timestamp'] < body['low']['timestamp']
+    assert body['buckets'][0]['timestamp'].endswith(':00.000Z')
+
+
+def test_elevation_ignores_long_stops_beyond_the_cap(client):
+    _stop(client, start_minutes_ago=30 * 60, end_minutes_ago=25 * 60 + 30)  # ended 25.5 h ago
+    body = client.get('/api/points/elevation').get_json()
+    assert body['start_reason'] == 'cap'
+
+
+def test_elevation_open_dwell_counts(client):
+    # Parked ≥4 h right now: the day resets to the (provisional) dwell end ≈ now.
+    _stop(client, start_minutes_ago=300, end_minutes_ago=0)
+    _fix(client, 100, 2500.0)
+    body = client.get('/api/points/elevation').get_json()
+    assert body['start_reason'] == 'stop' and body['buckets'] == []
+
+
+def test_elevation_bucket_validation(client):
+    assert client.get('/api/points/elevation?bucket=5').status_code == 400
+    # Over the maximum clamps (parse_limit semantics), under the minimum rejects.
+    assert client.get('/api/points/elevation?bucket=9999').get_json()['bucket_s'] == 600
+    assert client.get('/api/points/elevation?bucket=abc').status_code == 400
+    assert client.get('/api/points/elevation?bucket=300').get_json()['bucket_s'] == 300
