@@ -26,26 +26,14 @@
   color: #fca5a5;
 }
 
-/* Wake-lock readout: which mechanism is holding the screen, and whether it is. */
+/* Wake-lock readout rides inline under the speed: which mechanism holds the
+   screen, and whether it is (amber when nothing does). */
 .drive-wake {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 6;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.88);
-  border: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  backdrop-filter: blur(6px);
-  pointer-events: none;
+  letter-spacing: 0.04em;
 }
 
 .drive-wake--bad {
-  border-color: #f59e0b;
   color: #fbbf24;
 }
 
@@ -59,8 +47,8 @@
   z-index: 6;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  gap: 4px;
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
   background: rgba(15, 23, 42, 0.88);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(6px);
@@ -95,13 +83,28 @@
 
 .drive-hud-speed {
   display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.drive-hud-speed-row {
+  display: flex;
   align-items: baseline;
   gap: 6px;
-  flex: 1;
+}
+
+/* Heading rides under the speed (one row, no HDG cell). */
+.drive-hud-hdg {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .drive-hud-speed .num {
-  font-size: 44px;
+  font-size: 40px;
   font-weight: 800;
   line-height: 1;
   color: var(--text);
@@ -119,7 +122,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
-  min-width: 82px;
+  min-width: 64px;
 }
 
 .drive-hud-cell .k {
@@ -189,61 +192,58 @@
   transform: translateX(-50%) scale(0.97);
 }
 
-/* ── Town compass: two bearing strips framing the map ───────────────────────
-   Ahead on top (−90° left edge … 0° centre … +90° right edge), behind on the
-   HUD's top edge (the ring unrolled the other way, so a town passed on the
-   left slides off the top-left and reappears bottom-left). Marks are laid out
-   by lib/compass.ts (two greedy rows); the strips only paint them. */
+
+/* ALT cell carries the trailing 2 h elevation sparkline under the value. */
+.drive-alt {
+  width: 96px;
+  min-width: 96px;
+}
+
+.drive-alt svg.spark,
+.drive-alt div.spark-empty {
+  height: 16px;
+  margin-top: 2px;
+}
+
+/* TODAY cell: the day's high/low (the day runs since the last ≥4 h stop). */
+.drive-today .rec {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.drive-today .rec-hi {
+  color: #fbbf24;
+}
+
+.drive-today .rec-lo {
+  color: #60a5fa;
+}
+
+/* ── Town compass: a ring of marks around the map's edge ─────────────────────
+   Each mark sits where the ray from the van (the map centre) at the place's
+   relative bearing meets the edge: ahead on top, behind along the HUD's top
+   edge, a town being passed sliding down the side. Placed by lib/compass.ts;
+   this only paints. No backing panel — text shadow over the map. --prox is
+   the proximity scale (closer inside its tier radius = bigger). */
 .drive-compass {
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 62px;
+  inset: 0;
   z-index: 6;
   pointer-events: none;
   overflow: hidden;
 }
 
-.drive-compass--ahead {
-  top: 0;
-  background: linear-gradient(rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0));
-}
-
-.drive-compass--behind {
-  background: linear-gradient(rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.82));
-}
-
-.drive-compass-axis {
+.drive-compass-tick {
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.28);
-}
-
-.drive-compass--ahead .drive-compass-axis {
-  top: 0;
-}
-
-.drive-compass--behind .drive-compass-axis {
-  bottom: 0;
-}
-
-.drive-compass-nose {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
-  line-height: 1;
-  color: var(--accent);
-}
-
-.drive-compass--ahead .drive-compass-nose {
-  top: 1px;
-}
-
-.drive-compass--behind .drive-compass-nose {
-  bottom: 1px;
+  width: calc(8px * var(--prox, 1));
+  height: calc(8px * var(--prox, 1));
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7);
+  transform: translate(-50%, -50%);
 }
 
 .drive-compass-mark {
@@ -253,52 +253,20 @@
   gap: 1px;
   white-space: nowrap;
   color: var(--text);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
-}
-
-.drive-compass--ahead .drive-compass-mark {
-  top: 8px;
-  align-items: flex-start;
-}
-
-.drive-compass--ahead .drive-compass-mark.row1 {
-  top: 36px;
-}
-
-.drive-compass--behind .drive-compass-mark {
-  bottom: 8px;
-  align-items: flex-start;
-}
-
-.drive-compass--behind .drive-compass-mark.row1 {
-  bottom: 36px;
-}
-
-/* The bearing tick sits on the axis line at the mark's true position, which
-   the label may have been nudged away from by edge clamping. */
-.drive-compass-mark .tick {
-  position: absolute;
-  width: 2px;
-  height: 7px;
-  background: #4ade80;
-}
-
-.drive-compass--ahead .tick {
-  top: -8px;
-}
-
-.drive-compass--behind .tick {
-  bottom: -8px;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.7);
+  opacity: calc(0.55 + 0.45 * (var(--prox, 1) - 0.85) / 0.4);
 }
 
 .drive-compass-mark .name {
-  font-size: 13px;
+  font-size: calc(13px * var(--prox, 1));
   font-weight: 600;
   line-height: 1.05;
 }
 
 .drive-compass-mark .meta {
-  font-size: 10px;
+  font-size: calc(10px * var(--prox, 1));
   font-weight: 600;
   line-height: 1;
   color: var(--text-dim);
@@ -311,8 +279,8 @@
 }
 
 /* Tier accents: villages green, towns blue, cities amber — the same split the
-   slot quotas use, so the colour says why a mark is on the strip. */
-.drive-compass-mark[data-tier='3'] .tick,
+   slot quotas use, so the colour says why a mark is on the ring. */
+.drive-compass-tick[data-tier='3'],
 .drive-compass-mark[data-tier='3'] .pips {
   background-color: var(--accent);
   color: var(--accent);
@@ -322,8 +290,8 @@
   font-weight: 700;
 }
 
-.drive-compass-mark[data-tier='4'] .tick,
-.drive-compass-mark[data-tier='5'] .tick,
+.drive-compass-tick[data-tier='4'],
+.drive-compass-tick[data-tier='5'],
 .drive-compass-mark[data-tier='4'] .pips,
 .drive-compass-mark[data-tier='5'] .pips {
   background-color: #fbbf24;
@@ -332,64 +300,6 @@
 
 .drive-compass-mark[data-tier='4'] .name,
 .drive-compass-mark[data-tier='5'] .name {
-  font-size: 14px;
+  font-size: calc(14px * var(--prox, 1));
   font-weight: 800;
-}
-
-/* The status pill + wake chip drop below the ahead strip. */
-.drive-status,
-.drive-wake {
-  top: 70px;
-}
-
-/* ── Records row: today's extremes (the day runs since the last ≥4 h stop). ── */
-.drive-records {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.drive-records .k {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.drive-records .since {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.drive-records .rec {
-  color: var(--text);
-  font-weight: 700;
-}
-
-.drive-records .rec-hi {
-  color: #fbbf24;
-}
-
-.drive-records .rec-lo {
-  color: #60a5fa;
-}
-
-.drive-records .rec em {
-  font-style: normal;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-dim);
-}
-
-/* ALT cell carries the trailing 2 h elevation sparkline under the value. */
-.drive-alt {
-  width: 104px;
-  min-width: 104px;
 }

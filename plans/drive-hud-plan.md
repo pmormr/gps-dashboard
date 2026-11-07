@@ -51,15 +51,23 @@ logs, plus one new places source.
     tier 3–4 at ~60° / ~115 km) otherwise fills every slot *before* Denver,
     since nearest-first within a tier favours the suburbs. Boulder at 45°
     survives — it is a distinct direction.
-- **D6 — Strip geometry = an unrolled ring.** Top strip: relative bearing
-  −90…+90, dead ahead at centre. Bottom strip: the back half, directly-behind
-  at centre, left edge also −90 — a town passed on the left slides off the
-  top-left edge and reappears at the bottom-left edge. Bottom strip shorter
-  and dimmer, above the HUD. Driven from the live store's smoothed heading.
-- **D7 — Population glyph:** a fixed-width 5-cell pip bar (`▮▮▯▯▯`), cells =
-  tier, beside the name and distance, plus label weight by tier. Fixed width
-  keeps the label packer simple; the log bands are exactly the ×10 "star"
-  idea with a 1k base (cities500's floor is 500).
+- **D6 — A ring around the map, not strips** (revised 2026-11-07 on the
+  dash: the two-strip version read as spread out, and the fold needed
+  hysteresis). Each mark sits where the ray from the van at its relative
+  bearing meets the map rectangle's edge (`ringPoint`): ahead = top edge,
+  behind = the HUD's top edge, a town being passed slides down the side.
+  No fold, no strip assignment, no snap; the only hysteresis left is
+  membership (radius leave band + sticky seat). Labels place greedily in
+  2-D: the edge spot, else one row inward, else dropped. No backing panel
+  — text shadow over the map.
+- **D7 — Population glyph + proximity size:** a fixed-width 5-cell pip bar
+  (`▮▮▯▯▯`), cells = tier, beside the name and distance, plus label weight
+  by tier. Fixed width keeps the label packer simple; the log bands are
+  exactly the ×10 "star" idea with a 1k base (cities500's floor is 500).
+  **Proximity** (added 2026-11-07): mark size + opacity scale 0.85×…1.25×
+  with how deep the place sits inside its *own tier's* radius — normalised
+  per tier, so a near village grows while a metro keeps a mid size from
+  afar (raw distance would make cities permanently tiny).
 - **D8 — "Today" = since the end of the last stop ≥ 4 h** (processor
   `track_points kind='stop'` dwell rows, the open/provisional dwell included),
   capped at 24 h back when no such stop exists. Not local midnight: the Pi's

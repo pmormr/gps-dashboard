@@ -1,19 +1,22 @@
 /**
  * Town-compass policy for the Drive view: which nearby settlements earn a
- * mark on the ahead/behind bearing strips, and where on the strip they sit.
- * Pure — Drive.svelte feeds it the `/api/places/nearby` candidates plus the
- * live heading. Every constant here is a road-tuning knob
+ * mark on the ring around the map, and where on the ring they sit. Pure —
+ * Drive.svelte feeds it the `/api/places/nearby` candidates plus the live
+ * heading. Every constant here is a road-tuning knob
  * (plans/drive-hud-plan.md D5–D7).
  *
- * Four mechanisms, because one score can't satisfy "small towns nearby,
- * cities from far, cities don't dominate":
+ * The ring is the map rectangle's edge: a mark sits where the ray from the
+ * van (the map centre) at the place's relative bearing meets the edge, so a
+ * town passed on the left slides down the left side — no strips, no fold.
+ *
+ * Membership is four mechanisms, because one score can't satisfy "small
+ * towns nearby, cities from far, cities don't dominate":
  *  1. a per-tier visibility radius (`TIER_RADII_KM`) — the server applies it,
  *     widened by `LEAVE_FACTOR` so current members have room to linger;
  *  2. metro shadowing — a place hidden by a bigger one in the same direction
  *     and distance band (Denver's suburb ring collapses onto Denver);
- *  3. per-strip slot quotas by tier, so a metro can't crowd out villages;
- *  4. hysteresis — radius leave band, sticky membership at the slot cutoff,
- *     and a dead zone at the ±90° fold between the two strips.
+ *  3. slot quotas by tier, so a metro can't crowd out villages;
+ *  4. hysteresis — the radius leave band and a sticky seat at the slot cutoff.
  */
 
 import type { NearbyPlace } from './api'
@@ -28,12 +31,10 @@ export const SHADOW_DEG = 10
 /** …and its distance is within this ratio band of the bigger place's. */
 export const SHADOW_RATIO_LO = 0.6
 export const SHADOW_RATIO_HI = 1.6
-/** Per-strip slots: tiers 4–5 (100k+), tier 3 (10k–100k); tiers 1–2 fill the rest. */
-export const METRO_SLOTS = 2
-export const TOWN_SLOTS = 3
-export const STRIP_CAP = 8
-/** A mark keeps its strip until this far past the ±90° fold line. */
-export const FOLD_HYSTERESIS_DEG = 10
+/** Ring slots: tiers 4–5 (100k+), tier 3 (10k–100k); tiers 1–2 fill the rest. */
+export const METRO_SLOTS = 3
+export const TOWN_SLOTS = 5
+export const RING_CAP = 14
 /** Current members compete for slots at this fraction of their true distance. */
 export const MEMBER_STICKINESS = 0.85
 /** Refetch candidates after this much movement, or this much time. */
@@ -42,9 +43,7 @@ export const REFETCH_MS = 60_000
 /** Pip-bar cells (one per tier). */
 export const PIP_CELLS = TIER_RADII_KM.length
 
-export type Strip = 'ahead' | 'behind'
-
-/** One settlement placed on a strip. */
+/** One settlement that earned a mark. */
 export interface Mark {
   id: number
   name: string
@@ -53,21 +52,16 @@ export interface Mark {
   distanceM: number
   /** Bearing from the van, degrees true. */
   bearing: number
-  /** Bearing relative to the heading, (−180, 180]. */
-  rel: number
-  strip: Strip
-  /** Position along the strip, 0 (left edge) … 1 (right edge). */
-  x: number
 }
 
 /** Membership carried between selections — the hysteresis memory. */
 export interface CompassState {
-  strips: Map<number, Strip>
+  members: Set<number>
 }
 
 /** A fresh, empty membership. */
 export function newCompassState(): CompassState {
-  return { strips: new Map() }
+  return { members: new Set() }
 }
 
 /** The radii to request from the server: enter radii widened by the leave band. */
@@ -78,25 +72,6 @@ export function requestRadiiKm(): number[] {
 /** Bearing relative to the heading (north-up before any heading exists). */
 export function relBearing(heading: number | null, bearing: number): number {
   return angleDelta(heading ?? 0, bearing)
-}
-
-/**
- * Strip position for a relative bearing. Ahead: −90 → 0, 0 → ½, +90 → 1.
- * Behind is the ring unrolled the other way: −90 → 0, ±180 → ½, +90 → 1, so
- * a place sliding off the top-left edge reappears at the bottom-left edge.
- * Clamped, so a mark lingering in the fold dead zone pins to the edge.
- */
-export function stripX(strip: Strip, rel: number): number {
-  const x = strip === 'ahead' ? (rel + 90) / 180 : rel < 0 ? (-90 - rel) / 180 : 0.5 + (180 - rel) / 180
-  return x < 0 ? 0 : x > 1 ? 1 : x
-}
-
-/** Which strip a relative bearing belongs on, with the fold dead zone for members. */
-export function assignStrip(rel: number, previous: Strip | undefined): Strip {
-  const a = Math.abs(rel)
-  if (previous === 'ahead') return a <= 90 + FOLD_HYSTERESIS_DEG ? 'ahead' : 'behind'
-  if (previous === 'behind') return a >= 90 - FOLD_HYSTERESIS_DEG ? 'behind' : 'ahead'
-  return a <= 90 ? 'ahead' : 'behind'
 }
 
 /** The tier's visibility radius in metres, widened for current members. */
@@ -123,96 +98,139 @@ export function unshadowed(candidates: readonly NearbyPlace[]): NearbyPlace[] {
   return kept
 }
 
-/**
- * Select this frame's marks from the server's candidates, updating `state`.
- * `heading` is the smoothed live heading (null before any reading).
- */
-export function selectMarks(
-  candidates: readonly NearbyPlace[],
-  state: CompassState,
-  heading: number | null,
-): Mark[] {
+/** Select the current marks from the server's candidates, updating `state`. */
+export function selectMarks(candidates: readonly NearbyPlace[], state: CompassState): Mark[] {
   const visible = candidates.filter(
-    (c) => c.distance_m <= visibleRadiusM(c.tier, state.strips.has(c.id)),
+    (c) => c.distance_m <= visibleRadiusM(c.tier, state.members.has(c.id)),
   )
-  const marks: Mark[] = unshadowed(visible).map((c) => {
-    const rel = relBearing(heading, c.bearing_deg)
-    const strip = assignStrip(rel, state.strips.get(c.id))
-    return {
-      id: c.id,
-      name: c.name,
-      tier: c.tier,
-      population: c.population,
-      distanceM: c.distance_m,
-      bearing: c.bearing_deg,
-      rel,
-      strip,
-      x: stripX(strip, rel),
-    }
-  })
-
-  const selected: Mark[] = []
-  for (const strip of ['ahead', 'behind'] as const) {
-    const onStrip = marks
-      .filter((m) => m.strip === strip)
-      .sort((a, b) => stickyDistance(a, state) - stickyDistance(b, state))
-    const metros = onStrip.filter((m) => m.tier >= 4).slice(0, METRO_SLOTS)
-    const towns = onStrip.filter((m) => m.tier === 3).slice(0, TOWN_SLOTS)
-    const room = Math.max(0, STRIP_CAP - metros.length - towns.length)
-    const villages = onStrip.filter((m) => m.tier <= 2).slice(0, room)
-    selected.push(...metros, ...towns, ...villages)
-  }
-
-  state.strips = new Map(selected.map((m) => [m.id, m.strip]))
-  return selected.sort((a, b) => a.x - b.x)
+  const sticky = (c: NearbyPlace): number =>
+    c.distance_m * (state.members.has(c.id) ? MEMBER_STICKINESS : 1)
+  const ranked = unshadowed(visible).sort((a, b) => sticky(a) - sticky(b))
+  const metros = ranked.filter((c) => c.tier >= 4).slice(0, METRO_SLOTS)
+  const towns = ranked.filter((c) => c.tier === 3).slice(0, TOWN_SLOTS)
+  const room = Math.max(0, RING_CAP - metros.length - towns.length)
+  const villages = ranked.filter((c) => c.tier <= 2).slice(0, room)
+  const selected = [...metros, ...towns, ...villages].map((c) => ({
+    id: c.id,
+    name: c.name,
+    tier: c.tier,
+    population: c.population,
+    distanceM: c.distance_m,
+    bearing: c.bearing_deg,
+  }))
+  state.members = new Set(selected.map((m) => m.id))
+  return selected
 }
 
-function stickyDistance(mark: Mark, state: CompassState): number {
-  return mark.distanceM * (state.strips.has(mark.id) ? MEMBER_STICKINESS : 1)
-}
+export type Edge = 'top' | 'right' | 'bottom' | 'left'
 
-/** A label laid out on a strip: its row and left edge in px. */
-export interface PlacedLabel<T> {
-  mark: T
-  row: number
-  left: number
+/** The ring rectangle (the map area the ring runs around), px. */
+export interface Frame {
   width: number
+  height: number
 }
+
+/** Where a relative bearing's ray from the frame centre meets the frame edge. */
+export function ringPoint(rel: number, frame: Frame): { x: number; y: number; edge: Edge } {
+  const dx = Math.sin((rel * Math.PI) / 180)
+  const dy = -Math.cos((rel * Math.PI) / 180)
+  const cx = frame.width / 2
+  const cy = frame.height / 2
+  const tx = Math.abs(dx) < 1e-9 ? Infinity : cx / Math.abs(dx)
+  const ty = Math.abs(dy) < 1e-9 ? Infinity : cy / Math.abs(dy)
+  const px = (v: number): number => Math.round(v * 100) / 100
+  if (tx < ty) {
+    return { x: dx < 0 ? 0 : frame.width, y: px(cy + dy * tx), edge: dx < 0 ? 'left' : 'right' }
+  }
+  return { x: px(cx + dx * ty), y: dy < 0 ? 0 : frame.height, edge: dy < 0 ? 'top' : 'bottom' }
+}
+
+/** A label laid out on the ring: its box and the exact edge point it marks. */
+export interface PlacedMark<T> {
+  mark: T
+  edge: Edge
+  /** Label box, px from the frame's top-left. */
+  x: number
+  y: number
+  width: number
+  height: number
+  /** The ring point (tick) for the mark's bearing. */
+  tickX: number
+  tickY: number
+}
+
+/** Second-row inward push on the long edges and on the sides, px (≥ label height + gap). */
+export const ROW_PUSH_TOPBOTTOM_PX = 32
+export const ROW_PUSH_SIDES_PX = 100
 
 /**
- * 1-D greedy label packing: marks in priority order each take the first row
- * where they don't overlap an earlier label; past `rows` rows they're
- * dropped. Priority is bigger tier, then closer to the strip's centre (dead
- * ahead / dead astern — a mark at the edge is about to change strips
- * anyway), then nearer. Labels are centred on their strip position and
- * kept inside the strip.
+ * Greedy 2-D label placement around the ring: marks in priority order
+ * (bigger tier, then nearer) each take their edge spot, or the spot pushed
+ * one row inward, if neither overlaps an earlier label; otherwise dropped.
+ * Top/bottom labels centre on the tick (kept inside the frame), side labels
+ * hug the edge beside the tick.
  */
-export function packLabels<T extends { x: number; tier: number; distanceM: number }>(
+export function placeMarks<T extends Mark>(
   marks: readonly T[],
-  widthPx: number,
-  measure: (mark: T) => number,
-  rows = 2,
-  gapPx = 6,
-): PlacedLabel<T>[] {
-  const offCentre = (m: T): number => Math.abs(m.x - 0.5)
-  const ordered = [...marks].sort(
-    (a, b) => b.tier - a.tier || offCentre(a) - offCentre(b) || a.distanceM - b.distanceM,
-  )
-  const placed: PlacedLabel<T>[] = []
+  heading: number | null,
+  frame: Frame,
+  size: (mark: T) => { width: number; height: number },
+  inset = 4,
+  gapPx = 4,
+): PlacedMark<T>[] {
+  const ordered = [...marks].sort((a, b) => b.tier - a.tier || a.distanceM - b.distanceM)
+  const placed: PlacedMark<T>[] = []
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi)
   for (const mark of ordered) {
-    const width = Math.min(measure(mark), widthPx)
-    const left = Math.min(Math.max(mark.x * widthPx - width / 2, 0), widthPx - width)
-    for (let row = 0; row < rows; row++) {
+    const { width, height } = size(mark)
+    const p = ringPoint(relBearing(heading, mark.bearing), frame)
+    for (let row = 0; row < 2; row++) {
+      let x: number
+      let y: number
+      if (p.edge === 'top' || p.edge === 'bottom') {
+        x = clamp(p.x - width / 2, 0, Math.max(0, frame.width - width))
+        const push = inset + row * ROW_PUSH_TOPBOTTOM_PX
+        y = p.edge === 'top' ? push : frame.height - push - height
+      } else {
+        y = clamp(p.y - height / 2, 0, Math.max(0, frame.height - height))
+        const push = inset + row * ROW_PUSH_SIDES_PX
+        x = p.edge === 'left' ? push : frame.width - push - width
+      }
       const clash = placed.some(
-        (p) => p.row === row && left < p.left + p.width + gapPx && p.left < left + width + gapPx,
+        (q) =>
+          x < q.x + q.width + gapPx &&
+          q.x < x + width + gapPx &&
+          y < q.y + q.height + gapPx &&
+          q.y < y + height + gapPx,
       )
       if (!clash) {
-        placed.push({ mark, row, left, width })
+        placed.push({ mark, edge: p.edge, x, y, width, height, tickX: p.x, tickY: p.y })
         break
       }
     }
   }
   return placed
+}
+
+/** Mark scale at the far edge of its tier radius, and right next to the van. */
+export const PROXIMITY_SCALE_FAR = 0.85
+export const PROXIMITY_SCALE_NEAR = 1.25
+
+/**
+ * How deep a mark sits inside its *own tier's* radius, 0 (at the edge) … 1
+ * (on top of the van). Normalised per tier so a village 2 km into its 8 km
+ * radius reads "right here" while a metro keeps a mid size from afar —
+ * raw distance would make cities permanently tiny.
+ */
+export function proximity(mark: Pick<Mark, 'tier' | 'distanceM'>): number {
+  const r = visibleRadiusM(mark.tier, false)
+  const p = 1 - mark.distanceM / r
+  return p < 0 ? 0 : p > 1 ? 1 : p
+}
+
+/** Label/tick scale for a mark's proximity (linear between the two constants). */
+export function proximityScale(mark: Pick<Mark, 'tier' | 'distanceM'>): number {
+  return PROXIMITY_SCALE_FAR + (PROXIMITY_SCALE_NEAR - PROXIMITY_SCALE_FAR) * proximity(mark)
 }
 
 /** The population pip bar: one filled cell per tier (`▮▮▯▯▯` = 1k–10k). */
@@ -221,7 +239,7 @@ export function pips(tier: number): string {
   return '▮'.repeat(filled) + '▯'.repeat(PIP_CELLS - filled)
 }
 
-/** Compact miles for a strip label: one decimal under 10 mi, whole above. */
+/** Compact miles for a ring label: one decimal under 10 mi, whole above. */
 export function fmtMiles(meters: number): string {
   const miles = meters / 1609.344
   return miles < 10 ? `${miles.toFixed(1)} mi` : `${Math.round(miles)} mi`

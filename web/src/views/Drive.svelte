@@ -310,8 +310,6 @@
     <button type="button" class="drive-recenter" onclick={recenter}>⌖ Recenter</button>
   {/if}
 
-  <div class="drive-wake" class:drive-wake--bad={!wake.active}>{wakeLabel}</div>
-
   <DriveCompass
     lat={live.fix?.lat ?? null}
     lon={live.fix?.lon ?? null}
@@ -340,24 +338,16 @@
         </div>
       </div>
     {/if}
-    {#if elevation}
-      <div class="drive-records">
-        <span class="k">TODAY</span>
-        <span class="since">{sinceLabel}</span>
-        <span class="rec rec-hi">
-          ▲ {fmtAltitude(records.high?.altitudeM ?? null)}
-          {#if records.high}<em>{fmtTime(records.high.timestamp)}</em>{/if}
-        </span>
-        <span class="rec rec-lo">
-          ▼ {fmtAltitude(records.low?.altitudeM ?? null)}
-          {#if records.low}<em>{fmtTime(records.low.timestamp)}</em>{/if}
-        </span>
-      </div>
-    {/if}
     <div class="drive-hud-main">
       <div class="drive-hud-speed">
-        <span class="num">{mph ?? '–'}</span>
-        <span class="unit">mph</span>
+        <div class="drive-hud-speed-row">
+          <span class="num">{mph ?? '–'}</span>
+          <span class="unit">mph</span>
+        </div>
+        <span class="drive-hud-hdg">
+          {hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}
+          <span class="drive-wake" class:drive-wake--bad={!wake.active}>· {wakeLabel}</span>
+        </span>
       </div>
       {#if destination.current}
         <button
@@ -382,15 +372,18 @@
           </span>
         </button>
       {/if}
-      <div class="drive-hud-cell">
-        <span class="k">HDG</span>
-        <span class="v">{hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}</span>
-      </div>
       <div class="drive-hud-cell drive-alt">
         <span class="k">ALT</span>
         <span class="v">{altLabel}</span>
-        <Sparkline values={records.spark} color="#4ade80" width={96} height={18} />
+        <Sparkline values={records.spark} color="#4ade80" width={96} height={16} />
       </div>
+      {#if elevation}
+        <div class="drive-hud-cell drive-today" title={sinceLabel}>
+          <span class="k">TODAY {sinceLabel.replace('since ', '')}</span>
+          <span class="rec rec-hi">▲ {fmtAltitude(records.high?.altitudeM ?? null)}</span>
+          <span class="rec rec-lo">▼ {fmtAltitude(records.low?.altitudeM ?? null)}</span>
+        </div>
+      {/if}
     </div>
   </div>
 </div>
