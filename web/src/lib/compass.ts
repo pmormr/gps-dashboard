@@ -43,11 +43,14 @@ export const REFETCH_MS = 60_000
 /** "In town" radius per tier (index = tier − 1), km: how far from a
  *  settlement's point you still count as *in* it (GeoNames has no polygons). */
 export const TOWN_RADII_KM: readonly number[] = [1.5, 3, 7, 15, 25]
-/** GNIS hamlets (tier 0 — no population; below GeoNames' 500-resident floor)
- *  are requested within this radius and count as "in" within HAMLET_IN_KM.
- *  They feed the HUD's current-town readout only, never the ring. */
+/** GNIS hamlets (tier 0 — no population; the towns GeoNames has no count
+ *  for) are requested within HAMLET_KM, count as "in" within HAMLET_IN_KM,
+ *  and earn ring marks within HAMLET_RING_KM at village priority (nearest
+ *  first — a crossroads 1 km off outranks a village 5 km off, and shadowing
+ *  still hides one sitting in a bigger place's direction). */
 export const HAMLET_KM = 6
 export const HAMLET_IN_KM = 2
+export const HAMLET_RING_KM = 4
 
 /** The settlement the van is in (or, failing that, nearest to) — the HUD readout. */
 export interface Here {
@@ -103,7 +106,8 @@ export interface Mark {
   id: number
   name: string
   tier: number
-  population: number
+  /** Resident count; null for a GNIS hamlet (tier 0). */
+  population: number | null
   distanceM: number
   /** Bearing from the van, degrees true. */
   bearing: number
@@ -141,8 +145,8 @@ export function relBearing(heading: number | null, bearing: number): number {
 
 /** The tier's visibility radius in metres, widened for current members. */
 function visibleRadiusM(tier: number, member: boolean): number {
-  const idx = Math.min(Math.max(tier, 1), TIER_RADII_KM.length) - 1
-  return TIER_RADII_KM[idx] * 1000 * (member ? LEAVE_FACTOR : 1)
+  const km = tier < 1 ? HAMLET_RING_KM : TIER_RADII_KM[Math.min(tier, TIER_RADII_KM.length) - 1]
+  return km * 1000 * (member ? LEAVE_FACTOR : 1)
 }
 
 /**
@@ -165,8 +169,6 @@ export function unshadowed(candidates: readonly NearbyPlace[]): NearbyPlace[] {
 
 /** Select the current marks from the server's candidates, updating `state`. */
 export function selectMarks(candidates: readonly NearbyPlace[], state: CompassState): Mark[] {
-  // Hamlets (tier 0, no population) feed the HUD readout only — never the ring.
-  candidates = candidates.filter(isPopulated)
   const visible = candidates.filter(
     (c) => c.distance_m <= visibleRadiusM(c.tier, state.members.has(c.id)),
   )
@@ -181,7 +183,7 @@ export function selectMarks(candidates: readonly NearbyPlace[], state: CompassSt
     id: c.id,
     name: c.name,
     tier: c.tier,
-    population: c.population ?? 0,
+    population: c.population,
     distanceM: c.distance_m,
     bearing: c.bearing_deg,
   }))
@@ -318,10 +320,12 @@ const META_EM = 7.6
 /** Ring-dot diameter (px, before proximity scale) per tier: the at-a-glance
  *  population cue — village / town / city — readable without reading. */
 const TICK_PX: readonly number[] = [6, 6, 9, 13, 13]
+const HAMLET_TICK_PX = 5
 
-/** The ring dot's diameter for a tier, px (before the proximity scale). */
+/** The ring dot's diameter for a tier, px (before the proximity scale); hamlets smallest. */
 export function tickPx(tier: number): number {
-  return TICK_PX[Math.min(Math.max(Math.round(tier), 1), TICK_PX.length) - 1]
+  if (tier < 1) return HAMLET_TICK_PX
+  return TICK_PX[Math.min(Math.round(tier), TICK_PX.length) - 1]
 }
 const LINE_GAP_PX = 1
 

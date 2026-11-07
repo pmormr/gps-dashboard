@@ -160,7 +160,9 @@
       style:--prox={proximityScale(p.mark)}
     >
       <span class="name">{p.mark.name}</span>
-      <span class="meta"><span class="pop">{fmtPopulation(p.mark.population)}</span> · {fmtMiles(p.mark.distanceM)}</span>
+      <span class="meta">
+        {#if p.mark.population != null}<span class="pop">{fmtPopulation(p.mark.population)}</span> · {/if}{fmtMiles(p.mark.distanceM)}
+      </span>
     </div>
   {/each}
 </div>

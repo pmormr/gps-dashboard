@@ -200,7 +200,7 @@ describe('fmtPopulation + tickPx + fmtMiles', () => {
     expect(tickPx(1)).toBe(tickPx(2))
     expect(tickPx(3)).toBeGreaterThan(tickPx(2))
     expect(tickPx(5)).toBeGreaterThan(tickPx(3))
-    expect(tickPx(0)).toBe(tickPx(1))
+    expect(tickPx(0)).toBeLessThan(tickPx(1)) // hamlets smallest
     expect(tickPx(9)).toBe(tickPx(5))
   })
 
@@ -314,8 +314,13 @@ describe('hamlets (tier 0)', () => {
     expect(currentTown([hamlet, town], null)).toEqual({ place: hamlet, inside: false })
   })
 
-  it('never earns a ring mark', () => {
-    const marks = selectMarksFn([row(1, 0, 1, null), row(2, 2, 5, 1050)], newCompassState())
-    expect(marks.map((m) => m.id)).toEqual([2])
+  it('earns a ring mark within HAMLET_RING_KM at village priority, nearest first', () => {
+    const near = row(1, 0, 1, null)
+    const far = row(3, 0, 5, null) // outside the 4 km hamlet ring radius
+    const village = row(2, 2, 3, 1050)
+    const marks = selectMarksFn([far, village, near], newCompassState())
+    expect(marks.map((m) => m.id)).toEqual([1, 2])
+    expect(marks[0].population).toBeNull()
+    expect(tickPx(0)).toBeLessThan(tickPx(1))
   })
 })
