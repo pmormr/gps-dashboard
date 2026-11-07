@@ -347,6 +347,30 @@ export function getPointsRecent(minutes: number, limit: number): Promise<RecentP
   return getJSON<RecentPointsResponse>(`/api/points/recent?minutes=${minutes}&limit=${limit}`)
 }
 
+/** One mean-altitude bucket from /api/points/elevation. */
+export interface ElevationBucket {
+  timestamp: string
+  /** Mean altitude over the bucket, metres. */
+  altitude: number
+  n: number
+}
+
+export interface ElevationResponse {
+  /** Where "today" starts: the end of the last ≥4 h stop, or the 24 h cap. */
+  start: string
+  start_reason: 'stop' | 'cap'
+  bucket_s: number
+  buckets: ElevationBucket[]
+  high: ElevationBucket | null
+  low: ElevationBucket | null
+  now: string
+}
+
+/** Today's bucketed elevation profile (the Drive HUD's records block). */
+export function getPointsElevation(signal?: AbortSignal): Promise<ElevationResponse> {
+  return getJSON<ElevationResponse>('/api/points/elevation', signal)
+}
+
 /** One settlement from /api/places/nearby (the GeoNames population slice). */
 export interface NearbyPlace {
   id: number

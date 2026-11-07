@@ -219,6 +219,30 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
 - **HUD** — a bottom bar (big mph, 16-wind heading + degrees, altitude ft), read from
   the **raw** fix, not the interpolated pose (interpolation would only add display
   lag to numbers).
+- **Records row + elevation sparkline** — `TODAY since hh:mm · ▲ high · ▼ low`
+  above the main row, and a 2 h sparkline under ALT, off a 30 s
+  `/api/points/elevation` poll (60 s mean buckets, 3D fixes only — raw altitude
+  jitters ±10 m) folded with the live fix each tick (`lib/records.ts`, pure) so a
+  new high registers the second it happens. "Today" runs from the end of the last
+  stop ≥ 4 h (processor dwell rows, open dwell included), capped 24 h back — not
+  local midnight (the Pi's zone doesn't follow the van).
+- **Town compass** (`views/DriveCompass.svelte` + `lib/compass.ts`, pure) — two
+  bearing strips framing the map: ahead on top (−90° … +90°, dead ahead centred),
+  behind on the HUD's measured top edge with the ring unrolled the other way (a
+  town passed on the left slides off top-left and reappears bottom-left). Marks
+  are GeoNames settlements from `/api/places/nearby` (name · population pip bar ·
+  miles; colour/weight by population tier). Selection is four mechanisms, not one
+  score: per-tier visibility radius (client-owned `TIER_RADII_KM`, passed to the
+  server widened by the leave band), **metro shadowing** (a smaller place within
+  ~10° and the same distance band of a bigger one is hidden — Denver's suburb ring
+  otherwise fills every slot before Denver), per-strip slot quotas by tier, and
+  hysteresis (leave band, sticky membership at the slot cutoff, a 10° dead zone at
+  the ±90° fold). Candidates refetch after 2 km / 60 s; distance + bearing are
+  recomputed from the raw fix each selection (server values age with every metre);
+  selection runs on a 3° heading step, positions per frame off the smooth heading.
+  Labels pack greedily into two rows (priority: tier, nearest the strip centre,
+  distance) with an estimated width — no DOM measurement per frame. Tap-to-navigate
+  is deferred to the navigation plan. Road tuning is open: `plans/drive-hud-plan.md`.
 - **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH) off a 5 s
   `/api/status` poll; `fuel_rate_lph` is derived server-side into the `van` block
   (`common/obd.py` speed density). Engine-gated: `obd_link === 'online'` + rpm > 0 +

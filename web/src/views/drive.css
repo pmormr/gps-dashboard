@@ -341,3 +341,55 @@
 .drive-wake {
   top: 70px;
 }
+
+/* ── Records row: today's extremes (the day runs since the last ≥4 h stop). ── */
+.drive-records {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.drive-records .k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.drive-records .since {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drive-records .rec {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.drive-records .rec-hi {
+  color: #fbbf24;
+}
+
+.drive-records .rec-lo {
+  color: #60a5fa;
+}
+
+.drive-records .rec em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* ALT cell carries the trailing 2 h elevation sparkline under the value. */
+.drive-alt {
+  width: 104px;
+  min-width: 104px;
+}

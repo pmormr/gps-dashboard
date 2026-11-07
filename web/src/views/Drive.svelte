@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
-  import { getPointsRecent, getStatus, type Status } from '../lib/api'
+  import Sparkline from '../lib/charts/Sparkline.svelte'
+  import {
+    type ElevationResponse,
+    getPointsElevation,
+    getPointsRecent,
+    getStatus,
+    type Status,
+  } from '../lib/api'
   import {
     ENTER_EASE_MS,
     FOLLOW_PITCH_DEG,
@@ -14,11 +21,13 @@
     celsiusToF,
     fmtAltitude,
     fmtDistance,
+    fmtTime,
     haversineMeters,
     initialBearingDeg,
     mpsToMph,
   } from '../lib/geo'
   import { cardinal, type Crumb, extendCrumbs } from '../lib/live'
+  import { elevationRecords } from '../lib/records'
   import type { MapView as MapViewType } from '../lib/map'
   import { destination } from '../lib/stores/destination.svelte'
   import { live } from '../lib/stores/live.svelte'
@@ -120,6 +129,26 @@
   // with the engine-gated OBD row — measured, not assumed.
   let hudHeight = $state(0)
 
+  // Records: today's elevation profile (server buckets, 30 s poll) folded
+  // with the live fix each tick, so a new high shows the second it happens.
+  const ELEVATION_POLL_MS = 30_000
+  let elevation = $state<ElevationResponse | null>(null)
+  const records = $derived(
+    elevationRecords(
+      elevation?.buckets ?? [],
+      live.status === 'ok' || live.status === 'stale' ? (live.fix?.alt ?? null) : null,
+      live.fix?.time ?? null,
+      Date.now(),
+    ),
+  )
+  const sinceLabel = $derived(
+    elevation == null
+      ? ''
+      : elevation.start_reason === 'stop'
+        ? `since ${fmtTime(elevation.start)}`
+        : 'last 24 h',
+  )
+
   function onGesture(): void {
     suspended = true
   }
@@ -180,11 +209,23 @@
     }
     pollObd()
     const obdTimer = setInterval(pollObd, OBD_POLL_MS)
+    const pollElevation = (): void => {
+      getPointsElevation()
+        .then((e) => {
+          if (!cancelled) elevation = e
+        })
+        .catch(() => {
+          /* keep the last profile; the live fix still drives the records */
+        })
+    }
+    pollElevation()
+    const elevationTimer = setInterval(pollElevation, ELEVATION_POLL_MS)
     return () => {
       cancelled = true
       live.stop()
       clearInterval(wakeTimer)
       clearInterval(obdTimer)
+      clearInterval(elevationTimer)
       releaseWakeLock()
       if (view) {
         view.offUserMove(onGesture)
@@ -299,6 +340,20 @@
         </div>
       </div>
     {/if}
+    {#if elevation}
+      <div class="drive-records">
+        <span class="k">TODAY</span>
+        <span class="since">{sinceLabel}</span>
+        <span class="rec rec-hi">
+          ▲ {fmtAltitude(records.high?.altitudeM ?? null)}
+          {#if records.high}<em>{fmtTime(records.high.timestamp)}</em>{/if}
+        </span>
+        <span class="rec rec-lo">
+          ▼ {fmtAltitude(records.low?.altitudeM ?? null)}
+          {#if records.low}<em>{fmtTime(records.low.timestamp)}</em>{/if}
+        </span>
+      </div>
+    {/if}
     <div class="drive-hud-main">
       <div class="drive-hud-speed">
         <span class="num">{mph ?? '–'}</span>
@@ -331,9 +386,10 @@
         <span class="k">HDG</span>
         <span class="v">{hdg != null ? `${cardinal(hdg)} ${hdg}°` : '—'}</span>
       </div>
-      <div class="drive-hud-cell">
+      <div class="drive-hud-cell drive-alt">
         <span class="k">ALT</span>
         <span class="v">{altLabel}</span>
+        <Sparkline values={records.spark} color="#4ade80" width={96} height={18} />
       </div>
     </div>
   </div>

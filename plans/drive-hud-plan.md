@@ -104,11 +104,19 @@ logs, plus one new places source.
    Colorado Springs / Edwards / Breckenridge / Leadville North ahead,
    Leadville astern, labels inside a 393 px viewport. **Not yet seen on the
    dash** — tune R / slots / shadowing from the road.
-5. [ ] **`GET /api/points/elevation`** — D8 window start + D9 buckets;
-   returns `{start, reason, buckets:[{t, alt}]}`. Tests.
-6. [ ] **HUD records block** — ALT cell becomes current + ▲ high (time) +
-   ▼ low + sparkline; live fix appended client-side; 30 s poll.
-7. [ ] Fold durable bits into `frontend.md` / `places.md`, drop this file.
+5. [x] **`GET /api/points/elevation`** — built 2026-11-07: D8 window start
+   (`DAY_BREAK_STOP_SECONDS`, open dwell included, 24 h cap) + D9 60 s mean
+   buckets over 3D fixes, `high`/`low` with their times. Tested.
+6. [x] **HUD records block** — built 2026-11-07: a `TODAY since hh:mm ·
+   ▲ high · ▼ low` row above the main HUD row + a 2 h sparkline under ALT;
+   `lib/records.ts` folds the live fix in (Vitest). Laptop check with a
+   mocked profile renders; the "since" label ellipsizes on a 393 px phone.
+7. [ ] **Road tuning + fold** — drive with it: R / slots / shadow angle,
+   pip legibility, label density, the records row on the phone. Then fold
+   the durable bits (already drafted in `frontend.md` Drive view +
+   `places.md` GeoNames) and drop this file. Pi steps after the push: the
+   sidecar migration runs at service start; press **Update** on the
+   `geonames` chunk in `/data` (needs WAN) — the compass is empty until then.
 
 ## Later (flagged, not scoped)
 
