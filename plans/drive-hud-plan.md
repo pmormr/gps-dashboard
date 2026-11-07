@@ -44,6 +44,13 @@ logs, plus one new places source.
   - *Hysteresis*: enter at `R`, leave at `1.15·R`; a mark stays on its strip
     until 10° past the ±90° fold line; membership changes debounce so a
     place at the slot boundary doesn't blink.
+  - *Metro shadowing* (added 2026-11-07 after the first real-data read from
+    Leadville): a candidate is hidden by any more-populous candidate within
+    ~10° of bearing whose distance is in the same band (ratio 0.6–1.6).
+    Denver's suburb ring (Lakewood/Arvada/Westminster/Thornton/Golden…, all
+    tier 3–4 at ~60° / ~115 km) otherwise fills every slot *before* Denver,
+    since nearest-first within a tier favours the suburbs. Boulder at 45°
+    survives — it is a distinct direction.
 - **D6 — Strip geometry = an unrolled ring.** Top strip: relative bearing
   −90…+90, dead ahead at centre. Bottom strip: the back half, directly-behind
   at centre, left edge also −90 — a town passed on the left slides off the
@@ -76,9 +83,12 @@ logs, plus one new places source.
    the laptop: 43,536 NA rows (36.7k village / 6.1k town / 727 city), bbox +
    population read plans onto the partial index. **Not yet run on the Pi** —
    push, then press the chunk's Update on `/data`.
-2. [ ] **`GET /api/places/nearby`** — `lat`, `lon`, `radius_km`, `limit`:
-   GeoNames rows in the bbox with `population`, distance computed server-side,
-   ordered by tier then distance. Flask-client tests.
+2. [x] **`GET /api/places/nearby`** — built 2026-11-07: `lat`, `lon`,
+   `radii` (five per-tier km, client-owned constants; defaults in
+   `NEARBY_DEFAULT_RADII_KM`), `limit`. A plain per-tier distance filter —
+   no ranking, nearest-first with `distance_m`/`bearing_deg`/`tier`;
+   selection (slots, hysteresis, shadowing) is the client's. Helpers in
+   `common/geo.py` (strict-typed). Leadville real-data read: 19 rows, 11 ms.
 3. [ ] **`web/src/lib/compass.ts`** — pure: tier, radius, candidate set,
    hysteresis state, strip assignment, 1-D greedy label packing (≤2 rows per
    strip). Constants in one block like `follow.ts`. Vitest.

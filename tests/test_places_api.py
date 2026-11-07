@@ -11,6 +11,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from api.db import get_connection, place_wiki_key
 from tools.fetch_wikipedia import Target, collect_targets
 from tools.import_places import (
@@ -600,6 +602,81 @@ def test_geonames_load_writes_population(client) -> None:
     assert tuple(stored) == (2600, 5)
     found = client.get('/api/places?q=leadville').get_json()['places']
     assert [(a['source'], a['population']) for a in found] == [('geonames', 2600)]
+
+
+def _seed_settlements() -> None:
+    """Five GeoNames rows around (39, -106) spanning the tier radii, plus a GNIS twin."""
+    from tools.import_places import GEONAMES_KIND_RANKS
+
+    def town(source_id: str, name: str, lat: float, lon: float, population: int) -> Place:
+        return Place(
+            'populated_place',
+            source_id,
+            None,
+            name,
+            lat,
+            lon,
+            None,
+            {'population': population},
+            population=population,
+        )
+
+    rows = [
+        town('1', 'Near Village', 39.045, -106.0, 800),  # ~5 km N, tier 1 (8 km)
+        town('2', 'Far Village', 39.18, -106.0, 800),  # ~20 km N, tier 1 → out
+        town('3', 'Town', 39.0, -105.65, 12_000),  # ~30 km E, tier 3 (110 km)
+        town('4', 'City', 37.2, -106.0, 700_000),  # ~200 km S, tier 4 (250 km)
+        town('5', 'Metro', 42.4, -106.0, 2_000_000),  # ~378 km N, tier 5 (400 km)
+    ]
+    conn = get_connection()
+    load(conn, rows, [], source='geonames', kind_ranks=GEONAMES_KIND_RANKS)
+    gnis = Place('populated_place', '9', None, 'Near Village', 39.045, -106.0, None, {})
+    load(conn, [gnis], [], source='gnis', kind_ranks=GNIS_KIND_RANKS)
+    conn.close()
+
+
+def test_nearby_keeps_each_tier_within_its_radius(client) -> None:
+    _seed_settlements()
+    body = client.get('/api/places/nearby?lat=39&lon=-106').get_json()
+    assert body['center'] == {'lat': 39.0, 'lon': -106.0}
+    assert body['radii_km'] == [8.0, 35.0, 110.0, 250.0, 400.0]
+    assert [p['name'] for p in body['places']] == ['Near Village', 'Town', 'City', 'Metro']
+    assert body['count'] == 4 and body['truncated'] is False
+    near = body['places'][0]
+    assert near['tier'] == 1 and near['population'] == 800
+    assert near['distance_m'] == pytest.approx(5_000, rel=0.02)
+    assert near['bearing_deg'] == pytest.approx(0.0, abs=0.5)
+    assert [p['tier'] for p in body['places']] == [1, 3, 4, 5]
+    assert body['places'][1]['bearing_deg'] == pytest.approx(90.0, abs=1.0)
+    assert body['synced_at']
+
+
+def test_nearby_honours_client_radii_and_limit(client) -> None:
+    _seed_settlements()
+    body = client.get('/api/places/nearby?lat=39&lon=-106&radii=25,35,110,250,400').get_json()
+    assert [p['name'] for p in body['places']] == [
+        'Near Village',
+        'Far Village',
+        'Town',
+        'City',
+        'Metro',
+    ]
+    body = client.get('/api/places/nearby?lat=39&lon=-106&limit=2').get_json()
+    assert [p['name'] for p in body['places']] == ['Near Village', 'Town']
+    assert body['truncated'] is True
+
+
+def test_nearby_rejects_bad_params(client) -> None:
+    assert client.get('/api/places/nearby').status_code == 400
+    assert client.get('/api/places/nearby?lat=x&lon=1').status_code == 400
+    assert client.get('/api/places/nearby?lat=91&lon=1').status_code == 400
+    assert client.get('/api/places/nearby?lat=39&lon=-106&radii=1,2').status_code == 400
+    assert client.get('/api/places/nearby?lat=39&lon=-106&radii=1,2,3,4,-5').status_code == 400
+
+
+def test_nearby_empty_tier(client) -> None:
+    body = client.get('/api/places/nearby?lat=39&lon=-106').get_json()
+    assert body['places'] == [] and body['synced_at'] is None
 
 
 def test_places_population_migration(tmp_path: Path) -> None:

@@ -26,6 +26,9 @@ sync, and the UI is expected to wear that age rather than present it as live.
   ``api.db.place_wiki_key``), and its cross-source ``twins``.
 * ``GET /api/places/lookup`` — ``(source, source_id)`` natural key → row id
   (the basemap tap-through bridge).
+* ``GET /api/places/nearby`` — population-bearing settlements around a point,
+  each kept within its population tier's visibility radius (the Drive
+  compass read).
 * ``GET /api/places/<id>/photo`` — the cached Wikipedia thumbnail bytes.
 * ``GET /api/places/events`` — occurrences (event × date × time window) in
   a calendar-date window, grouped per event. Dates are park-local
@@ -44,8 +47,14 @@ from flask import Blueprint, Response, jsonify, request
 
 from api.db import get_connection, place_wiki_key
 from api.params import bbox_point_where, parse_bbox, parse_limit
+from common.geo import POPULATION_TIER_MAX, haversine_m, initial_bearing_deg, population_tier
 
 places_bp = Blueprint('places', __name__)
+
+#: Default per-tier visibility radii (km) for ``/api/places/nearby``, tiers
+#: 1–5 (under 1k … 1M+ residents). The client owns the tuned values
+#: (``web/src/lib/compass.ts``) and passes them; these only serve a bare call.
+NEARBY_DEFAULT_RADII_KM: tuple[float, ...] = (8.0, 35.0, 110.0, 250.0, 400.0)
 
 _PLACE_COLS = (
     'id',
@@ -427,6 +436,99 @@ def lookup_place():
     if row is None:
         return jsonify({'error': 'place not found'}), 404
     return jsonify({'id': row['id']})
+
+
+@places_bp.get('/api/places/nearby')
+def nearby_places():
+    """Population-bearing settlements around a point — the Drive compass read.
+
+    Reads only rows carrying ``population`` (the GeoNames slice; the
+    ``idx_places_population`` partial index serves the bbox). A row is kept
+    when its distance is within the visibility radius for its population
+    tier: ``radii`` is five comma-separated kilometres for tiers 1–5 (under
+    1k … 1M+ residents), so a 700-person village surfaces only when close
+    and a metro from a few hundred km out. The client owns those constants
+    and passes its hysteresis-widened values — this read is a plain distance
+    filter with no ranking of its own. Rows come back nearest-first with
+    ``distance_m``, ``bearing_deg`` (true, from the point) and ``tier``;
+    ``truncated`` means the ``limit`` cut the far end.
+    """
+    lat_arg = request.args.get('lat')
+    lon_arg = request.args.get('lon')
+    if lat_arg is None or lon_arg is None:
+        return jsonify({'error': 'lat and lon are required'}), 400
+    try:
+        lat, lon = float(lat_arg), float(lon_arg)
+    except ValueError:
+        return jsonify({'error': f'Invalid lat/lon: {lat_arg},{lon_arg}'}), 400
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return jsonify({'error': f'lat/lon out of range: {lat},{lon}'}), 400
+
+    radii: tuple[float, ...] = NEARBY_DEFAULT_RADII_KM
+    radii_arg = request.args.get('radii')
+    if radii_arg is not None:
+        try:
+            parsed = tuple(float(p) for p in radii_arg.split(','))
+        except ValueError:
+            return jsonify({'error': f'Invalid radii: {radii_arg} (want 5 km values)'}), 400
+        if len(parsed) != POPULATION_TIER_MAX or any(
+            not math.isfinite(r) or r <= 0 for r in parsed
+        ):
+            return jsonify({'error': f'Invalid radii: {radii_arg} (want 5 km values > 0)'}), 400
+        radii = parsed
+    # Nearest-first truncation drops the *far* end — the big-city end — so the
+    # default must comfortably hold a metro's whole suburb ring (Denver's is
+    # ~100 rows within tier 3/4 radii).
+    limit, err = parse_limit(request.args, default=300, maximum=1000)
+    if err:
+        return err
+
+    max_m = max(radii) * 1000.0
+    lat_half = max_m / _M_PER_DEG_LAT
+    lon_half = lat_half / max(0.2, math.cos(math.radians(lat)))
+    bbox = (lon - lon_half, lat - lat_half, lon + lon_half, lat + lat_half)
+    bbox_where, bbox_params = bbox_point_where(bbox)
+
+    conn = get_connection()
+    rows = conn.execute(
+        'SELECT id, name, summary, lat, lon, population, synced_at FROM places '
+        f'WHERE population IS NOT NULL AND {" AND ".join(bbox_where)}',
+        bbox_params,
+    ).fetchall()
+
+    places: list[dict] = []
+    synced_at: str | None = None
+    for row in rows:
+        tier = population_tier(row['population'])
+        distance = haversine_m(lat, lon, row['lat'], row['lon'])
+        if distance > radii[tier - 1] * 1000.0:
+            continue
+        synced_at = row['synced_at'] if synced_at is None else max(synced_at, row['synced_at'])
+        places.append(
+            {
+                'id': row['id'],
+                'name': row['name'],
+                'summary': row['summary'],
+                'lat': row['lat'],
+                'lon': row['lon'],
+                'population': row['population'],
+                'tier': tier,
+                'distance_m': round(distance, 1),
+                'bearing_deg': round(initial_bearing_deg(lat, lon, row['lat'], row['lon']), 1),
+            }
+        )
+    places.sort(key=lambda p: p['distance_m'])
+    truncated = len(places) > limit
+    return jsonify(
+        {
+            'center': {'lat': lat, 'lon': lon},
+            'radii_km': list(radii),
+            'places': places[:limit],
+            'count': min(len(places), limit),
+            'truncated': truncated,
+            'synced_at': synced_at,
+        }
+    )
 
 
 @places_bp.get('/api/places/<int:place_id>')
