@@ -43,6 +43,11 @@ export const REFETCH_MS = 60_000
 /** "In town" radius per tier (index = tier − 1), km: how far from a
  *  settlement's point you still count as *in* it (GeoNames has no polygons). */
 export const TOWN_RADII_KM: readonly number[] = [1.5, 3, 7, 15, 25]
+/** GNIS hamlets (tier 0 — no population; below GeoNames' 500-resident floor)
+ *  are requested within this radius and count as "in" within HAMLET_IN_KM.
+ *  They feed the HUD's current-town readout only, never the ring. */
+export const HAMLET_KM = 6
+export const HAMLET_IN_KM = 2
 
 /** The settlement the van is in (or, failing that, nearest to) — the HUD readout. */
 export interface Here {
@@ -51,31 +56,45 @@ export interface Here {
   inside: boolean
 }
 
+/** A candidate's in-town radius, metres (tier 0 = GNIS hamlet). */
+function inTownRadiusM(tier: number): number {
+  if (tier < 1) return HAMLET_IN_KM * 1000
+  return TOWN_RADII_KM[Math.min(Math.round(tier), TOWN_RADII_KM.length) - 1] * 1000
+}
+
 /**
- * The current town: of the candidates whose in-town radius contains the van,
- * the one the van is deepest inside (distance ÷ radius — a city centre 5 km
- * off beats a village 1.4 km off); the incumbent keeps its seat out to
- * LEAVE_FACTOR × radius so a boundary doesn't flicker. With none containing
- * the van, the nearest candidate, flagged `inside: false` ("near").
+ * The current town: of the populated candidates whose in-town radius
+ * contains the van, the one the van is deepest inside (distance ÷ radius — a
+ * city centre 5 km off beats a village 1.4 km off); the incumbent keeps its
+ * seat out to LEAVE_FACTOR × radius so a boundary doesn't flicker. GNIS
+ * hamlets (tier 0) are the fallback: only when no populated town contains
+ * the van does the deepest-inside hamlet win (a city's neighbourhoods are
+ * GNIS populated places too — the city must beat them). With nothing
+ * containing the van, the nearest candidate of any kind, `inside: false`.
  */
 export function currentTown(
   candidates: readonly NearbyPlace[],
   previousId: number | null,
 ): Here | null {
-  let best: NearbyPlace | null = null
-  let bestRatio = Infinity
+  const deepest = (pool: readonly NearbyPlace[]): NearbyPlace | null => {
+    let best: NearbyPlace | null = null
+    let bestRatio = Infinity
+    for (const c of pool) {
+      const ratio = c.distance_m / inTownRadiusM(c.tier)
+      const limit = c.id === previousId ? LEAVE_FACTOR : 1
+      if (ratio <= limit && ratio < bestRatio) {
+        best = c
+        bestRatio = ratio
+      }
+    }
+    return best
+  }
+  const town = deepest(candidates.filter(isPopulated)) ?? deepest(candidates.filter((c) => !isPopulated(c)))
+  if (town) return { place: town, inside: true }
   let nearest: NearbyPlace | null = null
   for (const c of candidates) {
-    const idx = Math.min(Math.max(Math.round(c.tier), 1), TOWN_RADII_KM.length) - 1
-    const ratio = c.distance_m / (TOWN_RADII_KM[idx] * 1000)
-    const limit = c.id === previousId ? LEAVE_FACTOR : 1
-    if (ratio <= limit && ratio < bestRatio) {
-      best = c
-      bestRatio = ratio
-    }
     if (!nearest || c.distance_m < nearest.distance_m) nearest = c
   }
-  if (best) return { place: best, inside: true }
   return nearest ? { place: nearest, inside: false } : null
 }
 
@@ -105,6 +124,16 @@ export function requestRadiiKm(): number[] {
   return TIER_RADII_KM.map((r) => r * LEAVE_FACTOR)
 }
 
+/** The hamlet radius to request, widened by the leave band like the tiers. */
+export function requestHamletsKm(): number {
+  return HAMLET_KM * LEAVE_FACTOR
+}
+
+/** Whether a candidate carries a population (GeoNames) vs a GNIS hamlet. */
+export function isPopulated(c: Pick<NearbyPlace, 'tier'>): boolean {
+  return c.tier >= 1
+}
+
 /** Bearing relative to the heading (north-up before any heading exists). */
 export function relBearing(heading: number | null, bearing: number): number {
   return angleDelta(heading ?? 0, bearing)
@@ -121,7 +150,7 @@ function visibleRadiusM(tier: number, member: boolean): number {
  * and distance band. Returns the survivors, most populous first.
  */
 export function unshadowed(candidates: readonly NearbyPlace[]): NearbyPlace[] {
-  const byPop = [...candidates].sort((a, b) => b.population - a.population)
+  const byPop = [...candidates].sort((a, b) => (b.population ?? 0) - (a.population ?? 0))
   const kept: NearbyPlace[] = []
   for (const c of byPop) {
     const hidden = kept.some((k) => {
@@ -136,6 +165,8 @@ export function unshadowed(candidates: readonly NearbyPlace[]): NearbyPlace[] {
 
 /** Select the current marks from the server's candidates, updating `state`. */
 export function selectMarks(candidates: readonly NearbyPlace[], state: CompassState): Mark[] {
+  // Hamlets (tier 0, no population) feed the HUD readout only — never the ring.
+  candidates = candidates.filter(isPopulated)
   const visible = candidates.filter(
     (c) => c.distance_m <= visibleRadiusM(c.tier, state.members.has(c.id)),
   )
@@ -150,7 +181,7 @@ export function selectMarks(candidates: readonly NearbyPlace[], state: CompassSt
     id: c.id,
     name: c.name,
     tier: c.tier,
-    population: c.population,
+    population: c.population ?? 0,
     distanceM: c.distance_m,
     bearing: c.bearing_deg,
   }))

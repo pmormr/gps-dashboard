@@ -378,8 +378,9 @@ export interface NearbyPlace {
   summary: string | null
   lat: number
   lon: number
-  population: number
-  /** ×10 population band, 1 (under 1k) … 5 (1M+). */
+  /** Resident count; null for a GNIS hamlet (tier 0). */
+  population: number | null
+  /** ×10 population band, 1 (under 1k) … 5 (1M+); 0 = GNIS hamlet, no population. */
   tier: number
   /** Importer's admin1 name (e.g. "Pennsylvania"), or null. */
   region: string | null
@@ -407,9 +408,15 @@ export function getPlacesNearby(
   lat: number,
   lon: number,
   radiiKm: readonly number[],
+  hamletsKm = 0,
   signal?: AbortSignal,
 ): Promise<NearbyResponse> {
-  const query = qs({ lat, lon, radii: radiiKm.map((r) => r.toFixed(1)).join(',') })
+  const query = qs({
+    lat,
+    lon,
+    radii: radiiKm.map((r) => r.toFixed(1)).join(','),
+    hamlets_km: hamletsKm.toFixed(1),
+  })
   return getJSON<NearbyResponse>(`/api/places/nearby?${query}`, signal)
 }
 

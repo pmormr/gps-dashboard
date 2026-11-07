@@ -282,7 +282,10 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   (`currentTown`, bound out of the compass): the candidate the van is *deepest
   inside* by its tier's in-town radius (`TOWN_RADII_KM`; distance ÷ radius, so a
   city centre 5 km off beats a village 1.4 km off; the incumbent holds to
-  `LEAVE_FACTOR`), labelled IN, else the nearest candidate labelled NEAR · distance — "Name, ST"
+  `LEAVE_FACTOR`), labelled IN, else the nearest candidate labelled NEAR · distance;
+  **GNIS hamlets** (`hamlets_km` on the nearby read → tier 0, no population — the towns
+  under GeoNames' 500-resident floor) are the fallback when no populated town contains
+  the van, and feed this readout only, never the ring — "Name, ST"
   (`placeLabel`: the importer's admin1 *name* → postal code via a static US/CA map in
   `compass.ts`; `/api/places/nearby` surfaces `region`/`country` from the row's details) +
   tier-coloured population. Tap-to-navigate is deferred to the navigation plan. Road

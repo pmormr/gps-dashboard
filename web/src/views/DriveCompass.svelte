@@ -16,6 +16,7 @@
     REFETCH_METERS,
     tickPx,
     REFETCH_MS,
+    requestHamletsKm,
     requestRadiiKm,
     selectMarks,
   } from '../lib/compass'
@@ -65,7 +66,7 @@
     const ctl = new AbortController()
     inflight = ctl
     const center = { lat, lon }
-    getPlacesNearby(lat, lon, requestRadiiKm(), ctl.signal)
+    getPlacesNearby(lat, lon, requestRadiiKm(), requestHamletsKm(), ctl.signal)
       .then((resp) => {
         if (ctl.signal.aborted) return
         candidates = resp.places

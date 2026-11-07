@@ -640,8 +640,12 @@ def _seed_settlements() -> None:
     ]
     conn = get_connection()
     load(conn, rows, [], source='geonames', kind_ranks=GEONAMES_KIND_RANKS)
-    gnis = Place('populated_place', '9', None, 'Near Village', 39.045, -106.0, None, {})
-    load(conn, [gnis], [], source='gnis', kind_ranks=GNIS_KIND_RANKS)
+    gnis = [
+        # The GeoNames twin (same name, same spot) and a GNIS-only hamlet ~2 km E.
+        Place('populated_place', '9', None, 'Near Village', 39.045, -106.0, None, {}),
+        Place('populated_place', '10', None, 'Hamlet', 39.0, -105.977, None, {'state': 'Colorado'}),
+    ]
+    load(conn, gnis, [], source='gnis', kind_ranks=GNIS_KIND_RANKS)
     conn.close()
 
 
@@ -662,6 +666,26 @@ def test_nearby_keeps_each_tier_within_its_radius(client) -> None:
     assert [p['tier'] for p in body['places']] == [1, 3, 4, 5]
     assert body['places'][1]['bearing_deg'] == pytest.approx(90.0, abs=1.0)
     assert body['synced_at']
+
+
+def test_nearby_hamlets_are_opt_in_tier_zero_and_twin_free(client) -> None:
+    _seed_settlements()
+    # Off by default: GNIS rows never appear.
+    body = client.get('/api/places/nearby?lat=39&lon=-106').get_json()
+    assert 'Hamlet' not in [p['name'] for p in body['places']]
+    assert body['hamlets_km'] == 0.0
+    body = client.get('/api/places/nearby?lat=39&lon=-106&hamlets_km=4').get_json()
+    names = [p['name'] for p in body['places']]
+    assert names == ['Hamlet', 'Near Village', 'Town', 'City', 'Metro']
+    hamlet = body['places'][0]
+    assert hamlet['tier'] == 0 and hamlet['population'] is None
+    assert hamlet['region'] == 'Colorado' and hamlet['country'] == 'US'
+    assert hamlet['distance_m'] == pytest.approx(2_000, rel=0.05)
+    # The GNIS 'Near Village' twin of the GeoNames row is not a second entry.
+    assert names.count('Near Village') == 1
+    assert body['hamlets_km'] == 4.0
+    assert client.get('/api/places/nearby?lat=39&lon=-106&hamlets_km=99').status_code == 400
+    assert client.get('/api/places/nearby?lat=39&lon=-106&hamlets_km=x').status_code == 400
 
 
 def test_nearby_honours_client_radii_and_limit(client) -> None:

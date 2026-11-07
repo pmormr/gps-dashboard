@@ -5,6 +5,7 @@ import {
   CITY_NAME_PX,
   currentTown,
   placeLabel,
+  selectMarks as selectMarksFn,
   regionAbbrev,
   fmtMiles,
   labelSize,
@@ -281,5 +282,40 @@ describe('regionAbbrev + placeLabel', () => {
   it('labels a place with its region when known', () => {
     expect(placeLabel({ name: 'Philadelphia', region: 'Pennsylvania' })).toBe('Philadelphia, PA')
     expect(placeLabel({ name: 'Nowhere', region: null })).toBe('Nowhere')
+  })
+})
+
+describe('hamlets (tier 0)', () => {
+  const row = (id: number, tier: number, km: number, population: number | null): NearbyPlace => ({
+    id,
+    name: `h${id}`,
+    summary: null,
+    lat: 0,
+    lon: 0,
+    population,
+    tier,
+    region: 'Georgia',
+    country: 'US',
+    distance_m: km * 1000,
+    bearing_deg: 0,
+  })
+
+  it('is the current town only when no populated town contains the van', () => {
+    const hamlet = row(1, 0, 1.0, null) // 1.0 of 2 km → inside
+    const town = row(2, 2, 16, 1050) // Jeffersonville-style, 16 km → not inside
+    expect(currentTown([hamlet, town], null)).toEqual({ place: hamlet, inside: true })
+    const city = row(3, 4, 5, 700_000) // 5 of 15 km → the city beats its own neighbourhood
+    expect(currentTown([hamlet, town, city], null)).toEqual({ place: city, inside: true })
+  })
+
+  it('can be the nearest "near" candidate', () => {
+    const hamlet = row(1, 0, 3, null)
+    const town = row(2, 2, 16, 1050)
+    expect(currentTown([hamlet, town], null)).toEqual({ place: hamlet, inside: false })
+  })
+
+  it('never earns a ring mark', () => {
+    const marks = selectMarksFn([row(1, 0, 1, null), row(2, 2, 5, 1050)], newCompassState())
+    expect(marks.map((m) => m.id)).toEqual([2])
   })
 })

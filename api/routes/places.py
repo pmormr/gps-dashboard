@@ -438,6 +438,71 @@ def lookup_place():
     return jsonify({'id': row['id']})
 
 
+#: Upper bound for ``hamlets_km`` — GNIS lists every crossroads, so the read
+#: stays a small-bbox one.
+HAMLETS_MAX_KM = 25.0
+#: A GNIS populated place this close to a same-named GeoNames row is its twin.
+_HAMLET_TWIN_M = 3000.0
+
+
+def _nearby_hamlets(
+    conn, lat: float, lon: float, within_km: float, towns: list[dict]
+) -> list[dict]:
+    """GNIS populated places within ``within_km`` as tier-0 rows.
+
+    Args:
+        conn: The open connection (places sidecar attached).
+        lat: Query latitude.
+        lon: Query longitude.
+        within_km: Distance cap, km.
+        towns: The GeoNames rows already selected — a same-named GNIS row within
+            ``_HAMLET_TWIN_M`` of one is the same town and is skipped.
+
+    Returns:
+        Rows in the nearby-places shape with ``tier`` 0 and ``population`` None.
+    """
+    max_m = within_km * 1000.0
+    lat_half = max_m / _M_PER_DEG_LAT
+    lon_half = lat_half / max(0.2, math.cos(math.radians(lat)))
+    bbox = (lon - lon_half, lat - lat_half, lon + lon_half, lat + lat_half)
+    bbox_where, bbox_params = bbox_point_where(bbox)
+    rows = conn.execute(
+        'SELECT id, name, summary, lat, lon, details FROM places '
+        "WHERE source = 'gnis' AND source_kind = 'populated_place' "
+        f'AND population IS NULL AND {" AND ".join(bbox_where)}',
+        bbox_params,
+    ).fetchall()
+    out: list[dict] = []
+    for row in rows:
+        distance = haversine_m(lat, lon, row['lat'], row['lon'])
+        if distance > max_m:
+            continue
+        name_key = row['name'].casefold()
+        if any(
+            t['name'].casefold() == name_key
+            and haversine_m(row['lat'], row['lon'], t['lat'], t['lon']) <= _HAMLET_TWIN_M
+            for t in towns
+        ):
+            continue
+        details = _details_dict(row['details'])
+        out.append(
+            {
+                'id': row['id'],
+                'name': row['name'],
+                'summary': row['summary'],
+                'lat': row['lat'],
+                'lon': row['lon'],
+                'population': None,
+                'tier': 0,
+                'region': details.get('state'),
+                'country': 'US',
+                'distance_m': round(distance, 1),
+                'bearing_deg': round(initial_bearing_deg(lat, lon, row['lat'], row['lon']), 1),
+            }
+        )
+    return out
+
+
 def _details_dict(raw: str | None) -> dict:
     """Parse a row's ``details`` JSON, tolerating a missing or malformed blob.
 
@@ -473,6 +538,13 @@ def nearby_places():
     ``Pennsylvania``, and ISO country — from the row's details; None when
     absent) so the Drive HUD can say "Philadelphia, PA"; ``truncated``
     means the ``limit`` cut the far end.
+
+    ``hamlets_km`` (default 0 = off) also returns GNIS populated places
+    within that distance as **tier 0** rows with ``population`` None — the
+    towns too small for GeoNames' 500-resident floor (Allentown, GA: ~190
+    people), so the HUD can still name where the van *is*. A GNIS row whose
+    name matches a GeoNames row within 3 km is the same town twice and is
+    dropped. ``region`` for these is the GNIS state name; ``country`` US.
     """
     lat_arg = request.args.get('lat')
     lon_arg = request.args.get('lon')
@@ -497,6 +569,15 @@ def nearby_places():
         ):
             return jsonify({'error': f'Invalid radii: {radii_arg} (want 5 km values > 0)'}), 400
         radii = parsed
+    hamlets_km = 0.0
+    hamlets_arg = request.args.get('hamlets_km')
+    if hamlets_arg is not None:
+        try:
+            hamlets_km = float(hamlets_arg)
+        except ValueError:
+            return jsonify({'error': f'Invalid hamlets_km: {hamlets_arg}'}), 400
+        if not math.isfinite(hamlets_km) or hamlets_km < 0 or hamlets_km > HAMLETS_MAX_KM:
+            return jsonify({'error': f'hamlets_km out of range: {hamlets_arg}'}), 400
     # Nearest-first truncation drops the *far* end — the big-city end — so the
     # default must comfortably hold a metro's whole suburb ring (Denver's is
     # ~100 rows within tier 3/4 radii).
@@ -541,12 +622,15 @@ def nearby_places():
                 'bearing_deg': round(initial_bearing_deg(lat, lon, row['lat'], row['lon']), 1),
             }
         )
+    if hamlets_km > 0:
+        places.extend(_nearby_hamlets(conn, lat, lon, hamlets_km, places))
     places.sort(key=lambda p: p['distance_m'])
     truncated = len(places) > limit
     return jsonify(
         {
             'center': {'lat': lat, 'lon': lon},
             'radii_km': list(radii),
+            'hamlets_km': hamlets_km,
             'places': places[:limit],
             'count': min(len(places), limit),
             'truncated': truncated,

@@ -380,7 +380,9 @@
         {#if here}
           <span class="k">{here.inside ? 'IN' : `NEAR · ${fmtMiles(here.place.distance_m)}`}</span>
           <span class="v">{placeLabel(here.place)}</span>
-          <span class="pop" data-tier={here.place.tier}>{fmtPopulation(here.place.population)}</span>
+          {#if here.place.population != null}
+            <span class="pop" data-tier={here.place.tier}>{fmtPopulation(here.place.population)}</span>
+          {/if}
         {/if}
       </div>
       {#if destination.current}
