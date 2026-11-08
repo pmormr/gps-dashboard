@@ -17,7 +17,7 @@ export interface DrivePrefs {
   labelInset: number
   /** Render the top-left compass as a live mini-map (off = the plain rose). */
   miniMap: boolean
-  /** The mini-map's fixed zoom level. */
+  /** The mini-map's fixed zoom level — a state/regional overview, not street detail. */
   miniMapZoom: number
   /** Follow-camera zoom at and above the full-zoom-out speed (how far out at speed). */
   zoomMin: number
@@ -30,7 +30,8 @@ export interface DrivePrefs {
 /** Slider ranges — the parser rejects anything outside them. */
 export const RING_CAP_RANGE = { min: 6, max: 30 } as const
 export const LABEL_INSET_RANGE = { min: 4, max: 32 } as const
-export const MINI_MAP_ZOOM_RANGE = { min: 10, max: 18 } as const
+/** Regional scale: z4 ≈ a few states across the box, z10 ≈ a county. */
+export const MINI_MAP_ZOOM_RANGE = { min: 4, max: 10 } as const
 export const ZOOM_MIN_RANGE = { min: 10, max: 16, step: 0.5 } as const
 export const ZOOM_HI_MPH_RANGE = { min: 20, max: 80 } as const
 export const ZOOM_SLEW_RANGE = { min: 0.2, max: 3, step: 0.1 } as const
@@ -39,7 +40,7 @@ export const DEFAULT_DRIVE_PREFS: Readonly<DrivePrefs> = {
   ringCap: 14,
   labelInset: 12,
   miniMap: true,
-  miniMapZoom: 16,
+  miniMapZoom: 6,
   zoomMin: ZOOM_MIN,
   zoomHiMph: Math.round(SPEED_HI_MS * 2.236936),
   zoomSlew: ZOOM_SLEW_PER_S,

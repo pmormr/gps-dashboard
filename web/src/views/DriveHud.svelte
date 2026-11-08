@@ -58,7 +58,7 @@
           step="1"
           bind:value={drive.miniMapZoom}
         />
-        <div class="label-hint">fixed — higher is closer in</div>
+        <div class="label-hint">regional overview — lower shows more states</div>
       </div>
     {/if}
   </div>

@@ -9,7 +9,8 @@
   // direction of travel reads off fixed cardinal letters (the main map is
   // course-up, which loses north). With the mini-map pref on, a second small
   // MapLibre instance (lib/map.ts createMiniMap) renders under the rose at a
-  // fixed, user-set zoom, centred on the live position each frame. Off, the
+  // fixed, user-set *regional* zoom (state-level context the zoomed-in main
+  // map lacks), centred on the live position each frame. Off, the
   // rose stands alone on glass — also the fallback if a second WebGL context
   // is too much for the dash phone.
   let {

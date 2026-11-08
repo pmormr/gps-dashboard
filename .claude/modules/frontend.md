@@ -303,7 +303,7 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
 - **Compass mini-map** (`views/DriveMiniMap.svelte`, top-left) — a north-up rose
   with the heading chevron at its centre (the direction read the course-up main map
   loses); with the Drive HUD pref on, a **second MapLibre instance**
-  (`createMiniMap` in `map.ts`: non-interactive, fixed user-set zoom, default z16,
+  (`createMiniMap` in `map.ts`: non-interactive, fixed user-set **regional** zoom, default z6 — state-level context, not street detail,
   the engine's cached styles, follows the `layers` base + theme) renders under it,
   centred on the interpolated position each frame. Created/destroyed with the view,
   unlike the keep-alive engine. Off = the rose alone, the fallback if a second WebGL

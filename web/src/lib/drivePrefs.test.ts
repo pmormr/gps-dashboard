@@ -15,7 +15,7 @@ describe('parseDrivePrefs', () => {
       ringCap: 22,
       labelInset: 20,
       miniMap: false,
-      miniMapZoom: 12,
+      miniMapZoom: 8,
       zoomMin: 11.5,
       zoomHiMph: 40,
       zoomSlew: 1.2,
@@ -29,6 +29,10 @@ describe('parseDrivePrefs', () => {
       ringCap: 20,
       labelInset: 16,
     })
+  })
+
+  it('drops a street-level mini-map zoom persisted before the regional re-range', () => {
+    expect(parseDrivePrefs(JSON.stringify({ miniMapZoom: 16 }))).toEqual(DEFAULT_DRIVE_PREFS)
   })
 
   it('accepts fractional camera values only inside their ranges', () => {
