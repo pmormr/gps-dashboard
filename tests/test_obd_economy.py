@@ -1,7 +1,8 @@
 """Tests for OBD fuel-economy derivation (common.obd) and GET /api/obd/economy.
 
-Pins the speed-density derivation, the gap-capped drive integration, and the
-endpoint that joins derived fuel (obd_readings) to track distance (track_points).
+Pins the speed-density derivation, the constant-BSFC power estimate, the
+gap-capped drive integration, and the endpoint that joins derived fuel
+(obd_readings) to track distance (track_points).
 """
 
 import math
@@ -10,8 +11,11 @@ import pytest
 
 import api.db as db
 from common.obd import (
+    BSFC_G_PER_KWH,
     FUEL_RATE_CONSTANT,
+    GASOLINE_DENSITY_G_PER_L,
     derive_fuel_rate_lph,
+    derive_power_kw,
     summarize_drive,
 )
 
@@ -46,6 +50,24 @@ def test_derive_bad_lambda_falls_back_to_stoich():
     base = derive_fuel_rate_lph(30.0, 755.0, 1.0)
     assert derive_fuel_rate_lph(30.0, 755.0, 0.0) == pytest.approx(base)
     assert derive_fuel_rate_lph(30.0, 755.0, None) == pytest.approx(base)
+
+
+# ---- common.obd: derive_power_kw ------------------------------------------
+
+
+def test_power_is_fuel_mass_flow_over_bsfc():
+    # L/h × g/L ÷ g/kWh = kW; one constant, like the fuel rate.
+    assert derive_power_kw(15.0) == pytest.approx(15.0 * GASOLINE_DENSITY_G_PER_L / BSFC_G_PER_KWH)
+
+
+def test_power_highway_is_van_order_of_magnitude():
+    # ~15 L/h (≈16 mpg at 65 mph) should land in the 35–50 kW band a loaded
+    # van needs to hold highway speed.
+    assert 35.0 < derive_power_kw(15.0) < 50.0
+
+
+def test_power_passes_through_missing_fuel_rate():
+    assert derive_power_kw(None) is None
 
 
 # ---- common.obd: summarize_drive ------------------------------------------

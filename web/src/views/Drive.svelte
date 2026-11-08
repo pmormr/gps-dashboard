@@ -99,6 +99,7 @@
   const gph = $derived(
     van?.fuel_rate_lph != null ? (van.fuel_rate_lph * 0.264172).toFixed(1) : null,
   )
+  const kw = $derived(van?.power_kw != null ? Math.round(van.power_kw) : null)
 
   // Destination chevron: great-circle distance + bearing relative to course.
   // Off the raw fix like the other readouts. rel is null without a heading
@@ -362,6 +363,10 @@
         <div class="drive-hud-cell">
           <span class="k">GPH</span>
           <span class="v">{gph ?? '—'}</span>
+        </div>
+        <div class="drive-hud-cell">
+          <span class="k">KW</span>
+          <span class="v">{kw ?? '—'}</span>
         </div>
       </div>
     {/if}

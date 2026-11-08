@@ -106,9 +106,10 @@ def test_status_latest_values(client):
     assert data['cabin']['temp_c'] == 22.4
     assert data['van']['rpm'] == 1850.0
     # fuel_rate_lph is derived at read time (common.obd); the inputs stay out.
-    from common.obd import derive_fuel_rate_lph
+    from common.obd import derive_fuel_rate_lph, derive_power_kw
 
     assert data['van']['fuel_rate_lph'] == pytest.approx(derive_fuel_rate_lph(32.0, 1850.0, 1.0))
+    assert data['van']['power_kw'] == pytest.approx(derive_power_kw(data['van']['fuel_rate_lph']))
     assert 'absolute_load_pct' not in data['van']
     assert 'commanded_equiv_ratio' not in data['van']
     assert data['pi']['cpu_temp_c'] == 52.1

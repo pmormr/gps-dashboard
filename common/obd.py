@@ -1,4 +1,4 @@
-"""Speed-density fuel-rate derivation + drive integration for the OBD van stream.
+"""Speed-density fuel-rate + brake-power derivation and drive integration for the OBD van stream.
 
 The ProMaster's Pentastar is speed-density (no MAF) and exposes no native
 fuel-rate PID (``015E``), so litres/hour is **derived** from the SAE absolute
@@ -14,6 +14,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Gasoline density, g/L — shared by the fuel-rate and power derivations.
+GASOLINE_DENSITY_G_PER_L = 745.0
+
 # Collapses the speed-density chain to one multiplier on (load_fraction × rpm):
 #   1.184 g/L   air density at SAE STP (25 °C, 101.3 kPa)
 #   × 3.6 L     Pentastar displacement
@@ -24,7 +27,15 @@ from dataclasses import dataclass
 # ≈ 0.01168 L/h per (load_fraction × rpm). Validated against idle (~0.6 gal/h,
 # textbook) on the 2026-06-22 grocery run; this single number is the calibration
 # lever — scale it by (actual ÷ derived) from a tank-to-tank fill-up.
-FUEL_RATE_CONSTANT = 1.184 * 3.6 / 120.0 / 14.7 / 745.0 * 3600.0
+FUEL_RATE_CONSTANT = 1.184 * 3.6 / 120.0 / 14.7 / GASOLINE_DENSITY_G_PER_L * 3600.0
+
+# Brake-specific fuel consumption, g/kWh: a textbook mid-load figure for a
+# modern naturally-aspirated port-injected gasoline V6. Brake power is derived
+# from fuel flow through this one constant, so it inherits the fuel rate's
+# uncalibrated, single-multiplier stance. Known limit: a constant BSFC does not
+# model the idle efficiency collapse, so a warm idle reads a few kW while the
+# crank delivers ~0 to the wheels — the figure is "fuel-equivalent brake power".
+BSFC_G_PER_KWH = 270.0
 
 # Below this speed a sample counts as idle/stopped rather than moving.
 MOVING_SPEED_KPH = 1.0
@@ -53,6 +64,20 @@ def derive_fuel_rate_lph(
         return None
     lam = commanded_equiv_ratio if commanded_equiv_ratio and commanded_equiv_ratio > 0 else 1.0
     return absolute_load_pct / 100.0 * rpm * FUEL_RATE_CONSTANT / lam
+
+
+def derive_power_kw(fuel_rate_lph: float | None) -> float | None:
+    """Estimate brake power (kW) from the derived fuel rate at a constant BSFC.
+
+    Args:
+        fuel_rate_lph: Fuel rate from :func:`derive_fuel_rate_lph`, litres/hour.
+
+    Returns:
+        Estimated brake power in kW, or ``None`` when the fuel rate is missing.
+    """
+    if fuel_rate_lph is None:
+        return None
+    return fuel_rate_lph * GASOLINE_DENSITY_G_PER_L / BSFC_G_PER_KWH
 
 
 @dataclass(frozen=True)

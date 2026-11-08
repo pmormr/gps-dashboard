@@ -293,7 +293,8 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   tuning is open: `plans/drive-hud-plan.md`.
 - **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH) off a 5 s
   `/api/status` poll; `fuel_rate_lph` is derived server-side into the `van` block
-  (`common/obd.py` speed density). Engine-gated: `obd_link === 'online'` + rpm > 0 +
+  (`common/obd.py` speed density) and `power_kw` on top of it at a constant BSFC —
+  fuel-equivalent brake power, so a warm idle reads a few kW, not zero. Engine-gated: `obd_link === 'online'` + rpm > 0 +
   a 30 s freshness check against the payload's own `now` (server clock, immune to
   client skew); sustained poll failure drops the snapshot client-side, since a
   frozen payload freezes its `now` too.

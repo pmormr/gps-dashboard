@@ -22,7 +22,7 @@ from flask import Blueprint, Response, jsonify
 from api.db import get_connection, now_canonical
 from api.sensor_schema import METRIC_META, THROTTLE_LIVE_MASK
 from common import proc
-from common.obd import derive_fuel_rate_lph
+from common.obd import derive_fuel_rate_lph, derive_power_kw
 from common.timefmt import age_seconds
 
 status_bp = Blueprint('status', __name__)
@@ -78,11 +78,12 @@ def _latest(conn: sqlite3.Connection, table: str, cols: list[str]) -> dict | Non
 
 
 def _van(conn: sqlite3.Connection) -> dict | None:
-    """Return the latest OBD reading with ``fuel_rate_lph`` derived at read time.
+    """Return the latest OBD reading with ``fuel_rate_lph`` + ``power_kw`` derived at read time.
 
     The reader stores ``fuel_rate_lph`` as NULL by design; the speed-density
-    derivation lives in ``common.obd`` and runs here so consumers (the Drive
-    HUD's OBD strip) read a served value. The derivation inputs stay out of
+    derivation (and the constant-BSFC brake-power estimate on top of it) lives
+    in ``common.obd`` and runs here so consumers (the Drive HUD's OBD strip)
+    read served values. The derivation inputs stay out of
     the payload — ``engine_load_pct`` (a different PID) already covers load.
 
     Args:
@@ -111,6 +112,7 @@ def _van(conn: sqlite3.Connection) -> dict | None:
     row['fuel_rate_lph'] = derive_fuel_rate_lph(
         row.pop('absolute_load_pct'), row['rpm'], row.pop('commanded_equiv_ratio')
     )
+    row['power_kw'] = derive_power_kw(row['fuel_rate_lph'])
     return row
 
 
