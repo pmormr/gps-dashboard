@@ -31,8 +31,11 @@ export const SHADOW_DEG = 10
 /** …and its distance is within this ratio band of the bigger place's. */
 export const SHADOW_RATIO_LO = 0.6
 export const SHADOW_RATIO_HI = 1.6
-/** Ring slots: tiers 4–5 (100k+), tier 3 (10k–100k); tiers 1–2 fill the rest
- *  up to the ring cap — a user setting (`drivePrefs.ts` ringCap); this is the default. */
+/** Ring seats reserved by tier — tiers 4–5 (100k+), tier 3 (10k–100k) — so a
+ *  metro ring can't crowd out villages; tiers 0–2 take the rest of the ring
+ *  cap, and any room still left (villages exhausted) fills nearest-first from
+ *  whatever remains. The cap is a user setting (`drivePrefs.ts` ringCap);
+ *  RING_CAP is its default. */
 export const METRO_SLOTS = 3
 export const TOWN_SLOTS = 5
 export const RING_CAP = 14
@@ -168,8 +171,13 @@ export function unshadowed(candidates: readonly NearbyPlace[]): NearbyPlace[] {
   return kept
 }
 
-/** Select the current marks from the server's candidates, updating `state`;
- *  `ringCap` bounds the total (the metro/town quotas stay fixed, villages fill the rest). */
+/**
+ * Select the current marks from the server's candidates, updating `state`.
+ * `ringCap` bounds the total: the metro/town quotas are reserved seats (trimmed
+ * to the cap), villages take the remaining room, and leftover room — a
+ * town-dense area with few villages — fills nearest-first across the rest, so
+ * raising the cap always shows more when more exist.
+ */
 export function selectMarks(
   candidates: readonly NearbyPlace[],
   state: CompassState,
@@ -181,11 +189,15 @@ export function selectMarks(
   const sticky = (c: NearbyPlace): number =>
     c.distance_m * (state.members.has(c.id) ? MEMBER_STICKINESS : 1)
   const ranked = unshadowed(visible).sort((a, b) => sticky(a) - sticky(b))
-  const metros = ranked.filter((c) => c.tier >= 4).slice(0, METRO_SLOTS)
-  const towns = ranked.filter((c) => c.tier === 3).slice(0, TOWN_SLOTS)
+  const metros = ranked.filter((c) => c.tier >= 4).slice(0, Math.min(METRO_SLOTS, ringCap))
+  const towns = ranked
+    .filter((c) => c.tier === 3)
+    .slice(0, Math.max(0, Math.min(TOWN_SLOTS, ringCap - metros.length)))
   const room = Math.max(0, ringCap - metros.length - towns.length)
   const villages = ranked.filter((c) => c.tier <= 2).slice(0, room)
-  const selected = [...metros, ...towns, ...villages].map((c) => ({
+  const seated = new Set([...metros, ...towns, ...villages].map((c) => c.id))
+  const fill = ranked.filter((c) => !seated.has(c.id)).slice(0, ringCap - seated.size)
+  const selected = [...metros, ...towns, ...villages, ...fill].map((c) => ({
     id: c.id,
     name: c.name,
     tier: c.tier,

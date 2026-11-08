@@ -131,7 +131,23 @@ describe('selectMarks', () => {
     expect(wide).toHaveLength(24)
     const tight = selectMarks(cands, newCompassState(), 6)
     expect(tight.filter((m) => m.tier <= 2)).toHaveLength(0)
-    expect(tight).toHaveLength(METRO_SLOTS + TOWN_SLOTS)
+    expect(tight.filter((m) => m.tier >= 4)).toHaveLength(METRO_SLOTS)
+    expect(tight).toHaveLength(6)
+  })
+
+  it('fills leftover room past the quotas when villages run out', () => {
+    // Town-dense flatland: 10 towns, 5 metros, 2 villages — the Quincy, FL
+    // read that left the cap slider inert (2026-11-08).
+    const cands: NearbyPlace[] = []
+    for (let i = 0; i < 5; i++) cands.push(place({ population: 300_000, km: 100 + i, bearing: i * 60 }))
+    for (let i = 0; i < 10; i++) cands.push(place({ population: 30_000, km: 50 + i, bearing: i * 33 }))
+    for (let i = 0; i < 2; i++) cands.push(place({ population: 2_000, km: 10 + i, bearing: i * 90 }))
+    expect(selectMarks(cands, newCompassState(), 14)).toHaveLength(14)
+    const wide = selectMarks(cands, newCompassState(), 30)
+    expect(wide).toHaveLength(17)
+    // Villages were seated before any fill, and fill went nearest-first (towns before metros).
+    expect(wide.filter((m) => m.tier <= 2)).toHaveLength(2)
+    expect(wide.filter((m) => m.tier === 3)).toHaveLength(10)
   })
 
   it('prefers a current member at the slot cutoff (sticky distance)', () => {

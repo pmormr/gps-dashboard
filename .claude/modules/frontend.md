@@ -274,7 +274,9 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   font sizes are constants in `compass.ts` — 16 px names, 18 px cities, 12 px meta —
   handed to `drive.css` as custom properties on the ring root, so the estimate and the
   paint can't drift). Two knobs are **user settings**, not constants: the ring cap
-  (total marks; the metro/town quotas stay fixed and villages fill the rest) and
+  (total marks; the metro/town quotas are reserved seats trimmed to the cap, villages
+  take the remaining room, and leftover room fills nearest-first across tiers — a
+  town-dense area otherwise leaves the cap inert) and
   the label edge inset (along the edge *and* at the corner clamp) — the **Drive
   HUD** rail panel (`views/DriveHud.svelte`) over the `drive` store, persisted by
   `lib/drivePrefs.ts` (the `mapPrefs.ts` shape: versioned key, field-wise
