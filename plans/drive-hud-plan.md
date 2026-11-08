@@ -120,7 +120,10 @@ logs, plus one new places source.
    `lib/records.ts` folds the live fix in (Vitest). Laptop check with a
    mocked profile renders; the "since" label ellipsizes on a 393 px phone.
 7. [ ] **Road tuning + fold** — drive with it: R / slots / shadow angle,
-   pip legibility, label density, the records row on the phone. Then fold
+   pip legibility, label density, the records row on the phone. The ring cap
+   and the label edge inset became dash-side user settings 2026-11-08 (Drive
+   HUD rail panel, `lib/drivePrefs.ts`) after the first days on the road —
+   the remaining knobs stay constants until the road says otherwise. Then fold
    the durable bits (already drafted in `frontend.md` Drive view +
    `places.md` GeoNames) and drop this file. Pi steps after the push: the
    sidecar migration runs at service start; press **Update** on the

@@ -31,7 +31,8 @@ export const SHADOW_DEG = 10
 /** …and its distance is within this ratio band of the bigger place's. */
 export const SHADOW_RATIO_LO = 0.6
 export const SHADOW_RATIO_HI = 1.6
-/** Ring slots: tiers 4–5 (100k+), tier 3 (10k–100k); tiers 1–2 fill the rest. */
+/** Ring slots: tiers 4–5 (100k+), tier 3 (10k–100k); tiers 1–2 fill the rest
+ *  up to the ring cap — a user setting (`drivePrefs.ts` ringCap); this is the default. */
 export const METRO_SLOTS = 3
 export const TOWN_SLOTS = 5
 export const RING_CAP = 14
@@ -167,8 +168,13 @@ export function unshadowed(candidates: readonly NearbyPlace[]): NearbyPlace[] {
   return kept
 }
 
-/** Select the current marks from the server's candidates, updating `state`. */
-export function selectMarks(candidates: readonly NearbyPlace[], state: CompassState): Mark[] {
+/** Select the current marks from the server's candidates, updating `state`;
+ *  `ringCap` bounds the total (the metro/town quotas stay fixed, villages fill the rest). */
+export function selectMarks(
+  candidates: readonly NearbyPlace[],
+  state: CompassState,
+  ringCap = RING_CAP,
+): Mark[] {
   const visible = candidates.filter(
     (c) => c.distance_m <= visibleRadiusM(c.tier, state.members.has(c.id)),
   )
@@ -177,7 +183,7 @@ export function selectMarks(candidates: readonly NearbyPlace[], state: CompassSt
   const ranked = unshadowed(visible).sort((a, b) => sticky(a) - sticky(b))
   const metros = ranked.filter((c) => c.tier >= 4).slice(0, METRO_SLOTS)
   const towns = ranked.filter((c) => c.tier === 3).slice(0, TOWN_SLOTS)
-  const room = Math.max(0, RING_CAP - metros.length - towns.length)
+  const room = Math.max(0, ringCap - metros.length - towns.length)
   const villages = ranked.filter((c) => c.tier <= 2).slice(0, room)
   const selected = [...metros, ...towns, ...villages].map((c) => ({
     id: c.id,
@@ -228,6 +234,9 @@ export interface PlacedMark<T> {
   tickY: number
 }
 
+/** Default label distance in from the frame edge (px) — along the edge *and*
+ *  at the corner clamp; a user setting (`drivePrefs.ts` labelInset). */
+export const LABEL_INSET_PX = 12
 /** Second-row inward push on the long edges and on the sides, px (≥ label height + gap). */
 export const ROW_PUSH_TOPBOTTOM_PX = 32
 export const ROW_PUSH_SIDES_PX = 100
@@ -244,7 +253,7 @@ export function placeMarks<T extends Mark>(
   heading: number | null,
   frame: Frame,
   size: (mark: T) => { width: number; height: number },
-  inset = 4,
+  inset = LABEL_INSET_PX,
   gapPx = 4,
 ): PlacedMark<T>[] {
   const ordered = [...marks].sort((a, b) => b.tier - a.tier || a.distanceM - b.distanceM)
@@ -257,11 +266,11 @@ export function placeMarks<T extends Mark>(
       let x: number
       let y: number
       if (p.edge === 'top' || p.edge === 'bottom') {
-        x = clamp(p.x - width / 2, 0, Math.max(0, frame.width - width))
+        x = clamp(p.x - width / 2, inset, Math.max(inset, frame.width - width - inset))
         const push = inset + row * ROW_PUSH_TOPBOTTOM_PX
         y = p.edge === 'top' ? push : frame.height - push - height
       } else {
-        y = clamp(p.y - height / 2, 0, Math.max(0, frame.height - height))
+        y = clamp(p.y - height / 2, inset, Math.max(inset, frame.height - height - inset))
         const push = inset + row * ROW_PUSH_SIDES_PX
         x = p.edge === 'left' ? push : frame.width - push - width
       }

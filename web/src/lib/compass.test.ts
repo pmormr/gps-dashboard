@@ -9,6 +9,7 @@ import {
   regionAbbrev,
   fmtMiles,
   labelSize,
+  LABEL_INSET_PX,
   LEAVE_FACTOR,
   type Mark,
   METRO_SLOTS,
@@ -119,6 +120,20 @@ describe('selectMarks', () => {
     expect(marks).toHaveLength(14)
   })
 
+  it('lets the ring cap widen or shrink the village room, quotas fixed', () => {
+    const cands: NearbyPlace[] = []
+    for (let i = 0; i < 5; i++) cands.push(place({ population: 300_000, km: 100 + i, bearing: i * 60 }))
+    for (let i = 0; i < 7; i++) cands.push(place({ population: 30_000, km: 50 + i, bearing: i * 45 }))
+    for (let i = 0; i < 20; i++) cands.push(place({ population: 2_000, km: 10 + i, bearing: i * 17 }))
+    const wide = selectMarks(cands, newCompassState(), 24)
+    expect(wide.filter((m) => m.tier >= 4)).toHaveLength(METRO_SLOTS)
+    expect(wide.filter((m) => m.tier === 3)).toHaveLength(TOWN_SLOTS)
+    expect(wide).toHaveLength(24)
+    const tight = selectMarks(cands, newCompassState(), 6)
+    expect(tight.filter((m) => m.tier <= 2)).toHaveLength(0)
+    expect(tight).toHaveLength(METRO_SLOTS + TOWN_SLOTS)
+  })
+
   it('prefers a current member at the slot cutoff (sticky distance)', () => {
     const state = newCompassState()
     const members = Array.from({ length: 14 }, (_, i) =>
@@ -142,6 +157,7 @@ describe('placeMarks', () => {
       0,
       frame,
       size,
+      4,
     )
     const by = Object.fromEntries(placed.map((p) => [p.mark.id, p]))
     expect(by[1]).toMatchObject({ edge: 'top', x: 150, y: 4, tickX: 200, tickY: 0 })
@@ -161,7 +177,7 @@ describe('placeMarks', () => {
       mark({ id: 2, tier: 2, bearing: 2 }),
       mark({ id: 3, tier: 1, bearing: -2 }),
     ]
-    const placed = placeMarks(marks, 0, frame, size)
+    const placed = placeMarks(marks, 0, frame, size, 4)
     expect(placed.map((p) => [p.mark.id, p.y])).toEqual([
       [1, 4],
       [2, 36],
@@ -169,10 +185,22 @@ describe('placeMarks', () => {
   })
 
   it('keeps a corner label inside the frame while the tick stays on the edge', () => {
-    const [p] = placeMarks([mark({ bearing: 30 })], 0, frame, size)
+    const [p] = placeMarks([mark({ bearing: 30 })], 0, frame, size, 4)
     expect(p.edge).toBe('top')
-    expect(p.x).toBe(300)
+    expect(p.x).toBe(300 - 4)
     expect(p.tickX).toBeCloseTo(200 + 300 * Math.tan(Math.PI / 6), 1)
+  })
+
+  it('applies the default inset along the edge and at the corner clamp', () => {
+    const [ahead, corner, side] = placeMarks(
+      [mark({ id: 1, bearing: 0 }), mark({ id: 2, bearing: 30 }), mark({ id: 3, bearing: 90 })],
+      0,
+      frame,
+      size,
+    )
+    expect(ahead.y).toBe(LABEL_INSET_PX)
+    expect(corner.x).toBe(400 - 100 - LABEL_INSET_PX)
+    expect(side.x).toBe(400 - LABEL_INSET_PX - 100)
   })
 })
 

@@ -273,7 +273,12 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   dropped) with an estimated size — no DOM measurement per frame (`labelSize`: the
   font sizes are constants in `compass.ts` — 16 px names, 18 px cities, 12 px meta —
   handed to `drive.css` as custom properties on the ring root, so the estimate and the
-  paint can't drift). The halo follows the basemap **ground** (`:root[data-map-ground]`,
+  paint can't drift). Two knobs are **user settings**, not constants: the ring cap
+  (total marks; the metro/town quotas stay fixed and villages fill the rest) and
+  the label edge inset (along the edge *and* at the corner clamp) — the **Drive
+  HUD** rail panel (`views/DriveHud.svelte`) over the `drive` store, persisted by
+  `lib/drivePrefs.ts` (the `mapPrefs.ts` shape: versioned key, field-wise
+  validation). The halo follows the basemap **ground** (`:root[data-map-ground]`,
   set by the layers store): white-in-black over dark themes, dark text in a white halo
   with darkened tier accents over light themes / USGS. The one
   **overlap-free guarantee is only against other marks**: the status pill (bad fix
@@ -291,7 +296,7 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   `compass.ts`; `/api/places/nearby` surfaces `region`/`country` from the row's details) +
   tier-coloured population. Tap-to-navigate is deferred to the navigation plan. Road
   tuning is open: `plans/drive-hud-plan.md`.
-- **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH) off a 5 s
+- **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH, KW) off a 5 s
   `/api/status` poll; `fuel_rate_lph` is derived server-side into the `van` block
   (`common/obd.py` speed density) and `power_kw` on top of it at a constant BSFC —
   fuel-equivalent brake power, so a warm idle reads a few kW, not zero. Engine-gated: `obd_link === 'online'` + rpm > 0 +

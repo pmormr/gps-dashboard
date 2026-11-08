@@ -21,6 +21,7 @@
     selectMarks,
   } from '../lib/compass'
   import { haversineMeters, initialBearingDeg } from '../lib/geo'
+  import { drive } from '../lib/stores/drive.svelte'
 
   // The town compass: a ring of settlement marks around the map's edge, each
   // where the ray from the van at its relative bearing meets the edge
@@ -97,8 +98,8 @@
     }
   })
 
-  // Selection: on a new candidate set or a fresh fix (1 Hz) — the O(n²)
-  // shadowing is not a per-frame job. Placement below is. The current-town
+  // Selection: on a new candidate set, a fresh fix (1 Hz) or a ring-cap change
+  // — the O(n²) shadowing is not a per-frame job. Placement below is. The current-town
   // readout rides the same recomputed candidate set (hysteresis via hereId).
   let hereId: number | null = null
   $effect(() => {
@@ -115,7 +116,7 @@
       distance_m: haversineMeters(van.lat, van.lon, c.lat, c.lon),
       bearing_deg: initialBearingDeg(van.lat, van.lon, c.lat, c.lon),
     }))
-    marks = selectMarks(fresh, compassState)
+    marks = selectMarks(fresh, compassState, drive.ringCap)
     // Write `here` without reading it back: reading a state this effect just
     // wrote registers it as a dependency, and a fresh object per run then
     // re-triggers the effect forever (effect_update_depth_exceeded — froze
@@ -129,7 +130,13 @@
   // (lib/compass.ts labelSize) and the painted sizes (the custom properties
   // on the root below) derive from the same constants, so they can't drift.
   const placed = $derived(
-    placeMarks(marks, heading, { width: frameWidth, height: frameHeight }, labelSize),
+    placeMarks(
+      marks,
+      heading,
+      { width: frameWidth, height: frameHeight },
+      labelSize,
+      drive.labelInset,
+    ),
   )
 </script>
 

@@ -7,6 +7,7 @@
   import { layers } from '../lib/stores/layers.svelte'
   import './map.css'
   import DataLayers from './DataLayers.svelte'
+  import DriveHud from './DriveHud.svelte'
   import InspectPanel from './InspectPanel.svelte'
   import MapStyle from './MapStyle.svelte'
   import TimeDock from './TimeDock.svelte'
@@ -66,6 +67,8 @@
           <DataLayers {view} />
         {:else if openPanel === 'style'}
           <MapStyle {view} />
+        {:else if openPanel === 'drive'}
+          <DriveHud />
         {:else}
           <InspectPanel />
         {/if}
