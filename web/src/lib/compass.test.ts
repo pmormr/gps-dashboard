@@ -207,6 +207,19 @@ describe('placeMarks', () => {
     expect(p.tickX).toBeCloseTo(200 + 300 * Math.tan(Math.PI / 6), 1)
   })
 
+  it('keeps labels off an obstacle (the mini-map), pushing inward or dropping', () => {
+    // A tall box (the mini-map) covers both rows: the label under it drops.
+    const miniMap = { x: 12, y: 12, width: 130, height: 130 }
+    expect(placeMarks([mark({ id: 1, bearing: -20 })], 0, frame, size, 12, 4, [miniMap])).toEqual([])
+    // Right of the box: untouched.
+    const [right] = placeMarks([mark({ id: 2, bearing: 20 })], 0, frame, size, 12, 4, [miniMap])
+    expect(right.y).toBe(12)
+    // A short box only takes the edge row: the label moves inward.
+    const pill = { x: 12, y: 12, width: 130, height: 20 }
+    const [pushed] = placeMarks([mark({ id: 3, bearing: -20 })], 0, frame, size, 12, 4, [pill])
+    expect(pushed.y).toBe(12 + 32)
+  })
+
   it('applies the default inset along the edge and at the corner clamp', () => {
     const [ahead, corner, side] = placeMarks(
       [mark({ id: 1, bearing: 0 }), mark({ id: 2, bearing: 30 }), mark({ id: 3, bearing: 90 })],

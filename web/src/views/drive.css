@@ -282,6 +282,101 @@
   color: #60a5fa;
 }
 
+/* ── Compass mini-map (top-left): a north-up rose with the heading chevron at
+   the centre; with the pref on, a second MapLibre canvas renders under it at
+   a fixed zoom (DriveMiniMap.svelte). Circular via overflow + radius. ─────── */
+.drive-mini {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 120px;
+  height: 120px;
+  z-index: 6;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.88);
+  border: 2px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+@media (min-width: 768px) {
+  .drive-mini {
+    width: 160px;
+    height: 160px;
+  }
+}
+
+.drive-mini-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.drive-mini-rose span {
+  position: absolute;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.85);
+}
+
+.drive-mini-rose .n {
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #f87171;
+}
+
+.drive-mini-rose .s {
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.drive-mini-rose .e {
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.drive-mini-rose .w {
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* The same chevron as the map puck, fixed at the rose centre and rotated to
+   the heading (north-up frame: rotation = heading). */
+.drive-mini-chevron {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  clip-path: polygon(50% 0%, 90% 90%, 50% 72%, 10% 90%);
+  background: #3b82f6;
+  filter: drop-shadow(0 0 5px rgba(59, 130, 246, 0.9));
+}
+
+.drive-mini-chevron--none {
+  background: #64748b;
+  filter: none;
+}
+
+:root[data-map-ground='light'] .drive-mini--map .drive-mini-rose span {
+  color: #0f172a;
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.95),
+    0 0 6px rgba(255, 255, 255, 0.9);
+}
+
+:root[data-map-ground='light'] .drive-mini--map .drive-mini-rose .n {
+  color: #b91c1c;
+}
+
 /* ── Town compass: a ring of marks around the map's edge ─────────────────────
    Each mark sits where the ray from the van (the map centre) at the place's
    relative bearing meets the edge: ahead on top, behind along the HUD's top

@@ -11,8 +11,31 @@ describe('parseDrivePrefs', () => {
   })
 
   it('round-trips a full document', () => {
-    const prefs = { ringCap: 22, labelInset: 20 }
+    const prefs = {
+      ringCap: 22,
+      labelInset: 20,
+      miniMap: false,
+      miniMapZoom: 12,
+      zoomMin: 11.5,
+      zoomHiMph: 40,
+      zoomSlew: 1.2,
+    }
     expect(parseDrivePrefs(JSON.stringify(prefs))).toEqual(prefs)
+  })
+
+  it('reads a v1 document written before the mini-map and camera fields existed', () => {
+    expect(parseDrivePrefs(JSON.stringify({ ringCap: 20, labelInset: 16 }))).toEqual({
+      ...DEFAULT_DRIVE_PREFS,
+      ringCap: 20,
+      labelInset: 16,
+    })
+  })
+
+  it('accepts fractional camera values only inside their ranges', () => {
+    expect(parseDrivePrefs(JSON.stringify({ zoomMin: 9.5, zoomSlew: 0.3, miniMap: 'yes' }))).toEqual({
+      ...DEFAULT_DRIVE_PREFS,
+      zoomSlew: 0.3,
+    })
   })
 
   it('fills missing fields from defaults, keeping the valid ones', () => {

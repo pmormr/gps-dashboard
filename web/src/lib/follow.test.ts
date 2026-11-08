@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  mphToMs,
   slew,
   SPEED_HI_MS,
   SPEED_LO_MS,
@@ -33,6 +34,26 @@ describe('speedZoom', () => {
       expect(z).toBeLessThanOrEqual(prev)
       prev = z
     }
+  })
+
+  it('takes the highway zoom and the full-zoom-out speed as settings', () => {
+    // Further out at speed, reached sooner: 30 mph already sits at the floor.
+    const hi = mphToMs(30)
+    expect(speedZoom(hi, 11, hi)).toBe(11)
+    expect(speedZoom(mphToMs(45), 11, hi)).toBe(11)
+    expect(speedZoom((SPEED_LO_MS + hi) / 2, 11, hi)).toBeCloseTo((ZOOM_MAX + 11) / 2)
+    expect(speedZoom(0, 11, hi)).toBe(ZOOM_MAX)
+  })
+
+  it('degenerates to a step, not NaN, when the full-zoom-out speed is at the crawl threshold', () => {
+    expect(speedZoom(SPEED_LO_MS, 12, SPEED_LO_MS)).toBe(ZOOM_MAX)
+    expect(speedZoom(SPEED_LO_MS + 0.01, 12, SPEED_LO_MS)).toBe(12)
+  })
+})
+
+describe('mphToMs', () => {
+  it('converts statute mph', () => {
+    expect(mphToMs(65)).toBeCloseTo(29.06, 2)
   })
 })
 

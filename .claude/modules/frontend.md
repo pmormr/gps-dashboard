@@ -224,8 +224,10 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   time, heading speed-gated at ingest so the camera holds bearing at stoplights) →
   Drive's follow `$effect`.
 - **Follow camera** — course-up, `FOLLOW_PITCH_DEG`, speed-scaled zoom with slew
-  rate-limiting; all knobs are named constants in `lib/follow.ts` (pure, Vitest), tuned
-  on the road. The loop `jumpTo`s per frame (the store's interpolation *is* the easing);
+  rate-limiting; the knobs are named constants in `lib/follow.ts` (pure, Vitest), tuned
+  on the road — and three are **user settings** layered over those defaults in the
+  Drive HUD panel (`drive` store): the zoom at full speed, the speed at which it is
+  reached, and the slew cap (the "ramp"). The loop `jumpTo`s per frame (the store's interpolation *is* the easing);
   the one `easeTo` is the enter transition, and per-frame sets hold off until it ends
   (a jumpTo would cancel it).
 - **Gesture suspend** — user input carries `originalEvent` on `movestart`, per-frame
@@ -298,6 +300,15 @@ crawl / 13 highway, ×1.4 labels as of the 2026-07-09 retune).
   `compass.ts`; `/api/places/nearby` surfaces `region`/`country` from the row's details) +
   tier-coloured population. Tap-to-navigate is deferred to the navigation plan. Road
   tuning is open: `plans/drive-hud-plan.md`.
+- **Compass mini-map** (`views/DriveMiniMap.svelte`, top-left) — a north-up rose
+  with the heading chevron at its centre (the direction read the course-up main map
+  loses); with the Drive HUD pref on, a **second MapLibre instance**
+  (`createMiniMap` in `map.ts`: non-interactive, fixed user-set zoom, default z16,
+  the engine's cached styles, follows the `layers` base + theme) renders under it,
+  centred on the interpolated position each frame. Created/destroyed with the view,
+  unlike the keep-alive engine. Off = the rose alone, the fallback if a second WebGL
+  context taxes the phone. Its box is an **obstacle** for the town ring
+  (`placeMarks` `obstacles`), so labels under it move inward or drop.
 - **OBD strip** — a second HUD row (RPM, coolant °F, fuel %, GPH, KW) off a 5 s
   `/api/status` poll; `fuel_rate_lph` is derived server-side into the `van` block
   (`common/obd.py` speed density) and `power_kw` on top of it at a constant BSFC —

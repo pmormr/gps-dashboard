@@ -217,6 +217,14 @@ export interface Frame {
   height: number
 }
 
+/** A box in frame px — a placed label, or fixed chrome labels must avoid. */
+export interface Rect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 /** Where a relative bearing's ray from the frame centre meets the frame edge. */
 export function ringPoint(rel: number, frame: Frame): { x: number; y: number; edge: Edge } {
   const dx = Math.sin((rel * Math.PI) / 180)
@@ -267,9 +275,13 @@ export function placeMarks<T extends Mark>(
   size: (mark: T) => { width: number; height: number },
   inset = LABEL_INSET_PX,
   gapPx = 4,
+  obstacles: readonly Rect[] = [],
 ): PlacedMark<T>[] {
   const ordered = [...marks].sort((a, b) => b.tier - a.tier || a.distanceM - b.distanceM)
   const placed: PlacedMark<T>[] = []
+  // Fixed chrome over the ring (the mini-map) takes part in the clash test
+  // like an already-placed label, so a mark under it moves inward or drops.
+  const taken: Rect[] = [...obstacles]
   const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi)
   for (const mark of ordered) {
     const { width, height } = size(mark)
@@ -286,7 +298,7 @@ export function placeMarks<T extends Mark>(
         const push = inset + row * ROW_PUSH_SIDES_PX
         x = p.edge === 'left' ? push : frame.width - push - width
       }
-      const clash = placed.some(
+      const clash = taken.some(
         (q) =>
           x < q.x + q.width + gapPx &&
           q.x < x + width + gapPx &&
@@ -295,6 +307,7 @@ export function placeMarks<T extends Mark>(
       )
       if (!clash) {
         placed.push({ mark, edge: p.edge, x, y, width, height, tickX: p.x, tickY: p.y })
+        taken.push({ x, y, width, height })
         break
       }
     }

@@ -13,9 +13,9 @@
     ENTER_EASE_MS,
     FOLLOW_PITCH_DEG,
     LABEL_SCALE,
+    mphToMs,
     slew,
     speedZoom,
-    ZOOM_SLEW_PER_S,
   } from '../lib/follow'
   import {
     celsiusToF,
@@ -31,6 +31,7 @@
   import { elevationRecords } from '../lib/records'
   import type { MapView as MapViewType } from '../lib/map'
   import { destination } from '../lib/stores/destination.svelte'
+  import { drive } from '../lib/stores/drive.svelte'
   import { live } from '../lib/stores/live.svelte'
   import {
     acquireWakeLock,
@@ -39,6 +40,7 @@
     type WakeLockStatus,
   } from '../lib/wakelock'
   import DriveCompass from './DriveCompass.svelte'
+  import DriveMiniMap from './DriveMiniMap.svelte'
   import './map.css'
   import './drive.css'
 
@@ -52,6 +54,14 @@
   let suspended = $state(false)
   /** The current town, bound out of the compass for the HUD's centre readout. */
   let here = $state<Here | null>(null)
+  /** The compass mini-map's rendered size — the town ring keeps its labels off it. */
+  let miniSize = $state(0)
+  const MINI_OFFSET_PX = 12
+  const ringObstacles = $derived(
+    miniSize > 0
+      ? [{ x: MINI_OFFSET_PX, y: MINI_OFFSET_PX, width: miniSize, height: miniSize }]
+      : [],
+  )
 
   // Follow-loop scratch (plain lets — per-frame mutation must not retrigger the effect).
   let zoom = speedZoom(null)
@@ -294,7 +304,8 @@
 
   // Follow loop, driven by the store's rAF-interpolated position. On (re)entry
   // it eases into the follow pose, then hard-sets the camera per frame — but
-  // not during the ease, since a jumpTo would cancel it.
+  // not during the ease, since a jumpTo would cancel it. The speed→zoom curve
+  // and the slew cap are Drive HUD settings (drive store), read each frame.
   $effect(() => {
     const pos = live.pos
     if (!view || !pos) return
@@ -303,7 +314,7 @@
 
     const now = performance.now()
     const bearing = live.heading ?? 0
-    const target = speedZoom(live.fix?.speed ?? null)
+    const target = speedZoom(live.fix?.speed ?? null, drive.zoomMin, mphToMs(drive.zoomHiMph))
     if (followingSinceMs === 0) {
       followingSinceMs = now
       zoom = target
@@ -321,7 +332,7 @@
 
     const dtS = lastFrameMs ? (now - lastFrameMs) / 1000 : 0
     lastFrameMs = now
-    zoom = slew(zoom, target, ZOOM_SLEW_PER_S * dtS)
+    zoom = slew(zoom, target, drive.zoomSlew * dtS)
     view.setCamera({ lat: pos.lat, lon: pos.lon, bearing, pitch: FOLLOW_PITCH_DEG, zoom })
   })
 </script>
@@ -342,7 +353,15 @@
     lon={live.fix?.lon ?? null}
     heading={live.heading}
     bottomPx={hudHeight}
+    obstacles={ringObstacles}
     bind:here
+  />
+
+  <DriveMiniMap
+    lat={live.pos?.lat ?? null}
+    lon={live.pos?.lon ?? null}
+    heading={live.heading}
+    bind:size={miniSize}
   />
 
   <div class="drive-hud" bind:clientHeight={hudHeight}>

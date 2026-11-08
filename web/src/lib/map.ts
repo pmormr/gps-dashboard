@@ -30,7 +30,7 @@ import {
   type TrackGap,
 } from './geo'
 import type { BasemapTheme } from './labels'
-import { loadStylePrefs } from './mapPrefs'
+import { type BaseLayer, loadStylePrefs } from './mapPrefs'
 import { prefetchTiles } from './prefetch'
 
 /**
@@ -1964,3 +1964,61 @@ export const MapView = (() => {
 // or a Playwright run — poke the shared MapView directly. Three separate
 // on-device radar debug sessions earned this its place.
 ;(window as unknown as { __vanos?: object }).__vanos = { map: MapView }
+
+// ── Mini-map ────────────────────────────────────────────────────────────────
+
+/**
+ * A second, small MapLibre instance — the Drive compass mini-map. North-up,
+ * non-interactive, fixed zoom, fed the same cached basemap styles as the
+ * engine (one pmtiles protocol, one style fetch per theme). Created and
+ * destroyed with the Drive view, unlike the keep-alive engine.
+ */
+export interface MiniMap {
+  setCenter(lat: number, lon: number): void
+  setZoom(zoom: number): void
+  /** Follow the engine's base + theme (a vector theme, or the USGS raster). */
+  setBasemap(base: BaseLayer, theme: BasemapTheme): void
+  destroy(): void
+}
+
+/** Build a mini-map in `container` at `zoom`; call `setBasemap` to load a style. */
+export function createMiniMap(container: HTMLElement, zoom: number): MiniMap {
+  const m = new maplibregl.Map({
+    container,
+    style: BOOTSTRAP_STYLE,
+    center: [-98, 39],
+    zoom,
+    interactive: false,
+    attributionControl: false,
+    maxZoom: 20,
+    // The centre jumps every frame; a tile crossfade would smear under it.
+    fadeDuration: 0,
+  })
+  let want = ''
+  let alive = true
+  return {
+    setCenter(lat, lon) {
+      if (alive) m.setCenter([lon, lat])
+    },
+    setZoom(z) {
+      if (alive) m.setZoom(z)
+    },
+    setBasemap(base, theme) {
+      const key = `${base}:${theme}`
+      if (key === want) return
+      want = key
+      if (base === 'osm') {
+        loadVectorStyle(theme).then((doc) => {
+          // Stale-guard: the base or theme may have changed mid-fetch.
+          if (alive && want === key) m.setStyle(cloneStyle(doc))
+        })
+      } else {
+        m.setStyle(buildRasterStyle(base, false))
+      }
+    },
+    destroy() {
+      alive = false
+      m.remove()
+    },
+  }
+}

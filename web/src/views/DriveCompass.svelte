@@ -13,6 +13,7 @@
     newCompassState,
     placeMarks,
     proximityScale,
+    type Rect,
     REFETCH_METERS,
     tickPx,
     REFETCH_MS,
@@ -33,12 +34,15 @@
     lon,
     heading,
     bottomPx,
+    obstacles = [],
     here = $bindable(null),
   }: {
     lat: number | null
     lon: number | null
     heading: number | null
     bottomPx: number
+    /** Fixed chrome over the ring (the mini-map box) labels must keep off. */
+    obstacles?: readonly Rect[]
     /** The current town (bound out for the HUD's centre readout). */
     here?: Here | null
   } = $props()
@@ -136,6 +140,8 @@
       { width: frameWidth, height: frameHeight },
       labelSize,
       drive.labelInset,
+      4,
+      obstacles,
     ),
   )
 </script>
