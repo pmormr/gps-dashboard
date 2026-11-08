@@ -29,7 +29,7 @@ import {
   trailFC,
   type TrackGap,
 } from './geo'
-import type { BasemapTheme } from './labels'
+import { type BasemapTheme, DARK_THEMES } from './labels'
 import { type BaseLayer, loadStylePrefs } from './mapPrefs'
 import { prefetchTiles } from './prefetch'
 
@@ -1981,6 +1981,86 @@ export interface MiniMap {
   destroy(): void
 }
 
+// The basemap styles are tuned for street zooms: at a regional z4–10 the dark
+// theme paints land #1f1f1f against water #31353f, 1 px #474747 highways and
+// #3d3d3d state names — an empty-looking disc. The mini-map therefore keeps
+// only the regional layers and repaints them for contrast. Layer ids are
+// shared by all five theme files (black/white/grayscale lack landcover/pois).
+const MINI_KEEP: ReadonlySet<string> = new Set([
+  'background',
+  'earth',
+  'landcover',
+  'water',
+  'roads_highway',
+  'roads_bridges_highway',
+  'roads_major',
+  'boundaries',
+  'boundaries_country',
+  'places_country',
+  'places_region',
+  'places_locality',
+])
+type LayerPatch = { paint?: Record<string, unknown>; layout?: Record<string, unknown> }
+const MINI_HIGHWAY_WIDTH = ['interpolate', ['linear'], ['zoom'], 3, 1, 6, 2, 10, 3.5]
+const MINI_MAJOR_WIDTH = ['interpolate', ['linear'], ['zoom'], 5, 0.4, 6, 0.9, 10, 2]
+const MINI_LOCALITY_SIZE = ['interpolate', ['linear'], ['zoom'], 4, 11, 8, 14]
+const MINI_PAINT_DARK: Readonly<Record<string, LayerPatch>> = {
+  earth: { paint: { 'fill-color': '#262626' } },
+  water: { paint: { 'fill-color': '#1e40af' } },
+  roads_highway: { paint: { 'line-color': '#f59e0b', 'line-width': MINI_HIGHWAY_WIDTH } },
+  roads_bridges_highway: { paint: { 'line-color': '#f59e0b', 'line-width': MINI_HIGHWAY_WIDTH } },
+  roads_major: { paint: { 'line-color': '#a3a3a3', 'line-width': MINI_MAJOR_WIDTH } },
+  boundaries_country: { paint: { 'line-color': '#e2e8f0', 'line-width': 1.4 } },
+  boundaries: { paint: { 'line-color': '#94a3b8', 'line-width': 1.1 } },
+  places_country: { paint: { 'text-color': '#94a3b8', 'text-halo-color': '#0f172a' } },
+  places_region: {
+    paint: { 'text-color': '#cbd5e1', 'text-halo-color': '#0f172a', 'text-halo-width': 1.5 },
+    layout: { 'text-size': 13 },
+  },
+  places_locality: {
+    paint: { 'text-color': '#f8fafc', 'text-halo-color': '#0f172a', 'text-halo-width': 1.5 },
+    layout: { 'text-size': MINI_LOCALITY_SIZE },
+  },
+}
+const MINI_PAINT_LIGHT: Readonly<Record<string, LayerPatch>> = {
+  earth: { paint: { 'fill-color': '#f1f5f9' } },
+  water: { paint: { 'fill-color': '#60a5fa' } },
+  roads_highway: { paint: { 'line-color': '#d97706', 'line-width': MINI_HIGHWAY_WIDTH } },
+  roads_bridges_highway: { paint: { 'line-color': '#d97706', 'line-width': MINI_HIGHWAY_WIDTH } },
+  roads_major: { paint: { 'line-color': '#64748b', 'line-width': MINI_MAJOR_WIDTH } },
+  boundaries_country: { paint: { 'line-color': '#0f172a', 'line-width': 1.4 } },
+  boundaries: { paint: { 'line-color': '#334155', 'line-width': 1.1 } },
+  places_country: { paint: { 'text-color': '#475569', 'text-halo-color': '#ffffff' } },
+  places_region: {
+    paint: { 'text-color': '#475569', 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
+    layout: { 'text-size': 13 },
+  },
+  places_locality: {
+    paint: { 'text-color': '#0f172a', 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
+    layout: { 'text-size': MINI_LOCALITY_SIZE },
+  },
+}
+
+/** A theme's style reduced + repainted for the regional mini-map (a fresh copy). */
+export function miniMapStyle(
+  doc: maplibregl.StyleSpecification,
+  theme: BasemapTheme,
+): maplibregl.StyleSpecification {
+  const s = cloneStyle(doc)
+  const patches = DARK_THEMES.has(theme) ? MINI_PAINT_DARK : MINI_PAINT_LIGHT
+  for (const layer of s.layers) {
+    const l = layer as { id: string; paint?: Record<string, unknown>; layout?: Record<string, unknown> }
+    if (!MINI_KEEP.has(l.id)) {
+      l.layout = { ...l.layout, visibility: 'none' }
+      continue
+    }
+    const patch = patches[l.id]
+    if (patch?.paint) l.paint = { ...l.paint, ...patch.paint }
+    if (patch?.layout) l.layout = { ...l.layout, ...patch.layout }
+  }
+  return s
+}
+
 /** Build a mini-map in `container` at `zoom`; call `setBasemap` to load a style. */
 export function createMiniMap(container: HTMLElement, zoom: number): MiniMap {
   const m = new maplibregl.Map({
@@ -2010,7 +2090,7 @@ export function createMiniMap(container: HTMLElement, zoom: number): MiniMap {
       if (base === 'osm') {
         loadVectorStyle(theme).then((doc) => {
           // Stale-guard: the base or theme may have changed mid-fetch.
-          if (alive && want === key) m.setStyle(cloneStyle(doc))
+          if (alive && want === key) m.setStyle(miniMapStyle(doc, theme))
         })
       } else {
         m.setStyle(buildRasterStyle(base, false))

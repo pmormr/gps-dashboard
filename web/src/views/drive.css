@@ -307,9 +307,15 @@
   }
 }
 
-.drive-mini-canvas {
+/* Two classes on purpose: MapLibre adds .maplibregl-map { position: relative }
+   to its container, and that stylesheet loads after this one (the engine is
+   dynamic-imported), so a single-class rule loses and the box collapses to
+   0 px tall — MapLibre then paints a 300 px fallback canvas off the disc. */
+.drive-mini > .drive-mini-canvas {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .drive-mini-rose span {
